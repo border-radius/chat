@@ -178,12 +178,22 @@ body,
 }
 
 .brand {
+  flex: none;
   font-weight: 700;
 }
 
+/* A long display name shrinks with an ellipsis so "Log out" stays on screen. */
 .who {
+  min-width: 0;
   margin-left: auto;
+  overflow: hidden;
   color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-bar button {
+  flex: none;
 }
 
 .app-main {
@@ -457,10 +467,12 @@ body,
   height: 1px;
 }
 
-.beginning {
+.beginning,
+.load-error {
   padding: 1rem 0;
   color: var(--muted);
   text-align: center;
+  overflow-wrap: anywhere;
 }
 
 .day {
@@ -499,10 +511,19 @@ body,
   display: flex;
   gap: 0.5rem;
   align-items: baseline;
+  min-width: 0;
 }
 
 .author {
+  min-width: 0;
+  overflow: hidden;
   font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meta time {
+  flex: none;
 }
 
 .meta time,
@@ -600,6 +621,22 @@ body,
   margin: 0.15rem 0 0;
 }
 
+.hint.error {
+  color: var(--danger);
+}
+
+.room-notice {
+  margin: 0;
+  padding: 0.4rem 1rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.room-notice:empty {
+  display: none;
+}
+
 .new-messages {
   position: absolute;
   bottom: 0.75rem;
@@ -630,8 +667,15 @@ body,
 
 .composer textarea {
   flex: 1;
+  min-width: 0;
   max-height: 10rem;
   resize: none;
+}
+
+.composer textarea::placeholder {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .composer button[type="submit"] {

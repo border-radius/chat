@@ -14,12 +14,28 @@ const CSP = [
 ].join("; ");
 
 /**
+ * Invisible format characters: zero-width spaces and joiners, bidi marks/overrides/isolates, word joiners,
+ * BOM, soft hyphen. `String.trim()` keeps them, so text made only of these would look empty.
+ */
+const INVISIBLE = /[­᠎​-‏‪-‮⁠-⁤⁦-⁩﻿]/g;
+
+/**
+ * Removed from names (users, rooms): never needed there, and used to spoof ("‮admin", "general​").
+ * ZWNJ/ZWJ (U+200C/D) stay: some scripts and emoji sequences need them.
+ */
+const NAME_JUNK = /[­᠎​‎‏‪-‮⁠-⁤⁦-⁩﻿]/g;
+
+/** @param {string} s */
+const isBlank = (s) => s.replace(INVISIBLE, "").trim() === "";
+
+/**
  * @param {string} field
  * @param {string} message
+ * @param {string} [code]
  */
-function fieldError(field, message) {
+function fieldError(field, message, code = "validation_invalid_value") {
   return new BadRequestError("Failed to save record.", {
-    [field]: new ValidationError("validation_invalid_value", message),
+    [field]: new ValidationError(code, message),
   });
 }
 
@@ -30,6 +46,47 @@ function fieldError(field, message) {
  */
 function trim(record, field) {
   record.set(field, record.getString(field).trim());
+}
+
+/**
+ * Clean a display name or room name in place: drop invisible/bidi characters, trim, reject if nothing visible.
+ * @param {core.Record} record
+ */
+function cleanName(record) {
+  const name = record.getString("name").replace(NAME_JUNK, "").trim();
+  record.set("name", name);
+  // Empty is left to the field's `required` rule (same message as before); only-invisible is caught here.
+  if (name !== "" && isBlank(name)) throw fieldError("name", "Cannot be blank.");
+}
+
+/**
+ * Uniqueness key for room names: NFKC + full case folding (via upper→lower, so "ß" matches "SS" and "Ü" "ü"),
+ * without invisible characters. Keep in sync with pb_migrations/1760000001_qa_fixes.js.
+ * @param {string} name
+ */
+function roomKey(name) {
+  const s = name.replace(INVISIBLE, "");
+  return (typeof s.normalize === "function" ? s.normalize("NFKC") : s).toUpperCase().toLowerCase();
+}
+
+/**
+ * rooms create/update: clean the name and enforce case-insensitive (Unicode) uniqueness via `name_key`.
+ * The unique index on name_key backs this up against races.
+ * @param {core.App} app
+ * @param {core.Record} rec
+ */
+function setRoomKey(app, rec) {
+  cleanName(rec);
+  const key = roomKey(rec.getString("name"));
+  rec.set("name_key", key);
+  if (key === "") return; // `required` on name reports it
+  let clash = null;
+  try {
+    clash = app.findFirstRecordByFilter("rooms", "name_key = {:key} && id != {:id}", { key, id: rec.id });
+  } catch {
+    clash = null; // no such record
+  }
+  if (clash) throw fieldError("name", "Value must be unique.", "validation_not_unique");
 }
 
 /**
@@ -45,7 +102,7 @@ function assertRoomActive(app, roomId) {
 /** @param {core.Record} record */
 function assertText(record) {
   trim(record, "text");
-  if (record.getString("text") === "") throw fieldError("text", "Cannot be blank.");
+  if (isBlank(record.getString("text"))) throw fieldError("text", "Cannot be blank.");
 }
 
 /**
@@ -95,12 +152,28 @@ function beforeMessageUpdate(e) {
 }
 
 /**
- * rooms update: stamp/clear archived_at when `archived` flips (§5.6).
+ * rooms create: clean the name and check it is unique (§5.2).
+ * @param {core.RecordEvent} e
+ */
+function beforeRoomCreate(e) {
+  setRoomKey(e.app, recordOf(e));
+}
+
+/**
+ * users create/update: clean the display name (§5.1).
+ * @param {core.RecordEvent} e
+ */
+function beforeUserSave(e) {
+  cleanName(recordOf(e));
+}
+
+/**
+ * rooms update: clean + unique name, stamp/clear archived_at when `archived` flips (§5.6).
  * @param {core.RecordEvent} e
  */
 function beforeRoomUpdate(e) {
   const rec = recordOf(e);
-  trim(rec, "name");
+  setRoomKey(e.app, rec);
   const was = rec.original().getBool("archived");
   const now = rec.getBool("archived");
   if (!was && now) rec.set("archived_at", new DateTime());
@@ -125,4 +198,4 @@ function headers(e) {
   }
 }
 
-module.exports = { trim, beforeMessageCreate, beforeMessageUpdate, beforeRoomUpdate, headers };
+module.exports = { beforeUserSave, beforeRoomCreate, beforeMessageCreate, beforeMessageUpdate, beforeRoomUpdate, headers };

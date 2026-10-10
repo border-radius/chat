@@ -11,3 +11,10 @@ export const LIMITS = {
   /** users password min (PocketBase's auth default) */
   passwordMin: 8,
 } as const;
+
+/** Length as PocketBase counts it for these limits: Unicode code points, not UTF-16 units (an emoji is 1, not 2). */
+export function textLength(s: string): number {
+  let n = 0;
+  for (const _ of s) n++;
+  return n;
+}

@@ -5,7 +5,7 @@
 import { type Action, ApiError } from "../api.ts";
 import type { Ctx } from "../context.ts";
 import { clear, h, uniqueId } from "../dom.ts";
-import { first, latest, newer, older, PAGE_SIZE } from "../lib/cursor.ts";
+import { changedIn, first, latest, newer, older, PAGE_SIZE } from "../lib/cursor.ts";
 import { newId } from "../lib/id.ts";
 import { applyPage, emptyWindow, lastOwnEditable, type MessageWindow, merge, type PageKind, remove, trim } from "../lib/messages.ts";
 import { isNearBottom } from "../lib/scroll.ts";
@@ -25,12 +25,16 @@ export function createRoomView({ api, store, actions }: Ctx): View {
   let root: HTMLElement;
   let roomId = "";
   let targetId: string | null = null;
+  /** The message the route asked for (#/r/:id/m/:msgId), kept for a retry of the initial load. */
+  let currentMsgId: string | undefined;
 
   // message window state
   let win: MessageWindow = emptyWindow();
   /** Bumped whenever the window is replaced (a jump): pages requested before that are stale. */
   let gen = 0;
   let ready = false;
+  /** The initial load failed (not a 404): the list shows an error with Retry instead of messages. */
+  let failed = false;
   /** Realtime events that arrive before the first page; replayed once it is in. */
   let buffer: [Action, Message][] = [];
   const loading = { top: false, bottom: false };
@@ -52,9 +56,10 @@ export function createRoomView({ api, store, actions }: Ctx): View {
 
   const header = createRoomHeader({ titleId: `${vid}-title`, actions, onJumpToBeginning: () => void jump("first"), signal });
   const messages = createMessageList({
-    state: () => ({ win, ready, roomName: room()?.name, targetId }),
+    state: () => ({ win, ready, failed, roomName: room()?.name, targetId }),
     me,
     editable,
+    onRetryLoad: () => retryLoad(),
     onSaveEdit: (id, text) => void saveEdit(id, text),
     onCancelEdit: () => composer.focus(),
     onDelete: (id) => void doDelete(id),
@@ -86,8 +91,10 @@ export function createRoomView({ api, store, actions }: Ctx): View {
   const pill = h("button", { type: "button", class: "new-messages", hidden: true });
   const footer = h("footer", { class: "room-footer" });
   const banner = h("p", { class: "archived-banner" }, "This room is archived. History is read-only.");
+  const notice = h("p", { class: "room-notice", role: "status" });
   const shell = h("section", { class: "room", "aria-labelledby": `${vid}-title` }, [
     header.el,
+    notice,
     h("div", { class: "room-body" }, [list, pill]),
     footer,
   ]);
@@ -108,7 +115,9 @@ export function createRoomView({ api, store, actions }: Ctx): View {
 
   function renderFooter() {
     const r = room();
-    if (!r) return footer.replaceChildren();
+    // No composer while the room failed to load: you'd be writing into history you can't see.
+    // (The composer element, and anything typed into it, is kept for when the load succeeds.)
+    if (!r || failed) return footer.replaceChildren();
     if (r.archived) footer.replaceChildren(banner);
     else if (footer.firstChild !== composer.el) footer.replaceChildren(composer.el);
     composer.setPlaceholder(`Message #${r.name}`);
@@ -152,6 +161,7 @@ export function createRoomView({ api, store, actions }: Ctx): View {
     const page = await api.page(kind === "latest" ? latest(roomId) : first(roomId), signal).catch(() => null);
     if (!page || !applyLoaded(kind, page, g)) return;
     targetId = null;
+    notice.textContent = "";
     render();
     if (kind === "latest") scrollToBottom();
     else list.scrollTop = 0;
@@ -159,7 +169,11 @@ export function createRoomView({ api, store, actions }: Ctx): View {
 
   /** The window around message `msgId`, or null when it isn't in this room. Rejects if a page fails. */
   async function windowAround(msgId: string): Promise<{ win: MessageWindow; target: string } | null> {
-    const target = await api.getMessage(msgId, signal).catch(() => null);
+    // A missing message falls back to the latest page; any other failure fails the load (and offers Retry).
+    const target = await api.getMessage(msgId, signal).catch((e: unknown) => {
+      if (e instanceof ApiError && e.status === 404) return null;
+      throw e;
+    });
     if (!target || target.room !== roomId) return null;
     const [before, after] = await Promise.all([api.page(older(roomId, target), signal), api.page(newer(roomId, target), signal)]);
     const win = merge({ items: [], hasOlder: before.length >= PAGE_SIZE, hasNewer: after.length >= PAGE_SIZE }, [
@@ -182,15 +196,20 @@ export function createRoomView({ api, store, actions }: Ctx): View {
     try {
       await roomP;
     } catch (e) {
-      if (scope.active && e instanceof ApiError && e.status === 404) renderNotFound();
+      if (!scope.active) return;
+      if (e instanceof ApiError && e.status === 404) renderNotFound();
+      else renderFailed();
       return;
     }
     const loaded = await pageP.catch(() => null);
     if (!scope.active) return;
     const current = g === gen;
+    // Never show a failed load as an empty room ("Beginning of #room"): say so and offer Retry.
+    if (current && !loaded) return renderFailed();
     if (current && loaded) {
       win = loaded.win;
       targetId = loaded.target;
+      notice.textContent = msgId && !loaded.target ? "That message isn't in this room. Showing the latest messages instead." : "";
     }
     // Ready either way: a jump made during the load already owns the window, but still needs the view live.
     ready = true;
@@ -207,6 +226,45 @@ export function createRoomView({ api, store, actions }: Ctx): View {
     const pending = buffer;
     buffer = [];
     for (const [action, m] of pending) onMessage(action, m);
+  }
+
+  /** The initial load failed for a reason other than "no such room". Retry is in the list (messages.ts). */
+  function renderFailed() {
+    if (!scope.active) return;
+    failed = true;
+    list.setAttribute("aria-busy", "false");
+    renderHeader();
+    renderFooter();
+    render();
+  }
+
+  function retryLoad() {
+    if (!failed || !scope.active) return;
+    failed = false;
+    list.setAttribute("aria-busy", "true");
+    render();
+    void open(currentMsgId);
+  }
+
+  /**
+   * After a reconnect: re-fetch the messages in the window that changed while realtime was down, so edits and
+   * deletes missed meanwhile apply (a deleted message must not keep showing its text). Newer messages are
+   * gapFill's job.
+   */
+  async function refreshWindow() {
+    const g = gen;
+    const known = win.items.filter((m) => !m.status);
+    const oldest = known[0];
+    const newest = known.at(-1);
+    if (!oldest || !newest) return;
+    // Any change made after the newest `updated` we have was made by the server later: it is newer than that.
+    const since = known.reduce((max, m) => (m.updated > max ? m.updated : max), "");
+    const changed = await api.changes(changedIn(roomId, since, oldest, newest), signal).catch(() => null);
+    if (!changed || g !== gen || !scope.active) return;
+    const inWindow = changed.filter((m) => find(m.id));
+    if (!inWindow.length) return;
+    win = merge(win, inWindow);
+    render({ anchor: true });
   }
 
   /** At the live edge after a reconnect: fetch everything newer than what we have (§7.5). */
@@ -314,8 +372,14 @@ export function createRoomView({ api, store, actions }: Ctx): View {
   async function saveEdit(id: string, raw: string) {
     const m = find(id);
     const text = validText(raw);
-    if (!m || text === null) return;
+    if (!m || text === null) return; // the edit box says what is wrong (messages.ts)
     messages.stopEdit();
+    if (!editable(m)) {
+      // Deleted elsewhere or the room was archived while the box was open: nothing left to save.
+      render();
+      composer.focus();
+      return;
+    }
     messages.setError(id, null);
     if (text === m.text) {
       render();
@@ -362,6 +426,7 @@ export function createRoomView({ api, store, actions }: Ctx): View {
     mount(el, params) {
       root = el;
       roomId = params.id!;
+      currentMsgId = params.msgId;
 
       pill.addEventListener(
         "click",
@@ -410,10 +475,14 @@ export function createRoomView({ api, store, actions }: Ctx): View {
       scope.sub(api.subscribeMessages(roomId, onMessage));
       scope.defer(
         api.onConnect((reconnect) => {
-          if (reconnect && scope.active && ready && !win.hasNewer) void gapFill();
+          if (!reconnect || !scope.active) return;
+          if (failed) return retryLoad(); // back online: try the initial load again
+          if (!ready) return;
+          void refreshWindow();
+          if (!win.hasNewer) void gapFill();
         }),
       );
-      void open(params.msgId);
+      void open(currentMsgId);
     },
     unmount() {
       scope.dispose();

@@ -34,6 +34,11 @@ export interface Api {
   /** Re-validate the stored session with the server. Rejects when it is no longer valid. */
   refreshAuth(): Promise<User>;
   logOut(): void;
+  /**
+   * Called whenever the stored session changes, including from another tab of the same browser (they share
+   * it). Read `currentUser()` to see who is logged in now. Returns an unsubscribe function.
+   */
+  onAuthChange(fn: () => void): () => void;
 
   // rooms
   listRooms(signal?: AbortSignal): Promise<Room[]>;
@@ -49,6 +54,8 @@ export interface Api {
   // messages
   page(q: PageQuery, signal?: AbortSignal): Promise<Message[]>;
   getMessage(id: string, signal?: AbortSignal): Promise<Message>;
+  /** Every message matching `q` (not just one page): used for the edits/deletes missed during a disconnect. */
+  changes(q: PageQuery, signal?: AbortSignal): Promise<Message[]>;
   send(m: NewMessage): Promise<Message>;
   edit(id: string, text: string): Promise<Message>;
   softDelete(id: string): Promise<Message>;
@@ -78,6 +85,12 @@ export class ApiError extends Error {
     this.codes = codes;
   }
 }
+
+/**
+ * `codes.auth` of a signUp() rejection whose account *was* created but whose automatic login failed
+ * (network, rate limit). Retrying the signup would only fail with "email taken"; the user should log in.
+ */
+export const SIGNUP_LOGIN_FAILED = "signup_login_failed";
 
 /** A sentence to show for a failed request: network trouble, rate limiting, or the server's own message. */
 export function errorMessage(err: unknown): string {
@@ -152,7 +165,12 @@ export function createApi(pb: PocketBase): Api {
     },
     async signUp({ email, password, name }) {
       await wrap(users().create({ email, password, passwordConfirm: password, name }));
-      return api.logIn(email, password);
+      try {
+        return await api.logIn(email, password);
+      } catch (e) {
+        const err = toApiError(e);
+        throw new ApiError(err.message, err.status, {}, { auth: SIGNUP_LOGIN_FAILED });
+      }
     },
     async logIn(email, password) {
       return toUser((await wrap(users().authWithPassword(email, password))).record);
@@ -163,6 +181,10 @@ export function createApi(pb: PocketBase): Api {
     },
     logOut() {
       pb.authStore.clear();
+    },
+    onAuthChange(fn) {
+      // The SDK's LocalAuthStore also fires this when another tab saves or clears the shared session.
+      return pb.authStore.onChange(() => fn());
     },
 
     listRooms: (signal) => wrap(rooms().getFullList<Room>({ sort: "name", fields: ROOM_FIELDS, ...abortable(signal) })),
@@ -181,6 +203,8 @@ export function createApi(pb: PocketBase): Api {
       return (await wrap(messages().getList<Message>(1, PAGE_SIZE, opts))).items;
     },
     getMessage: (id, signal) => wrap(messages().getOne<Message>(id, { ...MSG_OPTS, ...abortable(signal) })),
+    changes: (q, signal) =>
+      wrap(messages().getFullList<Message>({ ...listOptions(q, pb.filter.bind(pb)), batch: 200, ...abortable(signal) })),
     send: async (m) => wrap(messages().create<Message>({ id: m.id, room: m.room, author: me(), text: m.text }, MSG_OPTS)),
     edit: (id, text) => wrap(messages().update<Message>(id, { text }, MSG_OPTS)),
     softDelete: (id) => wrap(messages().update<Message>(id, { deleted: true }, MSG_OPTS)),

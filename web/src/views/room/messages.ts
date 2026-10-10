@@ -7,7 +7,7 @@ import { type MessageWindow, startsGroup } from "../../lib/messages.ts";
 import { captureAnchor, restoreAnchor } from "../../lib/scroll.ts";
 import { dayLabel, formatFull, formatTime, parsePb } from "../../lib/time.ts";
 import type { Message, User } from "../../lib/types.ts";
-import { rowsFor } from "./composer.ts";
+import { editProblem, fitRows, rowsFor } from "./composer.ts";
 
 export interface MsgError {
   text: string;
@@ -19,6 +19,8 @@ export interface ListState {
   win: MessageWindow;
   /** The first load is done (until then, no "beginning of the room" marker). */
   ready: boolean;
+  /** The first load failed: show an error with Retry instead of the (empty) window. */
+  failed: boolean;
   roomName: string | undefined;
   /** Highlighted message (#/r/:id/m/:msgId). */
   targetId: string | null;
@@ -49,6 +51,8 @@ export function createMessageList(opts: {
   onDelete: (id: string) => void;
   onRetrySend: (id: string) => void;
   onDiscard: (id: string) => void;
+  /** Retry button of a failed first load. */
+  onRetryLoad: () => void;
   signal: AbortSignal;
 }): MessageList {
   const { signal } = opts;
@@ -56,6 +60,23 @@ export function createMessageList(opts: {
   const topSentinel = h("li", { class: "sentinel", dataset: { sentinel: "top" }, "aria-hidden": "true" });
   const bottomSentinel = h("li", { class: "sentinel", dataset: { sentinel: "bottom" }, "aria-hidden": "true" });
   const beginning = h("li", { class: "beginning" });
+  const loadError = h("li", { class: "load-error", role: "alert" }, [
+    "Couldn't load this room. Check your connection. ",
+    h("button", { type: "button", class: "link", on: { click: () => opts.onRetryLoad() }, signal }, "Retry"),
+  ]);
+
+  // Day dividers ("Today") and time-only stamps depend on the current date: redraw when it changes.
+  let midnight: ReturnType<typeof setTimeout> | undefined;
+  const scheduleMidnight = () => {
+    const next = new Date();
+    next.setHours(24, 0, 1, 0);
+    midnight = setTimeout(() => {
+      render({ anchor: true });
+      scheduleMidnight();
+    }, next.getTime() - Date.now());
+  };
+  scheduleMidnight();
+  signal.addEventListener("abort", () => clearTimeout(midnight), { once: true });
 
   let editing: string | null = null;
   let confirmDelete: string | null = null;
@@ -81,16 +102,31 @@ export function createMessageList(opts: {
   }
 
   function editBox(m: Message): HTMLElement[] {
+    const hintText = "Enter to save · Esc to cancel";
+    const hint = h("p", { class: "hint", "aria-live": "polite" }, hintText);
     const box = h("textarea", {
       class: "edit-input",
       rows: rowsFor(m.text),
       "aria-label": "Edit message",
       value: m.text,
       on: {
+        input: (e) => {
+          fitRows(e.currentTarget as HTMLTextAreaElement);
+          hint.textContent = hintText;
+          hint.classList.remove("error");
+        },
         keydown: (e) => {
           if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
             e.preventDefault();
-            opts.onSaveEdit(m.id, (e.currentTarget as HTMLTextAreaElement).value);
+            const value = (e.currentTarget as HTMLTextAreaElement).value;
+            const problem = editProblem(value);
+            if (problem) {
+              // Say why nothing happens (an empty edit is not a delete; over-long text can't be saved).
+              hint.textContent = problem;
+              hint.classList.add("error");
+              return;
+            }
+            opts.onSaveEdit(m.id, value);
           } else if (e.key === "Escape") {
             e.preventDefault();
             editing = null;
@@ -101,18 +137,20 @@ export function createMessageList(opts: {
       },
       signal,
     });
-    return [box, h("p", { class: "hint" }, "Enter to save · Esc to cancel")];
+    return [box, hint];
   }
 
   function messageNode(m: Message, groupStart: boolean, targetId: string | null): HTMLElement {
     const err = errors.get(m.id);
     const editable = opts.editable(m);
+    const ms = parsePb(m.created);
     const sig = JSON.stringify([
       m.text,
       m.deleted,
       m.edited_at,
       m.status ?? "",
       m.created,
+      formatTime(ms), // changes at midnight ("7:36 PM" → "Oct 10, 7:36 PM")
       groupStart,
       editable,
       editing === m.id,
@@ -125,7 +163,6 @@ export function createMessageList(opts: {
     if (hit && hit.sig === sig) return hit.el;
 
     const me = opts.me();
-    const ms = parsePb(m.created);
     const name = m.expand?.author?.name ?? (me && m.author === me.id ? me.name : "Unknown");
     const cls = ["msg", groupStart && "group-start", m.status, m.deleted && "deleted", targetId === m.id && "target"]
       .filter(Boolean)
@@ -212,7 +249,16 @@ export function createMessageList(opts: {
 
   function render(o: { anchor?: boolean } = {}) {
     if (signal.aborted) return;
-    const { win, ready, roomName, targetId } = opts.state();
+    const { win, ready, failed, roomName, targetId } = opts.state();
+    if (failed) {
+      reconcile(el, [loadError]);
+      return;
+    }
+    // An edit box or delete confirm only stays open while its message can still be changed (it may have been
+    // deleted in another tab, or the room archived, meanwhile).
+    const canChange = (id: string | null) => !!id && win.items.some((m) => m.id === id && opts.editable(m));
+    if (!canChange(editing)) editing = null;
+    if (!canChange(confirmDelete)) confirmDelete = null;
     beginning.textContent = roomName ? `Beginning of #${roomName}` : "Beginning of the room";
     const nodes: Node[] = [];
     if (win.hasOlder) nodes.push(topSentinel);

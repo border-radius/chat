@@ -23,6 +23,8 @@ export interface Router {
   navigate(hash: string): void;
   /** Re-check the current route, e.g. after auth changes. */
   refresh(): void;
+  /** Unmount the current view and resolve the route again with a fresh one (e.g. after the user changed). */
+  remount(): void;
 }
 
 const HOME = "#/";
@@ -42,7 +44,11 @@ export function matchRoute<R extends { pattern: string }>(
       const part = parts[i]!;
       if (!seg.startsWith(":")) return seg === part;
       if (!part) return false;
-      params[seg.slice(1)] = decodeURIComponent(part);
+      try {
+        params[seg.slice(1)] = decodeURIComponent(part);
+      } catch {
+        return false; // malformed escape (e.g. "%E0%A4%A"): no match, so it redirects home
+      }
       return true;
     });
     if (ok) return { route, params };
@@ -110,6 +116,10 @@ export function createRouter(opts: { root: HTMLElement; routes: Route[]; isAuthe
       else location.hash = hash;
     },
     refresh() {
+      resolve();
+    },
+    remount() {
+      unmountCurrent();
       resolve();
     },
   };

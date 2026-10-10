@@ -37,6 +37,18 @@ export function older(room: string, c: Cursor): PageQuery {
   };
 }
 
+/**
+ * Messages from `from` to `to` (inclusive, by `created`) changed after `since` (an `updated` value): edits and
+ * deletes a client may have missed while its realtime connection was down (§7.5). Oldest change first.
+ */
+export function changedIn(room: string, since: string, from: Cursor, to: Cursor): PageQuery {
+  return {
+    filter: "room = {:room} && updated > {:since} && created >= {:from} && created <= {:to}",
+    params: { room, since, from: from.created, to: to.created },
+    sort: "updated,id",
+  };
+}
+
 /** The page just after `c`, the newest loaded message (oldest-first). */
 export function newer(room: string, c: Cursor): PageQuery {
   return {

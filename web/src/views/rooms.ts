@@ -4,7 +4,7 @@
 import { ApiError, errorMessage } from "../api.ts";
 import type { Ctx } from "../context.ts";
 import { clear, h, uniqueId } from "../dom.ts";
-import { LIMITS } from "../lib/limits.ts";
+import { LIMITS, textLength } from "../lib/limits.ts";
 import type { Room } from "../lib/types.ts";
 import type { View } from "../router.ts";
 import { createScope, type Scope } from "../scope.ts";
@@ -67,7 +67,9 @@ export function createRoomsView({ store, sync, actions, navigate }: Ctx): View {
     const mine = r.created_by === store.get().user?.id;
     const items: MenuItem[] = [];
     if (section === "rooms") items.push({ label: "Hide", run: () => void hide(r) });
-    if (section === "hidden") items.push({ label: "Unhide", run: () => void unhide(r) });
+    // An archived room you had hidden is listed under Archived; it can still be unhidden from there.
+    if (section === "hidden" || (section === "archived" && store.get().hidden.has(r.id)))
+      items.push({ label: "Unhide", run: () => void unhide(r) });
     if (mine && section !== "archived") {
       items.push({
         label: "Archive",
@@ -155,7 +157,7 @@ export function createRoomsView({ store, sync, actions, navigate }: Ctx): View {
       id: inputId,
       name: "name",
       required: true,
-      maxlength: LIMITS.roomName,
+      // No `maxlength`: it counts UTF-16 units (an emoji is 2), the server counts characters. Checked on submit.
       autocomplete: "off",
       placeholder: "general",
       "aria-describedby": errId,
@@ -174,6 +176,10 @@ export function createRoomsView({ store, sync, actions, navigate }: Ctx): View {
           submit: async (e) => {
             e.preventDefault();
             if (submit.disabled) return;
+            if (textLength(input.value.trim()) > LIMITS.roomName) {
+              setError(`Must be no more than ${LIMITS.roomName} characters.`);
+              return;
+            }
             submit.disabled = true;
             setError("");
             try {

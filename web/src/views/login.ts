@@ -1,8 +1,8 @@
 // Login / signup screen (§7.1).
 
-import { type Api, ApiError, errorMessage } from "../api.ts";
+import { type Api, ApiError, errorMessage, SIGNUP_LOGIN_FAILED } from "../api.ts";
 import { clear, h, uniqueId } from "../dom.ts";
-import { LIMITS } from "../lib/limits.ts";
+import { LIMITS, textLength } from "../lib/limits.ts";
 import type { User } from "../lib/types.ts";
 import type { View } from "../router.ts";
 
@@ -23,7 +23,8 @@ const FIELDS: Record<Mode, FieldSpec[]> = {
     { name: "password", label: "Password", type: "password", autocomplete: "current-password" },
   ],
   signup: [
-    { name: "name", label: "Display name", type: "text", autocomplete: "nickname", extra: { maxlength: LIMITS.userName } },
+    // No `maxlength`: it counts UTF-16 units (an emoji is 2), the server counts characters. Checked on submit.
+    { name: "name", label: "Display name", type: "text", autocomplete: "nickname" },
     { name: "email", label: "Email", type: "email", autocomplete: "email" },
     { name: "password", label: "Password", type: "password", autocomplete: "new-password", extra: { minlength: LIMITS.passwordMin } },
   ],
@@ -113,6 +114,10 @@ export function createLoginView(deps: { api: Api; onLogin: (user: User) => void 
 
   async function onSubmit(button: HTMLButtonElement) {
     if (busy) return;
+    if (mode === "signup" && textLength(values.name.trim()) > LIMITS.userName) {
+      render({ fields: { name: `Must be no more than ${LIMITS.userName} characters.` } });
+      return;
+    }
     busy = true;
     button.disabled = true;
     try {
@@ -126,6 +131,12 @@ export function createLoginView(deps: { api: Api; onLogin: (user: User) => void 
     } catch (e) {
       busy = false;
       if (!ac || ac.signal.aborted) return; // unmounted meanwhile
+      if (e instanceof ApiError && e.codes.auth === SIGNUP_LOGIN_FAILED) {
+        // The account exists now: signing up again would only say the email is taken.
+        mode = "login";
+        render({ form: `Your account was created, but logging in failed: ${errorMessage(e)} Log in to continue.` });
+        return;
+      }
       // Errors for fields on screen go next to them; anything else (network, rate limit, …) above the button.
       const all = e instanceof ApiError ? e.fields : {};
       const fields = Object.fromEntries(Object.entries(all).filter(([k]) => FIELDS[mode].some((f) => f.name === k)));

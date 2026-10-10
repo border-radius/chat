@@ -2,20 +2,40 @@
 // Up arrow in an empty composer to edit your last message.
 
 import { h } from "../../dom.ts";
-import { LIMITS } from "../../lib/limits.ts";
+import { LIMITS, textLength } from "../../lib/limits.ts";
 
 const MAX_LEN = LIMITS.messageText;
 const COUNTER_FROM = 1800;
 const MAX_ROWS = 6;
 
-/** Trimmed text that may be sent or saved, or null. */
+/** Trimmed text that may be sent or saved, or null. Length in code points, as the server counts it. */
 export function validText(raw: string): string | null {
   const t = raw.trim();
-  return t.length > 0 && t.length <= MAX_LEN ? t : null;
+  return t.length > 0 && textLength(t) <= MAX_LEN ? t : null;
+}
+
+/** Why an edit of `raw` can't be saved, as a sentence; "" when it can. */
+export function editProblem(raw: string): string {
+  const len = textLength(raw.trim());
+  if (len === 0) return "A message can't be empty. Use Delete to remove it.";
+  return len > MAX_LEN ? `Too long: ${len - MAX_LEN} characters over the ${MAX_LEN} limit.` : "";
 }
 
 /** Rows for a textarea showing `text` (grows with its lines, up to 6). */
 export const rowsFor = (text: string) => Math.min(MAX_ROWS, text.split("\n").length);
+
+/**
+ * Size a textarea to its content, up to 6 rows, counting lines that wrap as well as explicit newlines.
+ * Without layout (scrollHeight 0, e.g. in tests) it falls back to counting newlines.
+ */
+export function fitRows(t: HTMLTextAreaElement): void {
+  t.rows = 1;
+  const style = getComputedStyle(t);
+  const line = Number.parseFloat(style.lineHeight) || 1.2 * (Number.parseFloat(style.fontSize) || 16);
+  const padding = (Number.parseFloat(style.paddingTop) || 0) + (Number.parseFloat(style.paddingBottom) || 0);
+  const wrapped = t.scrollHeight > 0 ? Math.round((t.scrollHeight - padding) / line) : 0;
+  t.rows = Math.min(MAX_ROWS, Math.max(rowsFor(t.value), wrapped, 1));
+}
 
 export interface Composer {
   readonly el: HTMLFormElement;
@@ -37,9 +57,10 @@ export function createComposer(opts: {
   const sendBtn = h("button", { type: "submit", disabled: true }, "Send");
 
   function onInput() {
-    const len = textarea.value.length;
+    // Count what would be sent (trimmed, in code points), so the counter agrees with the Send button.
+    const len = textLength(textarea.value.trim());
     counter.textContent = len <= COUNTER_FROM ? "" : len <= MAX_LEN ? `${MAX_LEN - len} left` : `${len - MAX_LEN} over`;
-    textarea.rows = rowsFor(textarea.value);
+    fitRows(textarea);
     sendBtn.disabled = validText(textarea.value) === null;
   }
 

@@ -38,7 +38,9 @@ export function createRoomHeader(opts: {
 
   function items(room: Room | undefined, hidden: boolean, mine: boolean): MenuItem[] {
     const out: MenuItem[] = [];
-    if (room && !room.archived) {
+    // Hiding an archived room is pointless (it is listed under Archived), but one hidden before it was
+    // archived must still be unhidable, or it would silently come back hidden after an unarchive.
+    if (room && (!room.archived || hidden)) {
       out.push(
         hidden
           ? { label: "Unhide room", run: () => void act(() => actions.unhide(room.id)) }

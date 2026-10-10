@@ -1,5 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError } from "../../web/src/api.ts";
+import PocketBase, { BaseAuthStore } from "pocketbase";
+import { afterEach, beforeEach, describe, expect, inject, it, vi } from "vitest";
+import { type Api, ApiError, createApi } from "../../web/src/api.ts";
 import { type App, startApp } from "../../web/src/app.ts";
 import { newId } from "../../web/src/lib/id.ts";
 import { instrument, newApi, signedUp } from "../support/api.ts";
@@ -142,5 +143,65 @@ describe("app boot (§7.1)", () => {
     location.hash = "#/r/abc";
     await tick();
     expect(location.hash).toBe("#/login");
+  });
+
+  describe("another tab changes the shared session (BUG-02, BUG-03)", () => {
+    const opened: Api[] = [];
+    afterEach(async () => {
+      await Promise.all(opened.splice(0).map((a) => a.unsubscribeAll().catch(() => {})));
+    });
+
+    /** A client whose auth store the test can change directly, as another tab would through localStorage. */
+    async function sharedSession(email: string, password: string) {
+      const pb = new PocketBase(inject("pbUrl"), new BaseAuthStore());
+      const api = createApi(pb);
+      opened.push(api);
+      await api.logIn(email, password);
+      return { pb, api };
+    }
+
+    it("a logout in another tab logs this tab out too", async () => {
+      const ada = await signedUp("Ada");
+      const { pb, api } = await sharedSession(ada.email, ada.password);
+      app = startApp({ api, root });
+      expect(logoutButton()).toBeDefined();
+      pb.authStore.clear();
+      await tick();
+      expect(app.store.get().user).toBeNull();
+      expect(location.hash).toBe("#/login");
+      expect(logoutButton()).toBeUndefined();
+    });
+
+    it("a login as someone else in another tab switches this tab to that user", async () => {
+      const ada = await signedUp("Ada");
+      const bob = await signedUp("Bob");
+      const { pb, api } = await sharedSession(ada.email, ada.password);
+      const room = await api.createRoom(`r-${newId()}`);
+      history.replaceState(null, "", `#/r/${room.id}`);
+      app = startApp({ api, root });
+      await vi.waitFor(() => expect(root.querySelector(".who")?.textContent).toBe("Ada"));
+      const other = new PocketBase(inject("pbUrl"), new BaseAuthStore());
+      await other.collection("users").authWithPassword(bob.email, bob.password);
+      pb.authStore.save(other.authStore.token, other.authStore.record);
+      await vi.waitFor(() => expect(root.querySelector(".who")?.textContent).toBe("Bob"));
+      expect(app.store.get().user?.id).toBe(bob.user.id);
+      // The room view was started over for Bob: its own messages are his.
+      await vi.waitFor(() => expect(root.querySelector("form.composer")).not.toBeNull());
+      const sent = await api.send({ id: newId(), room: room.id, text: "hi" });
+      expect(sent.author).toBe(bob.user.id);
+    });
+
+    it("our own login, refresh and logout don't trigger a second reset", async () => {
+      const ada = await signedUp("Ada");
+      const { api } = await sharedSession(ada.email, ada.password);
+      const ctl = instrument(api);
+      app = startApp({ api, root });
+      await vi.waitFor(() => expect(ctl.calls("refreshAuth")).toBe(1));
+      await tick();
+      expect(ctl.calls("unsubscribeAll")).toBe(0);
+      logoutButton()!.click();
+      await tick();
+      expect(ctl.calls("unsubscribeAll")).toBe(1);
+    });
   });
 });

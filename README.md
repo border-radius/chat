@@ -96,5 +96,5 @@ Behind an existing reverse proxy instead, use `serve --http=127.0.0.1:8090` and 
 `/api/realtime` unbuffered — it is a Server-Sent Events stream).
 
 **Backups:** in the admin UI, *Settings → Backups* — schedule automatic backups (optionally to S3-compatible
-storage). **Rate limits** (messages: 10 per 5 s per IP; signups: 20 per minute; PocketBase defaults for the rest)
-are set by the init migration and adjustable under *Settings → Rate limits*.
+storage). **Rate limits** (per IP: messages 10 per 5 s, edits/deletes 20 per 10 s, new rooms 5 per minute, signups 20
+per minute; PocketBase defaults for the rest) are set by the migrations and adjustable under *Settings → Rate limits*.

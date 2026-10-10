@@ -140,11 +140,21 @@ describe("rooms view (§7.1)", () => {
       expect(navigate).not.toHaveBeenCalled();
     });
 
-    it("the name input enforces 1–48 characters in the browser", async () => {
+    it("the name must be 1–48 characters, counted as the server counts them (an emoji is one)", async () => {
+      const ctl = instrument(me.api);
       await mount();
       const input = root.querySelector<HTMLInputElement>('form input[name="name"]')!;
+      const err = () => document.getElementById(input.getAttribute("aria-describedby")!)!;
       expect(input.required).toBe(true);
-      expect(input.getAttribute("maxlength")).toBe("48");
+      // No maxlength: the browser would count UTF-16 units and stop at 24 emoji.
+      expect(input.getAttribute("maxlength")).toBeNull();
+      input.value = "x".repeat(49);
+      root.querySelector<HTMLFormElement>("form")!.requestSubmit();
+      expect(err().textContent).toBe("Must be no more than 48 characters.");
+      expect(ctl.calls("createRoom")).toBe(0);
+      input.value = `${"🎉".repeat(40)}${uniq().slice(-8)}`; // 40 emoji + 8 = 48 characters (88 UTF-16 units)
+      root.querySelector<HTMLFormElement>("form")!.requestSubmit();
+      await vi.waitFor(() => expect(navigate).toHaveBeenCalled());
     });
   });
 
@@ -197,6 +207,18 @@ describe("rooms view (§7.1)", () => {
       await me.api.setArchived(r.id, true);
       await mount();
       expect(action(r, "Hide")).toBeNull();
+    });
+
+    it("an archived room you had hidden can be unhidden from Archived", async () => {
+      const r = await room();
+      await me.api.hideRoom(r.id);
+      await me.api.setArchived(r.id, true);
+      await mount();
+      await vi.waitFor(() => expect(sectionOf(r)).toBe("archived"));
+      action(r, "Unhide")!.click();
+      await vi.waitFor(() => expect(store.get().hidden.has(r.id)).toBe(false));
+      await me.api.setArchived(r.id, false);
+      await vi.waitFor(() => expect(sectionOf(r)).toBe("rooms"));
     });
   });
 

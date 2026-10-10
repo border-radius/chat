@@ -21,6 +21,11 @@ describe("matchRoute", () => {
     expect(match("#/r/a%20b")!.params.id).toBe("a b");
   });
 
+  it("a malformed escape doesn't throw; it just doesn't match", () => {
+    expect(match("#/r/%E0%A4%A")).toBeNull();
+    expect(match("#/r/abc/m/%")).toBeNull();
+  });
+
   it("treats an empty hash as #/", () => {
     expect(match("")!.pattern).toBe("#/");
     expect(match("#")!.pattern).toBe("#/");
@@ -165,6 +170,21 @@ describe("createRouter", () => {
     await tick();
     expect(location.hash).toBe("#/login");
     expect(log).toEqual(["mount rooms {}", "unmount rooms", "mount login {}"]);
+  });
+
+  it("a malformed URL redirects to #/ instead of throwing", async () => {
+    history.replaceState(null, "", "#/r/%E0%A4%A");
+    router.start();
+    await tick();
+    expect(location.hash).toBe("#/");
+    expect(log).toEqual(["mount rooms {}"]);
+  });
+
+  it("remount() starts the current route over with a fresh view", async () => {
+    router.start();
+    router.remount();
+    await tick();
+    expect(log).toEqual(["mount rooms {}", "unmount rooms", "mount rooms {}"]);
   });
 
   it("stop() unmounts the current view and ignores further hash changes", async () => {

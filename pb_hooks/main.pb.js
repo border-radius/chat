@@ -6,19 +6,20 @@ routerUse((e) => {
   return e.next();
 });
 
-onRecordCreate(
-  (e) => {
-    require(`${__hooks}/lib/chat.js`).trim(e.record, "name");
-    e.next();
-  },
-  "users",
-  "rooms",
-);
-
-onRecordUpdate((e) => {
-  require(`${__hooks}/lib/chat.js`).trim(e.record, "name");
+onRecordCreate((e) => {
+  require(`${__hooks}/lib/chat.js`).beforeUserSave(e);
   e.next();
 }, "users");
+
+onRecordUpdate((e) => {
+  require(`${__hooks}/lib/chat.js`).beforeUserSave(e);
+  e.next();
+}, "users");
+
+onRecordCreate((e) => {
+  require(`${__hooks}/lib/chat.js`).beforeRoomCreate(e);
+  e.next();
+}, "rooms");
 
 onRecordUpdate((e) => {
   require(`${__hooks}/lib/chat.js`).beforeRoomUpdate(e);

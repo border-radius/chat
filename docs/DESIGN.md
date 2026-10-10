@@ -135,7 +135,8 @@ All schema is defined in `pb_migrations/` so every environment gets the same sch
 | Field | Type | Notes |
 |---|---|---|
 | `id` | text (15) | |
-| `name` | text | required, 1–48 chars, **unique** index (case-insensitive) |
+| `name` | text | required, 1–48 chars, **unique** ignoring case in any script (via `name_key`) |
+| `name_key` | text, hidden | set by a hook: the name without invisible characters, NFKC-normalized and case-folded; unique index. Never returned by the API. |
 | `created_by` | relation → users | required, single |
 | `archived` | bool | default `false` |
 | `archived_at` | date | set by a hook when `archived` changes; cleared on unarchive |
@@ -195,12 +196,14 @@ A separate collection was chosen over a multi-relation field on `users` for thre
 
 | Collection | list / view | create | update | delete |
 |---|---|---|---|---|
-| `users` | `@auth` (other users' email stays hidden) | public (signup, no verification) + `NO_PUBLIC_EMAIL`¹ | `id = @request.auth.id && NO_PUBLIC_EMAIL`¹ | `id = @request.auth.id` |
+| `users` | `@auth` (other users' email stays hidden) | public (signup, no verification) + `NO_PUBLIC_EMAIL`¹ | `id = @request.auth.id && NO_PUBLIC_EMAIL`¹ | **none** (superuser only)² |
 | `rooms` | `@auth` | `@auth && @request.body.created_by = @request.auth.id && (@request.body.archived:isset = false \|\| @request.body.archived = false) && @request.body.archived_at:isset = false` | `created_by = @request.auth.id && @request.body.created_by:isset = false && @request.body.archived_at:isset = false` | **none** (superuser only) |
 | `messages` | `@auth` | `@auth && @request.body.author = @request.auth.id && @request.body.room.archived = false && @request.body.deleted:isset = false && @request.body.deleted_at:isset = false && @request.body.edited_at:isset = false` | `author = @request.auth.id && room.archived = false && deleted = false && @request.body.author:isset = false && @request.body.room:isset = false && @request.body.edited_at:isset = false && @request.body.deleted_at:isset = false && (@request.body.deleted:isset = false \|\| @request.body.deleted = true)` | **none** (superuser only) |
 | `hidden_rooms` | `user = @request.auth.id` | `@auth && @request.body.user = @request.auth.id` | **none** | `user = @request.auth.id` |
 
 ¹ `NO_PUBLIC_EMAIL` = `(@request.body.emailVisibility:isset = false || @request.body.emailVisibility = false)`. Users can't make their email visible to others.
+
+² Users can't delete their own account: their messages and rooms reference them through required relations, so the delete could only fail for anyone who had posted. Removing an account (and deciding what happens to its content) is a superuser task for now.
 
 The source of truth for all rules is `pb_migrations/1760000000_init.js`.
 
@@ -217,7 +220,8 @@ In plain terms:
 
 The hooks are kept small. They only do things the rules can't express:
 
-- **Normalize text:** trim `messages.text`, `rooms.name` and `users.name` on create and update, and reject values that are empty after trimming. The one exception is message text on a delete (next bullet).
+- **Normalize text:** trim `messages.text`, `rooms.name` and `users.name` on create and update, and reject values that are empty after trimming or made only of invisible characters (zero-width spaces, bidi controls, BOM…). Names also lose bidi overrides and zero-width spaces, so they can't be used to spoof another name. The one exception is message text on a delete (next bullet).
+- **Unique room names:** on `rooms` create and update, set `name_key` and reject a name whose key another room already has (`validation_not_unique` on `name`, like the index error it replaces).
 - **Soft delete:** on a `messages` update where `deleted` becomes true:
   - set `deleted_at = now` and `text = ""`;
   - ignore any other fields in the same request;
@@ -230,6 +234,8 @@ The hooks are kept small. They only do things the rules can't express:
 - **Rate limiting:** PocketBase's built-in limiter, enabled from the init migration. The limits are per client IP:
   - `messages:create`: 10 requests per 5 s.
   - `users:create` (guests): 20 requests per 60 s.
+  - `messages:update` (edits and soft deletes): 20 requests per 10 s.
+  - `rooms:create`: 5 requests per 60 s (rooms can't be deleted, so a flood would stay in everyone's list).
   - PocketBase's default rules are kept after these.
 
   Test harnesses turn the limiter off, because every test client shares 127.0.0.1. `http.test.ts` turns it back on to verify the 429.
@@ -377,9 +383,11 @@ Each message the user sees is loaded once per visit. Moving the window costs one
 **Reconnects:** the SDK reconnects SSE automatically. On every `PB_CONNECT` after the first, the room view checks where its window is:
 
 - **At the live edge:** it fetches *newer than the newest loaded message* (by cursor, repeating until a short page comes back) and merges the results in. This fills the gap from the disconnect, however long it was.
-- **Scrolled into history:** it does nothing, because the next newer-page fetch picks up the missed messages naturally.
+- **Scrolled into history:** it fetches nothing newer, because the next newer-page fetch picks up the missed messages naturally.
 
-In both cases it also refetches the room record, in case the room was archived while the client was disconnected.
+In both cases it also refetches the messages *already in the window* that changed while it was disconnected (`updated` later than the newest `updated` it holds), so edits and deletes missed meanwhile apply: a deleted message must never keep showing its text. Sync refetches the room record, in case the room was archived meanwhile.
+
+If the room's first load fails (other than "room not found"), the list shows an error with **Retry** instead of an empty history, the composer is hidden, and the load is retried by itself on the next reconnect.
 
 ### 7.6 Composer
 

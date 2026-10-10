@@ -63,12 +63,33 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
   clear(root);
   root.append(header, main);
 
-  function logOut() {
-    api.logOut();
+  /** Drop everything that belonged to the logged-in user. The session itself is left as it is. */
+  function endSession() {
     sync.stop();
     void api.unsubscribeAll().catch(() => {});
     store.set({ ...initialState() });
+  }
+
+  function logOut() {
+    // End the session before clearing it, so the auth-change listener below sees nothing left to do.
+    endSession();
+    api.logOut();
     router.refresh();
+  }
+
+  /**
+   * The session is shared by every tab of this browser. When another tab logs out or logs in as someone else,
+   * follow it: otherwise this tab would keep showing one user while its requests go out as another (or as nobody).
+   */
+  function onAuthChange() {
+    const next = api.currentUser();
+    const cur = store.get().user;
+    if (next?.id === cur?.id) return; // our own login/refresh, or nothing that changes who is logged in
+    if (cur) endSession();
+    if (next) store.set({ user: next });
+    // Views mounted for the previous user hold its subscriptions and state: start them over.
+    if (cur) router.remount();
+    else router.refresh();
   }
 
   function renderHeader() {
@@ -120,6 +141,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     renderHeader();
     if (s.user && !prev.user) sync.start();
   });
+  const offAuth = api.onAuthChange(onAuthChange);
   renderHeader();
   if (store.get().user) sync.start();
   router.start();
@@ -140,6 +162,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     store,
     router,
     stop() {
+      offAuth();
       offStore();
       router.stop();
       sync.stop();

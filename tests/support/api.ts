@@ -109,7 +109,7 @@ export interface Controls {
   reconnect(): void;
 }
 
-const SYNC = new Set<keyof Api>(["currentUser", "logOut", "onConnect"]);
+const SYNC = new Set<keyof Api>(["currentUser", "logOut", "onAuthChange", "onConnect"]);
 
 /**
  * Replace `api[op]` with a vi.fn built from the current implementation. Composes by reassignment, so

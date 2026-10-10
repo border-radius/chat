@@ -891,6 +891,125 @@ describe("room view (§7.5–7.6)", () => {
     });
   });
 
+  describe("QA fixes", () => {
+    const editBox = (id: string) => msgEl(id)?.querySelector<HTMLTextAreaElement>("textarea.edit-input") ?? null;
+
+    it("BUG-01: a reconnect applies edits and deletes missed while disconnected", async () => {
+      const other = await signedUp("Other");
+      const room = await newRoom();
+      const secret = await other.api.send({ id: newId(), room: room.id, text: "secret" });
+      const typo = await other.api.send({ id: newId(), room: room.id, text: "tpyo" });
+      const gate = gateRealtime(me.api);
+      const ctl = instrument(me.api);
+      await mount(room);
+      gate.offline = true;
+      await other.api.softDelete(secret.id);
+      await other.api.edit(typo.id, "typo");
+      await sleep(200);
+      expect(bodyOf(secret.id)).toBe("secret"); // missed
+      gate.offline = false;
+      ctl.reconnect();
+      await vi.waitFor(() => expect(bodyOf(secret.id)).toBe("Message deleted"));
+      expect(bodyOf(typo.id)).toBe("typo");
+      expect(msgEl(typo.id)!.querySelector(".edited")).not.toBeNull();
+    });
+
+    it("BUG-01: scrolled into history, a reconnect still refreshes the messages on screen", async () => {
+      const room = await newRoom();
+      const all = await seedMessages(room.id, me.user.id, 200);
+      const gate = gateRealtime(me.api);
+      const ctl = instrument(me.api);
+      await mount(room, { msgId: all[10]!.id });
+      gate.offline = true;
+      await me.api.edit(all[10]!.id, "changed while away");
+      gate.offline = false;
+      ctl.reconnect();
+      await vi.waitFor(() => expect(bodyOf(all[10]!.id)).toBe("changed while away"));
+    });
+
+    it("BUG-04: a failed room load shows an error with Retry instead of loading forever", async () => {
+      const room = await newRoom();
+      const m = await me.api.send({ id: newId(), room: room.id, text: "here all along" });
+      instrument(me.api).failNext("getRoom", new ApiError("Failed to fetch", 0));
+      await mount(room);
+      expect(list().textContent).toContain("Couldn't load this room.");
+      expect(beginning()).toBeNull();
+      expect(composer()).toBeNull(); // no writing into history you can't see
+      button(list(), "Retry")!.click();
+      await vi.waitFor(() => expect(bodyOf(m.id)).toBe("here all along"));
+      expect(list().textContent).not.toContain("Couldn't load");
+      expect(composer()).not.toBeNull();
+    });
+
+    it("BUG-04: a failed load retries by itself when the connection comes back", async () => {
+      const room = await newRoom();
+      const m = await me.api.send({ id: newId(), room: room.id, text: "back online" });
+      const ctl = instrument(me.api);
+      ctl.failNext("getRoom", new ApiError("Failed to fetch", 0));
+      await mount(room);
+      expect(list().textContent).toContain("Couldn't load this room.");
+      ctl.reconnect();
+      await vi.waitFor(() => expect(bodyOf(m.id)).toBe("back online"));
+    });
+
+    it("BUG-05: a failed history load is not shown as an empty room", async () => {
+      const room = await newRoom();
+      await me.api.send({ id: newId(), room: room.id, text: "history" });
+      instrument(me.api).failNext("page", new ApiError("Failed to fetch", 0));
+      await mount(room);
+      expect(beginning()).toBeNull();
+      expect(list().textContent).toContain("Couldn't load this room.");
+    });
+
+    it("BUG-09: an open edit box closes when the message is deleted elsewhere", async () => {
+      const room = await newRoom();
+      const m = await me.api.send({ id: newId(), room: room.id, text: "editing" });
+      const ctl = instrument(me.api);
+      await mount(room);
+      button(msgEl(m.id), "Edit")!.click();
+      expect(editBox(m.id)).not.toBeNull();
+      await me.api.softDelete(m.id); // e.g. from another tab
+      await vi.waitFor(() => expect(bodyOf(m.id)).toBe("Message deleted"));
+      expect(editBox(m.id)).toBeNull();
+      expect(msgEl(m.id)!.textContent).not.toContain("Couldn't save");
+      expect(ctl.calls("edit")).toBe(0);
+    });
+
+    it("BUG-16: saving an empty edit explains why nothing happens", async () => {
+      const room = await newRoom();
+      const m = await me.api.send({ id: newId(), room: room.id, text: "keep" });
+      const ctl = instrument(me.api);
+      await mount(room);
+      button(msgEl(m.id), "Edit")!.click();
+      editBox(m.id)!.value = "   ";
+      key(editBox(m.id)!, "Enter");
+      expect(msgEl(m.id)!.querySelector(".hint")!.textContent).toBe("A message can't be empty. Use Delete to remove it.");
+      expect(editBox(m.id)).not.toBeNull();
+      expect(ctl.calls("edit")).toBe(0);
+    });
+
+    it("BUG-13/14: lengths count characters like the server, and the counter matches the Send button", async () => {
+      const room = await newRoom();
+      await mount(room);
+      type("😀".repeat(1500)); // 3000 UTF-16 units, 1500 characters: the server accepts it
+      expect(sendButton().disabled).toBe(false);
+      type(`${"x".repeat(2000)}   `); // trailing spaces are trimmed before sending
+      expect(sendButton().disabled).toBe(false);
+      expect(root.querySelector(".counter")!.textContent).toBe("0 left");
+      type("x".repeat(2001));
+      expect(sendButton().disabled).toBe(true);
+      expect(root.querySelector(".counter")!.textContent).toBe("1 over");
+    });
+
+    it("BUG-18: a link to a message that isn't in this room says so", async () => {
+      const room = await newRoom();
+      const elsewhere = await newRoom();
+      const m = await me.api.send({ id: newId(), room: elsewhere.id, text: "elsewhere" });
+      await mount(room, { msgId: m.id });
+      expect(root.querySelector(".room-notice")!.textContent).toContain("isn't in this room");
+    });
+  });
+
   describe("room header menu (§7.1)", () => {
     it("Hide / Unhide room", async () => {
       const room = await newRoom();
@@ -917,6 +1036,18 @@ describe("room view (§7.5–7.6)", () => {
       await mount(theirs);
       expect(button(headerMenu(), "Archive room")).toBeNull();
       expect(button(headerMenu(), "Hide room")).not.toBeNull();
+    });
+
+    it("BUG-17: a hidden room that was archived can still be unhidden", async () => {
+      const other = await signedUp("Other");
+      const theirs = await newRoom(other);
+      await me.api.hideRoom(theirs.id);
+      await other.api.setArchived(theirs.id, true);
+      await mount(theirs);
+      await vi.waitFor(() => expect(store.get().hidden.has(theirs.id)).toBe(true));
+      expect(button(headerMenu(), "Hide room")).toBeNull();
+      button(headerMenu(), "Unhide room")!.click();
+      await vi.waitFor(() => expect(store.get().hidden.has(theirs.id)).toBe(false));
     });
   });
 });

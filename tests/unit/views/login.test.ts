@@ -71,6 +71,36 @@ describe("login view (§7.1)", () => {
     expect(api.currentUser()?.name).toBe("Grace");
   });
 
+  it("if the account is created but the automatic login fails, it switches to Log in and says so", async () => {
+    const api = newApi();
+    instrument(api).failNext("logIn", new ApiError("Too many requests.", 429));
+    mount(api);
+    tab(root, "Sign up").click();
+    const email = `${uniq()}@test.local`;
+    fill(root, { name: "Grace", email, password: "password-123" });
+    submit(root);
+    await vi.waitFor(() => expect(alertText(root)).toContain("Your account was created"));
+    expect(tab(root, "Log in").getAttribute("aria-selected")).toBe("true");
+    expect(root.querySelector<HTMLInputElement>('input[name="email"]')!.value).toBe(email);
+    submit(root);
+    await vi.waitFor(() => expect(onLogin).toHaveBeenCalledWith({ id: expect.any(String), name: "Grace" }));
+  });
+
+  it("checks the display name length in characters (an emoji is one), before asking the server", async () => {
+    const api = newApi();
+    const ctl = instrument(api);
+    mount(api);
+    tab(root, "Sign up").click();
+    expect(root.querySelector('input[name="name"]')!.getAttribute("maxlength")).toBeNull();
+    fill(root, { name: "x".repeat(33), email: `${uniq()}@test.local`, password: "password-123" });
+    submit(root);
+    expect(root.querySelector(".field-error")!.textContent).toBe("Must be no more than 32 characters.");
+    expect(ctl.calls("signUp")).toBe(0);
+    fill(root, { name: "😀".repeat(32) });
+    submit(root);
+    await vi.waitFor(() => expect(onLogin).toHaveBeenCalled());
+  });
+
   it("shows the server's error message on failed login and keeps the input", async () => {
     mount();
     const email = `${uniq()}@test.local`;
