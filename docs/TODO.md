@@ -28,60 +28,62 @@ Every feature item follows the same loop:
 The goal of this phase is to make every test layer runnable, starting with the build, before any feature code exists.
 
 ### 0.1 Repo setup
-- [ ] `git init`, `.gitignore` (`node_modules/ bin/ pb_public/ pb_data/ test-results/ playwright-report/`)
-- [ ] `package.json` (`"type": "module"`), with dependencies from §8.1 only: `pocketbase`, plus dev dependencies `esbuild typescript vitest happy-dom @playwright/test @axe-core/playwright`
-- [ ] `tsconfig.json`: `strict`, `noUncheckedIndexedAccess`, `target es2022`, `moduleResolution bundler`, `noEmit`, `lib: [es2022, dom, dom.iterable]`
-- [ ] Directory layout from §4 (empty files are fine)
+- [x] `git init`, `.gitignore` (`node_modules/ bin/ pb_public/ pb_data/ test-results/ playwright-report/`)
+- [x] `package.json` (`"type": "module"`), with dependencies from §8.1 only: `pocketbase`, plus dev dependencies `esbuild typescript vitest happy-dom @playwright/test @axe-core/playwright`
+- [x] `tsconfig.json`: `strict`, `noUncheckedIndexedAccess`, `target es2022`, `moduleResolution bundler`, `noEmit`, `lib: [es2022, dom, dom.iterable]`
+- [x] Directory layout from §4 (empty files are fine)
 
 ### 0.2 PocketBase binary
-- [ ] `scripts/fetch-pocketbase.sh`: pin `PB_VERSION`, detect OS and architecture, download into `bin/`, verify SHA-256, and do nothing if the right version is already present
-- [ ] `npm run setup` works. `bin/pocketbase --version` prints the pinned version.
+- [x] `scripts/fetch-pocketbase.sh`: pin `PB_VERSION`, detect OS and architecture, download into `bin/`, verify SHA-256, and do nothing if the right version is already present
+- [x] `npm run setup` works. `bin/pocketbase --version` prints the pinned version.
 
 ### 0.3 Test runner: Vitest projects
-- [ ] `vitest.config.ts` with two projects:
+- [x] `vitest.config.ts` with two projects:
   - `unit`: `tests/unit/**`, `environment: happy-dom`
   - `integration`: `tests/integration/**`, `environment: node`, `globalSetup`, `fileParallelism: false`, longer timeout
-- [ ] 🔴 `tests/unit/smoke.test.ts`: `expect(1).toBe(1)`, then 🟢 `npm test` runs it
-- [ ] `npm test` = `vitest run --project unit` and `npm run test:int` = `vitest run --project integration`
+- [x] 🔴 `tests/unit/smoke.test.ts`: `expect(1).toBe(1)`, then 🟢 `npm test` runs it
+- [x] `npm test` = `vitest run --project unit` and `npm run test:int` = `vitest run --project integration`
 
 ### 0.4 Integration harness (§9.2)
-- [ ] 🔴 `tests/integration/health.test.ts`: `GET /api/health` returns 200
-- [ ] 🟢 `tests/integration/setup/pocketbase.ts`:
+- [x] 🔴 `tests/integration/health.test.ts`: `GET /api/health` returns 200
+- [x] 🟢 `tests/integration/setup/pocketbase.ts`:
   - make a temp dir and pick a free port;
   - run `superuser upsert`;
   - run `serve --dir --migrationsDir pb_migrations --hooksDir pb_hooks`;
   - wait for `/api/health`;
   - `provide("pbUrl")`;
   - kill the process and remove the dir on teardown.
-- [ ] 🟢 `tests/integration/helpers.ts`: `adminClient()`, `newUser(name?)` (returns an authed SDK client and record), `newRoom(client, name?)`, `post(client, room, text)`
-- [ ] Export the spawn helper so Playwright can reuse it (Phase 7)
+- [x] 🟢 `tests/integration/helpers.ts`: `adminClient()`, `newUser(name?)` (returns an authed SDK client and record), `newRoom(client, name?)`, `post(client, room, text)`
+- [x] Export the spawn helper so Playwright can reuse it (Phase 7)
 
 ### 0.5 Build script (§8.2)
-- [ ] 🔴 `tests/unit/build/budget.test.ts`: `checkBudget({js, css, html})` (a pure function taking gzipped sizes) passes when under the limits and returns the names of any assets over them (§7.7)
-- [ ] 🔴 `tests/unit/build/html.test.ts`: `injectAssets(template, {js, css})` replaces placeholders with hashed paths and fails if a placeholder is missing
-- [ ] 🟢 `scripts/lib/build-utils.mjs` with `checkBudget` and `injectAssets`
-- [ ] 🟢 `scripts/build.mjs`:
+- [x] 🔴 `tests/unit/build/budget.test.ts`: `checkBudget({js, css, html})` (a pure function taking gzipped sizes) passes when under the limits and returns the names of any assets over them (§7.7)
+- [x] 🔴 `tests/unit/build/html.test.ts`: `injectAssets(template, {js, css})` replaces placeholders with hashed paths and fails if a placeholder is missing
+- [x] 🟢 `scripts/lib/build-utils.mjs` with `checkBudget` and `injectAssets`
+- [x] 🟢 `scripts/build.mjs`:
   - esbuild with hashed `entryNames` writing to `pb_public/assets/`;
   - read the metafile, inject asset names, write `pb_public/index.html`;
   - print gzipped sizes and exit 1 if over budget.
-- [ ] `web/index.html` template with a static app shell and `<!--CSS-->` / `<!--JS-->` placeholders
-- [ ] `web/src/main.ts` renders "hello" into `#app`
+- [x] `web/index.html` template with a static app shell and `<!--CSS-->` / `<!--JS-->` placeholders
+- [x] `web/src/main.ts` renders "hello" into `#app`
 
 ### 0.6 Dev script
-- [ ] `scripts/dev.mjs`: esbuild `context().watch()` (unminified, inline sourcemaps, unhashed names) writing to `pb_public/`, plus a child process running `bin/pocketbase serve --dev`, both stopped by one Ctrl-C
-- [ ] Manual check: `npm run dev`, open `http://127.0.0.1:8090`, and "hello" renders
+- [x] `scripts/dev.mjs`: esbuild `context().watch()` (unminified, inline sourcemaps, unhashed names) writing to `pb_public/`, plus a child process running `bin/pocketbase serve --dev`, both stopped by one Ctrl-C
+- [x] Manual check: `npm run dev`, open `http://127.0.0.1:8090`, and "hello" renders
 
 ### 0.7 E2E harness
-- [ ] `playwright.config.ts`: `webServer` runs `npm run build`, then the spawn helper with a temp DB. Chromium locally and all three browsers in CI. Traces are kept on failure.
-- [ ] 🔴 `tests/e2e/smoke.spec.ts`: page loads, "hello" is visible, there are no console errors, then 🟢 make it pass
+- [x] `playwright.config.ts`: `webServer` runs `npm run build`, then the spawn helper with a temp DB. Chromium locally and all three browsers in CI. Traces are kept on failure.
+- [x] 🔴 `tests/e2e/smoke.spec.ts`: page loads, "hello" is visible, there are no console errors, then 🟢 make it pass
+  - Local note: in this container Chromium's system libraries come from `~/.local/lib/chromium-deps` through `LD_LIBRARY_PATH`, which is exported in `~/.bashrc`.
 
 ### 0.8 Static checks and CI
-- [ ] `scripts/check-no-html-sinks.sh`: grep `web/src` for `innerHTML|outerHTML|insertAdjacentHTML|document.write` and exit 1 if any match (§9.5)
-- [ ] 🔴 Prove the check works: temporarily add `el.innerHTML = ""`, confirm the script fails, then remove it
-- [ ] npm scripts: `typecheck`, `lint:sinks`, `check` (typecheck + lint:sinks + test + test:int + build), `test:e2e`
-- [ ] `.github/workflows/ci.yml` (§9.6). The PocketBase binary is cached by version, and Playwright traces are uploaded when a test fails.
+- [x] `scripts/check-no-html-sinks.sh`: grep `web/src` for `innerHTML|outerHTML|insertAdjacentHTML|document.write` and exit 1 if any match (§9.5)
+- [x] 🔴 Prove the check works: temporarily add `el.innerHTML = ""`, confirm the script fails, then remove it
+- [x] npm scripts: `typecheck`, `lint:sinks`, `check` (typecheck + lint:sinks + test + test:int + build), `test:e2e`
+- [x] `.github/workflows/ci.yml` (§9.6). The PocketBase binary is cached by version, and Playwright traces are uploaded when a test fails.
 
 **✅ Gate 0:** `npm run check && npm run test:e2e` are green locally and in CI.
+  - Status (2026-10-10): `npm run check` and `npm run test:e2e` both pass locally. CI hasn't run yet because there is no git remote.
 
 ---
 

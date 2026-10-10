@@ -1,0 +1,8 @@
+node_modules/
+bin/
+pb_public/
+pb_data/
+coverage/
+test-results/
+playwright-report/
+*.log
