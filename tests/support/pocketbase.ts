@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 
-const root = resolve(import.meta.dirname, "../../..");
+const root = resolve(import.meta.dirname, "../..");
 const bin = join(root, "bin/pocketbase");
 
 export const SUPERUSER = { email: "admin@test.local", password: "test-password-123" } as const;

@@ -473,14 +473,14 @@ await esbuild.build({
 
 | Layer | Tool | What it covers | Speed |
 |---|---|---|---|
-| Unit | Vitest + happy-dom | pure logic, DOM helpers, views with a mocked `api.ts` | < 2 s |
-| Integration | Vitest + real PocketBase | migrations, API rules, hooks, realtime | ~5–10 s |
+| Unit | Vitest + happy-dom + real PocketBase (temp dir) | pure logic, DOM helpers, views against the real API | ~5 s |
+| Integration | Vitest + real PocketBase (temp dir) | migrations, API rules, hooks, realtime, `createApi` | ~40 s (serial) |
 | E2E | Playwright (Chromium; Firefox and WebKit in CI) | golden user flows through the real built app | ~30 s |
 | Budget | build script | bundle size limits | in `build` |
 
 ### 9.1 Unit tests (`tests/unit/`)
 
-`api.ts` is the only seam with the backend. In view tests it is replaced with a fake that has the same interface, so views never touch the network.
+View tests run against a real, throwaway PocketBase (temp data dir) using the real `createApi`. There is no fake backend to drift from the server. Failures, latency and reconnects are injected with `vi.spyOn` wrappers over the real client (`tests/support/api.ts`). Large histories are seeded straight into the test DB.
 
 **`lib/messages.test.ts`**
 - `merge` keeps the list sorted by `(created, id)`, including for out-of-order input and for messages with the same `created` value.
@@ -513,7 +513,7 @@ await esbuild.build({
 - Unauthenticated access redirects to `#/login`.
 - `unmount` of the previous view is called before the next view's `mount`.
 
-**`views/room.test.ts`** (fake api)
+**`views/room.test.ts`** (real PocketBase)
 - Initial render shows 50 messages, oldest at the top.
 - Optimistic send shows a pending message straight away. The server ack clears the pending state, and a later realtime echo does **not** duplicate it.
 - When send fails, the message shows as failed with a Retry button. Retry calls `create` again with the **same id**.
@@ -528,7 +528,7 @@ await esbuild.build({
 - A realtime `delete` event (superuser hard delete) removes the element.
 - `unmount()` calls unsubscribe and aborts pending requests, and no listeners remain.
 - Composer: Enter sends, Shift+Enter adds a newline, and whitespace-only or over-length text is blocked.
-- **Windowing**, with a fake api holding 1,000 messages:
+- **Windowing**, with 1,000 seeded messages:
   - Repeatedly triggering the top sentinel eventually reaches message #1 and shows "Beginning of #room".
   - The DOM never holds more than 300 messages.
   - No message is duplicated or skipped across the whole scroll.
@@ -543,13 +543,13 @@ await esbuild.build({
   - Edit and Delete are not shown on other users' messages.
 - **Archived room:** the banner is shown, there is no composer, and there are no Edit or Delete actions.
 
-**`views/rooms.test.ts`** (fake api)
+**`views/rooms.test.ts`** (real PocketBase)
 - The three sections render. Hide moves a room to Hidden (calling `hidden_rooms.create`) and Unhide moves it back.
 - The Archive action is visible only to the creator and needs a confirm.
 - A realtime room `update` with `archived: true` moves the room to Archived.
 
 **`views/login.test.ts`**
-- Validation errors from the fake api are shown.
+- Validation errors from the server are shown.
 - Successful login navigates to `#/`.
 
 ### 9.2 Integration tests (`tests/integration/`)

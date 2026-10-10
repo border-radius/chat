@@ -1,6 +1,6 @@
 // Playwright webServer: serves the built pb_public/ from a fresh PocketBase with a temp data dir.
 import { resolve } from "node:path";
-import { startPocketBase } from "../integration/setup/pocketbase.ts";
+import { startPocketBase } from "../support/pocketbase.ts";
 
 const pb = await startPocketBase({
   publicDir: resolve("pb_public"),

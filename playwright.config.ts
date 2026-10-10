@@ -28,5 +28,7 @@ export default defineConfig({
     env: { E2E_PORT: String(PORT) },
     reuseExistingServer: false,
     timeout: 60_000,
+    // Default is SIGKILL, which skips server.ts cleanup and leaks the temp data dir.
+    gracefulShutdown: { signal: "SIGTERM", timeout: 5_000 },
   },
 });

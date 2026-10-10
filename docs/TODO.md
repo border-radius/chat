@@ -74,7 +74,7 @@ The goal of this phase is to make every test layer runnable, starting with the b
 ### 0.7 E2E harness
 - [x] `playwright.config.ts`: `webServer` runs `npm run build`, then the spawn helper with a temp DB. Chromium locally and all three browsers in CI. Traces are kept on failure.
 - [x] 🔴 `tests/e2e/smoke.spec.ts`: page loads, "hello" is visible, there are no console errors, then 🟢 make it pass
-  - Local note: in this container Chromium's system libraries come from `~/.local/lib/chromium-deps` through `LD_LIBRARY_PATH`, which is exported in `~/.bashrc`.
+  - Local note: in this container, Chromium needs `LD_LIBRARY_PATH=~/.local/lib/chromium-deps` for system libraries and `FONTCONFIG_FILE=~/.local/share/chromium-fonts/fonts.conf` for fonts. Both are exported in `~/.bashrc`. Without the fonts, the renderer crashes on any `<input>`.
 
 ### 0.8 Static checks and CI
 - [x] `scripts/check-no-html-sinks.sh`: grep `web/src` for `innerHTML|outerHTML|insertAdjacentHTML|document.write` and exit 1 if any match (§9.5)
@@ -300,33 +300,46 @@ Everything in this phase is pure TypeScript with no DOM and no network, so the t
 ## Phase 3 — DOM foundation, router, api seam, auth (M3, part 2)
 
 ### 3.1 `dom.ts`
-- [ ] 🔴 `h()` sets the class, attributes, `dataset` and event listeners, and handles nested children
-- [ ] 🔴 **XSS:** a string child `<img src=x onerror=…>` becomes a text node, and `querySelector("img")` returns null
-- [ ] 🔴 `clear(el)` removes all children. Listeners added with `{signal}` stop after `abort()`.
-- [ ] 🟢 `h`, `clear` and `on`
+- [x] 🔴 `h()` sets the class, attributes, `dataset` and event listeners, and handles nested children
+- [x] 🔴 **XSS:** a string child `<img src=x onerror=…>` becomes a text node, and `querySelector("img")` returns null
+- [x] 🔴 `clear(el)` removes all children. Listeners added with `{signal}` stop after `abort()`.
+- [x] 🟢 `h`, `clear` and `on`
 
 ### 3.2 `api.ts`: the seam
-- [ ] Define an `Api` TypeScript interface covering every call in §6. Views depend only on this interface.
-- [ ] 🟢 `createApi(pb)` is the real implementation, a thin wrapper around the SDK (it's already exercised by integration tests through the shared cursor builder).
-- [ ] 🟢 `tests/unit/fakes/fake-api.ts`: an in-memory `Api` with controllable latency and failures, plus `emit(event)` to simulate realtime events
-- [ ] 🔴 Fake api contract tests: the same small suite (create, list by cursor, update, soft delete) runs against the fake api and, in the integration project, against the real `createApi`, so the fake can't drift from real behavior
+- [x] Define an `Api` TypeScript interface covering every call in §6. Views depend only on this interface.
+- [x] 🟢 `createApi(pb)` is the real implementation, a thin wrapper around the SDK (it's already exercised by integration tests through the shared cursor builder).
+- [x] ~~In-memory fake `Api`~~ **Replaced (2026-10-10) by real PocketBase in a temp dir for every test project.** There is nothing to drift.
+  - `tests/support/api.ts` provides `newApi()`, `signedUp()` and `seedMessages()` (direct SQLite fixture insert).
+  - It also provides `instrument(api)`, `vi.spyOn` wrappers over the real client: `failNext(op)`, `hold(op)`, `calls(op)` and `reconnect()`.
+- [x] 🔴 `createApi` behavior suite (`tests/integration/api.test.ts`, 20 tests) against real PocketBase
 
 ### 3.3 `router.ts`
-- [ ] 🔴 It matches `#/`, `#/login`, `#/r/:id` and `#/r/:id/m/:msgId`, and extracts params
-- [ ] 🔴 An unknown hash redirects to `#/`, and an unauthenticated user is redirected to `#/login`
-- [ ] 🔴 On navigation, `unmount()` of the previous view is called before the next view's `mount()`
-- [ ] 🟢 Router
+- [x] 🔴 It matches `#/`, `#/login`, `#/r/:id` and `#/r/:id/m/:msgId`, and extracts params
+- [x] 🔴 An unknown hash redirects to `#/`, and an unauthenticated user is redirected to `#/login`
+- [x] 🔴 On navigation, `unmount()` of the previous view is called before the next view's `mount()`
+- [x] 🟢 Router
 
 ### 3.4 Login view (`views/login.ts`)
-- [ ] 🔴 It has Login and Signup tabs and the right fields per tab. Submitting calls the fake api.
-- [ ] 🔴 Server validation errors appear inline. Success navigates to `#/`. The button is disabled while a request is in flight.
-- [ ] 🟢 Login view
+- [x] 🔴 It has Login and Signup tabs and the right fields per tab. Submitting calls the real API.
+- [x] 🔴 Server validation errors appear inline. Success navigates to `#/`. The button is disabled while a request is in flight.
+- [x] 🟢 Login view
 
 ### 3.5 Boot (`main.ts`)
-- [ ] 🔴 With a valid stored token, the app goes straight to the route and calls `authRefresh` in the background. With no token it goes to `#/login`. Logout clears auth, unsubscribes everything and goes to `#/login`.
-- [ ] 🟢 `main.ts` wiring
+- [x] 🔴 With a valid stored token, the app goes straight to the route and calls `authRefresh` in the background. With no token it goes to `#/login`. Logout clears auth, unsubscribes everything and goes to `#/login`.
+- [x] 🟢 `main.ts` wiring
 
 **✅ Gate 3:** unit tests are green. `npm run dev` lets you sign up and log in manually.
+  - **Status (2026-10-10): passed.**
+    - 148 unit tests and 111 integration tests are green.
+    - The e2e smoke test now boots the real app to the login screen.
+    - The bundle is 13.5 KB of JS gzipped, including the PocketBase SDK.
+  - **Implementation notes:**
+    - **Update (2026-10-10): the fake backend was removed.** Both Vitest projects start their own throwaway PocketBase through `tests/support/global-setup.ts`. View tests use real `createApi` clients, with test controls from `tests/support/api.ts`.
+    - The unit project (happy-dom) needs the fetch-based `eventsource` package. Node's built-in `EventSource` never connects under happy-dom.
+    - The router is idempotent: it re-resolves only when the route differs from the one mounted. happy-dom fires `hashchange` on `replaceState`, which real browsers don't.
+    - Login reads the input values at submit time, because browser autofill and password managers may not fire `input` events.
+    - A background `refreshAuth` failure logs the user out only on 401/403/404. A network error (status 0) keeps the session.
+    - `#/` and `#/r/:id` show placeholder views until Phases 4–5.
 
 ---
 
@@ -334,7 +347,7 @@ Everything in this phase is pure TypeScript with no DOM and no network, so the t
 
 ### 4.1 Rendering and creation
 - [ ] 🔴 `views/rooms.test.ts`:
-  - **Sections:** Rooms, Hidden (collapsed, with a count) and Archived (collapsed) are rendered from the fake api.
+  - **Sections:** Rooms, Hidden (collapsed, with a count) and Archived (collapsed) are rendered from real API data.
   - **New room form:**
     - creating a room calls `rooms.create` and the room appears;
     - a duplicate-name error from the server appears inline.
@@ -361,7 +374,7 @@ Everything in this phase is pure TypeScript with no DOM and no network, so the t
 
 ## Phase 5 — Room view (M5)
 
-This is the hot path. All tests use the fake api, seeded as needed.
+This is the hot path. All tests use real PocketBase. History comes from `seedMessages()`, and failures, latency and reconnects come from `instrument(api)`.
 
 ### 5.1 Initial load and rendering
 - [ ] 🔴 Opening a room renders the latest 50 messages, oldest at the top, with author grouping and date dividers. The view is scrolled to the bottom.
@@ -387,7 +400,7 @@ This is the hot path. All tests use the fake api, seeded as needed.
 - [ ] 🟢 Implement
 
 ### 5.4 Windowed history (§7.5)
-- [ ] 🔴 **Scrolling up to the beginning** (fake api with 1,000 messages):
+- [ ] 🔴 **Scrolling up to the beginning** (1,000 seeded messages):
   - repeatedly triggering the top sentinel reaches message #1;
   - "Beginning of #room" appears and the top sentinel goes away;
   - the DOM never holds more than 300 messages;

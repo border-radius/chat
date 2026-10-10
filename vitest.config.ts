@@ -1,5 +1,8 @@
 import { defineConfig } from "vitest/config";
 
+// Both projects run against a real, throwaway PocketBase (temp data dir) started by tests/support/global-setup.ts.
+const globalSetup = ["tests/support/global-setup.ts"];
+
 export default defineConfig({
   test: {
     coverage: {
@@ -13,8 +16,12 @@ export default defineConfig({
           name: "unit",
           include: ["tests/unit/**/*.test.ts"],
           environment: "happy-dom",
+          globalSetup,
+          // Node's built-in EventSource doesn't work under happy-dom; install a fetch-based one for the SDK.
+          setupFiles: ["tests/support/eventsource.ts"],
           // Deterministic time formatting.
           env: { TZ: "UTC" },
+          testTimeout: 15_000,
         },
       },
       {
@@ -22,8 +29,8 @@ export default defineConfig({
           name: "integration",
           include: ["tests/integration/**/*.test.ts"],
           environment: "node",
-          globalSetup: ["tests/integration/setup/global.ts"],
-          // One PocketBase process is shared; run files serially to keep rate limits and realtime predictable.
+          globalSetup,
+          // Run files serially so rate-limit and realtime tests don't interfere with each other.
           fileParallelism: false,
           // Node 22 ships EventSource behind a flag; the PocketBase SDK needs it for realtime.
           execArgv: ["--experimental-eventsource", "--no-warnings=ExperimentalWarning"],

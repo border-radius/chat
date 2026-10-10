@@ -1,0 +1,150 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "../../../web/src/api.ts";
+import type { User } from "../../../web/src/lib/types.ts";
+import { createLoginView } from "../../../web/src/views/login.ts";
+import { instrument, newApi, signedUp, uniq } from "../../support/api.ts";
+
+function fill(root: HTMLElement, values: Record<string, string>) {
+  for (const [name, value] of Object.entries(values)) {
+    const input = root.querySelector<HTMLInputElement>(`input[name="${name}"]`);
+    if (!input) throw new Error(`no input ${name}`);
+    input.value = value;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+}
+const submit = (root: HTMLElement) => root.querySelector("form")!.requestSubmit();
+const tab = (root: HTMLElement, name: string) => [...root.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((t) => t.textContent === name)!;
+const fieldNames = (root: HTMLElement) => [...root.querySelectorAll<HTMLInputElement>("form input")].map((i) => i.name);
+const alertText = (root: HTMLElement) => root.querySelector('[role="alert"]')!.textContent;
+
+describe("login view (§7.1)", () => {
+  let root: HTMLElement;
+  let onLogin: (u: User) => void;
+
+  beforeEach(() => {
+    root = document.createElement("main");
+    document.body.append(root);
+    onLogin = vi.fn();
+  });
+  afterEach(() => {
+    root.remove();
+    vi.restoreAllMocks();
+  });
+
+  const mount = (api = newApi()) => {
+    const view = createLoginView({ api, onLogin });
+    view.mount(root, {});
+    return { view, api };
+  };
+
+  it("starts on the Log in tab with email + password", () => {
+    mount();
+    expect(tab(root, "Log in").getAttribute("aria-selected")).toBe("true");
+    expect(tab(root, "Sign up").getAttribute("aria-selected")).toBe("false");
+    expect(fieldNames(root)).toEqual(["email", "password"]);
+    expect(root.querySelector<HTMLInputElement>('input[name="password"]')!.type).toBe("password");
+  });
+
+  it("the Sign up tab adds a name field", () => {
+    mount();
+    tab(root, "Sign up").click();
+    expect(tab(root, "Sign up").getAttribute("aria-selected")).toBe("true");
+    expect(fieldNames(root)).toEqual(["name", "email", "password"]);
+  });
+
+  it("logs in and hands the user to onLogin", async () => {
+    const ada = await signedUp("Ada");
+    const { api } = mount();
+    fill(root, { email: ada.email, password: ada.password });
+    submit(root);
+    await vi.waitFor(() => expect(onLogin).toHaveBeenCalledWith({ id: ada.user.id, name: "Ada" }));
+    expect(api.currentUser()).toEqual(ada.user);
+  });
+
+  it("signs up and hands the user to onLogin", async () => {
+    const { api } = mount();
+    tab(root, "Sign up").click();
+    fill(root, { name: "Grace", email: `${uniq()}@test.local`, password: "password-123" });
+    submit(root);
+    await vi.waitFor(() => expect(onLogin).toHaveBeenCalledWith({ id: expect.any(String), name: "Grace" }));
+    expect(api.currentUser()?.name).toBe("Grace");
+  });
+
+  it("shows the server's error message on failed login and keeps the input", async () => {
+    mount();
+    const email = `${uniq()}@test.local`;
+    fill(root, { email, password: "wrong-pass" });
+    submit(root);
+    await vi.waitFor(() => expect(alertText(root)).toBe("Failed to authenticate."));
+    expect(root.querySelector<HTMLInputElement>('input[name="email"]')!.value).toBe(email);
+    expect(onLogin).not.toHaveBeenCalled();
+  });
+
+  it("shows server field errors inline next to their inputs, without a redundant generic alert", async () => {
+    const taken = await signedUp();
+    mount();
+    tab(root, "Sign up").click();
+    fill(root, { name: "Copycat", email: taken.email, password: "password-123" });
+    submit(root);
+    await vi.waitFor(() => expect(root.querySelector('input[name="email"]')!.getAttribute("aria-invalid")).toBe("true"));
+    const input = root.querySelector<HTMLInputElement>('input[name="email"]')!;
+    expect(document.getElementById(input.getAttribute("aria-describedby")!)!.textContent).toBe("Value must be unique.");
+    expect(alertText(root)).toBe("");
+  });
+
+  it("explains rate limiting (429) in plain words", async () => {
+    const api = newApi();
+    instrument(api).failNext("logIn", new ApiError("Too Many Requests.", 429));
+    mount(api);
+    fill(root, { email: `${uniq()}@test.local`, password: "password-123" });
+    submit(root);
+    await vi.waitFor(() => expect(alertText(root)).toBe("Too many attempts. Wait a few seconds and try again."));
+  });
+
+  it("explains network failures", async () => {
+    const api = newApi();
+    instrument(api).failNext("logIn", new ApiError("Failed to fetch", 0));
+    mount(api);
+    fill(root, { email: `${uniq()}@test.local`, password: "password-123" });
+    submit(root);
+    await vi.waitFor(() => expect(alertText(root)).toBe("Can't reach the server. Check your connection."));
+  });
+
+  it("clears errors when switching tabs", async () => {
+    mount();
+    fill(root, { email: `${uniq()}@test.local`, password: "wrong-pass" });
+    submit(root);
+    await vi.waitFor(() => expect(alertText(root)).not.toBe(""));
+    tab(root, "Sign up").click();
+    expect(alertText(root)).toBe("");
+  });
+
+  it("disables the submit button while the request is in flight, ignoring double submits", async () => {
+    const ada = await signedUp("Ada");
+    const api = newApi();
+    const ctl = instrument(api);
+    const release = ctl.hold("logIn");
+    mount(api);
+    fill(root, { email: ada.email, password: ada.password });
+    submit(root);
+    const button = root.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+    expect(button.disabled).toBe(true);
+    submit(root);
+    expect(ctl.calls("logIn")).toBe(1);
+    release();
+    await vi.waitFor(() => expect(onLogin).toHaveBeenCalledTimes(1));
+    expect(button.disabled).toBe(false);
+  });
+
+  it("unmount removes its listeners and content", async () => {
+    const api = newApi();
+    const ctl = instrument(api);
+    const { view } = mount(api);
+    const form = root.querySelector("form")!;
+    view.unmount();
+    expect(root.childNodes).toHaveLength(0);
+    form.dispatchEvent(new Event("submit", { cancelable: true }));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(ctl.calls("logIn")).toBe(0);
+  });
+});

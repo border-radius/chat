@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import PocketBase, { ClientResponseError, type RecordModel, type RecordSubscription } from "pocketbase";
 import { expect, inject } from "vitest";
-import { SUPERUSER } from "./setup/pocketbase.ts";
+import { SUPERUSER } from "../support/pocketbase.ts";
 
 let seq = 0;
 export const uniq = () => `${Date.now().toString(36)}${(seq++).toString(36)}`;

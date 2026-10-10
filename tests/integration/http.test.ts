@@ -11,6 +11,7 @@ describe("security and cache headers (§5.6)", () => {
     await mkdir(join(pub, "assets"), { recursive: true });
     await writeFile(join(pub, "index.html"), "<!doctype html><title>Chat</title>");
     await writeFile(join(pub, "assets/app-TEST1234.js"), "console.log(1)");
+    await writeFile(join(pub, "assets/app.js"), "console.log(2)"); // unhashed, as written by npm run dev
   });
 
   it("GET / sends CSP, nosniff and referrer policy", async () => {
@@ -40,6 +41,12 @@ describe("security and cache headers (§5.6)", () => {
     const res = await fetch(url("/assets/app-TEST1234.js"));
     expect(res.status).toBe(200);
     expect(res.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+  });
+
+  it("unhashed assets (dev build) are not cached, so rebuilds show up on reload", async () => {
+    const res = await fetch(url("/assets/app.js"));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("no-cache");
   });
 
   it("index.html is never cached", async () => {

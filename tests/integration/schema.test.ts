@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import PocketBase, { type CollectionModel } from "pocketbase";
 import { beforeAll, describe, expect, it } from "vitest";
-import { SUPERUSER, startPocketBase } from "./setup/pocketbase.ts";
+import { SUPERUSER, startPocketBase } from "../support/pocketbase.ts";
 import { adminClient } from "./helpers.ts";
 
 type Field = { name: string; type: string; required?: boolean; min?: number; max?: number; [k: string]: unknown };
