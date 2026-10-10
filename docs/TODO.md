@@ -346,29 +346,43 @@ Everything in this phase is pure TypeScript with no DOM and no network, so the t
 ## Phase 4 — Rooms list (M4)
 
 ### 4.1 Rendering and creation
-- [ ] 🔴 `views/rooms.test.ts`:
+- [x] 🔴 `views/rooms.test.ts`:
   - **Sections:** Rooms, Hidden (collapsed, with a count) and Archived (collapsed) are rendered from real API data.
   - **New room form:**
     - creating a room calls `rooms.create` and the room appears;
     - a duplicate-name error from the server appears inline.
-- [ ] 🟢 Rooms view and the sidebar layout
+- [x] 🟢 Rooms view and the sidebar layout
 
 ### 4.2 Hide and unhide
-- [ ] 🔴 Hide calls `hidden_rooms.create` and moves the room to Hidden. Unhide calls `delete` with the row id and moves it back.
-- [ ] 🔴 A realtime `hidden_rooms` event from another tab updates the sections
-- [ ] 🔴 New messages in a hidden room cause **no** UI change in the list
-- [ ] 🟢 Implement
+- [x] 🔴 Hide calls `hidden_rooms.create` and moves the room to Hidden. Unhide calls `delete` with the row id and moves it back.
+- [x] 🔴 A realtime `hidden_rooms` event from another tab updates the sections
+- [x] 🔴 New messages in a hidden room cause **no** UI change in the list
+- [x] 🟢 Implement
 
 ### 4.3 Archive and unarchive
-- [ ] 🔴 The Archive action is visible only to the creator. It shows an inline confirm, and only Confirm calls `rooms.update({archived: true})`.
-- [ ] 🔴 A realtime room `update` with `archived: true` moves the room to Archived. Unarchive moves it back.
-- [ ] 🟢 Implement
+- [x] 🔴 The Archive action is visible only to the creator. It shows an inline confirm, and only Confirm calls `rooms.update({archived: true})`.
+- [x] 🔴 A realtime room `update` with `archived: true` moves the room to Archived. Unarchive moves it back.
+- [x] 🟢 Implement
 
 ### 4.4 Realtime room list
-- [ ] 🔴 A room created elsewhere appears, and a rename updates its label. `unmount` unsubscribes.
-- [ ] 🟢 Implement
+- [x] 🔴 A room created elsewhere appears, and a rename updates its label. `unmount` unsubscribes.
+- [x] 🟢 Implement
 
 **✅ Gate 4:** unit tests are green. Manual smoke test of the room list in two browsers.
+  - **Status (2026-10-10): passed.**
+    - 154 unit tests and 112 integration tests are green, and so is the e2e smoke test. JS is 15.2 KB gzipped.
+    - Hands-on walkthrough on `npm run dev` with two users in separate browser contexts:
+      - create, case-insensitive duplicate error, sorting
+      - hide/unhide affecting only one user, archive with confirm reaching the other user live
+      - no archive menu for a non-creator, hide state surviving a reload, keyboard-operable menus
+  - **Bugs found:**
+    - The walkthrough found an action menu staying open after the room moved sections. Fixed, with a test.
+    - A mutation check showed the "ignore events after unmount" guard was untested, because the real unsubscribe finished before the next event. A test now fires an event inside that window.
+  - **Implementation notes:**
+    - `views/rooms.ts` re-renders from `roomSections(store)`. Open sections, the open row menu and a pending archive confirm are kept across re-renders.
+    - Actions update the store from the server response, and realtime echoes are idempotent.
+    - A reconnect reloads both lists.
+    - Per-room actions live in a `<details>` menu on each row. The room-header menu (§7.1) comes with the room view in Phase 5.
 
 ---
 

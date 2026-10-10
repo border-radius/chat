@@ -73,6 +73,8 @@ describe("app boot (§7.1, TODO 3.5)", () => {
     await vi.waitFor(() => expect(location.hash).toBe("#/"));
     expect(app.store.get().user).toEqual(ada.user);
     expect(logoutButton()).toBeDefined();
+    expect(root.querySelector('nav[aria-label="Rooms"]')).not.toBeNull();
+    expect(root.querySelector('form.new-room input[name="name"]')).not.toBeNull();
   });
 
   it("log out clears auth, drops realtime subscriptions and returns to login", async () => {
@@ -86,6 +88,7 @@ describe("app boot (§7.1, TODO 3.5)", () => {
     expect(app.store.get().user).toBeNull();
     expect(location.hash).toBe("#/login");
     expect(logoutButton()).toBeUndefined();
+    expect(app.store.get().rooms.size).toBe(0);
   });
 
   it("after logout, going back to a room shows the login screen, not room content", async () => {

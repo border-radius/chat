@@ -5,6 +5,7 @@ import { clear, h } from "./dom.ts";
 import { createRouter, type Router, type View } from "./router.ts";
 import { createStore, initialState, type AppState, type Store } from "./store.ts";
 import { createLoginView } from "./views/login.ts";
+import { createRoomsView } from "./views/rooms.ts";
 
 export interface App {
   store: Store<AppState>;
@@ -69,7 +70,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
             },
           }),
       },
-      { pattern: "#/", view: placeholder("Rooms") },
+      { pattern: "#/", view: () => createRoomsView({ api, store, navigate: (hash) => router.navigate(hash) }) },
       { pattern: "#/r/:id", view: placeholder("Room") },
       { pattern: "#/r/:id/m/:msgId", view: placeholder("Room") },
     ],
