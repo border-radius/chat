@@ -1,9 +1,10 @@
 // Room list (§7.1): Rooms / Hidden / Archived sections, new-room form, per-room actions.
 // The data comes from the store, kept live by sync.ts; this view only renders it and issues commands.
 
-import { ApiError } from "../api.ts";
+import { ApiError, errorMessage } from "../api.ts";
 import type { Ctx } from "../context.ts";
 import { clear, h } from "../dom.ts";
+import { LIMITS } from "../lib/limits.ts";
 import type { Room } from "../lib/types.ts";
 import type { View } from "../router.ts";
 import { createScope, type Scope } from "../scope.ts";
@@ -15,14 +16,9 @@ type Section = "rooms" | "hidden" | "archived";
 let uid = 0;
 
 function nameError(err: unknown): string {
-  if (err instanceof ApiError) {
-    const msg = err.fields.name;
-    if (msg === "Value must be unique.") return "A room with this name already exists.";
-    if (msg) return msg;
-    if (err.status === 0) return "Can't reach the server. Check your connection.";
-    return err.message;
-  }
-  return "Something went wrong. Please try again.";
+  if (err instanceof ApiError && err.codes.name === "validation_not_unique") return "A room with this name already exists.";
+  if (err instanceof ApiError && err.fields.name) return err.fields.name;
+  return errorMessage(err);
 }
 
 export function createRoomsView({ store, sync, actions, navigate }: Ctx): View {
@@ -147,7 +143,7 @@ export function createRoomsView({ store, sync, actions, navigate }: Ctx): View {
       id: inputId,
       name: "name",
       required: true,
-      maxlength: 48,
+      maxlength: LIMITS.roomName,
       autocomplete: "off",
       placeholder: "general",
       "aria-describedby": errId,

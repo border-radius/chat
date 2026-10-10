@@ -21,6 +21,11 @@ export interface NewMessage {
   text: string;
 }
 
+/**
+ * Reads take an optional AbortSignal: views pass their scope's, so leaving a view cancels its pending requests
+ * (they then reject with status 0). Writes take none on purpose: a send or edit should still reach the server
+ * if the user navigates away while it is in flight.
+ */
 export interface Api {
   // auth
   currentUser(): User | null;
@@ -31,19 +36,19 @@ export interface Api {
   logOut(): void;
 
   // rooms
-  listRooms(): Promise<Room[]>;
-  getRoom(id: string): Promise<Room>;
+  listRooms(signal?: AbortSignal): Promise<Room[]>;
+  getRoom(id: string, signal?: AbortSignal): Promise<Room>;
   createRoom(name: string): Promise<Room>;
   setArchived(id: string, archived: boolean): Promise<Room>;
 
   // hidden rooms
-  listHidden(): Promise<HiddenRow[]>;
+  listHidden(signal?: AbortSignal): Promise<HiddenRow[]>;
   hideRoom(room: string): Promise<HiddenRow>;
   unhideRoom(rowId: string): Promise<void>;
 
   // messages
   page(q: PageQuery, signal?: AbortSignal): Promise<Message[]>;
-  getMessage(id: string): Promise<Message>;
+  getMessage(id: string, signal?: AbortSignal): Promise<Message>;
   send(m: NewMessage): Promise<Message>;
   edit(id: string, text: string): Promise<Message>;
   softDelete(id: string): Promise<Message>;
@@ -62,13 +67,25 @@ export class ApiError extends Error {
   readonly status: number;
   /** Per-field validation messages, e.g. { email: "Must be a valid email." } */
   readonly fields: Record<string, string>;
+  /** Per-field validation codes, e.g. { name: "validation_not_unique" }. Match on these, not on messages. */
+  readonly codes: Record<string, string>;
 
-  constructor(message: string, status: number, fields: Record<string, string> = {}) {
+  constructor(message: string, status: number, fields: Record<string, string> = {}, codes: Record<string, string> = {}) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.fields = fields;
+    this.codes = codes;
   }
+}
+
+/** A sentence to show for a failed request: network trouble, rate limiting, or the server's own message. */
+export function errorMessage(err: unknown): string {
+  if (!(err instanceof ApiError)) return "Something went wrong. Please try again.";
+  if (err.status === 0) return "Can't reach the server. Check your connection.";
+  // e.g. PocketBase's default `*:auth` limit (2 requests per 3 seconds) or our messages/signup limits
+  if (err.status === 429) return "Too many attempts. Wait a few seconds and try again.";
+  return err.message;
 }
 
 // ---- PocketBase implementation ----
@@ -79,14 +96,15 @@ const HIDDEN_FIELDS = "id,room";
 function toApiError(e: unknown): ApiError {
   if (e instanceof ApiError) return e;
   if (e instanceof ClientResponseError) {
-    const data = (e.response?.data ?? {}) as Record<string, { message?: string }>;
-    const fields = Object.fromEntries(
-      Object.entries(data)
-        .filter(([, v]) => v && typeof v.message === "string")
-        .map(([k, v]) => [k, v.message!]),
-    );
+    const data = (e.response?.data ?? {}) as Record<string, { message?: unknown; code?: unknown }>;
+    const pick = (key: "message" | "code") =>
+      Object.fromEntries(
+        Object.entries(data)
+          .filter(([, v]) => v && typeof v[key] === "string")
+          .map(([k, v]) => [k, v[key] as string]),
+      );
     const message = (e.response?.message as string | undefined) || e.message;
-    return new ApiError(message, e.isAbort ? 0 : e.status, fields);
+    return new ApiError(message, e.isAbort ? 0 : e.status, pick("message"), pick("code"));
   }
   return new ApiError(e instanceof Error ? e.message : String(e), 0);
 }
@@ -100,6 +118,9 @@ async function wrap<T>(p: Promise<T>): Promise<T> {
 }
 
 const toUser = (r: RecordModel): User => ({ id: r.id, name: r.name as string });
+
+/** `{ signal }` when there is one (exactOptionalPropertyTypes: never pass `signal: undefined`). */
+const abortable = (signal: AbortSignal | undefined) => (signal ? { signal } : {});
 
 export function createApi(pb: PocketBase): Api {
   pb.autoCancellation(false);
@@ -134,22 +155,22 @@ export function createApi(pb: PocketBase): Api {
       pb.authStore.clear();
     },
 
-    listRooms: () => wrap(rooms().getFullList<Room>({ sort: "name", fields: ROOM_FIELDS })),
-    getRoom: (id) => wrap(rooms().getOne<Room>(id, { fields: ROOM_FIELDS })),
+    listRooms: (signal) => wrap(rooms().getFullList<Room>({ sort: "name", fields: ROOM_FIELDS, ...abortable(signal) })),
+    getRoom: (id, signal) => wrap(rooms().getOne<Room>(id, { fields: ROOM_FIELDS, ...abortable(signal) })),
     createRoom: async (name) => wrap(rooms().create<Room>({ name, created_by: me() }, { fields: ROOM_FIELDS })),
     setArchived: (id, archived) => wrap(rooms().update<Room>(id, { archived }, { fields: ROOM_FIELDS })),
 
-    listHidden: () => wrap(hidden().getFullList<HiddenRow>({ fields: HIDDEN_FIELDS })),
+    listHidden: (signal) => wrap(hidden().getFullList<HiddenRow>({ fields: HIDDEN_FIELDS, ...abortable(signal) })),
     hideRoom: async (room) => wrap(hidden().create<HiddenRow>({ user: me(), room }, { fields: HIDDEN_FIELDS })),
     unhideRoom: async (rowId) => {
       await wrap(hidden().delete(rowId));
     },
 
     async page(q, signal) {
-      const opts = { ...listOptions(q, pb.filter.bind(pb)), ...(signal ? { signal } : {}) };
+      const opts = { ...listOptions(q, pb.filter.bind(pb)), ...abortable(signal) };
       return (await wrap(messages().getList<Message>(1, PAGE_SIZE, opts))).items;
     },
-    getMessage: (id) => wrap(messages().getOne<Message>(id, msgOpts)),
+    getMessage: (id, signal) => wrap(messages().getOne<Message>(id, { ...msgOpts, ...abortable(signal) })),
     send: async (m) => wrap(messages().create<Message>({ id: m.id, room: m.room, author: me(), text: m.text }, msgOpts)),
     edit: (id, text) => wrap(messages().update<Message>(id, { text }, msgOpts)),
     softDelete: (id) => wrap(messages().update<Message>(id, { deleted: true }, msgOpts)),

@@ -2,8 +2,9 @@
 // Up arrow in an empty composer to edit your last message.
 
 import { h } from "../../dom.ts";
+import { LIMITS } from "../../lib/limits.ts";
 
-export const MAX_LEN = 2000;
+const MAX_LEN = LIMITS.messageText;
 const COUNTER_FROM = 1800;
 const MAX_ROWS = 6;
 

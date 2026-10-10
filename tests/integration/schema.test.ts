@@ -4,6 +4,7 @@ import { join } from "node:path";
 import PocketBase, { type CollectionModel } from "pocketbase";
 import { beforeAll, describe, expect, it } from "vitest";
 import { SUPERUSER, startPocketBase } from "../support/pocketbase.ts";
+import { LIMITS } from "../../web/src/lib/limits.ts";
 import { adminClient } from "./helpers.ts";
 
 type Field = { name: string; type: string; required?: boolean; min?: number; max?: number; [k: string]: unknown };
@@ -21,6 +22,13 @@ describe("schema (§5)", () => {
 
   it("users.name is required, 1–32 chars", () => {
     expect(fieldsOf(cols.users!).name).toMatchObject({ type: "text", required: true, min: 1, max: 32 });
+  });
+
+  it("the frontend's LIMITS (web/src/lib/limits.ts) match the schema", () => {
+    expect(fieldsOf(cols.users!).name!.max).toBe(LIMITS.userName);
+    expect(fieldsOf(cols.users!).password!.min).toBe(LIMITS.passwordMin);
+    expect(fieldsOf(cols.rooms!).name!.max).toBe(LIMITS.roomName);
+    expect(fieldsOf(cols.messages!).text!.max).toBe(LIMITS.messageText);
   });
 
   it("users do not require verification", () => {

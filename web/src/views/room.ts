@@ -136,7 +136,7 @@ export function createRoomView({ api, store, actions }: Ctx): View {
     loading[side] = true;
     const g = gen;
     try {
-      const page = side === "top" ? await api.page(older(roomId, win.items[0]!)) : await api.page(newer(roomId, win.items.at(-1)!));
+      const page = side === "top" ? await api.page(older(roomId, win.items[0]!), signal) : await api.page(newer(roomId, win.items.at(-1)!), signal);
       if (applyLoaded(side === "top" ? "older" : "newer", page, g)) render({ anchor: true });
     } catch {
       /* the sentinel will trigger again */
@@ -150,7 +150,7 @@ export function createRoomView({ api, store, actions }: Ctx): View {
     const g = ++gen;
     loading.top = loading.bottom = false;
     setPill(null);
-    const page = await api.page(kind === "latest" ? latest(roomId) : first(roomId)).catch(() => null);
+    const page = await api.page(kind === "latest" ? latest(roomId) : first(roomId), signal).catch(() => null);
     if (!page || !applyLoaded(kind, page, g)) return;
     targetId = null;
     render();
@@ -160,20 +160,20 @@ export function createRoomView({ api, store, actions }: Ctx): View {
 
   /** The window around message `msgId`, or null when it isn't in this room. Rejects if a page fails. */
   async function windowAround(msgId: string): Promise<{ win: MessageWindow; target: string } | null> {
-    const target = await api.getMessage(msgId).catch(() => null);
+    const target = await api.getMessage(msgId, signal).catch(() => null);
     if (!target || target.room !== roomId) return null;
-    const [before, after] = await Promise.all([api.page(older(roomId, target)), api.page(newer(roomId, target))]);
+    const [before, after] = await Promise.all([api.page(older(roomId, target), signal), api.page(newer(roomId, target), signal)]);
     const win = merge({ items: [], hasOlder: before.length >= PAGE_SIZE, hasNewer: after.length >= PAGE_SIZE }, [...before, target, ...after]);
     return { win, target: target.id };
   }
 
   async function open(msgId: string | undefined) {
     const g = ++gen;
-    const roomP = api.getRoom(roomId).then((r) => store.set(upsertRoom(r)));
+    const roomP = api.getRoom(roomId, signal).then((r) => store.set(upsertRoom(r)));
     // Loaders only return a window; it is committed below, and only if nothing (a jump) replaced it meanwhile.
     const pageP = (async () => {
       const around = msgId ? await windowAround(msgId) : null;
-      return around ?? { win: applyPage(emptyWindow(), await api.page(latest(roomId)), "latest").win, target: null };
+      return around ?? { win: applyPage(emptyWindow(), await api.page(latest(roomId), signal), "latest").win, target: null };
     })();
     pageP.catch(() => {}); // handled below; but we may return early (room not found) without awaiting it
     try {
@@ -212,7 +212,7 @@ export function createRoomView({ api, store, actions }: Ctx): View {
     const wasNear = isNearBottom(list);
     for (;;) {
       const last = [...win.items].reverse().find((m) => !m.status);
-      const page = await api.page(last ? newer(roomId, last) : latest(roomId)).catch(() => null);
+      const page = await api.page(last ? newer(roomId, last) : latest(roomId), signal).catch(() => null);
       if (!page || g !== gen || !scope.active) return;
       win = applyPage(win, page, last ? "newer" : "latest").win;
       if (page.length < PAGE_SIZE) break;
@@ -291,7 +291,7 @@ export function createRoomView({ api, store, actions }: Ctx): View {
     } catch (e) {
       if (!scope.active) return;
       // A retry of a send that already reached the server fails with a duplicate id: it was sent after all.
-      const recovered = e instanceof ApiError && e.status === 400 ? await api.getMessage(msg.id).catch(() => null) : null;
+      const recovered = e instanceof ApiError && e.status === 400 ? await api.getMessage(msg.id, signal).catch(() => null) : null;
       if (recovered && recovered.author === me()?.id) win = merge(win, [recovered]);
       else if (find(msg.id)?.status) win = merge(win, [{ ...msg, status: "failed" }]);
     }

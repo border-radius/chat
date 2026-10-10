@@ -209,6 +209,20 @@ describe("room view (§7.5–7.6, TODO Phase 5)", () => {
       expect(composer()).toBeNull();
     });
 
+    it("unmount cancels the room's pending reads", async () => {
+      const room = await newRoom();
+      const signals: (AbortSignal | undefined)[] = [];
+      intercept(me.api, "getRoom", (original) => (id, signal) => (signals.push(signal), original(id, signal)));
+      intercept(me.api, "page", (original) => (q, signal) => (signals.push(signal), original(q, signal)));
+      view = createRoomView(viewContext(me.api, store, navigate));
+      view.mount(root, { id: room.id });
+      expect(signals).toHaveLength(2);
+      expect(signals.every((s) => s && !s.aborted)).toBe(true);
+      view.unmount();
+      view = undefined;
+      expect(signals.every((s) => s!.aborted)).toBe(true);
+    });
+
     it("unmount unsubscribes and ignores events still in flight", async () => {
       const room = await newRoom();
       const handlers = captureHandler(me.api);

@@ -6,8 +6,9 @@ state and lifecycle live**. Today every view repeats its own copy of them.
 
 Ordered by value ÷ effort. Each item should keep `npm run check` and e2e green, and should land on its own.
 
-**Progress:** items 1, 2, 3, 5, 6 and 7 are done; 4 is done except for the optional DOM-free controller; parts of 11 are done.
-New modules: `sync.ts`, `actions.ts`, `context.ts`, `scope.ts`, `ui/menu.ts`, `views/room/{header,messages,composer}.ts`.
+**Progress:** items 1, 2, 3, 5, 6, 7, 8 and 9 are done; 4 is done except for the optional DOM-free controller; parts of 11 are done.
+New modules: `sync.ts`, `actions.ts`, `context.ts`, `scope.ts`, `ui/menu.ts`, `views/room/{header,messages,composer}.ts`,
+`lib/limits.ts`. Writes stay unabortable on purpose (a send in flight should still land after navigating away).
 
 ---
 
@@ -76,20 +77,20 @@ Every view has the same fields: `ac`, `active`, `subs: Promise<Unsubscribe>[]`, 
       `unmount` then becomes `scope.dispose(); clear(root)`.
 - [x] Remove `dom.ts`'s `on()` and its test. Nothing in `web/src` uses it, and `h(..., { on, signal })` covers it.
 
-### 8. Actually abort in-flight requests on unmount
-- [ ] DESIGN §7.2 says unmount aborts fetches. In practice `autoCancellation(false)` is set, only `api.page`
+### 8. Actually abort in-flight requests on unmount ✅
+- [x] DESIGN §7.2 says unmount aborts fetches. In practice `autoCancellation(false)` is set, only `api.page`
       accepts a signal, and `room.ts` never passes one. Results are dropped by the `active`/`gen` guards, but the
       requests still run.
-- [ ] Give every read method in `Api` an optional `signal`, and pass `scope.signal` (item 7).
+- [x] Give every read method in `Api` an optional `signal`, and pass `scope.signal` (item 7).
 
-### 9. Shared limits and error text
-- [ ] Limits live in several places: message max 2000 (`room.ts:24`, migration), name max 32 (`login.ts:25`,
+### 9. Shared limits and error text ✅
+- [x] Limits live in several places: message max 2000 (`room.ts:24`, migration), name max 32 (`login.ts:25`,
       migration), room name max 48 (`rooms.ts:236`, migration), password min 8 (`login.ts:27`). Move them to
       `web/src/lib/limits.ts`, and add an integration test asserting the live schema matches them (field
       `max`/`min` from `/api/collections`).
-- [ ] "Can't reach the server…" / "Something went wrong…" are written out separately in `login.ts` and
+- [x] "Can't reach the server…" / "Something went wrong…" are written out separately in `login.ts` and
       `rooms.ts`, and differently again in `room.ts`. Add `describeError(err, overrides?)` next to `ApiError`.
-- [ ] `rooms.ts:22` matches the server's English string `"Value must be unique."`. Match the validation **code**
+- [x] `rooms.ts:22` matches the server's English string `"Value must be unique."`. Match the validation **code**
       instead (`validation_not_unique`): keep `code` on `ApiError.fields` in `toApiError`.
 
 ### 10. Keep SDK details in `api.ts`

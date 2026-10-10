@@ -1,7 +1,8 @@
 // Login / signup screen (§7.1).
 
-import { ApiError, type Api } from "../api.ts";
+import { ApiError, errorMessage, type Api } from "../api.ts";
 import { clear, h } from "../dom.ts";
+import { LIMITS } from "../lib/limits.ts";
 import type { User } from "../lib/types.ts";
 import type { View } from "../router.ts";
 
@@ -22,22 +23,15 @@ const FIELDS: Record<Mode, FieldSpec[]> = {
     { name: "password", label: "Password", type: "password", autocomplete: "current-password" },
   ],
   signup: [
-    { name: "name", label: "Display name", type: "text", autocomplete: "nickname", extra: { maxlength: 32 } },
+    { name: "name", label: "Display name", type: "text", autocomplete: "nickname", extra: { maxlength: LIMITS.userName } },
     { name: "email", label: "Email", type: "email", autocomplete: "email" },
-    { name: "password", label: "Password", type: "password", autocomplete: "new-password", extra: { minlength: 8 } },
+    { name: "password", label: "Password", type: "password", autocomplete: "new-password", extra: { minlength: LIMITS.passwordMin } },
   ],
 };
 
 const TITLES: Record<Mode, string> = { login: "Log in", signup: "Sign up" };
 
 let uid = 0;
-
-function formMessage(err: ApiError): string {
-  if (err.status === 0) return "Can't reach the server. Check your connection.";
-  // PocketBase's default `*:auth` rate limit is 2 requests per 3 seconds.
-  if (err.status === 429) return "Too many attempts. Wait a few seconds and try again.";
-  return err.message;
-}
 
 export function createLoginView(deps: { api: Api; onLogin: (user: User) => void }): View {
   let ac: AbortController | null = null;
@@ -134,9 +128,10 @@ export function createLoginView(deps: { api: Api; onLogin: (user: User) => void 
     } catch (e) {
       busy = false;
       if (!ac || ac.signal.aborted) return; // unmounted meanwhile
-      const err = e instanceof ApiError ? e : new ApiError("Something went wrong. Please try again.", 0);
-      const fields = Object.fromEntries(Object.entries(err.fields).filter(([k]) => FIELDS[mode].some((f) => f.name === k)));
-      render({ form: Object.keys(fields).length ? "" : formMessage(err), fields });
+      // Errors for fields on screen go next to them; anything else (network, rate limit, …) above the button.
+      const all = e instanceof ApiError ? e.fields : {};
+      const fields = Object.fromEntries(Object.entries(all).filter(([k]) => FIELDS[mode].some((f) => f.name === k)));
+      render({ form: Object.keys(fields).length ? "" : errorMessage(e), fields });
     }
   }
 

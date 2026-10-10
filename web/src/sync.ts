@@ -21,7 +21,7 @@ export function createSync({ api, store }: { api: Api; store: Store<AppState> })
   async function load(s: Scope) {
     if (store.get().roomsStatus !== "ready") store.set({ roomsStatus: "loading" });
     try {
-      const [rooms, hidden] = await Promise.all([api.listRooms(), api.listHidden()]);
+      const [rooms, hidden] = await Promise.all([api.listRooms(s.signal), api.listHidden(s.signal)]);
       if (!s.active) return;
       store.set({
         rooms: new Map(rooms.map((x) => [x.id, x])),

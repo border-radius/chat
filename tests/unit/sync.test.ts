@@ -104,6 +104,15 @@ describe("sync (room list + hidden rows)", () => {
     expect(store.get().rooms.has("zzzzzzzzzzzzzzz")).toBe(false);
   });
 
+  it("stop() cancels a load in flight", async () => {
+    const signals: (AbortSignal | undefined)[] = [];
+    const original = me.api.listRooms.bind(me.api);
+    vi.spyOn(me.api, "listRooms").mockImplementation((signal) => (signals.push(signal), original(signal)));
+    start();
+    sync!.stop();
+    expect(signals[0]?.aborted).toBe(true);
+  });
+
   it("a load that finishes after stop() is discarded", async () => {
     const ctl = instrument(me.api);
     const release = ctl.hold("listRooms");

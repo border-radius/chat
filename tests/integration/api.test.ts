@@ -93,6 +93,7 @@ describe("createApi", () => {
       const err = await rejection(b.createRoom(name.toLowerCase()));
       expect(err.status).toBe(400);
       expect(Object.keys(err.fields)).toContain("name");
+      expect(err.codes.name).toBe("validation_not_unique"); // what the room list matches on
     });
 
     it("only the creator can archive and unarchive", async () => {
@@ -207,12 +208,20 @@ describe("createApi", () => {
       expect(await anon.page(latest(room.id))).toEqual([]);
     });
 
-    it("an aborted page request rejects", async () => {
+    it("every read accepts a signal; aborted reads reject with status 0 (network-like, never 'logged out')", async () => {
       const { a } = await setup();
       const room = await a.createRoom(`ab-${uniq()}`);
+      const m = await a.send({ id: newId(), room: room.id, text: "hi" });
       const ac = new AbortController();
       ac.abort();
-      await expect(a.page(latest(room.id), ac.signal)).rejects.toBeTruthy();
+      const reads = [
+        a.page(latest(room.id), ac.signal),
+        a.listRooms(ac.signal),
+        a.listHidden(ac.signal),
+        a.getRoom(room.id, ac.signal),
+        a.getMessage(m.id, ac.signal),
+      ];
+      for (const read of reads) expect((await rejection(read)).status).toBe(0);
     });
   });
 
