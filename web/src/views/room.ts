@@ -1,98 +1,42 @@
 // Room view (§7.5, §7.6): windowed message history, optimistic send, edit, soft delete, archived mode.
+// This module owns the message window and everything that changes it (loading, realtime, sending, edits).
+// The DOM parts live in room/: header (title + actions menu), messages (the list), composer.
 
-import { ApiError, type Action, type Api } from "../api.ts";
-import { clear, h, reconcile } from "../dom.ts";
+import { ApiError, type Action } from "../api.ts";
+import type { Ctx } from "../context.ts";
+import { clear, h } from "../dom.ts";
 import { PAGE_SIZE, first, latest, newer, older } from "../lib/cursor.ts";
 import { newId } from "../lib/id.ts";
-import {
-  applyPage,
-  emptyWindow,
-  lastOwnEditable,
-  merge,
-  remove,
-  startsGroup,
-  trim,
-  type MessageWindow,
-  type PageKind,
-} from "../lib/messages.ts";
-import { captureAnchor, isNearBottom, restoreAnchor } from "../lib/scroll.ts";
-import { dayLabel, formatFull, formatTime, parsePb, toPb } from "../lib/time.ts";
+import { applyPage, emptyWindow, lastOwnEditable, merge, remove, trim, type MessageWindow, type PageKind } from "../lib/messages.ts";
+import { isNearBottom } from "../lib/scroll.ts";
+import { parsePb, toPb } from "../lib/time.ts";
 import type { Message, Room } from "../lib/types.ts";
-import type { Ctx } from "../context.ts";
 import type { View } from "../router.ts";
+import { createScope } from "../scope.ts";
 import { upsertRoom } from "../store.ts";
-
-const MAX_LEN = 2000;
-const COUNTER_FROM = 1800;
-
-interface MsgError {
-  text: string;
-  retry: () => void;
-}
+import { createComposer, validText } from "./room/composer.ts";
+import { createRoomHeader } from "./room/header.ts";
+import { createMessageList } from "./room/messages.ts";
 
 let uid = 0;
 
 export function createRoomView({ api, store, actions }: Ctx): View {
   const vid = `room-${++uid}`;
+  const scope = createScope();
+  const { signal } = scope;
+  let root: HTMLElement;
   let roomId = "";
   let targetId: string | null = null;
-  let root: HTMLElement;
-  let ac: AbortController;
-  let active = false;
 
   // message window state
   let win: MessageWindow = emptyWindow();
+  /** Bumped whenever the window is replaced (a jump): pages requested before that are stale. */
   let gen = 0;
   let ready = false;
+  /** Realtime events that arrive before the first page; replayed once it is in. */
   let buffer: [Action, Message][] = [];
-  let loadingOlder = false;
-  let loadingNewer = false;
+  const loading = { top: false, bottom: false };
   let pillMode: "below" | "history" | null = null;
-
-  // per-message UI state
-  let editing: string | null = null;
-  let focusEdit = false;
-  let confirmDelete: string | null = null;
-  const errors = new Map<string, MsgError>();
-  const cache = new Map<string, { sig: string; el: HTMLElement }>();
-  const dividers = new Map<string, HTMLElement>();
-
-  // header UI state
-  let menuOpen = false;
-  let confirmArchive = false;
-  /** Selector (within the room) to focus after the next render; the elements are rebuilt. */
-  let focusAfter: string | null = null;
-  const msgSel = (id: string) => `li.msg[data-id="${id}"]`;
-  const applyFocus = () => {
-    if (!focusAfter) return;
-    shell.querySelector<HTMLElement>(focusAfter)?.focus();
-    focusAfter = null;
-  };
-
-  let observer: IntersectionObserver | null = null;
-  let subs: Promise<() => Promise<void>>[] = [];
-  let offStore = () => {};
-  let offConnect = () => {};
-
-  // persistent elements
-  const shell = h("section", { class: "room", "aria-labelledby": `${vid}-title` });
-  const header = h("header", { class: "room-header" });
-  const list = h("ol", { class: "messages", "aria-live": "polite", "aria-busy": "true", "aria-label": "Messages" });
-  const topSentinel = h("li", { class: "sentinel", dataset: { sentinel: "top" }, "aria-hidden": "true" });
-  const bottomSentinel = h("li", { class: "sentinel", dataset: { sentinel: "bottom" }, "aria-hidden": "true" });
-  const beginning = h("li", { class: "beginning" });
-  const pill = h("button", { type: "button", class: "new-messages", hidden: true });
-  const footer = h("footer", { class: "room-footer" });
-  const banner = h("p", { class: "archived-banner" }, "This room is archived. History is read-only.");
-  const textarea = h("textarea", { name: "text", rows: 1, id: `${vid}-text`, autocomplete: "off" });
-  const counter = h("span", { class: "counter", "aria-live": "polite" });
-  const sendBtn = h("button", { type: "submit", disabled: true }, "Send");
-  const composer = h("form", { class: "composer" }, [
-    h("label", { for: `${vid}-text`, class: "visually-hidden" }, "Message"),
-    textarea,
-    counter,
-    sendBtn,
-  ]);
 
   const room = (): Room | undefined => store.get().rooms.get(roomId);
   const me = () => store.get().user;
@@ -105,327 +49,109 @@ export function createRoomView({ api, store, actions }: Ctx): View {
   const patchLocal = (id: string, patch: Partial<Message>) => {
     win = { ...win, items: win.items.map((m) => (m.id === id ? { ...m, ...patch } : m)) };
   };
+
+  // ---------------------------------------------------------------- parts
+
+  const header = createRoomHeader({ titleId: `${vid}-title`, actions, onJumpToBeginning: () => void jump("first"), signal });
+  const messages = createMessageList({
+    state: () => ({ win, ready, roomName: room()?.name, targetId }),
+    me,
+    editable,
+    onSaveEdit: (id, text) => void saveEdit(id, text),
+    onCancelEdit: () => composer.focus(),
+    onDelete: (id) => void doDelete(id),
+    onRetrySend: (id) => void retrySend(id),
+    onDiscard: (id) => {
+      win = remove(win, id);
+      render();
+    },
+    signal,
+  });
+  const composer = createComposer({
+    id: `${vid}-text`,
+    onSend: (text) => {
+      const user = me();
+      const r = room();
+      if (!user || !r || r.archived) return false;
+      void send(text, user);
+      return true;
+    },
+    onEditLast: () => {
+      const mine = lastOwnEditable(win, me()?.id ?? "");
+      if (!mine || !editable(mine)) return false;
+      messages.startEdit(mine.id);
+      return true;
+    },
+    signal,
+  });
+  const list = messages.el;
+  const pill = h("button", { type: "button", class: "new-messages", hidden: true });
+  const footer = h("footer", { class: "room-footer" });
+  const banner = h("p", { class: "archived-banner" }, "This room is archived. History is read-only.");
+  const shell = h("section", { class: "room", "aria-labelledby": `${vid}-title` }, [
+    header.el,
+    h("div", { class: "room-body" }, [list, pill]),
+    footer,
+  ]);
+
+  const render = messages.render;
   const scrollToBottom = () => (list.scrollTop = list.scrollHeight);
 
-  // ---------------------------------------------------------------- rendering
-
-  function messageNode(m: Message, groupStart: boolean): HTMLElement {
-    const err = errors.get(m.id);
-    const sig = JSON.stringify([
-      m.text,
-      m.deleted,
-      m.edited_at,
-      m.status ?? "",
-      m.created,
-      groupStart,
-      editable(m),
-      editing === m.id,
-      confirmDelete === m.id,
-      err?.text ?? "",
-      targetId === m.id,
-      m.expand?.author?.name ?? "",
-    ]);
-    const hit = cache.get(m.id);
-    if (hit && hit.sig === sig) return hit.el;
-
-    const { signal } = ac;
-    const btn = (label: string, onClick: () => void, cls?: string) =>
-      h("button", { type: "button", ...(cls ? { class: cls } : {}), on: { click: onClick }, signal }, label);
-    const ms = parsePb(m.created);
-    const name = m.expand?.author?.name ?? (m.author === me()?.id ? me()!.name : "Unknown");
-    const cls = ["msg", groupStart && "group-start", m.status, m.deleted && "deleted", targetId === m.id && "target"].filter(Boolean).join(" ");
-
-    const parts: (HTMLElement | null)[] = [];
-    if (groupStart) {
-      parts.push(
-        h("div", { class: "meta" }, [
-          h("span", { class: "author" }, name),
-          h("time", { datetime: new Date(ms).toISOString(), title: formatFull(ms) }, formatTime(ms)),
-        ]),
-      );
-    }
-    if (editing === m.id) {
-      const box = h("textarea", {
-        class: "edit-input",
-        rows: Math.min(6, m.text.split("\n").length),
-        "aria-label": "Edit message",
-        value: m.text,
-        on: {
-          keydown: (e) => {
-            if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
-              e.preventDefault();
-              void saveEdit(m.id, (e.currentTarget as HTMLTextAreaElement).value);
-            } else if (e.key === "Escape") {
-              e.preventDefault();
-              editing = null;
-              render();
-              textarea.focus();
-            }
-          },
-        },
-        signal,
-      });
-      parts.push(box, h("p", { class: "hint" }, "Enter to save · Esc to cancel"));
-    } else {
-      parts.push(
-        m.deleted
-          ? h("div", { class: "body placeholder" }, "Message deleted")
-          : h("div", { class: "body" }, m.text),
-      );
-      if (m.edited_at && !m.deleted) parts.push(h("span", { class: "edited", title: `Edited ${formatFull(parsePb(m.edited_at))}` }, "(edited)"));
-    }
-    if (m.status === "failed") {
-      parts.push(h("div", { class: "send-error" }, ["Not sent. ", btn("Retry", () => void retrySend(m.id)), btn("Discard", () => discard(m.id))]));
-    }
-    if (confirmDelete === m.id) {
-      const cancel = () => {
-        confirmDelete = null;
-        focusAfter = `${msgSel(m.id)} .actions .delete`;
-        render();
-      };
-      parts.push(
-        h(
-          "div",
-          {
-            class: "confirm",
-            role: "group",
-            "aria-label": "Confirm delete",
-            on: { keydown: (e) => e.key === "Escape" && (e.preventDefault(), cancel()) },
-            signal,
-          },
-          ["Delete this message? ", btn("Delete message", () => void doDelete(m.id), "danger"), btn("Cancel", cancel, "cancel")],
-        ),
-      );
-    } else if (editable(m) && editing !== m.id) {
-      parts.push(
-        h("div", { class: "actions" }, [
-          btn("Edit", () => startEdit(m.id), "edit"),
-          btn(
-            "Delete",
-            () => {
-              confirmDelete = m.id;
-              focusAfter = `${msgSel(m.id)} .confirm .cancel`;
-              render();
-            },
-            "delete",
-          ),
-        ]),
-      );
-    }
-    if (err) parts.push(h("div", { class: "msg-error", role: "alert" }, [`${err.text} `, btn("Retry", err.retry)]));
-
-    const el = h("li", { class: cls, dataset: { id: m.id } }, parts);
-    cache.set(m.id, { sig, el });
-    return el;
-  }
-
-  function divider(ms: number): HTMLElement {
-    const label = dayLabel(ms);
-    const key = `${new Date(ms).toDateString()}|${label}`;
-    let el = dividers.get(key);
-    if (!el) dividers.set(key, (el = h("li", { class: "day" }, label)));
-    return el;
-  }
-
-  function render(opts: { anchor?: boolean } = {}) {
-    if (!active) return;
-    const r = room();
-    beginning.textContent = r ? `Beginning of #${r.name}` : "Beginning of the room";
-    const nodes: Node[] = [];
-    if (win.hasOlder) nodes.push(topSentinel);
-    else if (ready) nodes.push(beginning);
-    let prev: Message | undefined;
-    let prevDay = "";
-    for (const m of win.items) {
-      const ms = parsePb(m.created);
-      const day = new Date(ms).toDateString();
-      const newDay = day !== prevDay;
-      if (newDay) nodes.push(divider(ms));
-      nodes.push(messageNode(m, newDay || startsGroup(prev, m)));
-      prev = m;
-      prevDay = day;
-    }
-    if (win.hasNewer) nodes.push(bottomSentinel);
-
-    const anchor = opts.anchor ? captureAnchor(list, "li.msg") : null;
-    reconcile(list, nodes);
-    if (anchor) restoreAnchor(list, anchor);
-
-    // forget elements for messages no longer in the window
-    const live = new Set(win.items.map((m) => m.id));
-    for (const id of cache.keys()) if (!live.has(id)) cache.delete(id);
-
-    applyFocus();
-    if (focusEdit && editing) {
-      focusEdit = false;
-      const box = list.querySelector<HTMLTextAreaElement>(`li.msg[data-id="${editing}"] textarea.edit-input`);
-      box?.focus();
-      box?.setSelectionRange(box.value.length, box.value.length);
-    }
-  }
-
-  function renderPill() {
-    pill.hidden = pillMode === null;
-    pill.textContent = pillMode === "history" ? "New messages · Jump to latest" : "↓ New messages";
+  function setPill(mode: typeof pillMode) {
+    pillMode = mode;
+    pill.hidden = mode === null;
+    pill.textContent = mode === "history" ? "New messages · Jump to latest" : "↓ New messages";
   }
 
   function renderHeader() {
     const r = room();
-    const { signal } = ac;
-    const hidden = store.get().hidden.has(roomId);
-    const mine = r?.created_by === me()?.id;
-    const item = (label: string, fn: () => void) => h("button", { type: "button", on: { click: fn }, signal }, label);
-    const closeMenu = () => {
-      menuOpen = false;
-      confirmArchive = false;
-    };
-
-    let items: HTMLElement[];
-    if (r && confirmArchive) {
-      items = [
-        h("p", {}, `Archive “${r.name}”? It becomes read-only for everyone.`),
-        h("button", { type: "button", class: "danger", on: { click: () => (closeMenu(), void roomAction(() => actions.setArchived(roomId, true))) }, signal }, "Archive"),
-        h(
-          "button",
-          {
-            type: "button",
-            class: "cancel",
-            on: {
-              click: () => {
-                confirmArchive = false;
-                focusAfter = "header.room-header summary";
-                renderHeader();
-              },
-            },
-            signal,
-          },
-          "Cancel",
-        ),
-      ];
-    } else {
-      items = [];
-      if (r && !r.archived) {
-        items.push(
-          hidden
-            ? item("Unhide room", () => (closeMenu(), void roomAction(() => actions.unhide(roomId))))
-            : item("Hide room", () => (closeMenu(), void roomAction(() => actions.hide(roomId)))),
-        );
-      }
-      if (r && mine) {
-        items.push(
-          r.archived
-            ? item("Unarchive room", () => (closeMenu(), void roomAction(() => actions.setArchived(roomId, false))))
-            : item("Archive room", () => {
-                confirmArchive = true;
-                menuOpen = true;
-                focusAfter = "header.room-header .menu-items .cancel";
-                renderHeader();
-              }),
-        );
-      }
-      items.push(item("Jump to beginning", () => (closeMenu(), renderHeader(), void jump("first"))));
-    }
-
-    const menu = h(
-      "details",
-      {
-        class: "menu",
-        open: menuOpen,
-        on: {
-          toggle: (e) => {
-            menuOpen = (e.currentTarget as HTMLDetailsElement).open;
-            if (!menuOpen) confirmArchive = false;
-          },
-          keydown: (e) => {
-            if (e.key !== "Escape" || !menuOpen) return;
-            e.preventDefault();
-            menuOpen = false;
-            confirmArchive = false;
-            focusAfter = "header.room-header summary";
-            renderHeader();
-          },
-        },
-        signal,
-      },
-      [h("summary", { "aria-label": "Room actions" }, "⋯"), h("div", { class: "menu-items" }, items)],
-    );
-    header.replaceChildren(
-      h("a", { href: "#/", class: "back", "aria-label": "Back to rooms" }, "← Rooms"),
-      h("h1", { id: `${vid}-title` }, r ? `#${r.name}` : ""),
-      menu,
-      headerError,
-    );
-    applyFocus();
-  }
-  const headerError = h("p", { class: "room-error", role: "alert" });
-
-  async function roomAction(fn: () => Promise<unknown>) {
-    renderHeader();
-    try {
-      await fn();
-      headerError.textContent = "";
-    } catch {
-      if (active) headerError.textContent = "That didn't work. Check your connection and try again.";
-    }
+    header.update({ room: r, hidden: store.get().hidden.has(roomId), mine: !!r && r.created_by === me()?.id });
   }
 
   function renderFooter() {
     const r = room();
     if (!r) return footer.replaceChildren();
     if (r.archived) footer.replaceChildren(banner);
-    else if (!composer.isConnected || footer.firstChild !== composer) footer.replaceChildren(composer);
-    textarea.placeholder = `Message #${r.name}`;
+    else if (footer.firstChild !== composer.el) footer.replaceChildren(composer.el);
+    composer.setPlaceholder(`Message #${r.name}`);
   }
 
   function renderNotFound() {
-    clear(shell);
-    shell.append(h("p", { class: "not-found" }, ["This room doesn't exist. ", h("a", { href: "#/" }, "Back to rooms")]));
+    shell.replaceChildren(h("p", { class: "not-found" }, ["This room doesn't exist. ", h("a", { href: "#/" }, "Back to rooms")]));
   }
 
   // ---------------------------------------------------------------- loading
 
-  async function applyLoaded(kind: PageKind, page: Message[], g: number): Promise<boolean> {
-    if (g !== gen || !active) return false;
+  /** Apply a page fetched under generation `g`, unless a jump (or unmount) has made it stale. */
+  function applyLoaded(kind: PageKind, page: Message[], g: number): boolean {
+    if (g !== gen || !scope.active) return false;
     win = applyPage(win, page, kind).win;
     return true;
   }
 
-  async function loadOlder() {
-    if (!ready || !win.hasOlder || loadingOlder || !win.items.length) return;
-    loadingOlder = true;
+  /** Extend the window at one end (a sentinel came into view). One request per end at a time. */
+  async function loadEdge(side: "top" | "bottom") {
+    const more = side === "top" ? win.hasOlder : win.hasNewer;
+    if (!ready || !more || loading[side] || !win.items.length) return;
+    loading[side] = true;
     const g = gen;
     try {
-      const page = await api.page(older(roomId, win.items[0]!));
-      if (await applyLoaded("older", page, g)) render({ anchor: true });
+      const page = side === "top" ? await api.page(older(roomId, win.items[0]!)) : await api.page(newer(roomId, win.items.at(-1)!));
+      if (applyLoaded(side === "top" ? "older" : "newer", page, g)) render({ anchor: true });
     } catch {
       /* the sentinel will trigger again */
     } finally {
-      if (g === gen) loadingOlder = false;
-    }
-  }
-
-  async function loadNewer() {
-    if (!ready || !win.hasNewer || loadingNewer || !win.items.length) return;
-    loadingNewer = true;
-    const g = gen;
-    try {
-      const page = await api.page(newer(roomId, win.items.at(-1)!));
-      if (await applyLoaded("newer", page, g)) render({ anchor: true });
-    } catch {
-      /* retry on next intersection */
-    } finally {
-      if (g === gen) loadingNewer = false;
+      if (g === gen) loading[side] = false;
     }
   }
 
   /** Reset the window to the latest page or the first page. */
   async function jump(kind: "latest" | "first") {
     const g = ++gen;
-    loadingOlder = loadingNewer = false;
-    pillMode = null;
-    renderPill();
+    loading.top = loading.bottom = false;
+    setPill(null);
     const page = await api.page(kind === "latest" ? latest(roomId) : first(roomId)).catch(() => null);
-    if (!page || !(await applyLoaded(kind, page, g))) return;
+    if (!page || !applyLoaded(kind, page, g)) return;
     targetId = null;
     render();
     if (kind === "latest") scrollToBottom();
@@ -453,11 +179,11 @@ export function createRoomView({ api, store, actions }: Ctx): View {
     try {
       await roomP;
     } catch (e) {
-      if (active && e instanceof ApiError && e.status === 404) renderNotFound();
+      if (scope.active && e instanceof ApiError && e.status === 404) renderNotFound();
       return;
     }
     const loaded = await pageP.catch(() => null);
-    if (!active) return;
+    if (!scope.active) return;
     const current = g === gen;
     if (current && loaded) {
       win = loaded.win;
@@ -470,7 +196,7 @@ export function createRoomView({ api, store, actions }: Ctx): View {
     renderFooter();
     render();
     if (current && targetId) {
-      const el = list.querySelector<HTMLElement>(`li.msg[data-id="${targetId}"]`);
+      const el = list.querySelector<HTMLElement>(`li.msg[data-id="${CSS.escape(targetId)}"]`);
       if (el) list.scrollTop = el.offsetTop - list.clientHeight / 2;
     } else if (current) {
       scrollToBottom(); // otherwise the jump has positioned the list
@@ -487,8 +213,8 @@ export function createRoomView({ api, store, actions }: Ctx): View {
     for (;;) {
       const last = [...win.items].reverse().find((m) => !m.status);
       const page = await api.page(last ? newer(roomId, last) : latest(roomId)).catch(() => null);
-      if (!page || g !== gen || !active) return;
-      win = last ? applyPage(win, page, "newer").win : applyPage(win, page, "latest").win;
+      if (!page || g !== gen || !scope.active) return;
+      win = applyPage(win, page, last ? "newer" : "latest").win;
       if (page.length < PAGE_SIZE) break;
     }
     win = { ...win, hasNewer: false };
@@ -499,7 +225,7 @@ export function createRoomView({ api, store, actions }: Ctx): View {
   // ---------------------------------------------------------------- realtime
 
   function onMessage(action: Action, m: Message) {
-    if (!active || m.room !== roomId) return;
+    if (!scope.active || m.room !== roomId) return;
     if (!ready) {
       buffer.push([action, m]);
       return;
@@ -522,41 +248,19 @@ export function createRoomView({ api, store, actions }: Ctx): View {
       return;
     }
     if (win.hasNewer) {
-      pillMode = "history";
-      renderPill();
+      setPill("history");
       return;
     }
     const follow = isNearBottom(list) || m.author === me()?.id;
     win = trim(merge(win, [m]), "top").win;
     render({ anchor: !follow });
     if (follow) scrollToBottom();
-    else if (pillMode !== "history") {
-      pillMode = "below";
-      renderPill();
-    }
+    else if (pillMode !== "history") setPill("below");
   }
 
   // ---------------------------------------------------------------- sending
 
-  const composerValid = () => {
-    const t = textarea.value.trim();
-    return t.length > 0 && t.length <= MAX_LEN;
-  };
-
-  function onComposerInput() {
-    const len = textarea.value.length;
-    counter.textContent = len <= COUNTER_FROM ? "" : len <= MAX_LEN ? `${MAX_LEN - len} left` : `${len - MAX_LEN} over`;
-    textarea.rows = Math.min(6, textarea.value.split("\n").length);
-    sendBtn.disabled = !composerValid();
-  }
-
-  async function submit() {
-    const user = me();
-    const r = room();
-    if (!composerValid() || !user || !r || r.archived) return;
-    const text = textarea.value.trim();
-    textarea.value = "";
-    onComposerInput();
+  async function send(text: string, user: { id: string; name: string }) {
     if (win.hasNewer) await jump("latest");
     const last = win.items.at(-1);
     const created = toPb(Math.max(Date.now(), last ? parsePb(last.created) + 1 : 0));
@@ -573,8 +277,7 @@ export function createRoomView({ api, store, actions }: Ctx): View {
       status: "pending",
     };
     win = trim(merge(win, [msg]), "top").win;
-    pillMode = null;
-    renderPill();
+    setPill(null);
     render();
     scrollToBottom();
     await deliver(msg);
@@ -583,10 +286,10 @@ export function createRoomView({ api, store, actions }: Ctx): View {
   async function deliver(msg: Message) {
     try {
       const saved = await api.send({ id: msg.id, room: msg.room, text: msg.text });
-      if (!active) return;
+      if (!scope.active) return;
       win = merge(win, [saved]);
     } catch (e) {
-      if (!active) return;
+      if (!scope.active) return;
       // A retry of a send that already reached the server fails with a duplicate id: it was sent after all.
       const recovered = e instanceof ApiError && e.status === 400 ? await api.getMessage(msg.id).catch(() => null) : null;
       if (recovered && recovered.author === me()?.id) win = merge(win, [recovered]);
@@ -598,175 +301,111 @@ export function createRoomView({ api, store, actions }: Ctx): View {
   async function retrySend(id: string) {
     const m = find(id);
     if (!m || m.status !== "failed") return;
-    const pending = { ...m, status: "pending" as const };
     patchLocal(id, { status: "pending" });
     render();
-    await deliver(pending);
-  }
-
-  function discard(id: string) {
-    win = remove(win, id);
-    render();
+    await deliver({ ...m, status: "pending" });
   }
 
   // ---------------------------------------------------------------- edit / delete
 
-  function startEdit(id: string) {
-    editing = id;
-    confirmDelete = null;
-    focusEdit = true;
-    render();
-  }
-
   async function saveEdit(id: string, raw: string) {
     const m = find(id);
-    if (!m) return;
-    const text = raw.trim();
-    if (!text || text.length > MAX_LEN) return;
-    editing = null;
-    errors.delete(id);
+    const text = validText(raw);
+    if (!m || text === null) return;
+    messages.stopEdit();
+    messages.setError(id, null);
     if (text === m.text) {
       render();
-      textarea.focus();
+      composer.focus();
       return;
     }
     const before = { text: m.text, edited_at: m.edited_at };
     patchLocal(id, { text });
     render({ anchor: true });
-    textarea.focus();
+    composer.focus();
     try {
       const saved = await api.edit(id, text);
-      if (active) win = merge(win, [saved]);
+      if (scope.active) win = merge(win, [saved]);
     } catch {
-      if (!active) return;
+      if (!scope.active) return;
       patchLocal(id, before);
-      errors.set(id, { text: "Couldn't save your edit.", retry: () => void saveEdit(id, text) });
+      messages.setError(id, { text: "Couldn't save your edit.", retry: () => void saveEdit(id, text) });
     }
     render({ anchor: true });
   }
 
   async function doDelete(id: string) {
     const m = find(id);
-    confirmDelete = null;
-    errors.delete(id);
+    messages.setError(id, null);
     if (!m) return;
     const before = { text: m.text, deleted: false };
     patchLocal(id, { text: "", deleted: true });
     render({ anchor: true });
     try {
       const saved = await api.softDelete(id);
-      if (active) win = merge(win, [saved]);
+      if (scope.active) win = merge(win, [saved]);
     } catch {
-      if (!active) return;
+      if (!scope.active) return;
       patchLocal(id, before);
-      errors.set(id, { text: "Couldn't delete this message.", retry: () => void doDelete(id) });
+      messages.setError(id, { text: "Couldn't delete this message.", retry: () => void doDelete(id) });
     }
     render({ anchor: true });
   }
 
   // ---------------------------------------------------------------- lifecycle
 
+  /** Single use: the router and the sidebar layout create a fresh view for every mount. */
   return {
     mount(el, params) {
       root = el;
-      active = true;
-      ac = new AbortController();
-      const { signal } = ac;
       roomId = params.id!;
-      targetId = null;
-      win = emptyWindow();
-      ready = false;
-      buffer = [];
-      pillMode = null;
-      list.setAttribute("aria-busy", "true");
 
-      textarea.addEventListener("input", onComposerInput, { signal });
-      textarea.addEventListener(
-        "keydown",
-        (e) => {
-          if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
-            e.preventDefault();
-            void submit();
-          } else if (e.key === "ArrowUp" && textarea.value === "") {
-            const mine = lastOwnEditable(win, me()?.id ?? "");
-            if (mine && editable(mine)) {
-              e.preventDefault();
-              startEdit(mine.id);
-            }
-          }
-        },
-        { signal },
-      );
-      composer.addEventListener("submit", (e) => (e.preventDefault(), void submit()), { signal });
-      pill.addEventListener("click", () => {
-        if (pillMode === "history") void jump("latest");
-        else {
-          scrollToBottom();
-          pillMode = null;
-          renderPill();
-        }
-      }, { signal });
-      list.addEventListener("scroll", () => {
-        if (pillMode === "below" && isNearBottom(list)) {
-          pillMode = null;
-          renderPill();
-        }
-      }, { signal });
+      pill.addEventListener("click", () => (pillMode === "history" ? void jump("latest") : (scrollToBottom(), setPill(null))), { signal });
+      list.addEventListener("scroll", () => pillMode === "below" && isNearBottom(list) && setPill(null), { signal });
 
-      observer = new IntersectionObserver(
+      const observer = new IntersectionObserver(
         (entries) => {
           for (const e of entries) {
             if (!e.isIntersecting || !list.contains(e.target)) continue;
-            if (e.target === topSentinel) void loadOlder();
-            if (e.target === bottomSentinel) void loadNewer();
+            if (e.target === messages.topSentinel) void loadEdge("top");
+            if (e.target === messages.bottomSentinel) void loadEdge("bottom");
           }
         },
         { root: list, rootMargin: "300px 0px" },
       );
-      observer.observe(topSentinel);
-      observer.observe(bottomSentinel);
+      observer.observe(messages.topSentinel);
+      observer.observe(messages.bottomSentinel);
+      scope.defer(() => observer.disconnect());
 
-      shell.replaceChildren(header, h("div", { class: "room-body" }, [list, pill]), footer);
       clear(root);
       root.append(shell);
-      onComposerInput();
-      renderPill();
+      setPill(null);
       renderHeader();
       renderFooter();
 
       store.set({ activeRoomId: roomId });
-      offStore = store.subscribe((s, prev) => {
-        const roomChanged = s.rooms.get(roomId) !== prev.rooms.get(roomId);
-        if (roomChanged || s.hidden !== prev.hidden || s.user !== prev.user) {
-          renderHeader();
-          renderFooter();
-          if (roomChanged) render();
-        }
-      });
+      scope.defer(() => store.set({ activeRoomId: null }));
+      scope.defer(
+        store.subscribe((s, prev) => {
+          const roomChanged = s.rooms.get(roomId) !== prev.rooms.get(roomId);
+          if (roomChanged || s.hidden !== prev.hidden || s.user !== prev.user) {
+            renderHeader();
+            renderFooter();
+            if (roomChanged) render();
+          }
+        }),
+      );
       // Room record changes (archive etc.) arrive through the store, kept live by sync.ts.
-      subs = [api.subscribeMessages(roomId, onMessage)];
-      offConnect = api.onConnect((reconnect) => {
-        if (reconnect && active && ready && !win.hasNewer) void gapFill();
-      });
+      scope.sub(api.subscribeMessages(roomId, onMessage));
+      scope.defer(
+        api.onConnect((reconnect) => {
+          if (reconnect && scope.active && ready && !win.hasNewer) void gapFill();
+        }),
+      );
       void open(params.msgId);
     },
     unmount() {
-      active = false;
-      gen++;
-      ac.abort();
-      observer?.disconnect();
-      observer = null;
-      offStore();
-      offConnect();
-      for (const p of subs) void p.then((off) => off()).catch(() => {});
-      subs = [];
-      cache.clear();
-      dividers.clear();
-      errors.clear();
-      editing = confirmDelete = null;
-      menuOpen = confirmArchive = false;
-      textarea.value = "";
-      store.set({ activeRoomId: null });
+      scope.dispose();
       clear(root);
     },
   };

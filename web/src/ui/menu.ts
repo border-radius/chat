@@ -1,0 +1,113 @@
+// "⋯" actions menu (§7.1) used by room rows and the room header: a <details> disclosure with an optional
+// inline confirm step. It owns its open/confirm state and focus, so callers just hand it the current items.
+// Keyboard: Escape closes it and returns focus to the toggle; a confirm step focuses Cancel.
+
+import { h } from "../dom.ts";
+
+export interface MenuItem {
+  label: string;
+  run: () => void;
+  /** Ask first: `text` is the question, `action` the label of the button that runs the item. */
+  confirm?: { text: string; action: string };
+}
+
+export interface ActionMenu {
+  readonly el: HTMLDetailsElement;
+  /** Replace the items. Cheap when only their callbacks changed: the buttons are rebuilt only if labels did. */
+  update(items: readonly MenuItem[]): void;
+  close(): void;
+}
+
+export function createActionMenu(opts: { label: string; signal: AbortSignal }): ActionMenu {
+  const { signal } = opts;
+  let items: readonly MenuItem[] = [];
+  let shape = "";
+  let confirming: string | null = null;
+
+  const summary = h("summary", { "aria-label": opts.label }, "⋯");
+  const body = h("div", { class: "menu-items" });
+  const el = h(
+    "details",
+    {
+      class: "menu",
+      on: {
+        toggle: () => {
+          if (!el.open && confirming) setConfirming(null);
+        },
+        keydown: (e) => {
+          if (e.key !== "Escape" || !el.open) return;
+          e.preventDefault();
+          close();
+          summary.focus();
+        },
+      },
+      signal,
+    },
+    [summary, body],
+  );
+
+  const button = (label: string, onClick: () => void, cls?: string) =>
+    h("button", { type: "button", ...(cls ? { class: cls } : {}), on: { click: onClick }, signal }, label);
+  const find = (label: string | null) => items.find((i) => i.label === label);
+  /** Close, then run the item's *current* callback (items may have been updated since the button was built). */
+  const runItem = (label: string) => {
+    const item = find(label);
+    close();
+    item?.run();
+  };
+
+  function render() {
+    const item = find(confirming);
+    if (item?.confirm) {
+      const cancel = button(
+        "Cancel",
+        () => {
+          setConfirming(null);
+          summary.focus();
+        },
+        "cancel",
+      );
+      body.replaceChildren(
+        h("p", {}, item.confirm.text),
+        button(item.confirm.action, () => runItem(item.label), "danger"),
+        cancel,
+      );
+      return cancel;
+    }
+    body.replaceChildren(
+      ...items.map((i) =>
+        button(i.label, () => {
+          if (find(i.label)?.confirm) setConfirming(i.label)?.focus();
+          else runItem(i.label);
+        }),
+      ),
+    );
+    return null;
+  }
+
+  /** Enter or leave the confirm step; returns the Cancel button when entering one. */
+  function setConfirming(label: string | null) {
+    confirming = label;
+    return render();
+  }
+
+  function close() {
+    el.open = false;
+    confirming = null;
+    render();
+  }
+
+  return {
+    el,
+    update(next) {
+      items = next;
+      const nextShape = JSON.stringify(next.map((i) => [i.label, i.confirm ?? null]));
+      const stale = confirming !== null && !find(confirming)?.confirm;
+      if (stale) confirming = null;
+      if (nextShape === shape && !stale) return; // same buttons; they look their item up when clicked
+      shape = nextShape;
+      render();
+    },
+    close,
+  };
+}

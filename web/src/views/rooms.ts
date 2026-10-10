@@ -6,7 +6,9 @@ import type { Ctx } from "../context.ts";
 import { clear, h } from "../dom.ts";
 import type { Room } from "../lib/types.ts";
 import type { View } from "../router.ts";
+import { createScope, type Scope } from "../scope.ts";
 import { roomSections } from "../store.ts";
+import { createActionMenu, type ActionMenu, type MenuItem } from "../ui/menu.ts";
 
 type Section = "rooms" | "hidden" | "archived";
 
@@ -26,17 +28,12 @@ function nameError(err: unknown): string {
 export function createRoomsView({ store, sync, actions, navigate }: Ctx): View {
   const id = `rooms-${++uid}`;
   let root: HTMLElement;
-  let ac: AbortController;
-  let active = false;
-  let offStore = () => {};
+  let scope: Scope;
 
   // UI state that must survive re-renders.
   const open = { hidden: false, archived: false };
-  let openMenu: string | null = null;
-  let confirming: string | null = null;
-  /** Selector to focus after the next render (the elements are rebuilt, so focus is re-applied). */
-  let focusAfter: string | null = null;
-  const rowSel = (id: string) => `[data-room-id="${id}"]`;
+  /** Row menus by room id + name, kept across renders so their open/confirm state and focus survive. */
+  const menus = new Map<string, ActionMenu>();
   /** The last failed action, shown until the next action or a successful one. */
   let actionError = "";
 
@@ -49,7 +46,7 @@ export function createRoomsView({ store, sync, actions, navigate }: Ctx): View {
     if (store.get().roomsStatus === "error") {
       alert.append(
         "Couldn't load rooms. Check your connection. ",
-        h("button", { type: "button", class: "link", on: { click: () => void sync.reload() }, signal: ac.signal }, "Retry"),
+        h("button", { type: "button", class: "link", on: { click: () => void sync.reload() }, signal: scope.signal }, "Retry"),
       );
     } else {
       alert.append(actionError);
@@ -57,17 +54,13 @@ export function createRoomsView({ store, sync, actions, navigate }: Ctx): View {
   }
 
   async function act(label: string, room: Room, fn: () => Promise<void>) {
-    // Picking an action closes the menu; otherwise it would re-render open wherever the room moves to.
-    openMenu = null;
-    confirming = null;
-    render();
     try {
       await fn();
       actionError = "";
     } catch {
       actionError = `Couldn't ${label} “${room.name}”. Check your connection and try again.`;
     }
-    if (active) renderAlert();
+    if (scope.active) renderAlert();
   }
 
   const hide = (r: Room) => act("hide", r, () => actions.hide(r.id));
@@ -76,86 +69,41 @@ export function createRoomsView({ store, sync, actions, navigate }: Ctx): View {
 
   // ---- rendering ----
 
-  function menuItems(r: Room, section: Section): HTMLElement[] {
-    const { signal } = ac;
+  function menuItems(r: Room, section: Section): MenuItem[] {
     const mine = r.created_by === store.get().user?.id;
-    const btn = (label: string, onClick: () => void, cls = "") =>
-      h("button", { type: "button", ...(cls ? { class: cls } : {}), on: { click: onClick }, signal }, label);
-
-    if (confirming === r.id) {
-      return [
-        h("p", {}, `Archive “${r.name}”? It becomes read-only for everyone.`),
-        btn(
-          "Archive room",
-          () => {
-            confirming = null;
-            openMenu = null;
-            void setArchived(r, true);
-          },
-          "danger",
-        ),
-        btn(
-          "Cancel",
-          () => {
-            confirming = null;
-            focusAfter = `${rowSel(r.id)} summary`;
-            render();
-          },
-          "cancel",
-        ),
-      ];
+    const items: MenuItem[] = [];
+    if (section === "rooms") items.push({ label: "Hide", run: () => void hide(r) });
+    if (section === "hidden") items.push({ label: "Unhide", run: () => void unhide(r) });
+    if (mine && section !== "archived") {
+      items.push({
+        label: "Archive",
+        confirm: { text: `Archive “${r.name}”? It becomes read-only for everyone.`, action: "Archive room" },
+        run: () => void setArchived(r, true),
+      });
     }
-    const items: HTMLElement[] = [];
-    if (section === "rooms") items.push(btn("Hide", () => void hide(r)));
-    if (section === "hidden") items.push(btn("Unhide", () => void unhide(r)));
-    if (mine && section !== "archived")
-      items.push(
-        btn("Archive", () => {
-          confirming = r.id;
-          openMenu = r.id;
-          focusAfter = `${rowSel(r.id)} .menu-items .cancel`;
-          render();
-        }),
-      );
-    if (mine && section === "archived") items.push(btn("Unarchive", () => void setArchived(r, false)));
+    if (mine && section === "archived") items.push({ label: "Unarchive", run: () => void setArchived(r, false) });
     return items;
   }
-  function roomRow(r: Room, section: Section): HTMLElement {
+
+  function rowMenu(r: Room, items: MenuItem[], live: Set<string>): HTMLElement | null {
+    if (!items.length) return null;
+    const key = `${r.id}|${r.name}`;
+    live.add(key);
+    let menu = menus.get(key);
+    if (!menu) menus.set(key, (menu = createActionMenu({ label: `Actions for ${r.name}`, signal: scope.signal })));
+    menu.update(items);
+    return menu.el;
+  }
+
+  function roomRow(r: Room, section: Section, live: Set<string>): HTMLElement {
     const current = store.get().activeRoomId === r.id;
-    const items = menuItems(r, section);
-    const menu = items.length
-      ? h(
-          "details",
-          {
-            class: "menu",
-            open: openMenu === r.id,
-            on: {
-              toggle: (e) => {
-                const d = e.currentTarget as HTMLDetailsElement;
-                if (d.open) openMenu = r.id;
-                else if (openMenu === r.id) (openMenu = null), (confirming = null);
-              },
-              keydown: (e) => {
-                if (e.key !== "Escape" || openMenu !== r.id) return;
-                e.preventDefault();
-                openMenu = null;
-                confirming = null;
-                focusAfter = `${rowSel(r.id)} summary`;
-                render();
-              },
-            },
-            signal: ac.signal,
-          },
-          [h("summary", { "aria-label": `Actions for ${r.name}` }, "⋯"), h("div", { class: "menu-items" }, items)],
-        )
-      : null;
     return h("li", { dataset: { roomId: r.id } }, [
       h("a", { href: `#/r/${r.id}`, "aria-current": current ? "page" : null }, r.name),
-      menu,
+      rowMenu(r, menuItems(r, section), live),
     ]);
   }
 
-  function collapsible(section: "hidden" | "archived", title: string, rooms: Room[]): HTMLElement {
+  function collapsible(section: "hidden" | "archived", title: string, rooms: Room[], live: Set<string>): HTMLElement {
     return h(
       "details",
       {
@@ -163,31 +111,32 @@ export function createRoomsView({ store, sync, actions, navigate }: Ctx): View {
         dataset: { section },
         open: open[section],
         on: { toggle: (e) => (open[section] = (e.currentTarget as HTMLDetailsElement).open) },
-        signal: ac.signal,
+        signal: scope.signal,
       },
-      [h("summary", {}, `${title} (${rooms.length})`), h("ul", {}, rooms.map((r) => roomRow(r, section)))],
+      [h("summary", {}, `${title} (${rooms.length})`), h("ul", {}, rooms.map((r) => roomRow(r, section, live)))],
     );
   }
 
   function render() {
-    if (!active) return;
+    if (!scope.active) return;
     const s = store.get();
     const { rooms, hidden, archived } = roomSections(s);
     const loading = s.roomsStatus === "idle" || s.roomsStatus === "loading";
+    const live = new Set<string>();
+    // Rows are rebuilt; the focused control (a menu button, which is kept) gets its focus back below.
+    const focused = nav.contains(document.activeElement) ? (document.activeElement as HTMLElement) : null;
     shell.setAttribute("aria-busy", String(loading));
     const main = h("div", { class: "room-section", dataset: { section: "rooms" } }, [
       h("h2", {}, "Rooms"),
       rooms.length
-        ? h("ul", {}, rooms.map((r) => roomRow(r, "rooms")))
+        ? h("ul", {}, rooms.map((r) => roomRow(r, "rooms", live)))
         : s.roomsStatus === "ready"
           ? h("p", { class: "empty" }, "No rooms yet. Create the first one.")
           : null,
     ]);
-    nav.replaceChildren(main, collapsible("hidden", "Hidden", hidden), collapsible("archived", "Archived", archived));
-    if (focusAfter) {
-      nav.querySelector<HTMLElement>(focusAfter)?.focus();
-      focusAfter = null;
-    }
+    nav.replaceChildren(main, collapsible("hidden", "Hidden", hidden, live), collapsible("archived", "Archived", archived, live));
+    if (focused?.isConnected && document.activeElement !== focused) focused.focus();
+    for (const key of menus.keys()) if (!live.has(key)) menus.delete(key);
   }
 
   function newRoomForm(): HTMLFormElement {
@@ -221,17 +170,17 @@ export function createRoomsView({ store, sync, actions, navigate }: Ctx): View {
             setError("");
             try {
               const room = await actions.create(input.value);
-              if (!active) return;
+              if (!scope.active) return;
               input.value = "";
               navigate(`#/r/${room.id}`);
             } catch (e) {
-              if (active) setError(nameError(e));
+              if (scope.active) setError(nameError(e));
             } finally {
               submit.disabled = false;
             }
           },
         },
-        signal: ac.signal,
+        signal: scope.signal,
       },
       [h("label", { for: inputId }, "New room"), input, submit, err],
     );
@@ -240,23 +189,21 @@ export function createRoomsView({ store, sync, actions, navigate }: Ctx): View {
   return {
     mount(el) {
       root = el;
-      active = true;
-      ac = new AbortController();
+      scope = createScope();
+      menus.clear();
       shell.replaceChildren(newRoomForm(), alert, nav);
       clear(root);
       root.append(shell);
 
-      offStore = store.subscribe((s, prev) => {
+      scope.defer(store.subscribe((s, prev) => {
         if (s.roomsStatus !== prev.roomsStatus) renderAlert();
         if (s.rooms !== prev.rooms || s.hidden !== prev.hidden || s.activeRoomId !== prev.activeRoomId || s.user !== prev.user || s.roomsStatus !== prev.roomsStatus) render();
-      });
+      }));
       renderAlert();
       render();
     },
     unmount() {
-      active = false;
-      ac.abort();
-      offStore();
+      scope.dispose();
       clear(root);
     },
   };

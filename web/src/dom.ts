@@ -47,10 +47,6 @@ export function clear(el: Element): void {
   el.replaceChildren();
 }
 
-export function on(target: EventTarget, type: string, fn: (ev: Event) => void, signal: AbortSignal): void {
-  target.addEventListener(type, fn, { signal });
-}
-
 /**
  * Make `parent`'s children exactly `nodes`, in order, moving only what differs (§7.5: the message list is
  * never fully re-rendered). Nodes already in place keep their identity, focus and scroll anchoring.

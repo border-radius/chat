@@ -1,7 +1,8 @@
 // Keeps the room list and the user's hidden rows in the store (§7.4): one load, one set of realtime
 // subscriptions and a reload after every reconnect, for as long as someone is logged in. Views only read.
 
-import type { Api, Unsubscribe } from "./api.ts";
+import type { Api } from "./api.ts";
+import { createScope, type Scope } from "./scope.ts";
 import { markHidden, removeRoom, unmarkHidden, upsertRoom, type AppState, type Store } from "./store.ts";
 
 export interface Sync {
@@ -14,56 +15,51 @@ export interface Sync {
 }
 
 export function createSync({ api, store }: { api: Api; store: Store<AppState> }): Sync {
-  /** Bumped by start/stop: callbacks from an earlier run see a different value and do nothing. */
-  let run = 0;
-  let running = false;
-  let subs: Promise<Unsubscribe>[] = [];
-  let offConnect = () => {};
+  /** The current run; callbacks hold on to theirs, so a restart can't revive them. */
+  let scope: Scope | null = null;
 
-  async function reload() {
-    if (!running) return;
-    const r = run;
+  async function load(s: Scope) {
     if (store.get().roomsStatus !== "ready") store.set({ roomsStatus: "loading" });
     try {
       const [rooms, hidden] = await Promise.all([api.listRooms(), api.listHidden()]);
-      if (r !== run) return;
+      if (!s.active) return;
       store.set({
         rooms: new Map(rooms.map((x) => [x.id, x])),
         hidden: new Map(hidden.map((x) => [x.room, x.id])),
         roomsStatus: "ready",
       });
     } catch {
-      if (r === run) store.set({ roomsStatus: "error" });
+      if (s.active) store.set({ roomsStatus: "error" });
     }
   }
 
   return {
     start() {
-      if (running) return;
-      running = true;
-      const r = ++run;
-      const live = () => r === run;
-      subs = [
+      if (scope) return;
+      const s = (scope = createScope());
+      s.sub(
         api.subscribeRooms((action, room) => {
-          if (live()) store.set(action === "delete" ? removeRoom(room.id) : upsertRoom(room));
+          if (s.active) store.set(action === "delete" ? removeRoom(room.id) : upsertRoom(room));
         }),
+      );
+      s.sub(
         api.subscribeHidden((action, row) => {
-          if (live()) store.set(action === "delete" ? unmarkHidden(row.id) : markHidden(row.room, row.id));
+          if (s.active) store.set(action === "delete" ? unmarkHidden(row.id) : markHidden(row.room, row.id));
         }),
-      ];
-      offConnect = api.onConnect((reconnect) => {
-        if (reconnect && live()) void reload();
-      });
-      void reload();
+      );
+      s.defer(
+        api.onConnect((reconnect) => {
+          if (reconnect && s.active) void load(s);
+        }),
+      );
+      void load(s);
     },
     stop() {
-      if (!running) return;
-      running = false;
-      run++;
-      offConnect();
-      for (const p of subs) void p.then((off) => off()).catch(() => {});
-      subs = [];
+      scope?.dispose();
+      scope = null;
     },
-    reload,
+    async reload() {
+      if (scope) await load(scope);
+    },
   };
 }

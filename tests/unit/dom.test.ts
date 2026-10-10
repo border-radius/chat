@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { clear, h, on, reconcile } from "../../web/src/dom.ts";
+import { clear, h, reconcile } from "../../web/src/dom.ts";
 
 describe("h()", () => {
   it("creates an element with class, attributes and dataset", () => {
@@ -84,19 +84,6 @@ describe("clear()", () => {
     const el = h("ul", {}, [h("li", {}, "a"), h("li", {}, "b"), "text"]);
     clear(el);
     expect(el.childNodes).toHaveLength(0);
-  });
-});
-
-describe("on()", () => {
-  it("adds a listener that stops after abort", () => {
-    const ac = new AbortController();
-    const fn = vi.fn();
-    const target = new EventTarget();
-    on(target, "ping", fn, ac.signal);
-    target.dispatchEvent(new Event("ping"));
-    ac.abort();
-    target.dispatchEvent(new Event("ping"));
-    expect(fn).toHaveBeenCalledTimes(1);
   });
 });
 

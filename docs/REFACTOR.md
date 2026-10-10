@@ -6,8 +6,8 @@ state and lifecycle live**. Today every view repeats its own copy of them.
 
 Ordered by value ÷ effort. Each item should keep `npm run check` and e2e green, and should land on its own.
 
-**Progress:** items 1, 2, 3 and 6 are done (new `sync.ts`, `actions.ts`, `context.ts`, `View.update`; tests in
-`tests/unit/sync.test.ts`, `app.test.ts`, `router.test.ts`, `views/room.test.ts`).
+**Progress:** items 1, 2, 3, 5, 6 and 7 are done; 4 is done except for the optional DOM-free controller; parts of 11 are done.
+New modules: `sync.ts`, `actions.ts`, `context.ts`, `scope.ts`, `ui/menu.ts`, `views/room/{header,messages,composer}.ts`.
 
 ---
 
@@ -38,21 +38,22 @@ Ordered by value ÷ effort. Each item should keep `npm run check` and e2e green,
 - [x] Put store mutators next to the store, for example `upsertRoom`, `removeRoom`, `setHidden` and
       `clearHidden` in `store.ts`, so the immutable `new Map(...)` copying lives in one place.
 
-### 4. Split `views/room.ts` (804 lines)
+### 4. Split `views/room.ts` (804 lines) — mostly done
 It currently holds the window state machine, loading, realtime, the composer, edit/delete, the header menu and
 rendering. Suggested split:
-- [ ] `room/controller.ts`: window, `gen`, buffer, `open` / `jump` / `loadEdge` / `gapFill` / `onMessage` / send /
+- [ ] *(optional, remaining)* `room/controller.ts`: window, `gen`, buffer, `open` / `jump` / `loadEdge` / `gapFill` / `onMessage` / send /
       edit / delete. No DOM. It emits "changed" with a hint (`anchor`, `scrollToBottom`, `pill`). Most of
       `tests/unit/views/room.test.ts` (867 lines) can then become fast controller tests.
-- [ ] `room/message.ts`: `messageNode` + signature cache + day dividers.
-- [ ] `room/composer.ts`: textarea, counter, Enter/Up-arrow handling.
-- [ ] `room/header.ts`: title + actions menu, built on the shared menu component (item 5).
-- [ ] `views/room.ts`: wires these together and maps controller hints to scroll/focus.
+- [x] `room/messages.ts`: the list element, sentinels, `messageNode` + signature cache, day dividers, and the
+      edit/delete-confirm/error UI state, plus its focus handling.
+- [x] `room/composer.ts`: textarea, counter, Enter/Up-arrow handling, `validText` (shared with edit).
+- [x] `room/header.ts`: title + actions menu, built on the shared menu component (item 5).
+- [x] `views/room.ts` (412 lines): the window state machine, loading, realtime, send/edit/delete, and wiring.
 
-### 5. Extract the "actions menu with confirm step" component
-- [ ] `rooms.ts:116-194` and `room.ts:278-379` both build a `<details>` menu with Escape-to-close, an inline
+### 5. Extract the "actions menu with confirm step" component ✅
+- [x] `rooms.ts:116-194` and `room.ts:278-379` both build a `<details>` menu with Escape-to-close, an inline
       "Archive …? / Archive / Cancel" confirm, and focus restore through `focusAfter` selectors.
-- [ ] Add `web/src/ui/menu.ts`: `actionMenu({ label, items, signal })`, where an item can be
+- [x] Add `web/src/ui/menu.ts`: `actionMenu({ label, items, signal })`, where an item can be
       `{ label, run }` or `{ label, confirm: { text, action, run } }`. The component owns open/confirm state and
       focus restore, so callers stop passing selector strings around.
 
@@ -67,13 +68,13 @@ rendering. Suggested split:
 
 ## P2 — Consistency and duplication
 
-### 7. A view lifecycle helper
+### 7. A view lifecycle helper ✅
 Every view has the same fields: `ac`, `active`, `subs: Promise<Unsubscribe>[]`, `offStore`, `offConnect`, and an
 `unmount` that walks through them.
-- [ ] Add `web/src/scope.ts`: `const scope = createScope()` with `scope.signal`, `scope.active`,
+- [x] Add `web/src/scope.ts`: `const scope = createScope()` with `scope.signal`, `scope.active`,
       `scope.defer(fn)` and `scope.sub(promise)` (awaits and unsubscribes when disposed), plus `scope.dispose()`.
       `unmount` then becomes `scope.dispose(); clear(root)`.
-- [ ] Remove `dom.ts`'s `on()` and its test. Nothing in `web/src` uses it, and `h(..., { on, signal })` covers it.
+- [x] Remove `dom.ts`'s `on()` and its test. Nothing in `web/src` uses it, and `h(..., { on, signal })` covers it.
 
 ### 8. Actually abort in-flight requests on unmount
 - [ ] DESIGN §7.2 says unmount aborts fetches. In practice `autoCancellation(false)` is set, only `api.page`
@@ -99,17 +100,17 @@ Every view has the same fields: `ac`, `active`, `subs: Promise<Unsubscribe>[]`, 
       `applyPage` take `pageSize` explicitly (easier to test with small pages).
 
 ### 11. Small cleanups in `room.ts` / `messages.ts`
-- [ ] `loadOlder` / `loadNewer` are near-identical. Use one `loadEdge("top" | "bottom")`.
-- [ ] `applyLoaded` is `async` but never awaits. Make it sync.
-- [ ] `[...win.items].reverse().find(...)` → `win.items.findLast(...)` (`room.ts:512`).
-- [ ] Selectors are built with raw ids (`msgSel`, `room.ts:267, 497`) while `scroll.ts` uses `CSS.escape`. Pick
+- [x] `loadOlder` / `loadNewer` are near-identical. Use one `loadEdge("top" | "bottom")`.
+- [x] `applyLoaded` is `async` but never awaits. Make it sync.
+- [ ] ~~`[...win.items].reverse().find(...)` → `findLast`~~: needs `lib: es2023`; the target is es2022, so skip unless the browser floor is raised.
+- [x] Selectors are built with raw ids (`msgSel`, `room.ts:267, 497`) while `scroll.ts` uses `CSS.escape`. Pick
       one helper (`byDataId(id)`).
-- [ ] `editable()` is computed twice per message per render (signature + actions). Compute it once in
+- [x] `editable()` is computed twice per message per render (signature + actions). Compute it once in
       `messageNode`.
 - [ ] Module-level `let uid = 0` counters in three views → one `uniqueId(prefix)` in `dom.ts`.
 
 ### 12. Typed errors at boundaries
-- [ ] `app.ts:110` types the refresh error as `{ status?: number }`. `refreshAuth` already throws `ApiError`, so
+- [x] `app.ts:110` types the refresh error as `{ status?: number }`. `refreshAuth` already throws `ApiError`, so
       use `instanceof ApiError`.
 - [ ] `e.action as Action` appears three times in `api.ts`. Add one `subscribe<T>(collection, opts, fn)` helper.
 
