@@ -229,7 +229,7 @@ export function createRoomView({ api, store }: RoomDeps): View {
     const label = dayLabel(ms);
     const key = `${new Date(ms).toDateString()}|${label}`;
     let el = dividers.get(key);
-    if (!el) dividers.set(key, (el = h("li", { class: "day", role: "separator" }, label)));
+    if (!el) dividers.set(key, (el = h("li", { class: "day" }, label)));
     return el;
   }
 

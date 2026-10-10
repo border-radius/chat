@@ -145,7 +145,10 @@ describe("room view (§7.5–7.6, TODO Phase 5)", () => {
       const room = await newRoom();
       const seeded = await seedMessages(room.id, me.user.id, 4, { stepMs: 20 * 3_600_000 });
       await mount(room);
-      const dividers = [...root.querySelectorAll('li.day[role="separator"]')].map((d) => d.textContent);
+      const dividerEls = [...root.querySelectorAll("li.day")];
+      // plain list items: a role override would break the <ol> list semantics (axe "list" rule)
+      expect(dividerEls.every((d) => !d.hasAttribute("role"))).toBe(true);
+      const dividers = dividerEls.map((d) => d.textContent);
       const expected = [...new Set(seeded.map((m) => dayLabel(parsePb(m.created))))];
       expect(expected.length).toBeGreaterThanOrEqual(3);
       expect(dividers).toEqual(expected);

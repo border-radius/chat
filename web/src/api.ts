@@ -166,10 +166,12 @@ export function createApi(pb: PocketBase): Api {
       wrap(hidden().subscribe<HiddenRow>("*", (e) => fn(e.action as Action, e.record), { fields: HIDDEN_FIELDS })),
 
     onConnect(fn) {
-      let first = true;
+      // PB_CONNECT only reaches listeners for connections made after they subscribe. If we are already
+      // connected now, the next PB_CONNECT this listener sees is a reconnect, not the initial connect.
+      let connected = pb.realtime.isConnected;
       const unsub = pb.realtime.subscribe("PB_CONNECT", () => {
-        fn(!first);
-        first = false;
+        fn(connected);
+        connected = true;
       });
       return () => void unsub.then((off) => off()).catch(() => {});
     },

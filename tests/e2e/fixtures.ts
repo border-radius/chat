@@ -1,0 +1,118 @@
+// Helpers for e2e specs: users and rooms are created through the real REST API (fast setup);
+// everything a spec asserts on goes through the real UI in a real browser.
+import { DatabaseSync } from "node:sqlite";
+import { join } from "node:path";
+import { expect, type Browser, type Locator, type Page } from "@playwright/test";
+import { newId } from "../../web/src/lib/id.ts";
+import { E2E_BASE, E2E_DATA_DIR } from "./paths.ts";
+
+let seq = 0;
+export const uniq = () => `${Date.now().toString(36)}${(seq++).toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  password: string;
+  token: string;
+}
+export interface Room {
+  id: string;
+  name: string;
+}
+
+async function call<T>(path: string, init: RequestInit & { token?: string } = {}, base = E2E_BASE): Promise<T> {
+  const res = await fetch(`${base}${path}`, {
+    ...init,
+    headers: { "content-type": "application/json", ...(init.token ? { authorization: init.token } : {}) },
+  });
+  if (!res.ok) throw new Error(`${init.method ?? "GET"} ${path} → ${res.status} ${await res.text()}`);
+  return (await res.json()) as T;
+}
+
+export async function apiUser(name = "User", base = E2E_BASE): Promise<User> {
+  const email = `user-${uniq()}@test.local`; // not derived from the name, which may contain markup
+  const password = "password-123";
+  await call("/api/collections/users/records", { method: "POST", body: JSON.stringify({ email, password, passwordConfirm: password, name }) }, base);
+  const auth = await call<{ token: string; record: { id: string } }>(
+    "/api/collections/users/auth-with-password",
+    { method: "POST", body: JSON.stringify({ identity: email, password }) },
+    base,
+  );
+  return { id: auth.record.id, name, email, password, token: auth.token };
+}
+
+export async function apiRoom(owner: User, name = `room-${uniq()}`, base = E2E_BASE): Promise<Room> {
+  return call<Room>("/api/collections/rooms/records", { method: "POST", token: owner.token, body: JSON.stringify({ name, created_by: owner.id }) }, base);
+}
+
+export async function apiSend(user: User, room: Room, text: string): Promise<{ id: string; text: string }> {
+  return call("/api/collections/messages/records", { method: "POST", token: user.token, body: JSON.stringify({ room: room.id, author: user.id, text }) });
+}
+
+/**
+ * Insert `n` messages oldest-first, `stepMs` apart (default: one minute, ending in the past).
+ * Fixture data: no hooks, no realtime events.
+ */
+export function seed(
+  room: Room,
+  author: User,
+  n: number,
+  opts: { text?: (i: number) => string; dataDir?: string; startAt?: number; stepMs?: number } = {},
+): string[] {
+  const { text = (i: number) => `history ${i + 1}`, dataDir = E2E_DATA_DIR, stepMs = 60_000 } = opts;
+  const out: string[] = [];
+  const db = new DatabaseSync(join(dataDir, "data.db"));
+  try {
+    db.exec("PRAGMA busy_timeout = 5000; BEGIN IMMEDIATE");
+    const ins = db.prepare(
+      "INSERT INTO messages (id, room, author, text, edited_at, deleted, deleted_at, created, updated) VALUES (?, ?, ?, ?, '', 0, '', ?, ?)",
+    );
+    const start = opts.startAt ?? Date.now() - (n + 1) * stepMs;
+    for (let i = 0; i < n; i++) {
+      const ts = new Date(start + i * stepMs).toISOString().replace("T", " ");
+      ins.run(newId(), room.id, author.id, text(i), ts, ts);
+      out.push(text(i));
+    }
+    db.exec("COMMIT");
+  } finally {
+    db.close();
+  }
+  return out;
+}
+
+/** Log in through the real form. */
+export async function login(page: Page, user: User, base = ""): Promise<void> {
+  await page.goto(`${base}/#/login`);
+  await page.getByLabel("Email").fill(user.email);
+  await page.getByLabel("Password").fill(user.password);
+  await page.getByRole("button", { name: "Log in" }).click();
+  await expect(page).toHaveURL(/#\/$/);
+}
+
+/** A new browser context logged in as `user`, opened on `room`. */
+export async function openRoom(browser: Browser, user: User, room: Room, base = ""): Promise<Page> {
+  const ctx = await browser.newContext({ viewport: { width: 1100, height: 720 } });
+  const page = await ctx.newPage();
+  await login(page, user, base);
+  await page.goto(`${base}/#/r/${room.id}`);
+  await expect(page.locator("header.room-header h1")).toHaveText(`#${room.name}`);
+  await expect(page.locator("ol.messages")).toHaveAttribute("aria-busy", "false");
+  return page;
+}
+
+export const messages = (page: Page): Locator => page.locator("ol.messages li.msg");
+export const message = (page: Page, text: string | RegExp): Locator =>
+  page.locator("ol.messages li.msg").filter({ has: page.locator(".body", { hasText: text }) });
+export const composer = (page: Page): Locator => page.locator("form.composer textarea");
+
+export async function send(page: Page, text: string): Promise<void> {
+  await composer(page).fill(text);
+  await composer(page).press("Enter");
+}
+
+/** Open the room header menu and click an item. */
+export async function headerAction(page: Page, label: string): Promise<void> {
+  await page.locator("header.room-header summary").click();
+  await page.locator("header.room-header .menu-items").getByRole("button", { name: label, exact: true }).click();
+}

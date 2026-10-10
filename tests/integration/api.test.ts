@@ -283,6 +283,25 @@ describe("createApi", () => {
       }
     });
 
+    it("onConnect registered while already connected reports the next connection as a reconnect", async () => {
+      const pb = new PocketBase(inject("pbUrl"), new BaseAuthStore());
+      const api = createApi(pb);
+      await api.signUp({ email: `r-${uniq()}@test.local`, password: "password-123", name: "R" });
+      const unsub = await api.subscribeRooms(() => {});
+      await eventually(() => expect(pb.realtime.isConnected).toBe(true));
+      const calls: boolean[] = [];
+      const off = api.onConnect((re) => calls.push(re)); // registered after the connection is up
+      try {
+        // Force the SDK down its real reconnect path (as after a dropped connection).
+        (pb.realtime as unknown as { connectErrorHandler(e: Error): void }).connectErrorHandler(new Error("dropped"));
+        await eventually(() => expect(calls).toEqual([true]), 5_000);
+      } finally {
+        off();
+        await unsub();
+        await api.unsubscribeAll();
+      }
+    });
+
     it("onConnect fires with reconnect=false for the first connection", async () => {
       const { a } = await setup();
       const calls: boolean[] = [];

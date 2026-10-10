@@ -543,34 +543,54 @@ CSS has no unit tests, so it is verified by e2e and accessibility checks (Phase 
 
 Each flow from §9.3 starts as a failing spec. Fix the app, not the test, unless the test itself is wrong.
 
-- [ ] Disable rate limits in `tests/e2e/server.ts`, as the integration harness does. E2E flows sign up many users from one IP, and the `users:create` limit is 20 per minute.
-- [ ] 🔴 `signup.spec.ts`: sign up, see the empty list, create "general", send "hello", and see it with the user's name
-- [ ] 🔴 `realtime.spec.ts`:
+- [x] Disable rate limits in `tests/e2e/server.ts`, as the integration harness does. E2E flows sign up many users from one IP, and the `users:create` limit is 20 per minute.
+- [x] 🔴 `signup.spec.ts`: sign up, see the empty list, create "general", send "hello", and see it with the user's name
+- [x] 🔴 `realtime.spec.ts`:
   - with two contexts, B sees A's message within 1 second;
   - when B deletes a message, A sees the placeholder;
   - after a reload the placeholder is still there.
-- [ ] 🔴 `history.spec.ts`:
+- [x] 🔴 `history.spec.ts`:
   - **Setup:** seed 2,000 messages.
   - **Scroll up:** message #1 is reachable by scrolling, the DOM stays at or below 300 messages, and the view doesn't jump.
   - **Live edge:** scrolling back down reaches the live edge, and a message B sends then appears live.
   - **Jump:** "Jump to beginning" works.
-- [ ] 🔴 `edit.spec.ts`: B sees A's edit live with "(edited)". The Up-arrow shortcut works.
-- [ ] 🔴 `hide.spec.ts`: A hides a room and B is unaffected. The room still opens by URL, and Unhide restores it.
-- [ ] 🔴 `archive.spec.ts`:
+- [x] 🔴 `edit.spec.ts`: B sees A's edit live with "(edited)". The Up-arrow shortcut works.
+- [x] 🔴 `hide.spec.ts`: A hides a room and B is unaffected. The room still opens by URL, and Unhide restores it.
+- [x] 🔴 `archive.spec.ts`:
   - the creator archives the room and both users see the read-only banner;
   - history is still scrollable to the beginning;
   - a user who is not the creator has no Archive action;
   - Unarchive brings the composer back.
-- [ ] 🔴 `session.spec.ts`: a reload keeps the user logged in. Logging out goes to `#/login`, and going back shows no room content.
-- [ ] 🔴 `reconnect.spec.ts`: B goes offline, A sends 80 messages, and when B comes back all 80 appear in order
-- [ ] 🔴 `xss.spec.ts`: an `<img onerror>` payload renders as text and `window.__pwned` stays undefined, both after sending and after editing
-- [ ] 🔴 `mobile.spec.ts`: at 390×844 the sidebar collapses, the composer is visible, and sending works
-- [ ] 🔴 `a11y.spec.ts`: axe on the login, rooms, room and archived-room screens finds 0 serious or critical issues
+- [x] 🔴 `session.spec.ts`: a reload keeps the user logged in. Logging out goes to `#/login`, and going back shows no room content.
+- [x] 🔴 `reconnect.spec.ts`: B goes offline, A sends 80 messages, and when B comes back all 80 appear in order
+- [x] 🔴 `xss.spec.ts`: an `<img onerror>` payload renders as text and `window.__pwned` stays undefined, both after sending and after editing
+- [x] 🔴 `mobile.spec.ts`: at 390×844 the sidebar collapses, the composer is visible, and sending works
+- [x] 🔴 `a11y.spec.ts`: axe on the login, rooms, room and archived-room screens finds 0 serious or critical issues
 - [ ] (optional) `perf.spec.ts`: with 4× CPU throttling, the first message is visible in under 1.5 s
+  - Not written. The bundle budget (§7.7) is enforced on every build instead.
 - [ ] CI runs e2e on all three browsers
-- [ ] `README.md`: setup, dev, test, build, and deployment (systemd unit, `serve <domain>`, backups) (§11)
+  - Configured in `.github/workflows/ci.yml` (it sets `CI=1`, which enables Firefox and WebKit), but it has never run: there is no `git` binary in this container and no remote yet. Locally only Chromium is installed.
+- [x] `README.md`: setup, dev, test, build, and deployment (systemd unit, `serve <domain>`, backups) (§11)
 
 **✅ Gate 7 — MVP done:** CI is green on `main`. Every box above is ticked, and every requirement in DESIGN.md §2 and §13 is traceable to at least one test.
+  - **Status (2026-10-10): done locally, CI pending.**
+    - `npm run check` passes: 222 unit tests, 114 integration tests, and the build within budget (JS 20.6 KB, CSS 2.3 KB, HTML 0.3 KB gzipped).
+    - All 13 e2e specs pass on Chromium, 4 runs in a row with no leaked processes or temp dirs.
+    - Firefox and WebKit run only in CI, which hasn't run yet.
+  - **Real bug found by e2e:**
+    - `api.onConnect` reported the first PB_CONNECT a listener saw as the initial connect. A view that subscribed while the connection was already up (the room view after the sidebar connected) therefore saw a real reconnect as `reconnect=false`, and the gap fill never ran.
+    - It's fixed by deciding at registration time from `pb.realtime.isConnected`. An integration test now forces the SDK's real reconnect path.
+  - **Tests that would have passed for the wrong reason (fixed):**
+    - Playwright's `setOffline` doesn't drop an open SSE stream. `reconnect.spec.ts` now runs its own PocketBase, stops it, writes messages straight into SQLite while it's down, and restarts it. It asserts the gap was filled by page fetches.
+    - `toBeVisible()` passes for `opacity: 0`, so the touch-actions check uses `toHaveCSS("opacity", "1")`. A mutation check confirms it catches the bug.
+    - `history.spec.ts` measures before scrolling. Locally the older page can land before a measurement taken afterwards.
+  - **Also fixed:**
+    - axe flagged `<li role="separator">` (date dividers) as breaking `<ol>` semantics. They are now plain `<li>`, with a unit test for it.
+    - Duplicate `playwright-core` (axe pulled 1.64): pinned to 1.63.0.
+    - `isMobile` was dropped from the phone spec, because Firefox doesn't support it.
+  - **Infrastructure:**
+    - The e2e server turns off rate limits (shared `disableRateLimits` helper) and uses a predictable data dir, so specs can seed large histories.
+    - Users and rooms are created through the REST API, and everything asserted goes through the real UI.
 
 ---
 

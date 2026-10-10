@@ -113,3 +113,21 @@ function kill(proc: ChildProcess): Promise<void> {
     proc.kill("SIGTERM");
   });
 }
+
+export interface RateLimits {
+  enabled: boolean;
+  rules: { label: string; audience: string; duration: number; maxRequests: number }[];
+}
+
+/**
+ * Turn off PocketBase's per-IP rate limits: every test client connects from 127.0.0.1, so limits meant for
+ * real users would trip across unrelated tests. Returns the settings as the migrations left them.
+ */
+export async function disableRateLimits(url: string): Promise<RateLimits> {
+  const { default: PocketBase } = await import("pocketbase");
+  const admin = new PocketBase(url);
+  await admin.collection("_superusers").authWithPassword(SUPERUSER.email, SUPERUSER.password);
+  const { rateLimits } = (await admin.settings.getAll()) as { rateLimits: RateLimits };
+  await admin.settings.update({ rateLimits: { ...rateLimits, enabled: false } });
+  return rateLimits;
+}

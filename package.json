@@ -29,6 +29,7 @@
     "esbuild": "0.28.2",
     "eventsource": "5.1.2",
     "happy-dom": "20.14.5",
+    "playwright-core": "1.63.0",
     "typescript": "7.0.2",
     "vitest": "5.0.2"
   },
