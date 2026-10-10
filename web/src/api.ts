@@ -132,7 +132,7 @@ export function errorMessage(err: unknown): string {
 
 /** Only what the UI renders; never user emails (§6). */
 export const MSG_FIELDS =
-  "id,room,text,created,updated,edited_at,deleted,files,author,expand.author.id,expand.author.name,expand.author.avatar";
+  "id,room,text,created,updated,edited_at,deleted,files,file_names,author,expand.author.id,expand.author.name,expand.author.avatar";
 const MSG_OPTS = { expand: "author", fields: MSG_FIELDS } as const;
 /** Rooms with their members' public profile (DMs, §16.5); never emails. */
 export const ROOM_FIELDS =
@@ -186,7 +186,15 @@ export function createApi(pb: PocketBase): Api {
   const subscribe = <T>(collection: string, fn: RealtimeHandler<T>, opts: Record<string, unknown>) =>
     wrap(pb.collection(collection).subscribe<T>("*", (e) => fn(e.action as Action, e.record), opts));
   const tokens = createTokenCache(() => wrap(pb.files.getToken()));
-  pb.authStore.onChange(() => tokens.reset());
+  // A file token belongs to a user: drop it when the user changes, but not on a session refresh of the same user
+  // (every page load does one, often while the first token request is in flight: QA BUG-25).
+  const sessionUser = () => (pb.authStore.isValid ? (pb.authStore.record?.id ?? "") : "");
+  let tokenUser = sessionUser();
+  pb.authStore.onChange(() => {
+    if (sessionUser() === tokenUser) return;
+    tokenUser = sessionUser();
+    tokens.reset();
+  });
   const me = () => {
     const u = api.currentUser();
     if (!u) throw new ApiError("Not logged in.", 401);
@@ -239,7 +247,8 @@ export function createApi(pb: PocketBase): Api {
     openDm: (userId) => wrap(pb.send<Room>("/api/chat/dms", { method: "POST", body: { user: userId } })),
     async searchUsers(query, signal) {
       const opts = {
-        filter: pb.filter("name ~ {:q} && id != {:me}", { q: query, me: me() }),
+        // PocketBase's ~ treats a % in the value as a wildcard (and then stops wrapping it in its own): escape it (BUG-34).
+        filter: pb.filter("name ~ {:q} && id != {:me}", { q: query.replaceAll("%", "\\%"), me: me() }),
         sort: "name",
         fields: USER_FIELDS,
         skipTotal: true,

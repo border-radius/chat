@@ -14,6 +14,11 @@ export function displayName(stored: string): string {
   return stored.replace(/_[a-z0-9]{10}(\.[^.]*)?$/i, "$1");
 }
 
+/** What to call a message's attachment: its original upload name when the server recorded it (QA BUG-28). */
+export function attachmentName(m: { file_names?: Record<string, string> }, stored: string): string {
+  return m.file_names?.[stored] || displayName(stored);
+}
+
 export function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;

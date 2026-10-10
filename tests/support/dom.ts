@@ -6,7 +6,8 @@
  * scrollTop is clamped like a browser's. Returns setters for tests to "scroll".
  */
 export function fakeLayout(list: HTMLElement, opts: { rowHeight: number; clientHeight: number; scrollTop?: number }) {
-  const { rowHeight, clientHeight } = opts;
+  const { rowHeight } = opts;
+  let clientHeight = opts.clientHeight;
   let scrollTop = opts.scrollTop ?? 0;
   const scrollHeight = () => list.children.length * rowHeight;
   const clamp = (v: number) => Math.max(0, Math.min(v, Math.max(0, scrollHeight() - clientHeight)));
@@ -30,6 +31,10 @@ export function fakeLayout(list: HTMLElement, opts: { rowHeight: number; clientH
   }
   (list as HTMLElement & { __rowHeight?: number }).__rowHeight = rowHeight;
   return {
+    /** The visible height changes (e.g. the composer grew); scrollTop stays, as in a browser. */
+    setClientHeight(h: number) {
+      clientHeight = h;
+    },
     scrollTo(v: number) {
       list.scrollTop = v;
       list.dispatchEvent(new Event("scroll"));

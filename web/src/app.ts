@@ -86,7 +86,11 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
   function onAuthChange() {
     const next = api.currentUser();
     const cur = store.get().user;
-    if (next?.id === cur?.id) return; // our own login/refresh, or nothing that changes who is logged in
+    if (next?.id === cur?.id) {
+      // Same user: our own login/refresh, or a profile change (here or in another tab, BUG-33): follow name and avatar.
+      if (next && cur && (next.name !== cur.name || (next.avatar ?? "") !== (cur.avatar ?? ""))) store.set({ user: next });
+      return;
+    }
     if (cur) endSession();
     if (next) store.set({ user: next });
     // Views mounted for the previous user hold its subscriptions and state: start them over.
@@ -148,6 +152,13 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     if (s.user && !prev.user) sync.start();
   });
   const offAuth = api.onAuthChange(onAuthChange);
+  // A file dropped where nothing takes it must not make the browser open it and leave the app (QA BUG-27).
+  // The room and the profile picture handle their own drops; this only cancels the browser's default.
+  const swallowFileDrag = (e: DragEvent) => {
+    if (e.dataTransfer?.types.includes("Files")) e.preventDefault();
+  };
+  window.addEventListener("dragover", swallowFileDrag);
+  window.addEventListener("drop", swallowFileDrag);
   renderHeader();
   if (store.get().user) sync.start();
   router.start();
@@ -169,6 +180,8 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     router,
     stop() {
       offAuth();
+      window.removeEventListener("dragover", swallowFileDrag);
+      window.removeEventListener("drop", swallowFileDrag);
       offStore();
       router.stop();
       sync.stop();

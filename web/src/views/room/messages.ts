@@ -3,7 +3,7 @@
 // delete confirm, inline errors); what those buttons *do* is up to the room view.
 
 import { h, reconcile } from "../../dom.ts";
-import { displayName, isImage } from "../../lib/files.ts";
+import { attachmentName, isImage } from "../../lib/files.ts";
 import { type MessageWindow, startsGroup } from "../../lib/messages.ts";
 import { captureAnchor, restoreAnchor } from "../../lib/scroll.ts";
 import { dayLabel, formatFull, formatTime, parsePb } from "../../lib/time.ts";
@@ -274,7 +274,7 @@ export function createMessageList(opts: {
     } else {
       for (const name of names) {
         if (isImage(name)) images.append(imageTile(m, name, size));
-        else others.append(h("li", {}, fileLink(m, name, "att-file", [displayName(name)])));
+        else others.append(h("li", {}, fileLink(m, name, "att-file", [attachmentName(m, name)])));
       }
     }
     return h("div", { class: "attachments" }, [images.childElementCount ? images : null, others.childElementCount ? others : null]);
@@ -282,7 +282,11 @@ export function createMessageList(opts: {
 
   /** A link to the full file, re-signed with the current token whenever it is about to be used. */
   function fileLink(m: Message, name: string, cls: string, children: (Node | string)[]): HTMLAnchorElement {
-    const a = h("a", { class: cls, href: opts.fileUrl(m, name), target: "_blank", rel: "noopener", download: displayName(name) }, children);
+    const a = h(
+      "a",
+      { class: cls, href: opts.fileUrl(m, name), target: "_blank", rel: "noopener", download: attachmentName(m, name) },
+      children,
+    );
     const sign = () => (a.href = opts.fileUrl(m, name));
     for (const type of ["pointerenter", "focus", "click"] as const) a.addEventListener(type, sign, { signal });
     return a;
@@ -294,7 +298,7 @@ export function createMessageList(opts: {
       src: opts.fileUrl(m, name, size.thumb),
       width: size.w,
       height: size.h,
-      alt: displayName(name),
+      alt: attachmentName(m, name),
       loading: "lazy",
       decoding: "async",
     });

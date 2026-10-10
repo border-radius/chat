@@ -12,7 +12,7 @@ A small, fast, real-time group chat. One [PocketBase](https://pocketbase.io) bin
 - Attachments: up to 4 files per message, images shown as thumbnails; files are private to whoever can read the message
 - Optimistic sending with safe retries, reconnect gap-fill, light/dark themes, works on phones
 
-Design: [`docs/DESIGN.md`](docs/DESIGN.md) · Refactoring plan: [`docs/REFACTOR.md`](docs/REFACTOR.md) · Archived plans: [MVP build](docs/history/BUILD_PLAN.md), [avatars, DMs, attachments](docs/history/NEXT_FEATURES_PLAN.md)
+Design: [`docs/DESIGN.md`](docs/DESIGN.md) · QA: [`docs/QA.md`](docs/QA.md) · Refactoring plan: [`docs/REFACTOR.md`](docs/REFACTOR.md) · Archived plans: [MVP build](docs/history/BUILD_PLAN.md), [avatars, DMs, attachments](docs/history/NEXT_FEATURES_PLAN.md)
 
 ## Requirements
 

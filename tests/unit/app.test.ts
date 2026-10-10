@@ -61,6 +61,24 @@ describe("app boot (§7.1)", () => {
     await api.unsubscribeAll();
   });
 
+  it("BUG-27: a file dragged over or dropped anywhere doesn't make the browser open it; other drags are left alone", async () => {
+    const { api } = await signedUp("Ada");
+    app = startApp({ api, root });
+    const drag = (type: "dragover" | "drop", types: string[]) => {
+      const e = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(e, "dataTransfer", { value: { types, files: [] } });
+      root.dispatchEvent(e);
+      return e.defaultPrevented;
+    };
+    expect(drag("dragover", ["Files"])).toBe(true);
+    expect(drag("drop", ["Files"])).toBe(true);
+    expect(drag("dragover", ["text/plain"])).toBe(false);
+    app.stop();
+    app = undefined;
+    expect(drag("drop", ["Files"])).toBe(false);
+    await api.unsubscribeAll();
+  });
+
   it("#/r/:id shows the room with the room list as a sidebar; navigating between rooms switches the room", async () => {
     const { api } = await signedUp("Ada");
     const r1 = await api.createRoom(`one-${newId()}`);
@@ -175,6 +193,21 @@ describe("app boot (§7.1)", () => {
       await api.logIn(email, password);
       return { pb, api };
     }
+
+    it("BUG-33: a profile change in another tab (same user) updates this tab's app bar, without a reset", async () => {
+      const ada = await signedUp("Ada");
+      const { pb, api } = await sharedSession(ada.email, ada.password);
+      const ctl = instrument(api);
+      app = startApp({ api, root });
+      await vi.waitFor(() => expect(ctl.calls("refreshAuth")).toBe(1));
+      const listsBefore = ctl.calls("listRooms");
+      pb.authStore.save(pb.authStore.token, { ...pb.authStore.record!, name: "Ada King", avatar: "new_abcdefghij.png" });
+      await tick();
+      expect(root.querySelector(".who")?.textContent).toBe("Ada King");
+      expect(root.querySelector("header.app-bar img.avatar")?.getAttribute("src")).toContain("new_abcdefghij.png");
+      expect(app.store.get().user).toMatchObject({ id: ada.user.id, name: "Ada King" });
+      expect(ctl.calls("listRooms")).toBe(listsBefore); // same user: the session wasn't restarted
+    });
 
     it("a logout in another tab logs this tab out too", async () => {
       const ada = await signedUp("Ada");

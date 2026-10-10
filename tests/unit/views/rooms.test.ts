@@ -365,10 +365,13 @@ describe("rooms view (§7.1)", () => {
       await vi.waitFor(() => expect(names("dms")).toEqual([cat.user.name, bob.user.name]));
     });
 
-    it("a DM someone else starts appears live", async () => {
+    it("a DM someone else starts appears live with its first message, not before (BUG-29)", async () => {
       await mount();
       const bob = await signedUp(`Bob ${uniq()}`);
       const dm = await bob.api.openDm(me.user.id);
+      await vi.waitFor(() => expect(store.get().rooms.has(dm.id)).toBe(true));
+      expect(row(dm)).toBeNull();
+      await bob.api.send({ id: newId(), room: dm.id, text: "hi" });
       await vi.waitFor(() => expect(sectionOf(dm)).toBe("dms"));
       expect(names("dms")).toContain(bob.user.name);
     });
@@ -381,6 +384,35 @@ describe("rooms view (§7.1)", () => {
       action(dm, "Close conversation")!.click();
       await vi.waitFor(() => expect(row(dm)).toBeNull());
       expect(store.get().hidden.has(dm.id)).toBe(true);
+    });
+
+    it("BUG-30: picking someone you already have an open DM with goes straight there, without a request", async () => {
+      const tag = uniq();
+      const bob = await signedUp(`Bobby ${tag}`);
+      const dm = await me.api.openDm(bob.user.id);
+      const ctl = instrument(me.api);
+      await mount();
+      await vi.waitFor(() => expect(sectionOf(dm)).toBe("dms"));
+      newDmButton().click();
+      searchFor(`Bobby ${tag}`);
+      await vi.waitFor(() => expect(results()).toHaveLength(1));
+      results()[0]!.click();
+      await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith(`#/r/${dm.id}`));
+      expect(ctl.calls("openDm")).toBe(0);
+    });
+
+    it("BUG-30: a failure to open a DM says why (rate limiting is not a connection problem)", async () => {
+      const tag = uniq();
+      await signedUp(`Bobby ${tag}`);
+      const ctl = instrument(me.api);
+      ctl.failNext("openDm", new ApiError("Too many requests.", 429));
+      await mount();
+      newDmButton().click();
+      searchFor(`Bobby ${tag}`);
+      await vi.waitFor(() => expect(results()).toHaveLength(1));
+      results()[0]!.click();
+      await vi.waitFor(() => expect(root.querySelector(".list-error")!.textContent).toMatch(/Too many attempts/));
+      expect(root.querySelector(".list-error")!.textContent).not.toMatch(/connection/);
     });
 
     it("+ opens a debounced user search; picking someone opens the DM and navigates to it", async () => {

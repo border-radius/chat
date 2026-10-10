@@ -41,6 +41,8 @@ export interface Message {
   deleted: boolean;
   /** Stored attachment names (§17.1); empty or absent when there are none. */
   files?: string[];
+  /** Original upload names by stored name, set by the server (QA BUG-28); absent for older messages. */
+  file_names?: Record<string, string>;
   expand?: { author?: User };
   status?: SendStatus;
   /** Client-only: attachments of a message not (yet) on the server, with local preview URLs (§17.4). */

@@ -77,6 +77,7 @@ describe("schema (§5)", () => {
       mimeTypes: [],
     });
     expect(cols.messages!.updateRule).toContain("@request.body.files:isset = false");
+    expect(fieldsOf(cols.messages!).file_names).toMatchObject({ type: "json" }); // QA BUG-28
   });
 
   it("messages fields and (room, created, id) index", () => {

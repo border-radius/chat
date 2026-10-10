@@ -90,8 +90,8 @@ export function createRoomsView({ api, store, sync, actions, navigate }: Ctx): V
       if (!scope.active) return;
       toggleSearch(false);
       navigate(`#/r/${room.id}`);
-    } catch {
-      actionError = `Couldn't open the conversation with “${user.name}”. Check your connection and try again.`;
+    } catch (e) {
+      actionError = `Couldn't open the conversation with “${user.name}”. ${errorMessage(e)}`;
     }
     if (scope.active) renderAlert();
   }

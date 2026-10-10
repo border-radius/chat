@@ -95,22 +95,40 @@ describe("roomSections (§7.1)", () => {
 
   describe("direct messages (§16.5)", () => {
     const dm = (id: string, last: string, created = "2026-01-01 00:00:00.000Z", extra: Partial<Room> = {}): Room =>
-      room(id, "", { kind: "dm", members: ["me", `u${id}`], last_message_at: last, created, ...extra });
+      room(id, "", { kind: "dm", members: ["me", `u${id}`], last_message_at: last, created, created_by: "me", ...extra });
+    const mine = (s: AppState): AppState => ({ ...s, user: { id: "me", name: "Me" } });
+
+    it("BUG-29: a DM without messages is listed only for the member who opened it", () => {
+      const s = mine(
+        state([
+          dm("theirs", "", undefined, { created_by: "ua" }),
+          dm("mine", ""),
+          dm("talked", "2026-02-01 00:00:00.000Z", undefined, { created_by: "ub" }),
+        ]),
+      );
+      expect(
+        roomSections(s)
+          .dms.map((r) => r.id)
+          .sort(),
+      ).toEqual(["mine", "talked"]);
+    });
 
     it("lists DMs by latest activity (last message, else creation), newest first", () => {
-      const s = state([
-        dm("a", "2026-03-01 00:00:00.000Z"),
-        dm("b", "", "2026-04-01 00:00:00.000Z"),
-        dm("c", "2026-05-01 00:00:00.000Z"),
-        room("p", "public"),
-      ]);
+      const s = mine(
+        state([
+          dm("a", "2026-03-01 00:00:00.000Z"),
+          dm("b", "", "2026-04-01 00:00:00.000Z"),
+          dm("c", "2026-05-01 00:00:00.000Z"),
+          room("p", "public"),
+        ]),
+      );
       const { rooms, dms } = roomSections(s);
       expect(dms.map((r) => r.id)).toEqual(["c", "b", "a"]);
       expect(rooms.map((r) => r.id)).toEqual(["p"]);
     });
 
     it("closed (hidden) DMs are left out entirely; a DM is never in Hidden or Archived", () => {
-      const s = state([dm("a", ""), dm("b", "", undefined, { archived: true })], ["a"]);
+      const s = mine(state([dm("a", ""), dm("b", "", undefined, { archived: true })], ["a"]));
       const { dms, hidden, archived } = roomSections(s);
       expect(dms.map((r) => r.id)).toEqual(["b"]);
       expect(hidden).toEqual([]);

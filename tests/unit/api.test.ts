@@ -32,6 +32,7 @@ describe("listOptions", () => {
       "edited_at",
       "deleted",
       "files",
+      "file_names",
       "author",
       "expand.author.id",
       "expand.author.name",

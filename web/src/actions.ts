@@ -35,6 +35,11 @@ export function createRoomActions({ api, store }: { api: Api; store: Store<AppSt
       store.set(upsertRoom(await api.setArchived(roomId, archived)));
     },
     async openDm(userId) {
+      // Already open: no request (the route is rate limited per IP, which a whole office may share; QA BUG-30).
+      const { rooms, hidden, user } = store.get();
+      for (const r of rooms.values()) {
+        if (r.kind === "dm" && r.members?.includes(userId) && r.members.includes(user?.id ?? "") && !hidden.has(r.id)) return r;
+      }
       const room = await api.openDm(userId);
       store.set(upsertRoom(room));
       store.set(unmarkHiddenRoom(room.id));

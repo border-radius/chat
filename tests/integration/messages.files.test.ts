@@ -125,3 +125,35 @@ describe("protected access (§17.3)", () => {
     }
   });
 });
+
+describe("original file names (QA BUG-28)", () => {
+  it("the server records each upload's original name, keyed by its stored name", async () => {
+    const a = await newUser();
+    const room = await newRoom(a);
+    const m = await withFiles(a, room.id, [file("Quarterly Report (final).pdf", "application/pdf"), pngFile("Ünïcødé photo.png")]);
+    expect(m.files[0]).toMatch(/^quarterly_report_final_\w{10}\.pdf$/);
+    expect(m.file_names).toEqual({ [m.files[0]]: "Quarterly Report (final).pdf", [m.files[1]]: "Ünïcødé photo.png" });
+  });
+
+  it("clients can't forge or change the names; spoofing characters are dropped; a delete clears them", async () => {
+    const a = await newUser();
+    const room = await newRoom(a);
+    const forged = await a.pb.collection("messages").create({
+      room: room.id,
+      author: a.user.id,
+      text: "",
+      files: [file("invoice‮fdp.exe", "application/octet-stream")],
+      file_names: { x: "y" },
+    });
+    expect(Object.values(forged.file_names)).toEqual(["invoicefdp.exe"]);
+    const edited = await a.pb.collection("messages").update(forged.id, { text: "now", file_names: { [forged.files[0]]: "nice.pdf" } });
+    expect(edited.file_names).toEqual(forged.file_names);
+    expect((await a.pb.collection("messages").update(forged.id, { deleted: true })).file_names).toEqual({});
+  });
+
+  it("messages without files have no names", async () => {
+    const a = await newUser();
+    const room = await newRoom(a);
+    expect((await post(a, room.id, "plain")).file_names).toEqual({});
+  });
+});

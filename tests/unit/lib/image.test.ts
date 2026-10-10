@@ -19,7 +19,7 @@ describe("fitWithin (§15.3)", () => {
 
 describe("prepareImage (§15.3)", () => {
   const drawn: { width: number; height: number }[] = [];
-  let encodable = new Set(["image/webp", "image/jpeg"]);
+  let encodable = new Set(["image/webp", "image/jpeg", "image/png"]);
 
   function stubBrowser(size = { width: 4000, height: 3000 }, decode: "ok" | "fail" = "ok") {
     const close = vi.fn();
@@ -45,26 +45,33 @@ describe("prepareImage (§15.3)", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     drawn.length = 0;
-    encodable = new Set(["image/webp", "image/jpeg"]);
+    encodable = new Set(["image/webp", "image/jpeg", "image/png"]);
   });
 
   const file = (name: string, type: string) => new File(["original"], name, { type });
 
-  it("re-encodes JPEG as WebP at most maxEdge px, and frees the bitmap", async () => {
+  it("re-encodes JPEG as JPEG at most maxEdge px, keeping the name, and frees the bitmap", async () => {
     const { close } = stubBrowser();
     const out = await prepareImage(file("photo.jpeg", "image/jpeg"), 2048);
-    expect(out.type).toBe("image/webp");
-    expect(out.name).toBe("photo.webp");
+    expect(out.type).toBe("image/jpeg");
+    expect(out.name).toBe("photo.jpeg");
     expect(drawn).toEqual([{ width: 2048, height: 1536 }]);
     expect(close).toHaveBeenCalled();
   });
 
-  it("falls back to JPEG where WebP can't be encoded", async () => {
+  it("BUG-26: WebP becomes JPEG, so PocketBase thumbnails it as JPEG rather than PNG", async () => {
     stubBrowser();
-    encodable = new Set(["image/jpeg"]);
-    const out = await prepareImage(file("shot.png", "image/png"), 512);
+    const out = await prepareImage(file("pic.webp", "image/webp"), 2048);
     expect(out.type).toBe("image/jpeg");
-    expect(out.name).toBe("shot.jpg");
+    expect(out.name).toBe("pic.jpg");
+  });
+
+  it("BUG-26: PNG stays PNG (transparency), also where WebP can't be encoded", async () => {
+    stubBrowser();
+    encodable = new Set(["image/jpeg", "image/png"]);
+    const out = await prepareImage(file("shot.png", "image/png"), 512);
+    expect(out.type).toBe("image/png");
+    expect(out.name).toBe("shot.png");
   });
 
   it("uploads GIFs and non-images unchanged", async () => {

@@ -82,6 +82,7 @@ These are left out on purpose. The design should not block them later.
 chat/
 ├── docs/
 │   ├── DESIGN.md               # this document (the living spec)
+│   ├── QA.md                   # QA findings for §15–§17 (BUG-24 …)
 │   ├── REFACTOR.md
 │   └── history/                # finished plans: BUILD_PLAN.md (MVP), NEXT_FEATURES_PLAN.md (§15–§17)
 ├── package.json
@@ -96,12 +97,14 @@ chat/
 │   ├── 1760000001_qa_fixes.js
 │   ├── 1760000002_avatars.js           # §15.1
 │   ├── 1760000003_direct_messages.js   # §16.1, §16.3
-│   └── 1760000004_attachments.js       # §17.1
+│   ├── 1760000004_attachments.js       # §17.1
+│   └── 1760000005_file_names.js        # §17.1 (QA BUG-28)
 ├── pb_hooks/                   # server-side JS hooks (committed)
 │   ├── main.pb.js              # registrations only
 │   └── lib/
 │       ├── chat.js             # validation, stamps, soft delete, DM guards, headers (§5.6, §16, §17)
-│       └── dms.js              # POST /api/chat/dms (§16.2)
+│       ├── dms.js              # POST /api/chat/dms (§16.2)
+│       └── images.js           # upload image size limit (§15, QA BUG-24)
 ├── web/
 │   ├── index.html              # template; build injects hashed asset names
 │   ├── styles/app.css
@@ -765,7 +768,7 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 | Avatar storage | The built-in `users.avatar` file field: public, raster images only (no SVG), always displayed through thumbnails (§15.1). |
 | Attachment access | `protected` file field: downloads need a short-lived file token and pass the message's view rule, so DM files stay private (§17.3). |
 | Attachment layout | Images render in fixed-size boxes, so loading them never moves the scroll position (§17.5). |
-| Metadata stripping | The client re-encodes JPEG/PNG/WebP images before upload, which drops EXIF (including GPS). Best effort, protecting honest users only (§15.3). |
+| Metadata stripping | The client re-encodes JPEG/PNG/WebP images (PNG as PNG, the rest as JPEG) before upload, which drops EXIF (including GPS). Best effort, protecting honest users only (§15.3). |
 | Bundle budget | `app.js` budget raised from 25 KB to 30 KB gzipped (§7.7): avatars + DMs measured 25.9 KB. One bundle, no lazy chunks. |
 
 ### Still open
@@ -800,6 +803,11 @@ implementation plan (finished) is [`history/NEXT_FEATURES_PLAN.md`](history/NEXT
   breaks.
 - **Client-side re-encoding (§15.3)** shrinks and strips metadata before upload; the server limits are the real
   enforcement.
+- **At most 25 megapixels per image.** PocketBase decodes a whole image to thumbnail it, so a small, highly
+  compressed file declaring huge dimensions would exhaust server memory (QA BUG-24: an 875 KB PNG of 30000×30000 took
+  4.6 GB). The avatar and message create hooks read the header of every PNG, JPEG, GIF and WebP upload
+  (`pb_hooks/lib/images.js`) and reject larger images, or images whose dimensions can't be found in the first
+  256 KB, with `validation_image_too_large`.
 
 ## 15. Avatars
 
@@ -837,10 +845,12 @@ would push every profile change to every client for little benefit.
 ### 15.3 Client-side image preparation (`lib/image.ts`)
 
 Before upload, `prepareImage(file, maxEdge)` decodes the image with `createImageBitmap`, scales it so the longest
-edge is at most `maxEdge` (512 px for avatars, 2048 px for attachments), and re-encodes it as WebP (JPEG where WebP
-encoding is unsupported) through `OffscreenCanvas.convertToBlob`, falling back to a `<canvas>` element where
+edge is at most `maxEdge` (512 px for avatars, 2048 px for attachments), and re-encodes it, PNG as PNG (keeps
+transparency) and everything else as JPEG, through `OffscreenCanvas.convertToBlob`, falling back to a `<canvas>` element where
 `OffscreenCanvas` is missing. Re-encoding drops EXIF, so photos never leak GPS location.
 
+- Not WebP: PocketBase can't write WebP, so a WebP's thumbnails would be PNGs, often bigger than the image itself
+  (QA BUG-26). PNG and JPEG are thumbnailed in kind.
 - GIFs are uploaded as they are (re-encoding would drop the animation).
 - If decoding fails, the original file is uploaded unchanged, and the server limits decide.
 - The function is pure apart from the browser image APIs, and unit-testable with a stubbed `createImageBitmap`.
@@ -918,8 +928,8 @@ A custom route in `pb_hooks` (`routerAdd`, behind `$apis.requireAuth("users")`).
 5. Delete the caller's `hidden_rooms` row for that room, if any, so reopening a closed DM brings it back.
 
 The route returns the room in the same shape as the `rooms` API (`ROOM_FIELDS` plus the expanded members), so the
-client can `upsertRoom` it directly. It is idempotent, so the client can call it every time the user clicks
-**Message**. Rate limit: `POST /api/chat/dms` 10 per 60 s per IP.
+client can `upsertRoom` it directly. It is idempotent; the client still calls it only for a DM it doesn't already
+have open in its room list (QA BUG-30), since the route is rate limited: `POST /api/chat/dms` 10 per 60 s per IP.
 
 Creating a DM through the `rooms` API is impossible: the create rule (§16.3) only accepts `kind = "public"`.
 
@@ -967,7 +977,10 @@ reaches both members through their `rooms` subscription.
 - **`roomTitle(room, me)`** in `lib/rooms.ts`: the room name, or for a DM the other member's name. Used by the
   sidebar, the room header and `document.title`.
 - **Sidebar** (`roomSections`, §7.4) gains a **Direct messages** section between Rooms and Hidden: open DMs sorted by
-  `last_message_at` (then `created`) descending, each with the other member's avatar (§15.4). Closed DMs are omitted.
+  `last_message_at` (then `created`) descending, each with the other member's avatar (§15.4). Closed DMs are omitted,
+  and a DM without messages is listed only for the member who opened it, so opening one doesn't show up for the other
+  person until something is sent (QA BUG-29). `%` in the search text is escaped: PocketBase's `~` treats it as a
+  wildcard (QA BUG-34).
 - **New message:** a **+** button in the DM section header opens a user search (`users.getList(1, 20, {filter:
   pb.filter("name ~ {:q} && id != {:me}", …), fields: "id,name,avatar"})`, debounced 200 ms, at least 1 character).
   Choosing a user calls `actions.openDm(userId)` → `POST /api/chat/dms` → `upsertRoom` → navigate to `#/r/:id`.
@@ -1005,6 +1018,7 @@ reaches both members through their `rooms` subscription.
 | Field | Type | Notes |
 |---|---|---|
 | `files` | file, multiple | `maxSelect` 4, `maxSize` 8 MB each, **`protected: true`**, `thumbs`: `480x360` (center crop) and `240x180`. No `mimeTypes` allowlist: any file can be attached, because nothing is ever rendered from the file itself (§15 shared rules). |
+| `file_names` | json | stored name → original upload name, written only by the create hook from the uploads themselves (bidi and invisible characters removed, 200 characters max); cleared by a soft delete, never changed by an edit (QA BUG-28) |
 
 PocketBase's default request body limit (32 MB) fits 4 × 8 MB plus text; if the pinned version's default is lower, the
 route gets `$apis.bodyLimit` for multipart message creates. A test pins this.
@@ -1076,8 +1090,10 @@ other files as chips with name and size, each with a remove (×) button.
   fixed `width`/`height`, so there is never a layout shift. Clicking opens the full file in a new tab
   (`target="_blank" rel="noopener"`), served under the sandbox CSP.
 - **Other files:** a chip with an icon, the display name and a download link (`download` attribute).
-- **Display name:** PocketBase stores `report_k3j2h1g0f9.pdf` for `report.pdf`. `displayName(filename)` in
-  `lib/files.ts` strips the `_` + 10-character suffix before the extension. Pure and unit-tested.
+- **Display name:** PocketBase stores `quarterly_report_final_k3j2h1g0f9.pdf` for "Quarterly Report (final).pdf". The
+  create hook records each upload's original name in `file_names` (§17.1), and the list shows and downloads files
+  under it (`attachmentName()` in `lib/files.ts`). Messages from before that field fall back to `displayName()`,
+  which strips the `_` + 10-character suffix (QA BUG-28).
 - **Deleted messages** show the placeholder only (the files are gone, §17.1).
 - **Edit mode** edits only the text; attachments stay visible below the textarea, without remove buttons. The text
   of a message with attachments may be emptied.

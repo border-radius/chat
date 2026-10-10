@@ -22,7 +22,10 @@ function encode(c: Canvas, type: string): Promise<Blob | null> {
   return new Promise((ok) => c.toBlob(ok, type, 0.85));
 }
 
-/** `file` scaled to at most `maxEdge` px and re-encoded as WebP (JPEG where WebP can't be encoded). */
+/**
+ * `file` scaled to at most `maxEdge` px and re-encoded: PNG as PNG (keeps transparency), the rest as JPEG. Both are
+ * formats PocketBase thumbnails in kind; a WebP's thumbnails would be PNGs, often bigger than the image (QA BUG-26).
+ */
 export async function prepareImage(file: File, maxEdge: number): Promise<File> {
   if (!REENCODE.has(file.type) || typeof createImageBitmap !== "function") return file;
   let bitmap: ImageBitmap | undefined;
@@ -33,13 +36,13 @@ export async function prepareImage(file: File, maxEdge: number): Promise<File> {
     const ctx = c.getContext("2d") as OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D | null;
     if (!ctx) return file;
     ctx.drawImage(bitmap, 0, 0, width, height);
+    const type = file.type === "image/png" ? "image/png" : "image/jpeg";
     // An encoder that doesn't support a type falls back to PNG: check what we actually got.
-    let blob = await encode(c, "image/webp");
-    if (blob?.type !== "image/webp") blob = await encode(c, "image/jpeg");
-    if (!blob || (blob.type !== "image/webp" && blob.type !== "image/jpeg")) return file;
-    const ext = blob.type === "image/webp" ? "webp" : "jpg";
-    const base = file.name.replace(/\.[^.]*$/, "") || "image";
-    return new File([blob], `${base}.${ext}`, { type: blob.type, lastModified: file.lastModified });
+    const blob = await encode(c, type);
+    if (blob?.type !== type) return file;
+    const keepsName = type === "image/png" ? /\.png$/i.test(file.name) : /\.jpe?g$/i.test(file.name);
+    const name = keepsName ? file.name : `${file.name.replace(/\.[^.]*$/, "") || "image"}.${type === "image/png" ? "png" : "jpg"}`;
+    return new File([blob], name, { type, lastModified: file.lastModified });
   } catch {
     return file;
   } finally {

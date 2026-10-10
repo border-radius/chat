@@ -1052,6 +1052,44 @@ describe("room view (§7.5–7.6)", () => {
     });
   });
 
+  describe("BUG-31: the list stays at the bottom when it gets shorter", () => {
+    let resized: (() => void)[] = [];
+    beforeEach(() => {
+      resized = [];
+      vi.stubGlobal(
+        "ResizeObserver",
+        class {
+          constructor(cb: () => void) {
+            resized.push(cb);
+          }
+          observe() {}
+          disconnect() {}
+        },
+      );
+    });
+    afterEach(() => vi.unstubAllGlobals());
+
+    it("at the bottom: a shorter list (tray opened, textarea grew) scrolls to stay at the bottom", async () => {
+      const room = await newRoom();
+      await seedMessages(room.id, me.user.id, 40);
+      await mount(room);
+      expect(atBottom()).toBe(true);
+      layout.setClientHeight(VIEWPORT - 120);
+      for (const cb of resized) cb();
+      expect(list().scrollTop).toBe(list().scrollHeight - (VIEWPORT - 120));
+    });
+
+    it("scrolled up into history: the position is left alone", async () => {
+      const room = await newRoom();
+      await seedMessages(room.id, me.user.id, 40);
+      await mount(room);
+      layout.scrollTo(100);
+      layout.setClientHeight(VIEWPORT - 120);
+      for (const cb of resized) cb();
+      expect(list().scrollTop).toBe(100);
+    });
+  });
+
   describe("attachments (§17.4, §17.5)", () => {
     const pdf = (name = "doc.pdf") => new File(["%PDF"], name, { type: "application/pdf" });
     const tiles = (id: string) => [...msgEl(id)!.querySelectorAll<HTMLElement>(".att-tile")];
@@ -1171,6 +1209,22 @@ describe("room view (§7.5–7.6)", () => {
       expect(chip!.textContent).toBe("report.pdf");
       expect(chip!.getAttribute("download")).toBe("report.pdf");
       expect(chip!.getAttribute("href")).toMatch(/token=/);
+    });
+
+    it("BUG-28: files show, download and describe themselves under their original names", async () => {
+      const other = await signedUp("Other");
+      const room = await newRoom();
+      const m = await other.api.send({
+        id: newId(),
+        room: room.id,
+        text: "",
+        files: [pngFile("Beach Day!.png"), pdf("Quarterly Report (final).pdf")],
+      });
+      await mount(room);
+      expect(tiles(m.id)[0]!.querySelector("img")!.getAttribute("alt")).toBe("Beach Day!.png");
+      const [chip] = chips(m.id);
+      expect(chip!.textContent).toBe("Quarterly Report (final).pdf");
+      expect(chip!.getAttribute("download")).toBe("Quarterly Report (final).pdf");
     });
 
     it("a deleted message shows no attachments; editing keeps them visible", async () => {

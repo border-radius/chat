@@ -741,8 +741,14 @@ label.button.disabled {
   flex: none;
 }
 
-/* Another author's name opens a menu with "Message" (§16.5). */
+/* Another author's name opens a menu with "Message" (§16.5). It shrinks and truncates like a plain name, so the
+   time stays on screen (QA BUG-32). */
+.author-menu {
+  min-width: 0;
+}
+
 .author-menu > summary.author {
+  display: block;
   padding: 0;
   color: inherit;
 }

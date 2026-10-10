@@ -143,6 +143,19 @@ describe("createApi", () => {
       expect(r).toMatchObject({ kind: "public", members: [] });
     });
 
+    it("BUG-34: % in a search is a literal character, not a wildcard", async () => {
+      const { a } = await setup();
+      const tag = uniq();
+      for (const name of [`p${tag} 100%`, `p${tag} other`]) {
+        await realClient().signUp({ email: `${uniq()}@test.local`, password: "password-123", name });
+      }
+      expect((await a.searchUsers(`p${tag} 100%`)).map((u) => u.name)).toEqual([`p${tag} 100%`]);
+      const pct = await a.searchUsers("%");
+      expect(pct.length).toBeGreaterThan(0);
+      expect(pct.every((u) => u.name.includes("%"))).toBe(true);
+      expect((await a.searchUsers(`p${tag}%r`)).map((u) => u.name)).toEqual([]);
+    });
+
     it("searchUsers matches names, excludes yourself, caps at 20, binds the query safely", async () => {
       const { a } = await setup();
       const tag = uniq();
@@ -188,6 +201,14 @@ describe("createApi", () => {
       expect(thumb).toContain("thumb=480x360");
       expect((await fetch(thumb)).status).toBe(200);
       expect((await fetch(b.fileUrl(m!, m!.files![1]!))).status).toBe(200);
+    });
+
+    it("BUG-25: a session refresh keeps the cached token, even one still being fetched", async () => {
+      const { a } = await setup();
+      const pending = a.fileToken();
+      await a.refreshAuth(); // what every page load does in the background
+      const token = await pending;
+      expect(a.fileUrl({ id: "x" } as never, "f.png")).toContain(`token=${token}`);
     });
 
     it("the token is dropped on logout", async () => {

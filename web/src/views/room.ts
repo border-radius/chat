@@ -2,7 +2,7 @@
 // This module owns the message window and everything that changes it (loading, realtime, sending, edits).
 // The DOM parts live in room/: header (title + actions menu), messages (the list), composer.
 
-import { type Action, ApiError } from "../api.ts";
+import { type Action, ApiError, errorMessage } from "../api.ts";
 import type { Ctx } from "../context.ts";
 import { clear, h, uniqueId } from "../dom.ts";
 import { changedIn, first, latest, newer, older, PAGE_SIZE } from "../lib/cursor.ts";
@@ -142,8 +142,8 @@ export function createRoomView({ api, store, actions, navigate }: Ctx): View {
     try {
       const dm = await actions.openDm(userId);
       if (scope.active) navigate(`#/r/${dm.id}`);
-    } catch {
-      if (scope.active) notice.textContent = "Couldn't open that conversation. Check your connection and try again.";
+    } catch (e) {
+      if (scope.active) notice.textContent = `Couldn't open that conversation. ${errorMessage(e)}`;
     }
   }
 
@@ -483,6 +483,17 @@ export function createRoomView({ api, store, actions, navigate }: Ctx): View {
         { signal },
       );
       list.addEventListener("scroll", () => pillMode === "below" && isNearBottom(list) && setPill(null), { signal });
+      // When the list gets shorter (the attachment tray opens, the textarea grows, the keyboard opens) while it is
+      // at the live bottom, keep it there instead of letting the newest messages slide under the composer (BUG-31).
+      let pinned = true;
+      list.addEventListener("scroll", () => (pinned = isNearBottom(list)), { signal });
+      if (typeof ResizeObserver === "function") {
+        const resizes = new ResizeObserver(() => {
+          if (pinned && ready && !win.hasNewer) scrollToBottom();
+        });
+        resizes.observe(list);
+        scope.defer(() => resizes.disconnect());
+      }
       // Files dropped anywhere on the room go to the composer (§17.4).
       const hasFiles = (e: DragEvent) => !!e.dataTransfer?.types.includes("Files");
       shell.addEventListener("dragover", (e) => hasFiles(e) && footer.contains(composer.el) && e.preventDefault(), { signal });

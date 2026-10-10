@@ -25,6 +25,8 @@ const INVISIBLE = /[­᠎​-‏‪-‮⁠-⁤⁦-⁩﻿]/g;
  */
 const NAME_JUNK = /[­᠎​‎‏‪-‮⁠-⁤⁦-⁩﻿]/g;
 
+const { assertImagesFit } = require(`${__hooks}/lib/images.js`);
+
 /** @param {string} s */
 const isBlank = (s) => s.replace(INVISIBLE, "").trim() === "";
 
@@ -118,6 +120,22 @@ function assertText(record, blankOk = false) {
 }
 
 /**
+ * Original names of this request's uploads, keyed by stored name (QA BUG-28). Cleaned like display names, so
+ * bidi overrides can't disguise a file ("invoice‮fdp.exe"), and capped in length.
+ * @param {core.Record} record
+ */
+function originalNames(record) {
+  /** @type {Record<string, string>} */
+  const names = {};
+  for (const f of record.getUnsavedFiles("files")) {
+    if (!f) continue;
+    const original = f.originalName.replace(NAME_JUNK, "").trim().slice(0, 200);
+    if (original) names[f.name] = original;
+  }
+  return names;
+}
+
+/**
  * Attachment names: those already stored plus those uploaded with this request.
  * @param {core.Record} record
  */
@@ -139,6 +157,8 @@ function recordOf(e) {
 function beforeMessageCreate(e) {
   const rec = recordOf(e);
   assertText(rec, fileNames(rec).length > 0);
+  assertImagesFit(rec, "files");
+  rec.set("file_names", originalNames(rec)); // whatever the client sent is replaced
   const room = activeRoom(e.app, rec.getString("room"));
   // Defense in depth for the members-only create rule (§16.3).
   if (room && isDm(room) && !room.getStringSlice("members").includes(rec.getString("author"))) {
@@ -182,11 +202,13 @@ function beforeMessageUpdate(e) {
   if (rec.getBool("deleted")) {
     rec.set("text", "");
     rec.set("files", []); // PocketBase deletes the stored files once the update commits (§17.1)
+    rec.set("file_names", {});
     rec.set("deleted_at", new DateTime());
     rec.set("edited_at", orig.get("edited_at"));
     return;
   }
 
+  rec.set("file_names", orig.get("file_names")); // never changed by an edit
   // Attachments are immutable after sending (backs up the update rule, which field modifiers could get around).
   const files = fileNames(rec);
   if (files.join("/") !== orig.getStringSlice("files").join("/")) throw fieldError("files", "Attachments can't be changed.");
@@ -262,7 +284,9 @@ function beforeRoomUpdateRequest(e) {
  * @param {core.RecordEvent} e
  */
 function beforeUserSave(e) {
-  cleanName(recordOf(e));
+  const rec = recordOf(e);
+  cleanName(rec);
+  assertImagesFit(rec, "avatar");
 }
 
 /**
