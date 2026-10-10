@@ -757,6 +757,82 @@ describe("room view (§7.5–7.6, TODO Phase 5)", () => {
     });
   });
 
+  describe("keyboard and accessibility (Phase 6)", () => {
+    const active = () => document.activeElement as HTMLElement | null;
+
+    it("the room is a region labelled by its name, with a link back to the room list", async () => {
+      const room = await newRoom();
+      await mount(room);
+      const region = root.querySelector("section.room")!;
+      const h1 = region.querySelector("h1")!;
+      expect(region.getAttribute("aria-labelledby")).toBe(h1.id);
+      const back = root.querySelector<HTMLAnchorElement>("header.room-header a.back")!;
+      expect(back.getAttribute("href")).toBe("#/");
+      expect(back.textContent).toContain("Rooms");
+    });
+
+    it("message actions are real buttons in the tab order", async () => {
+      const room = await newRoom();
+      const m = await me.api.send({ id: newId(), room: room.id, text: "mine" });
+      await mount(room);
+      for (const label of ["Edit", "Delete"]) {
+        const b = button(msgEl(m.id), label)!;
+        expect(b.tagName).toBe("BUTTON");
+        expect(b.getAttribute("tabindex")).toBeNull();
+        expect(b.hidden).toBe(false);
+      }
+    });
+
+    it("the delete confirm focuses Cancel; Escape cancels and returns focus to Delete", async () => {
+      const room = await newRoom();
+      const m = await me.api.send({ id: newId(), room: room.id, text: "keep me" });
+      const ctl = instrument(me.api);
+      await mount(room);
+      button(msgEl(m.id), "Delete")!.click();
+      expect(active()).toBe(button(msgEl(m.id), "Cancel"));
+      key(active()!, "Escape");
+      expect(msgEl(m.id)!.textContent).not.toContain("Delete this message?");
+      expect(active()).toBe(button(msgEl(m.id), "Delete"));
+      expect(ctl.calls("softDelete")).toBe(0);
+    });
+
+    it("Escape closes the header menu and returns focus to its toggle", async () => {
+      const room = await newRoom();
+      await mount(room);
+      const menu = headerMenu();
+      button(menu, "Jump to beginning")!.focus();
+      key(active()!, "Escape");
+      const details = root.querySelector<HTMLDetailsElement>("header.room-header details")!;
+      expect(details.open).toBe(false);
+      expect(active()).toBe(details.querySelector("summary"));
+    });
+
+    it("the archive confirm in the header focuses Cancel; Escape cancels", async () => {
+      const room = await newRoom();
+      const ctl = instrument(me.api);
+      await mount(room);
+      button(headerMenu(), "Archive room")!.click();
+      const details = root.querySelector<HTMLDetailsElement>("header.room-header details")!;
+      expect(active()).toBe(button(details, "Cancel"));
+      key(active()!, "Escape");
+      const after = root.querySelector<HTMLDetailsElement>("header.room-header details")!; // header re-rendered
+      expect(after.open).toBe(false);
+      expect(after.textContent).not.toContain("read-only for everyone");
+      expect(active()).toBe(after.querySelector("summary"));
+      expect(ctl.calls("setArchived")).toBe(0);
+    });
+
+    it("the edit box is labelled and Escape returns focus to the composer", async () => {
+      const room = await newRoom();
+      const m = await me.api.send({ id: newId(), room: room.id, text: "edit me" });
+      await mount(room);
+      button(msgEl(m.id), "Edit")!.click();
+      expect(active()!.getAttribute("aria-label")).toBe("Edit message");
+      key(active()!, "Escape");
+      expect(active()).toBe(composer());
+    });
+  });
+
   describe("room header menu (§7.1)", () => {
     it("Hide / Unhide room", async () => {
       const room = await newRoom();

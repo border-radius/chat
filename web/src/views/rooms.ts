@@ -40,6 +40,9 @@ export function createRoomsView({ api, store, navigate }: RoomsDeps): View {
   const open = { hidden: false, archived: false };
   let openMenu: string | null = null;
   let confirming: string | null = null;
+  /** Selector to focus after the next render (the elements are rebuilt, so focus is re-applied). */
+  let focusAfter: string | null = null;
+  const rowSel = (id: string) => `[data-room-id="${id}"]`;
   let loaded = false;
 
   const alert = h("p", { role: "alert", class: "list-error" });
@@ -128,10 +131,15 @@ export function createRoomsView({ api, store, navigate }: RoomsDeps): View {
           },
           "danger",
         ),
-        btn("Cancel", () => {
-          confirming = null;
-          render();
-        }),
+        btn(
+          "Cancel",
+          () => {
+            confirming = null;
+            focusAfter = `${rowSel(r.id)} summary`;
+            render();
+          },
+          "cancel",
+        ),
       ];
     }
     const items: HTMLElement[] = [];
@@ -142,6 +150,7 @@ export function createRoomsView({ api, store, navigate }: RoomsDeps): View {
         btn("Archive", () => {
           confirming = r.id;
           openMenu = r.id;
+          focusAfter = `${rowSel(r.id)} .menu-items .cancel`;
           render();
         }),
       );
@@ -163,6 +172,14 @@ export function createRoomsView({ api, store, navigate }: RoomsDeps): View {
                 const d = e.currentTarget as HTMLDetailsElement;
                 if (d.open) openMenu = r.id;
                 else if (openMenu === r.id) (openMenu = null), (confirming = null);
+              },
+              keydown: (e) => {
+                if (e.key !== "Escape" || openMenu !== r.id) return;
+                e.preventDefault();
+                openMenu = null;
+                confirming = null;
+                focusAfter = `${rowSel(r.id)} summary`;
+                render();
               },
             },
             signal: ac.signal,
@@ -202,6 +219,10 @@ export function createRoomsView({ api, store, navigate }: RoomsDeps): View {
           : null,
     ]);
     nav.replaceChildren(main, collapsible("hidden", "Hidden", hidden), collapsible("archived", "Archived", archived));
+    if (focusAfter) {
+      nav.querySelector<HTMLElement>(focusAfter)?.focus();
+      focusAfter = null;
+    }
   }
 
   function newRoomForm(): HTMLFormElement {

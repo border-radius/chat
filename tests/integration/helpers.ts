@@ -5,7 +5,7 @@ import { expect, inject } from "vitest";
 import { SUPERUSER } from "../support/pocketbase.ts";
 
 let seq = 0;
-export const uniq = () => `${Date.now().toString(36)}${(seq++).toString(36)}`;
+export const uniq = () => `${Date.now().toString(36)}${(seq++).toString(36)}${Math.random().toString(36).slice(2, 7)}`; // unique across parallel workers
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Fresh SDK client with an in-memory auth store, so clients never share tokens. */

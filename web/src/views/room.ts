@@ -65,6 +65,14 @@ export function createRoomView({ api, store }: RoomDeps): View {
   // header UI state
   let menuOpen = false;
   let confirmArchive = false;
+  /** Selector (within the room) to focus after the next render; the elements are rebuilt. */
+  let focusAfter: string | null = null;
+  const msgSel = (id: string) => `li.msg[data-id="${id}"]`;
+  const applyFocus = () => {
+    if (!focusAfter) return;
+    shell.querySelector<HTMLElement>(focusAfter)?.focus();
+    focusAfter = null;
+  };
 
   let observer: IntersectionObserver | null = null;
   let subs: Promise<() => Promise<void>>[] = [];
@@ -72,7 +80,7 @@ export function createRoomView({ api, store }: RoomDeps): View {
   let offConnect = () => {};
 
   // persistent elements
-  const shell = h("section", { class: "room" });
+  const shell = h("section", { class: "room", "aria-labelledby": `${vid}-title` });
   const header = h("header", { class: "room-header" });
   const list = h("ol", { class: "messages", "aria-live": "polite", "aria-busy": "true", "aria-label": "Messages" });
   const topSentinel = h("li", { class: "sentinel", dataset: { sentinel: "top" }, "aria-hidden": "true" });
@@ -176,24 +184,37 @@ export function createRoomView({ api, store }: RoomDeps): View {
       parts.push(h("div", { class: "send-error" }, ["Not sent. ", btn("Retry", () => void retrySend(m.id)), btn("Discard", () => discard(m.id))]));
     }
     if (confirmDelete === m.id) {
+      const cancel = () => {
+        confirmDelete = null;
+        focusAfter = `${msgSel(m.id)} .actions .delete`;
+        render();
+      };
       parts.push(
-        h("div", { class: "confirm" }, [
-          "Delete this message? ",
-          btn("Delete message", () => void doDelete(m.id), "danger"),
-          btn("Cancel", () => {
-            confirmDelete = null;
-            render();
-          }),
-        ]),
+        h(
+          "div",
+          {
+            class: "confirm",
+            role: "group",
+            "aria-label": "Confirm delete",
+            on: { keydown: (e) => e.key === "Escape" && (e.preventDefault(), cancel()) },
+            signal,
+          },
+          ["Delete this message? ", btn("Delete message", () => void doDelete(m.id), "danger"), btn("Cancel", cancel, "cancel")],
+        ),
       );
     } else if (editable(m) && editing !== m.id) {
       parts.push(
         h("div", { class: "actions" }, [
-          btn("Edit", () => startEdit(m.id)),
-          btn("Delete", () => {
-            confirmDelete = m.id;
-            render();
-          }),
+          btn("Edit", () => startEdit(m.id), "edit"),
+          btn(
+            "Delete",
+            () => {
+              confirmDelete = m.id;
+              focusAfter = `${msgSel(m.id)} .confirm .cancel`;
+              render();
+            },
+            "delete",
+          ),
         ]),
       );
     }
@@ -240,6 +261,7 @@ export function createRoomView({ api, store }: RoomDeps): View {
     const live = new Set(win.items.map((m) => m.id));
     for (const id of cache.keys()) if (!live.has(id)) cache.delete(id);
 
+    applyFocus();
     if (focusEdit && editing) {
       focusEdit = false;
       const box = list.querySelector<HTMLTextAreaElement>(`li.msg[data-id="${editing}"] textarea.edit-input`);
@@ -269,10 +291,22 @@ export function createRoomView({ api, store }: RoomDeps): View {
       items = [
         h("p", {}, `Archive “${r.name}”? It becomes read-only for everyone.`),
         h("button", { type: "button", class: "danger", on: { click: () => (closeMenu(), void roomAction(() => api.setArchived(roomId, true).then(setRoom))) }, signal }, "Archive"),
-        item("Cancel", () => {
-          confirmArchive = false;
-          renderHeader();
-        }),
+        h(
+          "button",
+          {
+            type: "button",
+            class: "cancel",
+            on: {
+              click: () => {
+                confirmArchive = false;
+                focusAfter = "header.room-header summary";
+                renderHeader();
+              },
+            },
+            signal,
+          },
+          "Cancel",
+        ),
       ];
     } else {
       items = [];
@@ -304,6 +338,7 @@ export function createRoomView({ api, store }: RoomDeps): View {
             : item("Archive room", () => {
                 confirmArchive = true;
                 menuOpen = true;
+                focusAfter = "header.room-header .menu-items .cancel";
                 renderHeader();
               }),
         );
@@ -321,12 +356,26 @@ export function createRoomView({ api, store }: RoomDeps): View {
             menuOpen = (e.currentTarget as HTMLDetailsElement).open;
             if (!menuOpen) confirmArchive = false;
           },
+          keydown: (e) => {
+            if (e.key !== "Escape" || !menuOpen) return;
+            e.preventDefault();
+            menuOpen = false;
+            confirmArchive = false;
+            focusAfter = "header.room-header summary";
+            renderHeader();
+          },
         },
         signal,
       },
       [h("summary", { "aria-label": "Room actions" }, "⋯"), h("div", { class: "menu-items" }, items)],
     );
-    header.replaceChildren(h("h1", {}, r ? `#${r.name}` : ""), menu, headerError);
+    header.replaceChildren(
+      h("a", { href: "#/", class: "back", "aria-label": "Back to rooms" }, "← Rooms"),
+      h("h1", { id: `${vid}-title` }, r ? `#${r.name}` : ""),
+      menu,
+      headerError,
+    );
+    applyFocus();
   }
   const headerError = h("p", { class: "room-error", role: "alert" });
 

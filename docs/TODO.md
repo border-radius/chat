@@ -496,7 +496,7 @@ This is the hot path. All tests use real PocketBase. History comes from `seedMes
 
 CSS has no unit tests, so it is verified by e2e and accessibility checks (Phase 7) and by the size budget.
 
-- [ ] `web/styles/app.css`:
+- [x] `web/styles/app.css`:
   - custom properties for colors and spacing;
   - light and dark themes via `prefers-color-scheme`;
   - system font stack;
@@ -504,17 +504,38 @@ CSS has no unit tests, so it is verified by e2e and accessibility checks (Phase 
   - `white-space: pre-wrap` for message text;
   - visible focus rings;
   - muted italic style for placeholders.
-- [ ] Accessibility markup:
+- [x] Accessibility markup:
   - semantic landmarks;
   - messages in an `<ol>`;
   - `aria-live="polite"` on the message list;
   - labelled buttons and inputs;
   - inline confirms reachable by keyboard.
-- [ ] 🔴 Unit: every action is reachable by keyboard (Tab order through the message actions, with Enter and Esc in confirms)
-- [ ] Static app shell in `index.html` (title bar plus a skeleton) so something paints before JS runs
-- [ ] `npm run build` stays within budget (JS ≤ 25 KB, CSS ≤ 5 KB gzipped). If it doesn't, cut code rather than raise the budget.
+- [x] 🔴 Unit: every action is reachable by keyboard (Tab order through the message actions, with Enter and Esc in confirms)
+- [x] Static app shell in `index.html` (title bar plus a skeleton) so something paints before JS runs
+- [x] `npm run build` stays within budget (JS ≤ 25 KB, CSS ≤ 5 KB gzipped). If it doesn't, cut code rather than raise the budget.
 
 **✅ Gate 6:** build within budget, plus manual review in light and dark themes and at 390 px wide.
+  - **Status (2026-10-10): passed.**
+    - JS 20.7 KB, CSS 2.3 KB, HTML 0.3 KB gzipped.
+    - 222 unit tests and 113 integration tests are green, and so is the e2e smoke test.
+    - Screenshots were reviewed for login, the room list, the room, the header menu and the delete confirm, in light and dark mode at 1100 px and 390 px.
+  - **Keyboard (with tests):**
+    - Escape closes row and header menus and returns focus to the toggle.
+    - The archive and delete confirms focus Cancel, and Escape cancels and returns focus.
+    - The edit box is labelled, and Escape returns focus to the composer.
+    - The room is a region labelled by its `<h1>`.
+    - Phones get a "← Rooms" link, since the sidebar is hidden below 720 px.
+  - **Found in review:**
+    - `.app-bar { display: flex }` beat the UA `[hidden]` rule, so an empty bar showed on login. A global `[hidden] { display: none !important }` fixes it.
+    - Hover styles stuck after taps on touch screens. They now live in `@media (hover: hover)`.
+  - **Test hardening:** running the unit suite 10× exposed flakes.
+    - `uniq()` collided across parallel workers and now includes random bits.
+    - Two tests didn't wait for async mounting or were affected by other files' realtime events.
+    - The default `vi.waitFor` timeout was raised to 5 s for real-server latency.
+    - After the fixes the suite passed 10 of 10 runs.
+  - **Notes:**
+    - Message actions show on hover and `:focus-within`. They use `opacity` so they stay in the tab order. On touch devices they are always visible, instead of the long-press in DESIGN §7.6.1: simpler and more discoverable.
+    - The serif body text in screenshots comes from this container's minimal fonts: it has no `system-ui` font installed. Real devices use their UI font.
 
 ---
 

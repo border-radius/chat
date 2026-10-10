@@ -92,7 +92,7 @@ describe("app boot (§7.1, TODO 3.5)", () => {
     await vi.waitFor(() => expect(location.hash).toBe("#/"));
     expect(app.store.get().user).toEqual(ada.user);
     expect(logoutButton()).toBeDefined();
-    expect(root.querySelector('nav[aria-label="Rooms"]')).not.toBeNull();
+    await vi.waitFor(() => expect(root.querySelector('nav[aria-label="Rooms"]')).not.toBeNull()); // mounted on hashchange
     expect(root.querySelector('form.new-room input[name="name"]')).not.toBeNull();
   });
 

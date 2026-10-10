@@ -94,6 +94,8 @@ describe("rooms view (§7.1, TODO Phase 4)", () => {
     it("shows an empty state when there are no rooms", async () => {
       const api = me.api;
       vi.spyOn(api, "listRooms").mockResolvedValue([]);
+      // Other test files create rooms on the shared server; keep their live events out of this view.
+      vi.spyOn(api, "subscribeRooms").mockResolvedValue(async () => {});
       await mount(api);
       expect(section("rooms").textContent).toContain("No rooms yet");
     });
@@ -253,6 +255,32 @@ describe("rooms view (§7.1, TODO Phase 4)", () => {
       action(r, "Hide")!.click();
       await vi.waitFor(() => expect(root.querySelector('[role="alert"]')!.textContent).toContain("Couldn't hide"));
       expect(sectionOf(r)).toBe("rooms");
+    });
+  });
+
+  describe("keyboard (Phase 6)", () => {
+    const active = () => document.activeElement as HTMLElement | null;
+    const key = (el: Element, k: string) => el.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
+
+    it("Escape closes a row menu and returns focus to its toggle", async () => {
+      const r = await room();
+      await mount();
+      action(r, "Hide")!.focus();
+      key(active()!, "Escape");
+      expect(menu(r).open).toBe(false);
+      expect(active()).toBe(menu(r).querySelector("summary"));
+    });
+
+    it("the archive confirm focuses Cancel; Escape cancels and returns focus to the toggle", async () => {
+      const r = await room();
+      const ctl = instrument(me.api);
+      await mount();
+      action(r, "Archive")!.click();
+      expect(active()).toBe(button(row(r)!, "Cancel"));
+      key(active()!, "Escape");
+      expect(button(row(r)!, "Archive room")).toBeNull();
+      expect(active()).toBe(menu(r).querySelector("summary"));
+      expect(ctl.calls("setArchived")).toBe(0);
     });
   });
 

@@ -13,7 +13,7 @@ const { DatabaseSync } = process.getBuiltinModule("node:sqlite") as typeof impor
 const { join } = process.getBuiltinModule("node:path") as typeof import("node:path");
 
 let seq = 0;
-export const uniq = () => `${Date.now().toString(36)}${(seq++).toString(36)}`;
+export const uniq = () => `${Date.now().toString(36)}${(seq++).toString(36)}${Math.random().toString(36).slice(2, 7)}`; // unique across parallel workers
 
 const clients = new Set<Api>();
 

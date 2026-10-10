@@ -8,7 +8,7 @@ import { newId } from "../../web/src/lib/id.ts";
 import type { Message } from "../../web/src/lib/types.ts";
 
 let seq = 0;
-const uniq = () => `${Date.now().toString(36)}${(seq++).toString(36)}`;
+const uniq = () => `${Date.now().toString(36)}${(seq++).toString(36)}${Math.random().toString(36).slice(2, 7)}`; // unique across parallel workers
 
 async function eventually(fn: () => void, ms = 2_000) {
   const deadline = Date.now() + ms;
