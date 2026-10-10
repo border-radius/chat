@@ -50,3 +50,15 @@ export function clear(el: Element): void {
 export function on(target: EventTarget, type: string, fn: (ev: Event) => void, signal: AbortSignal): void {
   target.addEventListener(type, fn, { signal });
 }
+
+/**
+ * Make `parent`'s children exactly `nodes`, in order, moving only what differs (§7.5: the message list is
+ * never fully re-rendered). Nodes already in place keep their identity, focus and scroll anchoring.
+ */
+export function reconcile(parent: Element, nodes: readonly Node[]): void {
+  nodes.forEach((node, i) => {
+    const at = parent.childNodes[i];
+    if (at !== node) parent.insertBefore(node, at ?? null);
+  });
+  while (parent.childNodes.length > nodes.length) parent.lastChild!.remove();
+}

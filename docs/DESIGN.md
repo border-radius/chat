@@ -250,6 +250,7 @@ The frontend uses the official **PocketBase JS SDK**. It has no dependencies, is
 | Latest page | `messages.getList(1, 50, {filter: pb.filter("room = {:r}", {r}), sort: "-created,-id", skipTotal: true, expand: "author", fields: MSG_FIELDS})` |
 | Older page (scroll up) | same, filter `room = {:r} && (created < {:c} \|\| (created = {:c} && id < {:i}))` using the oldest loaded message as the cursor |
 | Newer page (scroll down after jumping back) | filter `room = {:r} && (created > {:c} \|\| (created = {:c} && id > {:i}))`, sort `created,id` |
+| One message (open `#/r/:id/m/:msgId`) | `messages.getOne(id, {expand: "author", fields: MSG_FIELDS})`, then an older and a newer page around it |
 | First page ("jump to beginning") | filter `room = {:r}`, sort `created,id` |
 | Send | `messages.create({id, room, author: me, text}, {expand: "author"})` |
 | Edit | `messages.update(id, {text}, {expand: "author"})` |

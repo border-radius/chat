@@ -192,6 +192,14 @@ describe("createApi", () => {
       expect((await a.page(latest(room.id))).map((x) => x.text)).toEqual(["before"]);
     });
 
+    it("getMessage returns one message with its author name; unknown ids reject with 404", async () => {
+      const { a, b } = await setup();
+      const room = await a.createRoom(`g-${uniq()}`);
+      const m = await a.send({ id: newId(), room: room.id, text: "find me" });
+      expect(await b.getMessage(m.id)).toEqual(m);
+      expect((await rejection(b.getMessage("doesnotexist123"))).status).toBe(404);
+    });
+
     it("anonymous clients can't read", async () => {
       const { a, anon } = await setup();
       const room = await a.createRoom(`anon-${uniq()}`);

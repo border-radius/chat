@@ -391,81 +391,104 @@ Everything in this phase is pure TypeScript with no DOM and no network, so the t
 This is the hot path. All tests use real PocketBase. History comes from `seedMessages()`, and failures, latency and reconnects come from `instrument(api)`.
 
 ### 5.1 Initial load and rendering
-- [ ] 🔴 Opening a room renders the latest 50 messages, oldest at the top, with author grouping and date dividers. The view is scrolled to the bottom.
-- [ ] 🔴 The SSE subscribe and the latest-page fetch start in parallel. `unmount` unsubscribes, aborts requests and leaves no listeners.
-- [ ] 🟢 Room view skeleton, the message element renderer, and the `Map<id, el>` index
+- [x] 🔴 Opening a room renders the latest 50 messages, oldest at the top, with author grouping and date dividers. The view is scrolled to the bottom.
+- [x] 🔴 The SSE subscribe and the latest-page fetch start in parallel. `unmount` unsubscribes, aborts requests and leaves no listeners.
+- [x] 🟢 Room view skeleton, the message element renderer, and the `Map<id, el>` index
 
 ### 5.2 Composer and optimistic send (§7.5, §7.6)
-- [ ] 🔴 **Keys:** Enter sends and Shift+Enter adds a newline.
-- [ ] 🔴 **Blocking:** empty, whitespace-only or over-2000-char text is blocked, and a counter appears above 1800 chars.
-- [ ] 🔴 **Optimistic send:**
+- [x] 🔴 **Keys:** Enter sends and Shift+Enter adds a newline.
+- [x] 🔴 **Blocking:** empty, whitespace-only or over-2000-char text is blocked, and a counter appears above 1800 chars.
+- [x] 🔴 **Optimistic send:**
   - the message appears straight away as `pending`;
   - the server ack clears the pending state;
   - the realtime echo with the same id does not duplicate it.
-- [ ] 🔴 **Failure:**
+- [x] 🔴 **Failure:**
   - the message is marked failed and shows Retry;
   - Retry calls `create` again with the **same id**;
   - the composer text is kept.
-- [ ] 🟢 Implement
+- [x] 🟢 Implement
 
 ### 5.3 Live updates and scroll behavior
-- [ ] 🔴 At the live edge and near the bottom, a realtime `create` appends the message and auto-scrolls.
-- [ ] 🔴 When scrolled up, it shows the "↓ New messages" pill and does not scroll.
-- [ ] 🟢 Implement
+- [x] 🔴 At the live edge and near the bottom, a realtime `create` appends the message and auto-scrolls.
+- [x] 🔴 When scrolled up, it shows the "↓ New messages" pill and does not scroll.
+- [x] 🟢 Implement
 
 ### 5.4 Windowed history (§7.5)
-- [ ] 🔴 **Scrolling up to the beginning** (1,000 seeded messages):
+- [x] 🔴 **Scrolling up to the beginning** (1,000 seeded messages):
   - repeatedly triggering the top sentinel reaches message #1;
   - "Beginning of #room" appears and the top sentinel goes away;
   - the DOM never holds more than 300 messages;
   - no message is duplicated or skipped.
-- [ ] 🔴 **Scrolling back down:** the bottom sentinel loads newer pages until `hasNewer = false`.
-- [ ] 🔴 **Scroll anchoring:** prepending and trimming keep the anchor element's on-screen position. Stub layout in happy-dom with a fixed row height and assert the `scrollTop` math.
-- [ ] 🔴 **Away from the live edge** (`hasNewer`): a realtime `create` is not appended and the "Jump to latest" pill appears. Clicking it resets to the latest page.
-- [ ] 🔴 **Jumping:** "Jump to beginning" loads the first page. `#/r/:id/m/:msgId` opens a window centered on that message.
-- [ ] 🔴 **Concurrency:**
+- [x] 🔴 **Scrolling back down:** the bottom sentinel loads newer pages until `hasNewer = false`.
+- [x] 🔴 **Scroll anchoring:** prepending and trimming keep the anchor element's on-screen position. Stub layout in happy-dom with a fixed row height and assert the `scrollTop` math.
+- [x] 🔴 **Away from the live edge** (`hasNewer`): a realtime `create` is not appended and the "Jump to latest" pill appears. Clicking it resets to the latest page.
+- [x] 🔴 **Jumping:** "Jump to beginning" loads the first page. `#/r/:id/m/:msgId` opens a window centered on that message.
+- [x] 🔴 **Concurrency:**
   - only one fetch runs per direction at a time;
   - a page that arrives after a jump is discarded (generation counter).
-- [ ] 🟢 Implement using `IntersectionObserver` (mocked in tests)
+- [x] 🟢 Implement using `IntersectionObserver` (mocked in tests)
 
 ### 5.5 Reconnect gap fill
-- [ ] 🔴 **At the live edge:** a simulated `PB_CONNECT` after a disconnect fetches newer pages in a loop until a short page comes back, then merges them. 80 missed messages all appear in order.
-- [ ] 🔴 **Scrolled into history:** no fetch happens.
-- [ ] 🔴 **Room record:** the room is refetched on reconnect, and if it was archived the view switches to read-only.
-- [ ] 🟢 Implement
+- [x] 🔴 **At the live edge:** a simulated `PB_CONNECT` after a disconnect fetches newer pages in a loop until a short page comes back, then merges them. 80 missed messages all appear in order.
+- [x] 🔴 **Scrolled into history:** no fetch happens.
+- [x] 🔴 **Room record:** the room is refetched on reconnect, and if it was archived the view switches to read-only.
+- [x] 🟢 Implement
 
 ### 5.6 Editing (§7.6.1)
-- [ ] 🔴 **Opening and saving:**
+- [x] 🔴 **Opening and saving:**
   - Edit shows a prefilled textarea;
   - Enter calls `update`, and "(edited)" appears after the server responds;
   - Esc restores the text with no request;
   - unchanged text makes no request.
-- [ ] 🔴 **Failure:** a failed save restores the old text and shows an inline error with Retry.
-- [ ] 🔴 **Up arrow:** in an empty composer it edits the last of the user's own messages, skipping deleted ones.
-- [ ] 🔴 **Other users:**
+- [x] 🔴 **Failure:** a failed save restores the old text and shows an inline error with Retry.
+- [x] 🔴 **Up arrow:** in an empty composer it edits the last of the user's own messages, skipping deleted ones.
+- [x] 🔴 **Other users:**
   - there are no Edit or Delete actions on others' messages;
   - a realtime edit from someone else updates the message in place.
-- [ ] 🟢 Implement
+- [x] 🟢 Implement
 
 ### 5.7 Soft delete (§7.6.2)
-- [ ] 🔴 **Delete flow:**
+- [x] 🔴 **Delete flow:**
   - Delete shows an inline confirm;
   - Confirm calls `update({deleted: true})`;
   - the message becomes a placeholder with the author, the time and "Message deleted";
   - Cancel makes no request.
-- [ ] 🔴 **Failure:** the original text is restored.
-- [ ] 🔴 **Realtime:** a soft delete from another user swaps in the placeholder.
-- [ ] 🔴 **Placeholder rules:**
+- [x] 🔴 **Failure:** the original text is restored.
+- [x] 🔴 **Realtime:** a soft delete from another user swaps in the placeholder.
+- [x] 🔴 **Placeholder rules:**
   - placeholders have no actions and no "(edited)" label;
   - deleting a pending or failed send removes it with no request.
-- [ ] 🔴 **Hard delete:** a realtime `delete` event (superuser) removes the element.
-- [ ] 🟢 Implement
+- [x] 🔴 **Hard delete:** a realtime `delete` event (superuser) removes the element.
+- [x] 🟢 Implement
 
 ### 5.8 Archived room mode
-- [ ] 🔴 An archived room shows the banner. There is no composer and there are no Edit or Delete actions, and history is still scrollable. A live archive event switches an open room to read-only straight away, and unarchiving brings the composer back.
-- [ ] 🟢 Implement
+- [x] 🔴 An archived room shows the banner. There is no composer and there are no Edit or Delete actions, and history is still scrollable. A live archive event switches an open room to read-only straight away, and unarchiving brings the composer back.
+- [x] 🟢 Implement
 
 **✅ Gate 5:** unit tests are green, and you can chat end to end by hand in two browsers.
+  - **Status (2026-10-10): passed.**
+    - 214 unit tests (47 of them for the room view) and 113 integration tests are green, and so is the e2e smoke test. JS is 20.4 KB gzipped.
+    - Hands-on walkthrough on `npm run dev` with two users and a real IntersectionObserver:
+      - live chat, Up-arrow edit, "(edited)" seen by the other user, the delete placeholder
+      - the rate limit (10 per 5 s) producing "Not sent." with a working Retry
+      - scrolling a 400-message room to "Beginning of #history" with at most 300 messages in the DOM, and back to the live edge
+      - Jump to beginning and the "Jump to latest" pill, live archive and unarchive, reload staying in the room
+  - **Bugs found by the walkthrough:**
+    - The message list wasn't a scroll container: there was no layout CSS, so the IntersectionObserver never re-fired. The minimal functional layout CSS was pulled forward from Phase 6.
+    - The scroll anchor was lost when prepending older messages rebuilt the top message, because its grouping changed. Anchors are now found again by `data-id`, with a test reproducing it.
+  - **Weak tests fixed after mutation checks** (each now fails when its guard is removed):
+    - The stale page after a jump (responses are now released in a test-chosen order).
+    - The early-event buffer: `instrument().hold` now delays the *response*, not the request, like real latency.
+    - The duplicate-id recovery on retry.
+  - **Implementation notes:**
+    - New API call `getMessage(id)`, used by `#/r/:id/m/:msgId`.
+    - New `dom.reconcile()`, which moves only changed nodes. `lib/scroll.ts` holds near-bottom detection and anchoring.
+    - Message elements are cached by a render signature, so an open edit box survives unrelated updates.
+    - The room view also subscribes to room changes, so archiving takes effect even without the sidebar. A reconnect refetches the room and, at the live edge, fills the gap page by page.
+    - On send, the composer clears immediately and the text lives in the pending/failed message, which has Retry and Discard. Nothing typed is lost (§7.6).
+    - A retry that hits "duplicate id" checks `getMessage`: if the first attempt actually reached the server, the message counts as sent.
+    - Test support: `intercept()` composes wrappers by reassignment (stacking `vi.spyOn` recursed). A shared `afterEach` closes every test client's realtime connection.
+    - Layout: `#/r/:id` renders the room list as a sidebar (hidden below 720 px) next to the room.
 
 ---
 

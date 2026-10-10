@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../web/src/api.ts";
 import { startApp, type App } from "../../web/src/app.ts";
+import { newId } from "../../web/src/lib/id.ts";
 import { instrument, newApi, signedUp } from "../support/api.ts";
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -41,6 +42,24 @@ describe("app boot (§7.1, TODO 3.5)", () => {
     expect(ctl.calls("refreshAuth")).toBe(1);
     expect(root.textContent).toContain("Ada");
     expect(logoutButton()).toBeDefined();
+  });
+
+  it("#/r/:id shows the room with the room list as a sidebar; navigating between rooms switches the room", async () => {
+    const { api } = await signedUp("Ada");
+    const r1 = await api.createRoom(`one-${newId()}`);
+    const r2 = await api.createRoom(`two-${newId()}`);
+    history.replaceState(null, "", `#/r/${r1.id}`);
+    app = startApp({ api, root });
+    await vi.waitFor(() => expect(root.querySelector("header.room-header h1")?.textContent).toBe(`#${r1.name}`));
+    const sidebar = root.querySelector("aside.sidebar")!;
+    expect(sidebar.querySelector('nav[aria-label="Rooms"]')).not.toBeNull();
+    await vi.waitFor(() => expect(sidebar.querySelector(`a[href="#/r/${r1.id}"]`)?.getAttribute("aria-current")).toBe("page"));
+    expect(root.querySelector("form.composer")).not.toBeNull();
+
+    location.hash = `#/r/${r2.id}`;
+    await vi.waitFor(() => expect(root.querySelector("header.room-header h1")?.textContent).toBe(`#${r2.name}`));
+    expect(app.store.get().activeRoomId).toBe(r2.id);
+    await api.unsubscribeAll();
   });
 
   it("a network failure during the background refresh keeps the session (offline ≠ logged out)", async () => {

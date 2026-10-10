@@ -5,6 +5,7 @@ import { clear, h } from "./dom.ts";
 import { createRouter, type Router, type View } from "./router.ts";
 import { createStore, initialState, type AppState, type Store } from "./store.ts";
 import { createLoginView } from "./views/login.ts";
+import { createRoomView } from "./views/room.ts";
 import { createRoomsView } from "./views/rooms.ts";
 
 export interface App {
@@ -16,14 +17,28 @@ export interface App {
 /** Statuses meaning "the server rejected this session" (vs. 0 = network trouble). */
 const AUTH_REJECTED = new Set([401, 403, 404]);
 
-/** Stand-in until the real views land (Phases 4–5). */
-function placeholder(title: string): () => View {
-  return () => ({
-    mount(el) {
-      el.replaceChildren(h("section", { class: "placeholder" }, h("h1", {}, title)));
-    },
-    unmount() {},
-  });
+/** Room page layout (§7.1): the room list as a sidebar next to the main view. */
+function withSidebar(sidebar: () => View, main: () => View): () => View {
+  return () => {
+    const side = sidebar();
+    const pane = main();
+    let root: HTMLElement;
+    return {
+      mount(el, params) {
+        root = el;
+        const aside = h("aside", { class: "sidebar" });
+        const content = h("div", { class: "pane" });
+        el.replaceChildren(h("div", { class: "layout" }, [aside, content]));
+        side.mount(aside, {});
+        pane.mount(content, params);
+      },
+      unmount() {
+        pane.unmount();
+        side.unmount();
+        clear(root);
+      },
+    };
+  };
 }
 
 export function startApp(deps: { api: Api; root: HTMLElement }): App {
@@ -54,6 +69,10 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     );
   }
 
+  const navigate = (hash: string) => router.navigate(hash);
+  const rooms = () => createRoomsView({ api, store, navigate });
+  const roomPage = withSidebar(rooms, () => createRoomView({ api, store, navigate }));
+
   const router = createRouter({
     root: main,
     isAuthed: () => store.get().user !== null,
@@ -70,9 +89,9 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
             },
           }),
       },
-      { pattern: "#/", view: () => createRoomsView({ api, store, navigate: (hash) => router.navigate(hash) }) },
-      { pattern: "#/r/:id", view: placeholder("Room") },
-      { pattern: "#/r/:id/m/:msgId", view: placeholder("Room") },
+      { pattern: "#/", view: rooms },
+      { pattern: "#/r/:id", view: roomPage },
+      { pattern: "#/r/:id/m/:msgId", view: roomPage },
     ],
   });
 

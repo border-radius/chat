@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { clear, h, on } from "../../web/src/dom.ts";
+import { clear, h, on, reconcile } from "../../web/src/dom.ts";
 
 describe("h()", () => {
   it("creates an element with class, attributes and dataset", () => {
@@ -97,5 +97,43 @@ describe("on()", () => {
     ac.abort();
     target.dispatchEvent(new Event("ping"));
     expect(fn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("reconcile()", () => {
+  const li = (t: string) => h("li", {}, t);
+  const texts = (el: Element) => [...el.childNodes].map((n) => n.textContent);
+
+  it("fills an empty parent in order", () => {
+    const ul = h("ul");
+    reconcile(ul, [li("a"), li("b")]);
+    expect(texts(ul)).toEqual(["a", "b"]);
+  });
+
+  it("keeps existing nodes (same identity) and only inserts what's new", () => {
+    const [a, b, c] = [li("a"), li("b"), li("c")];
+    const ul = h("ul", {}, [a, b]);
+    const spy = vi.spyOn(ul, "insertBefore");
+    reconcile(ul, [a, b, c]);
+    expect(texts(ul)).toEqual(["a", "b", "c"]);
+    expect(ul.childNodes[0]).toBe(a);
+    expect(ul.childNodes[1]).toBe(b);
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it("prepends, removes and reorders", () => {
+    const [a, b, c, d] = [li("a"), li("b"), li("c"), li("d")];
+    const ul = h("ul", {}, [b, c, d]);
+    reconcile(ul, [a, b, d]);
+    expect(texts(ul)).toEqual(["a", "b", "d"]);
+    expect(ul.childNodes[1]).toBe(b);
+    reconcile(ul, [d, a]);
+    expect(texts(ul)).toEqual(["d", "a"]);
+  });
+
+  it("empties the parent for an empty list", () => {
+    const ul = h("ul", {}, [li("a")]);
+    reconcile(ul, []);
+    expect(ul.childNodes).toHaveLength(0);
   });
 });

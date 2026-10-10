@@ -43,6 +43,7 @@ export interface Api {
 
   // messages
   page(q: PageQuery, signal?: AbortSignal): Promise<Message[]>;
+  getMessage(id: string): Promise<Message>;
   send(m: NewMessage): Promise<Message>;
   edit(id: string, text: string): Promise<Message>;
   softDelete(id: string): Promise<Message>;
@@ -148,6 +149,7 @@ export function createApi(pb: PocketBase): Api {
       const opts = { ...listOptions(q, pb.filter.bind(pb)), ...(signal ? { signal } : {}) };
       return (await wrap(messages().getList<Message>(1, PAGE_SIZE, opts))).items;
     },
+    getMessage: (id) => wrap(messages().getOne<Message>(id, msgOpts)),
     send: async (m) => wrap(messages().create<Message>({ id: m.id, room: m.room, author: me(), text: m.text }, msgOpts)),
     edit: (id, text) => wrap(messages().update<Message>(id, { text }, msgOpts)),
     softDelete: (id) => wrap(messages().update<Message>(id, { deleted: true }, msgOpts)),

@@ -18,7 +18,7 @@ export default defineConfig({
           environment: "happy-dom",
           globalSetup,
           // Node's built-in EventSource doesn't work under happy-dom; install a fetch-based one for the SDK.
-          setupFiles: ["tests/support/eventsource.ts"],
+          setupFiles: ["tests/support/eventsource.ts", "tests/support/cleanup.ts"],
           // Deterministic time formatting.
           env: { TZ: "UTC" },
           testTimeout: 15_000,

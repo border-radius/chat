@@ -1,4 +1,4 @@
-// Real PocketBase clients for view tests, plus test controls layered on top with vi.spyOn.
+// Real PocketBase clients for view tests, plus test controls layered on top of them.
 // There is no fake backend: every call reaches the throwaway server started by global-setup.ts.
 
 import PocketBase, { BaseAuthStore } from "pocketbase";
@@ -15,9 +15,19 @@ const { join } = process.getBuiltinModule("node:path") as typeof import("node:pa
 let seq = 0;
 export const uniq = () => `${Date.now().toString(36)}${(seq++).toString(36)}`;
 
+const clients = new Set<Api>();
+
 /** A logged-out real client with its own in-memory auth store. */
 export function newApi(): Api {
-  return createApi(new PocketBase(inject("pbUrl"), new BaseAuthStore()));
+  const api = createApi(new PocketBase(inject("pbUrl"), new BaseAuthStore()));
+  clients.add(api);
+  return api;
+}
+
+/** Close every client's realtime connection (run after each test, before happy-dom tears the window down). */
+export async function closeClients(): Promise<void> {
+  await Promise.all([...clients].map((c) => c.unsubscribeAll().catch(() => {})));
+  clients.clear();
 }
 
 export interface SignedUp {
@@ -37,16 +47,17 @@ export async function signedUp(name = `user-${uniq()}`): Promise<SignedUp> {
 }
 
 /**
- * Insert `n` messages straight into the test DB in one transaction: oldest first, `stepMs` apart, ending
- * in the past so later live messages sort after them. Fixture data only: no hooks, no realtime events.
+ * Insert `n` messages straight into the test DB in one transaction: oldest first, `stepMs` apart, starting at
+ * `startAt` (default: so the last one is `stepMs` in the past, before any live message). Fixture data only: no
+ * hooks, no realtime events.
  */
 export async function seedMessages(
   room: string,
   author: string,
   n: number,
-  opts: { text?: (i: number) => string; stepMs?: number } = {},
+  opts: { text?: (i: number) => string; stepMs?: number; startAt?: number } = {},
 ): Promise<Message[]> {
-  const { text = (i) => `msg ${i + 1}`, stepMs = 1000 } = opts;
+  const { text = (i) => `msg ${i + 1}`, stepMs = 1000, startAt } = opts;
   const db = new DatabaseSync(join(inject("pbDataDir"), "data.db"));
   try {
     db.exec("PRAGMA busy_timeout = 5000");
@@ -54,7 +65,7 @@ export async function seedMessages(
     const insert = db.prepare(
       "INSERT INTO messages (id, room, author, text, edited_at, deleted, deleted_at, created, updated) VALUES (?, ?, ?, ?, '', 0, '', ?, ?)",
     );
-    const start = Date.now() - (n + 1) * stepMs;
+    const start = startAt ?? Date.now() - (n + 1) * stepMs;
     const out: Message[] = [];
     db.exec("BEGIN IMMEDIATE");
     for (let i = 0; i < n; i++) {
@@ -77,13 +88,23 @@ export interface Controls {
   calls(op: AsyncOp): number;
   /** Make the next call to `op` reject with `err` (queue several by calling repeatedly). */
   failNext(op: AsyncOp, err: Error): void;
-  /** Pause every call to `op` until the returned function is called. */
+  /** Delay every response of `op` until the returned function is called. The request itself goes out
+   * immediately, as with real network latency: the server sees it before anything that happens meanwhile. */
   hold(op: AsyncOp): () => void;
   /** Call every live onConnect handler with reconnect=true, as after a dropped SSE connection. */
   reconnect(): void;
 }
 
 const SYNC = new Set<keyof Api>(["currentUser", "logOut", "onConnect"]);
+
+/**
+ * Replace `api[op]` with a vi.fn built from the current implementation. Composes by reassignment, so
+ * interceptors stack correctly in any order (stacking vi.spyOn on one method makes it call itself).
+ */
+export function intercept<K extends keyof Api>(api: Api, op: K, make: (original: Api[K]) => Api[K]): void {
+  const original = (api[op] as (...a: unknown[]) => unknown).bind(api) as Api[K];
+  api[op] = vi.fn(make(original) as (...a: unknown[]) => unknown) as unknown as Api[K];
+}
 
 /** Wrap a real client's methods (in place) with counting, failure injection, holds and reconnects. */
 export function instrument(api: Api): Controls {
@@ -94,21 +115,21 @@ export function instrument(api: Api): Controls {
 
   for (const op of Object.keys(api) as (keyof Api)[]) {
     if (SYNC.has(op)) continue;
-    const original = (api[op] as (...a: unknown[]) => Promise<unknown>).bind(api);
-    vi.spyOn(api, op as AsyncOp).mockImplementation((async (...args: unknown[]) => {
+    intercept(api, op as AsyncOp, (original) => (async (...args: never[]) => {
       counts.set(op, (counts.get(op) ?? 0) + 1);
       const held = holds.get(op);
-      if (held) await held;
       const queued = failures.get(op);
-      if (queued?.length) throw queued.shift();
-      return original(...args);
+      const failure = queued?.length ? queued.shift() : undefined;
+      const result = failure ? Promise.reject(failure) : (original as (...a: never[]) => Promise<unknown>)(...args);
+      result.catch(() => {}); // observed below; avoid an unhandled rejection while held
+      if (held) await held;
+      return result;
     }) as never);
   }
 
-  const onConnect = api.onConnect.bind(api);
-  vi.spyOn(api, "onConnect").mockImplementation((fn) => {
+  intercept(api, "onConnect", (original) => (fn) => {
     connectFns.add(fn);
-    const off = onConnect(fn);
+    const off = original(fn);
     return () => {
       connectFns.delete(fn);
       off();
