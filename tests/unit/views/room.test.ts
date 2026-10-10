@@ -6,7 +6,7 @@ import type { View } from "../../../web/src/router.ts";
 import { createStore, initialState, type AppState, type Store } from "../../../web/src/store.ts";
 import { dayLabel, parsePb } from "../../../web/src/lib/time.ts";
 import { createRoomView } from "../../../web/src/views/room.ts";
-import { instrument, intercept, seedMessages, signedUp, uniq, type SignedUp } from "../../support/api.ts";
+import { instrument, intercept, seedMessages, signedUp, uniq, viewContext, type SignedUp } from "../../support/api.ts";
 import { fakeLayout, installIntersectionObserver } from "../../support/dom.ts";
 
 const ROW = 40;
@@ -78,7 +78,7 @@ describe("room view (§7.5–7.6, TODO Phase 5)", () => {
   }
 
   async function mount(room: Room, params: Record<string, string> = {}, api: Api = me.api) {
-    view = createRoomView({ api, store, navigate });
+    view = createRoomView(viewContext(api, store, navigate));
     view.mount(root, { id: room.id, ...params });
     layout = fakeLayout(list(), { rowHeight: ROW, clientHeight: VIEWPORT });
     await loaded();
@@ -177,7 +177,7 @@ describe("room view (§7.5–7.6, TODO Phase 5)", () => {
       const room = await newRoom();
       const ctl = instrument(me.api);
       const release = ctl.hold("page");
-      view = createRoomView({ api: me.api, store, navigate });
+      view = createRoomView(viewContext(me.api, store, navigate));
       view.mount(root, { id: room.id });
       await vi.waitFor(() => expect(ctl.calls("subscribeMessages")).toBe(1));
       expect(ctl.calls("page")).toBe(1);
@@ -190,7 +190,7 @@ describe("room view (§7.5–7.6, TODO Phase 5)", () => {
       const room = await newRoom();
       const ctl = instrument(me.api);
       const release = ctl.hold("page");
-      view = createRoomView({ api: me.api, store, navigate });
+      view = createRoomView(viewContext(me.api, store, navigate));
       view.mount(root, { id: room.id });
       await vi.waitFor(() => expect(ctl.calls("subscribeMessages")).toBe(1));
       await sleep(200); // let the SSE subscription settle before the other user posts
@@ -203,7 +203,7 @@ describe("room view (§7.5–7.6, TODO Phase 5)", () => {
     });
 
     it("an unknown room shows a not-found message", async () => {
-      view = createRoomView({ api: me.api, store, navigate });
+      view = createRoomView(viewContext(me.api, store, navigate));
       view.mount(root, { id: "doesnotexist123" });
       await vi.waitFor(() => expect(root.textContent).toContain("This room doesn't exist."));
       expect(composer()).toBeNull();
@@ -535,6 +535,30 @@ describe("room view (§7.5–7.6, TODO Phase 5)", () => {
       await sleep(50);
       expect(ids()).toEqual(all.slice(0, 50).map((m) => m.id));
       expect(sentinel("top")).toBeNull();
+    });
+
+    it("Jump to beginning during the initial load wins over the late first page, and the view still becomes ready", async () => {
+      const room = await newRoom();
+      const all = await seedMessages(room.id, me.user.id, 300);
+      let releaseInitial!: () => void;
+      const initialHeld = new Promise<void>((r) => (releaseInitial = r));
+      let n = 0;
+      intercept(me.api, "page", (original) => async (q, signal) => {
+        const res = await original(q, signal);
+        if (n++ === 0) await initialHeld; // only the initial latest-page load is slow
+        return res;
+      });
+      view = createRoomView(viewContext(me.api, store, navigate));
+      view.mount(root, { id: room.id });
+      layout = fakeLayout(list(), { rowHeight: ROW, clientHeight: VIEWPORT });
+      await vi.waitFor(() => expect(n).toBe(1));
+      button(headerMenu(), "Jump to beginning")!.click();
+      await vi.waitFor(() => expect(ids()[0]).toBe(all[0]!.id));
+      releaseInitial();
+      await loaded();
+      await sleep(50);
+      expect(ids()).toEqual(all.slice(0, 50).map((m) => m.id));
+      expect(beginning()).not.toBeNull();
     });
   });
 

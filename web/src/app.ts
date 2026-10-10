@@ -1,9 +1,12 @@
 // App shell and boot (§7.1, TODO 3.5): restores the session, wires the router, header and logout.
 
-import type { Api } from "./api.ts";
+import { createRoomActions } from "./actions.ts";
+import { ApiError, type Api } from "./api.ts";
+import type { Ctx } from "./context.ts";
 import { clear, h } from "./dom.ts";
 import { createRouter, type Router, type View } from "./router.ts";
 import { createStore, initialState, type AppState, type Store } from "./store.ts";
+import { createSync } from "./sync.ts";
 import { createLoginView } from "./views/login.ts";
 import { createRoomView } from "./views/room.ts";
 import { createRoomsView } from "./views/rooms.ts";
@@ -17,19 +20,28 @@ export interface App {
 /** Statuses meaning "the server rejected this session" (vs. 0 = network trouble). */
 const AUTH_REJECTED = new Set([401, 403, 404]);
 
-/** Room page layout (§7.1): the room list as a sidebar next to the main view. */
+/**
+ * Room page layout (§7.1): the room list as a sidebar next to the main view. New params remount only the
+ * main view, so switching rooms keeps the sidebar (and anything typed into it).
+ */
 function withSidebar(sidebar: () => View, main: () => View): () => View {
   return () => {
     const side = sidebar();
-    const pane = main();
+    let pane = main();
+    const content = h("div", { class: "pane" });
     let root: HTMLElement;
     return {
       mount(el, params) {
         root = el;
         const aside = h("aside", { class: "sidebar" });
-        const content = h("div", { class: "pane" });
         el.replaceChildren(h("div", { class: "layout" }, [aside, content]));
         side.mount(aside, {});
+        pane.mount(content, params);
+      },
+      update(params) {
+        // A fresh view rather than a remount: late async work of the old one must not see itself as active.
+        pane.unmount();
+        pane = main();
         pane.mount(content, params);
       },
       unmount() {
@@ -44,6 +56,7 @@ function withSidebar(sidebar: () => View, main: () => View): () => View {
 export function startApp(deps: { api: Api; root: HTMLElement }): App {
   const { api, root } = deps;
   const store = createStore<AppState>({ ...initialState(), user: api.currentUser() });
+  const sync = createSync({ api, store });
 
   const header = h("header", { class: "app-bar" });
   const main = h("main", { class: "app-main" });
@@ -52,6 +65,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
 
   function logOut() {
     api.logOut();
+    sync.stop();
     void api.unsubscribeAll().catch(() => {});
     store.set({ ...initialState() });
     router.refresh();
@@ -69,9 +83,15 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     );
   }
 
-  const navigate = (hash: string) => router.navigate(hash);
-  const rooms = () => createRoomsView({ api, store, navigate });
-  const roomPage = withSidebar(rooms, () => createRoomView({ api, store, navigate }));
+  const ctx: Ctx = {
+    api,
+    store,
+    sync,
+    actions: createRoomActions({ api, store }),
+    navigate: (hash) => router.navigate(hash),
+  };
+  const rooms = () => createRoomsView(ctx);
+  const roomPage = withSidebar(rooms, () => createRoomView(ctx));
 
   const router = createRouter({
     root: main,
@@ -96,9 +116,12 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
   });
 
   const offStore = store.subscribe((s, prev) => {
-    if (s.user !== prev.user) renderHeader();
+    if (s.user === prev.user) return;
+    renderHeader();
+    if (s.user && !prev.user) sync.start();
   });
   renderHeader();
+  if (store.get().user) sync.start();
   router.start();
 
   const restored = store.get().user;
@@ -107,8 +130,8 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
       (user) => {
         if (store.get().user?.id === user.id) store.set({ user });
       },
-      (err: { status?: number }) => {
-        if (store.get().user?.id === restored.id && AUTH_REJECTED.has(err?.status ?? 0)) logOut();
+      (err: unknown) => {
+        if (store.get().user?.id === restored.id && err instanceof ApiError && AUTH_REJECTED.has(err.status)) logOut();
       },
     );
   }
@@ -119,6 +142,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     stop() {
       offStore();
       router.stop();
+      sync.stop();
       clear(root);
     },
   };

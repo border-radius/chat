@@ -29,15 +29,46 @@ export function createStore<S extends object>(initial: S): Store<S> {
   };
 }
 
+/** Where the room list is in its load cycle (owned by sync.ts). "error" keeps whatever was loaded before. */
+export type LoadStatus = "idle" | "loading" | "ready" | "error";
+
 export interface AppState {
   user: User | null;
   rooms: Map<string, Room>;
   /** roomId → hidden_rooms row id (needed to unhide). */
   hidden: Map<string, string>;
+  roomsStatus: LoadStatus;
   activeRoomId: string | null;
 }
 
-export const initialState = (): AppState => ({ user: null, rooms: new Map(), hidden: new Map(), activeRoomId: null });
+export const initialState = (): AppState => ({
+  user: null,
+  rooms: new Map(),
+  hidden: new Map(),
+  roomsStatus: "idle",
+  activeRoomId: null,
+});
+
+// ---- updates: pass to store.set(). Maps are replaced, never mutated, so listeners can compare by identity.
+
+type Update = (s: AppState) => Partial<AppState>;
+
+export const upsertRoom = (r: Room): Update => (s) => ({ rooms: new Map(s.rooms).set(r.id, r) });
+
+export const removeRoom = (roomId: string): Update => (s) => {
+  const rooms = new Map(s.rooms);
+  rooms.delete(roomId);
+  return { rooms };
+};
+
+export const markHidden = (roomId: string, rowId: string): Update => (s) => ({ hidden: new Map(s.hidden).set(roomId, rowId) });
+
+/** Forget a hidden_rooms row (realtime deletes only carry the row id, not the room). */
+export const unmarkHidden = (rowId: string): Update => (s) => ({
+  hidden: new Map([...s.hidden].filter(([, row]) => row !== rowId)),
+});
+
+// ---- selectors
 
 const byName = (a: Room, b: Room) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
 

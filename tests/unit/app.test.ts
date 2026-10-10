@@ -62,6 +62,29 @@ describe("app boot (§7.1, TODO 3.5)", () => {
     await api.unsubscribeAll();
   });
 
+  it("switching rooms keeps the sidebar mounted: no refetch, and a half-typed room name survives", async () => {
+    const { api } = await signedUp("Ada");
+    const ctl = instrument(api);
+    const r1 = await api.createRoom(`one-${newId()}`);
+    const r2 = await api.createRoom(`two-${newId()}`);
+    history.replaceState(null, "", `#/r/${r1.id}`);
+    app = startApp({ api, root });
+    await vi.waitFor(() => expect(root.querySelector("header.room-header h1")?.textContent).toBe(`#${r1.name}`));
+    const sidebar = root.querySelector("aside.sidebar")!;
+    const input = sidebar.querySelector<HTMLInputElement>('form.new-room input[name="name"]')!;
+    input.value = "half-typ";
+    const fetches = ctl.calls("listRooms");
+
+    location.hash = `#/r/${r2.id}`;
+    await vi.waitFor(() => expect(root.querySelector("header.room-header h1")?.textContent).toBe(`#${r2.name}`));
+    expect(root.querySelector("aside.sidebar")).toBe(sidebar);
+    expect(input.isConnected).toBe(true);
+    expect(input.value).toBe("half-typ");
+    expect(ctl.calls("listRooms")).toBe(fetches);
+    expect(ctl.calls("subscribeRooms")).toBe(1); // one app-wide subscription, not one per view
+    await vi.waitFor(() => expect(sidebar.querySelector(`a[href="#/r/${r2.id}"]`)?.getAttribute("aria-current")).toBe("page"));
+  });
+
   it("a network failure during the background refresh keeps the session (offline ≠ logged out)", async () => {
     const { api } = await signedUp("Ada");
     const ctl = instrument(api);

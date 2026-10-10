@@ -5,7 +5,7 @@ import type { Room } from "../../../web/src/lib/types.ts";
 import type { View } from "../../../web/src/router.ts";
 import { createStore, initialState, type AppState, type Store } from "../../../web/src/store.ts";
 import { createRoomsView } from "../../../web/src/views/rooms.ts";
-import { instrument, signedUp, uniq, type SignedUp } from "../../support/api.ts";
+import { instrument, signedUp, uniq, viewContext, type SignedUp } from "../../support/api.ts";
 
 type Section = "rooms" | "hidden" | "archived";
 
@@ -32,7 +32,7 @@ describe("rooms view (§7.1, TODO Phase 4)", () => {
   });
 
   async function mount(api: Api = me.api) {
-    view = createRoomsView({ api, store, navigate });
+    view = createRoomsView(viewContext(api, store, navigate));
     view.mount(root, {});
     await vi.waitFor(() => expect(root.querySelector("[aria-busy='true']")).toBeNull());
   }
@@ -292,40 +292,18 @@ describe("rooms view (§7.1, TODO Phase 4)", () => {
       await vi.waitFor(() => expect(sectionOf(r)).toBe("rooms"));
     });
 
-    it("on reconnect the lists are reloaded (events may have been missed)", async () => {
+    it("mounting fetches and subscribes nothing itself; the running sync supplies the data", async () => {
       const ctl = instrument(me.api);
-      await mount();
-      expect(ctl.calls("listRooms")).toBe(1);
-      ctl.reconnect();
-      await vi.waitFor(() => expect(ctl.calls("listRooms")).toBe(2));
-      expect(ctl.calls("listHidden")).toBe(2);
-    });
-
-    it("unmount unsubscribes and clears the view", async () => {
-      const ctl = instrument(me.api);
-      await mount();
-      view!.unmount();
+      const ctx = viewContext(me.api, store, navigate);
+      await vi.waitFor(() => expect(store.get().roomsStatus).toBe("ready"));
+      view = createRoomsView(ctx);
+      view.mount(root, {});
+      expect(root.querySelector("[aria-busy='true']")).toBeNull();
+      view.unmount();
       view = undefined;
       expect(root.childNodes).toHaveLength(0);
+      expect(ctl.calls("listRooms")).toBe(1);
       expect(ctl.calls("subscribeRooms")).toBe(1);
-      const other = await signedUp("Other");
-      const r = await other.api.createRoom(`after-${uniq()}`);
-      await new Promise((res) => setTimeout(res, 300));
-      expect(store.get().rooms.has(r.id)).toBe(false);
-    });
-
-    it("events still in flight when unmounting are ignored (unsubscribe is async)", async () => {
-      const handlers: ((action: "create", r: Room) => void)[] = [];
-      const original = me.api.subscribeRooms.bind(me.api);
-      vi.spyOn(me.api, "subscribeRooms").mockImplementation((fn) => {
-        handlers.push(fn);
-        return original(fn);
-      });
-      await mount();
-      view!.unmount();
-      view = undefined;
-      handlers[0]!("create", { id: "zzzzzzzzzzzzzzz", name: "late", archived: false, created_by: "x" });
-      expect(store.get().rooms.has("zzzzzzzzzzzzzzz")).toBe(false);
     });
   });
 

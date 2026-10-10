@@ -3,6 +3,11 @@
 export interface View {
   mount(root: HTMLElement, params: Record<string, string>): void;
   unmount(): void;
+  /**
+   * Optional: take new params in place. Used instead of a remount when the next route has the same view
+   * factory, e.g. switching rooms keeps the sidebar mounted.
+   */
+  update?(params: Record<string, string>): void;
 }
 
 export interface Route {
@@ -23,11 +28,11 @@ export interface Router {
 const HOME = "#/";
 const LOGIN = "#/login";
 
-export function matchRoute(patterns: readonly string[], hash: string): { pattern: string; params: Record<string, string> } | null {
+export function matchRoute<R extends { pattern: string }>(routes: readonly R[], hash: string): { route: R; params: Record<string, string> } | null {
   const path = hash === "" || hash === "#" ? HOME : hash;
   const parts = path.split("/");
-  for (const pattern of patterns) {
-    const pp = pattern.split("/");
+  for (const route of routes) {
+    const pp = route.pattern.split("/");
     if (pp.length !== parts.length) continue;
     const params: Record<string, string> = {};
     const ok = pp.every((seg, i) => {
@@ -37,15 +42,14 @@ export function matchRoute(patterns: readonly string[], hash: string): { pattern
       params[seg.slice(1)] = decodeURIComponent(part);
       return true;
     });
-    if (ok) return { pattern, params };
+    if (ok) return { route, params };
   }
   return null;
 }
 
 export function createRouter(opts: { root: HTMLElement; routes: Route[]; isAuthed: () => boolean }): Router {
   const { root, routes, isAuthed } = opts;
-  const patterns = routes.map((r) => r.pattern);
-  let current: { key: string; view: View } | null = null;
+  let current: { key: string; factory: () => View; view: View } | null = null;
   let running = false;
 
   function unmountCurrent() {
@@ -53,26 +57,36 @@ export function createRouter(opts: { root: HTMLElement; routes: Route[]; isAuthe
     current = null;
   }
 
+  /** Where `hash` must go instead, or null if it may be shown. */
+  function redirect(hash: string, route: Route | undefined): string | null {
+    if (!route) return HOME;
+    if (!route.public && !isAuthed()) return LOGIN;
+    if (route.pattern === LOGIN && isAuthed()) return HOME;
+    return null;
+  }
+
   function resolve() {
     if (!running) return;
     const hash = location.hash;
-    const m = matchRoute(patterns, hash);
-    const route = m && routes.find((r) => r.pattern === m.pattern)!;
-    let target: string | null = null;
-    if (!route) target = HOME;
-    else if (!route.public && !isAuthed()) target = LOGIN;
-    else if (route.pattern === LOGIN && isAuthed()) target = HOME;
+    const m = matchRoute(routes, hash);
+    const target = redirect(hash, m?.route);
     if (target !== null && target !== hash) {
       history.replaceState(null, "", target);
       return resolve();
     }
+    if (!m) return; // unreachable: no match always redirects to HOME, which matches
 
     const key = hash || HOME;
     if (current?.key === key) return;
+    if (current?.factory === m.route.view && current.view.update) {
+      current.key = key;
+      current.view.update(m.params);
+      return;
+    }
     unmountCurrent();
-    const view = route!.view();
-    current = { key, view };
-    view.mount(root, m!.params);
+    const view = m.route.view();
+    current = { key, factory: m.route.view, view };
+    view.mount(root, m.params);
   }
 
   const onHashChange = () => resolve();

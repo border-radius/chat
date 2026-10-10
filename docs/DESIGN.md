@@ -291,7 +291,7 @@ A room hidden by the user that is also archived appears only under Archived.
 
 An archived room shows a banner, "This room is archived. History is read-only.", and replaces the composer with that banner.
 
-A hash router means PocketBase serves `index.html` for `/` with no server-side catch-all needed. The router is about 40 lines. It parses `location.hash`, matches against a small route table, calls the current view's `unmount()`, then calls the next view's `mount(el, params)`.
+A hash router means PocketBase serves `index.html` for `/` with no server-side catch-all needed. The router is about 40 lines. It parses `location.hash`, matches against a small route table, calls the current view's `unmount()`, then calls the next view's `mount(el, params)`. When the next route uses the same view factory and the mounted view has `update(params)`, the router calls that instead. The room page uses this to swap only the room pane, so the sidebar stays mounted while switching rooms.
 
 ### 7.2 View contract
 
@@ -299,10 +299,13 @@ A hash router means PocketBase serves `index.html` for `/` with no server-side c
 interface View {
   mount(root: HTMLElement, params: Record<string, string>): void;
   unmount(): void; // remove listeners, unsubscribe realtime, abort fetches
+  update?(params: Record<string, string>): void; // optional: take new params without a remount
 }
 ```
 
 Each view owns an `AbortController`. All `addEventListener` calls pass `{signal}`, and all SDK calls pass a `requestKey`, so `unmount()` cleans up everything in one go.
+
+Logged-in views receive a `Ctx` (`context.ts`): `{ api, store, sync, actions, navigate }`. They render from the store and change data through `actions` (`actions.ts`: create, hide, unhide, archive). Only the room view subscribes to anything itself, and only to its own room's messages.
 
 ### 7.3 DOM helpers (`dom.ts`)
 
@@ -315,7 +318,7 @@ h("div", {class: "msg", dataset: {id}}, [h("b", {}, name), text]) // returns HTM
 
 ### 7.4 State (`store.ts`)
 
-This is a typed event emitter around a plain object: `{ user, rooms: Map, hidden: Map<roomId, hiddenRowId>, activeRoomId }`. The selector `roomSections(state)` splits rooms into Rooms, Hidden and Archived. It is a pure function and is unit-tested. Message lists are **not** kept in global state. Each room view owns its own `MessageList` model (§7.5) and throws it away on unmount, which keeps memory bounded.
+This is a typed event emitter around a plain object: `{ user, rooms: Map, hidden: Map<roomId, hiddenRowId>, roomsStatus, activeRoomId }`. Updates such as `upsertRoom(r)` and `markHidden(roomId, rowId)` live next to the store and replace maps rather than mutating them. `sync.ts` owns `rooms`, `hidden` and `roomsStatus` while someone is logged in: it loads both lists, holds the only `rooms` and `hidden_rooms` subscriptions, and reloads after each reconnect. The selector `roomSections(state)` splits rooms into Rooms, Hidden and Archived. It is a pure function and is unit-tested. Message lists are **not** kept in global state. Each room view owns its own `MessageList` model (§7.5) and throws it away on unmount, which keeps memory bounded.
 
 ### 7.5 Message list (hot path)
 

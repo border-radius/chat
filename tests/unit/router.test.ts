@@ -4,28 +4,32 @@ import { createRouter, matchRoute, type Router, type View } from "../../web/src/
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
 describe("matchRoute", () => {
-  const patterns = ["#/", "#/login", "#/r/:id", "#/r/:id/m/:msgId"];
+  const routes = ["#/", "#/login", "#/r/:id", "#/r/:id/m/:msgId"].map((pattern) => ({ pattern }));
+  const match = (hash: string) => {
+    const m = matchRoute(routes, hash);
+    return m && { pattern: m.route.pattern, params: m.params };
+  };
 
   it("matches static and parameterized routes", () => {
-    expect(matchRoute(patterns, "#/")).toEqual({ pattern: "#/", params: {} });
-    expect(matchRoute(patterns, "#/login")).toEqual({ pattern: "#/login", params: {} });
-    expect(matchRoute(patterns, "#/r/abc")).toEqual({ pattern: "#/r/:id", params: { id: "abc" } });
-    expect(matchRoute(patterns, "#/r/abc/m/xyz")).toEqual({ pattern: "#/r/:id/m/:msgId", params: { id: "abc", msgId: "xyz" } });
+    expect(match("#/")).toEqual({ pattern: "#/", params: {} });
+    expect(match("#/login")).toEqual({ pattern: "#/login", params: {} });
+    expect(match("#/r/abc")).toEqual({ pattern: "#/r/:id", params: { id: "abc" } });
+    expect(match("#/r/abc/m/xyz")).toEqual({ pattern: "#/r/:id/m/:msgId", params: { id: "abc", msgId: "xyz" } });
   });
 
   it("decodes params", () => {
-    expect(matchRoute(patterns, "#/r/a%20b")!.params.id).toBe("a b");
+    expect(match("#/r/a%20b")!.params.id).toBe("a b");
   });
 
   it("treats an empty hash as #/", () => {
-    expect(matchRoute(patterns, "")!.pattern).toBe("#/");
-    expect(matchRoute(patterns, "#")!.pattern).toBe("#/");
+    expect(match("")!.pattern).toBe("#/");
+    expect(match("#")!.pattern).toBe("#/");
   });
 
   it("returns null for unknown paths and empty params", () => {
-    expect(matchRoute(patterns, "#/nope")).toBeNull();
-    expect(matchRoute(patterns, "#/r/")).toBeNull();
-    expect(matchRoute(patterns, "#/r/a/b")).toBeNull();
+    expect(match("#/nope")).toBeNull();
+    expect(match("#/r/")).toBeNull();
+    expect(match("#/r/a/b")).toBeNull();
   });
 });
 
@@ -99,6 +103,34 @@ describe("createRouter", () => {
     router.navigate("#/r/2");
     await tick();
     expect(log).toEqual([`mount room {"id":"1"}`, "unmount room", `mount room {"id":"2"}`]);
+  });
+
+  it("a view with update() takes new params in place when the next route uses the same view factory", async () => {
+    router.stop();
+    const shared = (): View => ({
+      mount: (_el, params) => void log.push(`mount ${JSON.stringify(params)}`),
+      update: (params) => void log.push(`update ${JSON.stringify(params)}`),
+      unmount: () => void log.push("unmount"),
+    });
+    history.replaceState(null, "", "#/r/1");
+    log = [];
+    router = createRouter({
+      root,
+      isAuthed: () => true,
+      routes: [
+        { pattern: "#/", view: view("rooms") },
+        { pattern: "#/r/:id", view: shared },
+        { pattern: "#/r/:id/m/:msgId", view: shared },
+      ],
+    });
+    router.start();
+    router.navigate("#/r/2");
+    await tick();
+    router.navigate("#/r/2/m/x");
+    await tick();
+    router.navigate("#/");
+    await tick();
+    expect(log).toEqual([`mount {"id":"1"}`, `update {"id":"2"}`, `update {"id":"2","msgId":"x"}`, "unmount", "mount rooms {}"]);
   });
 
   it("unknown hashes redirect to #/", async () => {

@@ -18,17 +18,12 @@ import {
 import { captureAnchor, isNearBottom, restoreAnchor } from "../lib/scroll.ts";
 import { dayLabel, formatFull, formatTime, parsePb, toPb } from "../lib/time.ts";
 import type { Message, Room } from "../lib/types.ts";
+import type { Ctx } from "../context.ts";
 import type { View } from "../router.ts";
-import type { AppState, Store } from "../store.ts";
+import { upsertRoom } from "../store.ts";
 
 const MAX_LEN = 2000;
 const COUNTER_FROM = 1800;
-
-export interface RoomDeps {
-  api: Api;
-  store: Store<AppState>;
-  navigate: (hash: string) => void;
-}
 
 interface MsgError {
   text: string;
@@ -37,7 +32,7 @@ interface MsgError {
 
 let uid = 0;
 
-export function createRoomView({ api, store }: RoomDeps): View {
+export function createRoomView({ api, store, actions }: Ctx): View {
   const vid = `room-${++uid}`;
   let roomId = "";
   let targetId: string | null = null;
@@ -110,7 +105,6 @@ export function createRoomView({ api, store }: RoomDeps): View {
   const patchLocal = (id: string, patch: Partial<Message>) => {
     win = { ...win, items: win.items.map((m) => (m.id === id ? { ...m, ...patch } : m)) };
   };
-  const setRoom = (r: Room) => store.set((s) => ({ rooms: new Map(s.rooms).set(r.id, r) }));
   const scrollToBottom = () => (list.scrollTop = list.scrollHeight);
 
   // ---------------------------------------------------------------- rendering
@@ -290,7 +284,7 @@ export function createRoomView({ api, store }: RoomDeps): View {
     if (r && confirmArchive) {
       items = [
         h("p", {}, `Archive “${r.name}”? It becomes read-only for everyone.`),
-        h("button", { type: "button", class: "danger", on: { click: () => (closeMenu(), void roomAction(() => api.setArchived(roomId, true).then(setRoom))) }, signal }, "Archive"),
+        h("button", { type: "button", class: "danger", on: { click: () => (closeMenu(), void roomAction(() => actions.setArchived(roomId, true))) }, signal }, "Archive"),
         h(
           "button",
           {
@@ -313,28 +307,14 @@ export function createRoomView({ api, store }: RoomDeps): View {
       if (r && !r.archived) {
         items.push(
           hidden
-            ? item("Unhide room", () => {
-                closeMenu();
-                void roomAction(async () => {
-                  const rowId = store.get().hidden.get(roomId);
-                  if (!rowId) return;
-                  await api.unhideRoom(rowId);
-                  store.set((s) => ({ hidden: new Map([...s.hidden].filter(([k]) => k !== roomId)) }));
-                });
-              })
-            : item("Hide room", () => {
-                closeMenu();
-                void roomAction(async () => {
-                  const row = await api.hideRoom(roomId);
-                  store.set((s) => ({ hidden: new Map(s.hidden).set(roomId, row.id) }));
-                });
-              }),
+            ? item("Unhide room", () => (closeMenu(), void roomAction(() => actions.unhide(roomId))))
+            : item("Hide room", () => (closeMenu(), void roomAction(() => actions.hide(roomId)))),
         );
       }
       if (r && mine) {
         items.push(
           r.archived
-            ? item("Unarchive room", () => (closeMenu(), void roomAction(() => api.setArchived(roomId, false).then(setRoom))))
+            ? item("Unarchive room", () => (closeMenu(), void roomAction(() => actions.setArchived(roomId, false))))
             : item("Archive room", () => {
                 confirmArchive = true;
                 menuOpen = true;
@@ -452,27 +432,22 @@ export function createRoomView({ api, store }: RoomDeps): View {
     else list.scrollTop = 0;
   }
 
-  async function loadAround(msgId: string): Promise<boolean> {
-    let target: Message;
-    try {
-      target = await api.getMessage(msgId);
-    } catch {
-      return false;
-    }
-    if (target.room !== roomId) return false;
+  /** The window around message `msgId`, or null when it isn't in this room. Rejects if a page fails. */
+  async function windowAround(msgId: string): Promise<{ win: MessageWindow; target: string } | null> {
+    const target = await api.getMessage(msgId).catch(() => null);
+    if (!target || target.room !== roomId) return null;
     const [before, after] = await Promise.all([api.page(older(roomId, target)), api.page(newer(roomId, target))]);
-    win = merge({ items: [], hasOlder: before.length >= PAGE_SIZE, hasNewer: after.length >= PAGE_SIZE }, [...before, target, ...after]);
-    targetId = target.id;
-    return true;
+    const win = merge({ items: [], hasOlder: before.length >= PAGE_SIZE, hasNewer: after.length >= PAGE_SIZE }, [...before, target, ...after]);
+    return { win, target: target.id };
   }
 
   async function open(msgId: string | undefined) {
     const g = ++gen;
-    const roomP = api.getRoom(roomId).then(setRoom);
+    const roomP = api.getRoom(roomId).then((r) => store.set(upsertRoom(r)));
+    // Loaders only return a window; it is committed below, and only if nothing (a jump) replaced it meanwhile.
     const pageP = (async () => {
-      if (msgId && (await loadAround(msgId))) return "target" as const;
-      win = applyPage(emptyWindow(), await api.page(latest(roomId)), "latest").win;
-      return "latest" as const;
+      const around = msgId ? await windowAround(msgId) : null;
+      return around ?? { win: applyPage(emptyWindow(), await api.page(latest(roomId)), "latest").win, target: null };
     })();
     pageP.catch(() => {}); // handled below; but we may return early (room not found) without awaiting it
     try {
@@ -481,23 +456,24 @@ export function createRoomView({ api, store }: RoomDeps): View {
       if (active && e instanceof ApiError && e.status === 404) renderNotFound();
       return;
     }
-    let mode: "target" | "latest";
-    try {
-      mode = await pageP;
-    } catch {
-      mode = "latest";
+    const loaded = await pageP.catch(() => null);
+    if (!active) return;
+    const current = g === gen;
+    if (current && loaded) {
+      win = loaded.win;
+      targetId = loaded.target;
     }
-    if (!active || g !== gen) return;
+    // Ready either way: a jump made during the load already owns the window, but still needs the view live.
     ready = true;
     list.setAttribute("aria-busy", "false");
     renderHeader();
     renderFooter();
     render();
-    if (mode === "target" && targetId) {
+    if (current && targetId) {
       const el = list.querySelector<HTMLElement>(`li.msg[data-id="${targetId}"]`);
       if (el) list.scrollTop = el.offsetTop - list.clientHeight / 2;
-    } else {
-      scrollToBottom();
+    } else if (current) {
+      scrollToBottom(); // otherwise the jump has positioned the list
     }
     const pending = buffer;
     buffer = [];
@@ -767,17 +743,10 @@ export function createRoomView({ api, store }: RoomDeps): View {
           if (roomChanged) render();
         }
       });
-      subs = [
-        api.subscribeMessages(roomId, onMessage),
-        api.subscribeRooms((action, r) => {
-          if (!active || r.id !== roomId) return;
-          if (action !== "delete") setRoom(r);
-        }),
-      ];
+      // Room record changes (archive etc.) arrive through the store, kept live by sync.ts.
+      subs = [api.subscribeMessages(roomId, onMessage)];
       offConnect = api.onConnect((reconnect) => {
-        if (!reconnect || !active) return;
-        void api.getRoom(roomId).then((r) => active && setRoom(r)).catch(() => {});
-        if (ready && !win.hasNewer) void gapFill();
+        if (reconnect && active && ready && !win.hasNewer) void gapFill();
       });
       void open(params.msgId);
     },

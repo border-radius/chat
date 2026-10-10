@@ -1,6 +1,6 @@
 // Per-test setup for the unit project (which runs against a real PocketBase).
 import { afterEach, vi } from "vitest";
-import { closeClients } from "./api.ts";
+import { closeClients, stopContexts } from "./api.ts";
 
 // vi.waitFor defaults to 1s; real requests (e.g. password hashing on signup) can take longer when every test
 // file runs in parallel against one server. A slow server shouldn't fail a test, a wrong result should.
@@ -11,5 +11,6 @@ vi.waitFor = ((cb: Parameters<typeof waitFor>[0], opts?: Parameters<typeof waitF
 // Close realtime connections opened by tests/support/api.ts clients after every test, so happy-dom's window
 // teardown doesn't have to abort open SSE requests (noisy AbortErrors, possible unhandled rejections).
 afterEach(async () => {
+  stopContexts();
   await closeClients();
 });

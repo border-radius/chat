@@ -1,18 +1,14 @@
-// Room list (§7.1): Rooms / Hidden / Archived sections, new-room form, per-room actions, live updates.
+// Room list (§7.1): Rooms / Hidden / Archived sections, new-room form, per-room actions.
+// The data comes from the store, kept live by sync.ts; this view only renders it and issues commands.
 
-import { ApiError, type Api } from "../api.ts";
+import { ApiError } from "../api.ts";
+import type { Ctx } from "../context.ts";
 import { clear, h } from "../dom.ts";
 import type { Room } from "../lib/types.ts";
 import type { View } from "../router.ts";
-import { roomSections, type AppState, type Store } from "../store.ts";
+import { roomSections } from "../store.ts";
 
 type Section = "rooms" | "hidden" | "archived";
-
-export interface RoomsDeps {
-  api: Api;
-  store: Store<AppState>;
-  navigate: (hash: string) => void;
-}
 
 let uid = 0;
 
@@ -27,14 +23,12 @@ function nameError(err: unknown): string {
   return "Something went wrong. Please try again.";
 }
 
-export function createRoomsView({ api, store, navigate }: RoomsDeps): View {
+export function createRoomsView({ store, sync, actions, navigate }: Ctx): View {
   const id = `rooms-${++uid}`;
   let root: HTMLElement;
   let ac: AbortController;
   let active = false;
   let offStore = () => {};
-  let offConnect = () => {};
-  let subs: Promise<() => Promise<void>>[] = [];
 
   // UI state that must survive re-renders.
   const open = { hidden: false, archived: false };
@@ -43,47 +37,22 @@ export function createRoomsView({ api, store, navigate }: RoomsDeps): View {
   /** Selector to focus after the next render (the elements are rebuilt, so focus is re-applied). */
   let focusAfter: string | null = null;
   const rowSel = (id: string) => `[data-room-id="${id}"]`;
-  let loaded = false;
+  /** The last failed action, shown until the next action or a successful one. */
+  let actionError = "";
 
   const alert = h("p", { role: "alert", class: "list-error" });
   const nav = h("nav", { "aria-label": "Rooms" });
   const shell = h("section", { class: "rooms", "aria-busy": "true" });
 
-  // ---- data ----
-
-  const setRoom = (r: Room) => store.set((s) => ({ rooms: new Map(s.rooms).set(r.id, r) }));
-  const dropRoom = (roomId: string) =>
-    store.set((s) => {
-      const rooms = new Map(s.rooms);
-      rooms.delete(roomId);
-      return { rooms };
-    });
-  const setHidden = (roomId: string, rowId: string) => store.set((s) => ({ hidden: new Map(s.hidden).set(roomId, rowId) }));
-  const dropHiddenRow = (rowId: string) =>
-    store.set((s) => ({ hidden: new Map([...s.hidden].filter(([, row]) => row !== rowId)) }));
-
-  async function load() {
-    try {
-      const [rooms, hidden] = await Promise.all([api.listRooms(), api.listHidden()]);
-      if (!active) return;
-      loaded = true;
-      showError("");
-      store.set({ rooms: new Map(rooms.map((r) => [r.id, r])), hidden: new Map(hidden.map((x) => [x.room, x.id])) });
-    } catch {
-      if (!active) return;
-      showError("Couldn't load rooms. Check your connection.", load);
-    } finally {
-      if (active) shell.setAttribute("aria-busy", "false");
-      render();
-    }
-  }
-
-  function showError(text: string, retry?: () => void) {
+  function renderAlert() {
     clear(alert);
-    if (!text) return;
-    alert.append(text);
-    if (retry) {
-      alert.append(" ", h("button", { type: "button", class: "link", on: { click: () => (showError(""), void retry()) }, signal: ac.signal }, "Retry"));
+    if (store.get().roomsStatus === "error") {
+      alert.append(
+        "Couldn't load rooms. Check your connection. ",
+        h("button", { type: "button", class: "link", on: { click: () => void sync.reload() }, signal: ac.signal }, "Retry"),
+      );
+    } else {
+      alert.append(actionError);
     }
   }
 
@@ -94,22 +63,16 @@ export function createRoomsView({ api, store, navigate }: RoomsDeps): View {
     render();
     try {
       await fn();
-      if (active) showError("");
+      actionError = "";
     } catch {
-      if (active) showError(`Couldn't ${label} “${room.name}”. Check your connection and try again.`);
+      actionError = `Couldn't ${label} “${room.name}”. Check your connection and try again.`;
     }
+    if (active) renderAlert();
   }
 
-  const hide = (r: Room) => act("hide", r, async () => setHidden(r.id, (await api.hideRoom(r.id)).id));
-  const unhide = (r: Room) =>
-    act("unhide", r, async () => {
-      const rowId = store.get().hidden.get(r.id);
-      if (!rowId) return;
-      await api.unhideRoom(rowId);
-      dropHiddenRow(rowId);
-    });
-  const setArchived = (r: Room, archived: boolean) =>
-    act(archived ? "archive" : "unarchive", r, async () => setRoom(await api.setArchived(r.id, archived)));
+  const hide = (r: Room) => act("hide", r, () => actions.hide(r.id));
+  const unhide = (r: Room) => act("unhide", r, () => actions.unhide(r.id));
+  const setArchived = (r: Room, archived: boolean) => act(archived ? "archive" : "unarchive", r, () => actions.setArchived(r.id, archived));
 
   // ---- rendering ----
 
@@ -157,7 +120,6 @@ export function createRoomsView({ api, store, navigate }: RoomsDeps): View {
     if (mine && section === "archived") items.push(btn("Unarchive", () => void setArchived(r, false)));
     return items;
   }
-
   function roomRow(r: Room, section: Section): HTMLElement {
     const current = store.get().activeRoomId === r.id;
     const items = menuItems(r, section);
@@ -209,12 +171,15 @@ export function createRoomsView({ api, store, navigate }: RoomsDeps): View {
 
   function render() {
     if (!active) return;
-    const { rooms, hidden, archived } = roomSections(store.get());
+    const s = store.get();
+    const { rooms, hidden, archived } = roomSections(s);
+    const loading = s.roomsStatus === "idle" || s.roomsStatus === "loading";
+    shell.setAttribute("aria-busy", String(loading));
     const main = h("div", { class: "room-section", dataset: { section: "rooms" } }, [
       h("h2", {}, "Rooms"),
       rooms.length
         ? h("ul", {}, rooms.map((r) => roomRow(r, "rooms")))
-        : loaded
+        : s.roomsStatus === "ready"
           ? h("p", { class: "empty" }, "No rooms yet. Create the first one.")
           : null,
     ]);
@@ -255,9 +220,8 @@ export function createRoomsView({ api, store, navigate }: RoomsDeps): View {
             submit.disabled = true;
             setError("");
             try {
-              const room = await api.createRoom(input.value);
+              const room = await actions.create(input.value);
               if (!active) return;
-              setRoom(room);
               input.value = "";
               navigate(`#/r/${room.id}`);
             } catch (e) {
@@ -278,39 +242,21 @@ export function createRoomsView({ api, store, navigate }: RoomsDeps): View {
       root = el;
       active = true;
       ac = new AbortController();
-      shell.setAttribute("aria-busy", "true");
       shell.replaceChildren(newRoomForm(), alert, nav);
       clear(root);
       root.append(shell);
 
       offStore = store.subscribe((s, prev) => {
-        if (s.rooms !== prev.rooms || s.hidden !== prev.hidden || s.activeRoomId !== prev.activeRoomId || s.user !== prev.user) render();
+        if (s.roomsStatus !== prev.roomsStatus) renderAlert();
+        if (s.rooms !== prev.rooms || s.hidden !== prev.hidden || s.activeRoomId !== prev.activeRoomId || s.user !== prev.user || s.roomsStatus !== prev.roomsStatus) render();
       });
-      subs = [
-        api.subscribeRooms((action, r) => {
-          if (!active) return;
-          if (action === "delete") dropRoom(r.id);
-          else setRoom(r);
-        }),
-        api.subscribeHidden((action, row) => {
-          if (!active) return;
-          if (action === "delete") dropHiddenRow(row.id);
-          else setHidden(row.room, row.id);
-        }),
-      ];
-      offConnect = api.onConnect((reconnect) => {
-        if (reconnect && active) void load();
-      });
+      renderAlert();
       render();
-      void load();
     },
     unmount() {
       active = false;
       ac.abort();
       offStore();
-      offConnect();
-      for (const p of subs) void p.then((off) => off()).catch(() => {});
-      subs = [];
       clear(root);
     },
   };

@@ -1,0 +1,14 @@
+// What every logged-in view gets from the app shell.
+
+import type { RoomActions } from "./actions.ts";
+import type { Api } from "./api.ts";
+import type { AppState, Store } from "./store.ts";
+import type { Sync } from "./sync.ts";
+
+export interface Ctx {
+  api: Api;
+  store: Store<AppState>;
+  sync: Sync;
+  actions: RoomActions;
+  navigate: (hash: string) => void;
+}

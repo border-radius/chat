@@ -3,10 +3,14 @@
 
 import PocketBase, { BaseAuthStore } from "pocketbase";
 import { inject, vi } from "vitest";
+import { createRoomActions } from "../../web/src/actions.ts";
 import { createApi, type Api } from "../../web/src/api.ts";
+import type { Ctx } from "../../web/src/context.ts";
 import { newId } from "../../web/src/lib/id.ts";
 import { toPb } from "../../web/src/lib/time.ts";
 import type { Message, User } from "../../web/src/lib/types.ts";
+import type { AppState, Store } from "../../web/src/store.ts";
+import { createSync } from "../../web/src/sync.ts";
 
 // The unit project runs in happy-dom, where Vite refuses static imports of Node built-ins.
 const { DatabaseSync } = process.getBuiltinModule("node:sqlite") as typeof import("node:sqlite");
@@ -149,4 +153,23 @@ export function instrument(api: Api): Controls {
     },
     reconnect: () => connectFns.forEach((fn) => fn(true)),
   };
+}
+
+/**
+ * What the app shell hands a view, around a real client, with the room sync already running (as it is
+ * whenever someone is logged in). Build it after `instrument()`/`intercept()` so the sync sees those.
+ */
+export function viewContext(api: Api, store: Store<AppState>, navigate: (hash: string) => void): Ctx {
+  const sync = createSync({ api, store });
+  sync.start();
+  contexts.add(sync);
+  return { api, store, sync, actions: createRoomActions({ api, store }), navigate };
+}
+
+const contexts = new Set<{ stop(): void }>();
+
+/** Stop every sync started by viewContext (run after each test). */
+export function stopContexts(): void {
+  for (const s of contexts) s.stop();
+  contexts.clear();
 }

@@ -47,7 +47,7 @@ describe("createStore", () => {
 
 describe("initialState", () => {
   it("starts logged out with no rooms", () => {
-    expect(initialState()).toEqual({ user: null, rooms: new Map(), hidden: new Map(), activeRoomId: null });
+    expect(initialState()).toEqual({ user: null, rooms: new Map(), hidden: new Map(), roomsStatus: "idle", activeRoomId: null });
   });
 });
 
