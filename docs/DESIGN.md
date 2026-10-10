@@ -192,10 +192,14 @@ A separate collection was chosen over a multi-relation field on `users` for thre
 
 | Collection | list / view | create | update | delete |
 |---|---|---|---|---|
-| `users` | `@auth` (other users' email stays hidden) | public (signup, no verification) | `id = @request.auth.id` | `id = @request.auth.id` |
-| `rooms` | `@auth` | `@auth && @request.body.created_by = @request.auth.id && @request.body.archived:isset = false` | `created_by = @request.auth.id && @request.body.created_by:isset = false && @request.body.archived_at:isset = false` | **none** (superuser only) |
-| `messages` | `@auth` | `@auth && @request.body.author = @request.auth.id && @request.body.room.archived = false && @request.body.deleted:isset = false` | `author = @request.auth.id && room.archived = false && deleted = false && @request.body.author:isset = false && @request.body.room:isset = false && @request.body.edited_at:isset = false && @request.body.deleted_at:isset = false && (@request.body.deleted:isset = false \|\| @request.body.deleted = true)` | **none** (superuser only) |
+| `users` | `@auth` (other users' email stays hidden) | public (signup, no verification) + `NO_PUBLIC_EMAIL`¹ | `id = @request.auth.id && NO_PUBLIC_EMAIL`¹ | `id = @request.auth.id` |
+| `rooms` | `@auth` | `@auth && @request.body.created_by = @request.auth.id && (@request.body.archived:isset = false \|\| @request.body.archived = false) && @request.body.archived_at:isset = false` | `created_by = @request.auth.id && @request.body.created_by:isset = false && @request.body.archived_at:isset = false` | **none** (superuser only) |
+| `messages` | `@auth` | `@auth && @request.body.author = @request.auth.id && @request.body.room.archived = false && @request.body.deleted:isset = false && @request.body.deleted_at:isset = false && @request.body.edited_at:isset = false` | `author = @request.auth.id && room.archived = false && deleted = false && @request.body.author:isset = false && @request.body.room:isset = false && @request.body.edited_at:isset = false && @request.body.deleted_at:isset = false && (@request.body.deleted:isset = false \|\| @request.body.deleted = true)` | **none** (superuser only) |
 | `hidden_rooms` | `user = @request.auth.id` | `@auth && @request.body.user = @request.auth.id` | **none** | `user = @request.auth.id` |
+
+¹ `NO_PUBLIC_EMAIL` = `(@request.body.emailVisibility:isset = false || @request.body.emailVisibility = false)`. Users can't make their email visible to others.
+
+The source of truth for all rules is `pb_migrations/1760000000_init.js`.
 
 PocketBase applies the list rule to realtime subscriptions too, so these rules also control who receives SSE events.
 
@@ -218,9 +222,14 @@ The hooks are kept small. They only do things the rules can't express:
 - **Edit stamp:** on a `messages` update where `text` actually changed (and it isn't a delete), set `edited_at = now`. An update that doesn't change the text leaves it untouched.
 - **Archive stamp:** on a `rooms` update, set `archived_at = now` when `archived` becomes true, and clear it when `archived` becomes false.
 - **Archived-room guard (defense in depth):** reject a message create, update or delete when the target room is archived. This repeats the API rule in case rule traversal through `@request.body.room.archived` behaves differently in the pinned PocketBase version. Integration tests cover both layers.
-- **Security headers** via `routerUse`: `Content-Security-Policy: default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'`, plus `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`.
-- **Cache headers:** `/assets/*` (content-hashed) gets `Cache-Control: public, max-age=31536000, immutable`. `index.html` gets `no-cache`.
-- **Rate limiting:** use PocketBase's built-in rate limiter (Settings → Rate limits), set from a migration. For example, `POST /api/collections/messages/records` is limited to 10 requests per 5 seconds per client.
+- **Security headers** via `routerUse`: every response gets `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`. Static app paths also get `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`. The CSP is *not* applied to `/api/*` or to the admin UI `/_/`, which sends its own CSP.
+- **Cache headers:** `/assets/*` (content-hashed) gets `Cache-Control: public, max-age=31536000, immutable`. Every other static path, including `/` and `index.html`, gets `no-cache`.
+- **Rate limiting:** PocketBase's built-in limiter, enabled from the init migration. The limits are per client IP:
+  - `messages:create`: 10 requests per 5 s.
+  - `users:create` (guests): 20 requests per 60 s.
+  - PocketBase's default rules are kept after these.
+
+  Test harnesses turn the limiter off, because every test client shares 127.0.0.1. `http.test.ts` turns it back on to verify the 429.
 
 ## 6. API usage (frontend ↔ backend)
 

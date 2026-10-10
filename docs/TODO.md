@@ -92,26 +92,26 @@ The goal of this phase is to make every test layer runnable, starting with the b
 Phase 1 is backend-only and fully covered by integration tests. Each test file uses fresh users, so tests never share data.
 
 ### 1.1 Collections and indexes (§5.1–5.4)
-- [ ] 🔴 `schema.test.ts`: as admin, fetch collections and assert:
+- [x] 🔴 `schema.test.ts`: as admin, fetch collections and assert:
   - `users.name` is required, 1–32 chars;
   - `rooms` fields: `name`, `created_by`, `archived`, `archived_at`, plus the unique case-insensitive index on name;
   - `messages` fields: `room`, `author`, `text` (max 2000, not required), `edited_at`, `deleted`, `deleted_at`, plus the `(room, created, id)` index;
   - `hidden_rooms` fields: `user`, `room`, plus a unique `(user, room)` index;
   - the expected cascade settings.
-- [ ] 🟢 `pb_migrations/<ts>_init.js`: create the collections, fields and indexes (empty rules for now, so superuser only)
-- [ ] 🔴 Migrations are idempotent: restart the server on the same data dir and it boots cleanly with the schema unchanged
-- [ ] 🟢 Fix any problems
+- [x] 🟢 `pb_migrations/<ts>_init.js`: create the collections, fields and indexes (empty rules for now, so superuser only)
+- [x] 🔴 Migrations are idempotent: restart the server on the same data dir and it boots cleanly with the schema unchanged
+- [x] 🟢 Fix any problems
 
 ### 1.2 `users` rules
-- [ ] 🔴 `users.test.ts`:
+- [x] 🔴 `users.test.ts`:
   - anonymous signup works and the user can log in **without verification**;
   - an authed user listing other users never gets their `email`;
   - A can update their own `name` but not B's;
   - an anonymous user cannot list users.
-- [ ] 🟢 Set the `users` rules in the migration and set `emailVisibility` to false by default
+- [x] 🟢 Set the `users` rules in the migration and set `emailVisibility` to false by default
 
 ### 1.3 `rooms` rules
-- [ ] 🔴 `rooms.test.ts`:
+- [x] 🔴 `rooms.test.ts`:
   - **Create:**
     - an authed user can create a room with `created_by = self`;
     - `created_by = other` is rejected;
@@ -127,19 +127,19 @@ Phase 1 is backend-only and fully covered by integration tests. Each test file u
     - nobody can change `created_by`;
     - nobody can set `archived_at` directly.
   - **Delete:** the `DELETE` endpoint is rejected for the creator and for other users.
-- [ ] 🟢 Set the `rooms` rules (§5.5)
+- [x] 🟢 Set the `rooms` rules (§5.5)
 
 ### 1.4 Room archiving
-- [ ] 🔴 `rooms.archive.test.ts`:
+- [x] 🔴 `rooms.archive.test.ts`:
   - the creator setting `archived: true` sets `archived_at`;
   - setting `archived: false` clears it;
   - a user who is not the creator cannot archive or unarchive;
   - an archived room's name can't be taken by a new room or by a rename (it is never reused);
   - an archived room is still listed and viewable.
-- [ ] 🟢 Archive stamp hook in `pb_hooks/main.pb.js`
+- [x] 🟢 Archive stamp hook in `pb_hooks/main.pb.js`
 
 ### 1.5 `messages` create rules and validation
-- [ ] 🔴 `messages.create.test.ts`:
+- [x] 🔴 `messages.create.test.ts`:
   - **Author:**
     - A can post with `author = A`;
     - `author = B` is rejected;
@@ -154,20 +154,20 @@ Phase 1 is backend-only and fully covered by integration tests. Each test file u
     - reusing an existing id is rejected.
   - **Not deletable on create:** creating with `deleted: true` is rejected.
   - **Archived rooms:** posting to an archived room is rejected. Unarchiving makes posting work again.
-- [ ] 🟢 Set the `messages` create rule, plus hooks for trim and non-empty text and the archived-room guard (§5.6)
+- [x] 🟢 Set the `messages` create rule, plus hooks for trim and non-empty text and the archived-room guard (§5.6)
 
 ### 1.6 `messages` editing
-- [ ] 🔴 `messages.edit.test.ts`:
+- [x] 🔴 `messages.edit.test.ts`:
   - A edits their own message → the text changes and `edited_at` is set;
   - an update with the same text leaves `edited_at` empty;
   - B cannot edit A's message;
   - changing `author` or `room`, or setting `edited_at` directly, is rejected;
   - editing to whitespace-only text or more than 2000 chars is rejected;
   - editing in an archived room is rejected.
-- [ ] 🟢 Set the update rule and the edit stamp hook
+- [x] 🟢 Set the update rule and the edit stamp hook
 
 ### 1.7 `messages` soft delete
-- [ ] 🔴 `messages.delete.test.ts`:
+- [x] 🔴 `messages.delete.test.ts`:
   - **The delete itself:**
     - `update({deleted: true})` returns `deleted = true`, `text = ""` and `deleted_at` set;
     - `{deleted: true, text: "x"}` still results in empty text;
@@ -182,10 +182,10 @@ Phase 1 is backend-only and fully covered by integration tests. Each test file u
     - setting `deleted_at` directly is rejected;
     - the `DELETE` endpoint is rejected for the author;
     - deleting in an archived room is rejected.
-- [ ] 🟢 Soft delete hook and update rule details
+- [x] 🟢 Soft delete hook and update rule details
 
 ### 1.8 `hidden_rooms` rules
-- [ ] 🔴 `hidden_rooms.test.ts`:
+- [x] 🔴 `hidden_rooms.test.ts`:
   - **Hiding:**
     - A can hide a room for themselves;
     - `user = B` is rejected;
@@ -197,10 +197,10 @@ Phase 1 is backend-only and fully covered by integration tests. Each test file u
     - A can delete their own row;
     - B cannot delete A's row.
   - **Updates:** updating a row is rejected for everyone.
-- [ ] 🟢 Set the `hidden_rooms` rules
+- [x] 🟢 Set the `hidden_rooms` rules
 
 ### 1.9 Realtime
-- [ ] 🔴 `realtime.test.ts` (SDK in Node with an `EventSource` polyfill or the SDK's built-in support):
+- [x] 🔴 `realtime.test.ts` (SDK in Node with an `EventSource` polyfill or the SDK's built-in support):
   - B is subscribed to R1 with a filter and `expand=author`:
     - when A posts in R1, B gets a `create` event with `expand.author.name` and no email;
     - when A posts in R2, nothing arrives within 500 ms.
@@ -209,25 +209,34 @@ Phase 1 is backend-only and fully covered by integration tests. Each test file u
     - a soft delete arrives as an `update` event with `deleted: true` and `text: ""`.
   - **Anonymous:** an anonymous subscriber receives nothing.
   - **Hidden rooms:** a `hidden_rooms` subscription only delivers your own rows.
-- [ ] 🟢 This is expected to pass from the rules alone. Fix the rules if it doesn't.
+- [x] 🟢 This is expected to pass from the rules alone. Fix the rules if it doesn't.
 
 ### 1.10 History pagination at scale
-- [ ] 🔴 `pagination.test.ts`:
+- [x] 🔴 `pagination.test.ts`:
   - **Seed data:** 1,000 messages through the admin client, including about 20 that share the same `created` value.
   - **Older-page walk:** walking from the latest page returns all 1,000 messages once each, in order, with message #1 last.
   - **Newer-page walk:** walking from the first page gives the same result.
   - **Index use:** `EXPLAIN QUERY PLAN` for the cursor query uses `idx_messages_room_created`.
-- [ ] 🟢 Put the cursor filter builder in **shared code** (`web/src/lib/cursor.ts`) and import it from the test. The frontend reuses the exact same function, so the cursor logic is tested once against the real DB.
+- [x] 🟢 Put the cursor filter builder in **shared code** (`web/src/lib/cursor.ts`) and import it from the test. The frontend reuses the exact same function, so the cursor logic is tested once against the real DB.
 
 ### 1.11 Headers and rate limits
-- [ ] 🔴 `http.test.ts`:
+- [x] 🔴 `http.test.ts`:
   - `GET /` has the CSP, `nosniff` and `Referrer-Policy` headers;
   - `/assets/*` has `immutable` caching;
   - `/` and `/index.html` have `no-cache`;
   - the 11th message within 5 seconds returns 429.
-- [ ] 🟢 `routerUse` middleware in hooks. Rate-limit settings applied from a migration.
+- [x] 🟢 `routerUse` middleware in hooks. Rate-limit settings applied from a migration.
 
 **✅ Gate 1:** `npm run test:int` is green, and the backend is feature-complete for the MVP. The rules are frozen. Later changes need a red test first.
+  - **Status (2026-10-10): passed.** All 91 integration tests are green, and three back-to-back runs were stable.
+  - **Defense in depth verified by mutation:**
+    - The archived-room guard holds with *only* the API rules, and with *only* the hook. Tests fail only when both are removed. This confirms `@request.body.room.archived` traversal works in PB 0.40.
+    - Removing the soft-delete text wipe fails 6 tests, including the raw-DB check.
+  - **Implementation notes:**
+    - Rules live in `pb_migrations/1760000000_init.js`, and DESIGN §5.5 has been synced to them.
+    - Hook logic lives in `pb_hooks/lib/chat.js`. JSVM handlers can't share top-level scope, so each one does `require()`.
+    - The integration harness turns rate limits off after boot, because every client is on 127.0.0.1. It records the migrated settings first as `inject("bootRateLimits")`. `http.test.ts` turns the limits back on for its 429 test.
+    - PocketBase's admin UI sends its own CSP. The app CSP is applied only to static app paths.
 
 ---
 
@@ -455,6 +464,7 @@ CSS has no unit tests, so it is verified by e2e and accessibility checks (Phase 
 
 Each flow from §9.3 starts as a failing spec. Fix the app, not the test, unless the test itself is wrong.
 
+- [ ] Disable rate limits in `tests/e2e/server.ts`, as the integration harness does. E2E flows sign up many users from one IP, and the `users:create` limit is 20 per minute.
 - [ ] 🔴 `signup.spec.ts`: sign up, see the empty list, create "general", send "hello", and see it with the user's name
 - [ ] 🔴 `realtime.spec.ts`:
   - with two contexts, B sees A's message within 1 second;

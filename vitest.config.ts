@@ -18,6 +18,8 @@ export default defineConfig({
           globalSetup: ["tests/integration/setup/global.ts"],
           // One PocketBase process is shared; run files serially to keep rate limits and realtime predictable.
           fileParallelism: false,
+          // Node 22 ships EventSource behind a flag; the PocketBase SDK needs it for realtime.
+          execArgv: ["--experimental-eventsource", "--no-warnings=ExperimentalWarning"],
           testTimeout: 15_000,
           hookTimeout: 30_000,
         },

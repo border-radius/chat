@@ -15,6 +15,7 @@ export const SUPERUSER = { email: "admin@test.local", password: "test-password-1
 export interface PocketBaseServer {
   url: string;
   dataDir: string;
+  publicDir: string;
   stop(): Promise<void>;
 }
 
@@ -22,13 +23,16 @@ export interface StartOptions {
   /** Directory served as static files. Defaults to an empty dir inside the temp data dir. */
   publicDir?: string;
   port?: number;
+  /** Reuse an existing data dir (kept on stop). Defaults to a fresh temp dir (removed on stop). */
+  dataDir?: string;
   /** Pipe PocketBase stdout/stderr to this process (useful when debugging). */
   verbose?: boolean;
 }
 
 export async function startPocketBase(opts: StartOptions = {}): Promise<PocketBaseServer> {
   const tmp = await mkdtemp(join(tmpdir(), "chat-pb-"));
-  const dataDir = join(tmp, "pb_data");
+  const dataDir = opts.dataDir ?? join(tmp, "pb_data");
+  const publicDir = opts.publicDir ?? join(tmp, "pb_public");
   const dirArgs = [
     `--dir=${dataDir}`,
     `--migrationsDir=${join(root, "pb_migrations")}`,
@@ -46,7 +50,7 @@ export async function startPocketBase(opts: StartOptions = {}): Promise<PocketBa
     [
       "serve",
       `--http=127.0.0.1:${port}`,
-      `--publicDir=${opts.publicDir ?? join(tmp, "pb_public")}`,
+      `--publicDir=${publicDir}`,
       "--hooksWatch=false",
       ...dirArgs,
     ],
@@ -69,7 +73,7 @@ export async function startPocketBase(opts: StartOptions = {}): Promise<PocketBa
     throw new Error(`${(err as Error).message}\n--- pocketbase output ---\n${output}`);
   }
 
-  return { url, dataDir, stop };
+  return { url, dataDir, publicDir, stop };
 }
 
 async function freePort(): Promise<number> {
