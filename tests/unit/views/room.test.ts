@@ -13,7 +13,7 @@ const ROW = 40;
 const VIEWPORT = 400;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-describe("room view (§7.5–7.6, TODO Phase 5)", () => {
+describe("room view (§7.5–7.6)", () => {
   let root: HTMLElement;
   let me: SignedUp;
   let store: Store<AppState>;

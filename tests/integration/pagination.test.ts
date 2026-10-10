@@ -1,18 +1,18 @@
 import type PocketBase from "pocketbase";
-import type { RecordModel } from "pocketbase";
+import type { Message } from "../../web/src/lib/types.ts";
 import { beforeAll, describe, expect, it } from "vitest";
-import { PAGE_SIZE, first, latest, listOptions, newer, older, type Cursor, type PageQuery } from "../../web/src/lib/cursor.ts";
+import { createApi } from "../../web/src/api.ts";
+import { PAGE_SIZE, first, latest, newer, older, type PageQuery } from "../../web/src/lib/cursor.ts";
 import { adminClient, newRoom, newUser, rawDb, type TestUser } from "./helpers.ts";
 
 const TOTAL = 1000;
 const TIES = 20;
 
-type Msg = RecordModel & Cursor & { text: string };
+type Msg = Message;
 
 async function page(pb: PocketBase, q: PageQuery): Promise<Msg[]> {
-  // Exactly the options the UI sends (§6): bound filter, sort, skipTotal, expand=author, lean fields.
-  const res = await pb.collection("messages").getList<Msg>(1, PAGE_SIZE, listOptions(q, pb.filter.bind(pb)));
-  return res.items;
+  // Exactly the request the UI sends (§6): bound filter, sort, skipTotal, expand=author, lean fields.
+  return createApi(pb).page(q);
 }
 
 describe("history pagination at scale (§6, §7.5)", () => {

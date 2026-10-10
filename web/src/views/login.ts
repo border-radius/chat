@@ -1,7 +1,7 @@
 // Login / signup screen (§7.1).
 
 import { ApiError, errorMessage, type Api } from "../api.ts";
-import { clear, h } from "../dom.ts";
+import { clear, h, uniqueId } from "../dom.ts";
 import { LIMITS } from "../lib/limits.ts";
 import type { User } from "../lib/types.ts";
 import type { View } from "../router.ts";
@@ -31,14 +31,12 @@ const FIELDS: Record<Mode, FieldSpec[]> = {
 
 const TITLES: Record<Mode, string> = { login: "Log in", signup: "Sign up" };
 
-let uid = 0;
-
 export function createLoginView(deps: { api: Api; onLogin: (user: User) => void }): View {
   let ac: AbortController | null = null;
   let mode: Mode = "login";
   let busy = false;
   const values: Record<Field, string> = { name: "", email: "", password: "" };
-  const prefix = `login-${++uid}`;
+  const prefix = uniqueId("login");
   let root: HTMLElement;
 
   function render(errors: { form?: string; fields?: Record<string, string> } = {}) {

@@ -11,13 +11,13 @@ import { toPb } from "../../web/src/lib/time.ts";
 import type { Message, User } from "../../web/src/lib/types.ts";
 import type { AppState, Store } from "../../web/src/store.ts";
 import { createSync } from "../../web/src/sync.ts";
+import { uniq } from "./ids.ts";
 
 // The unit project runs in happy-dom, where Vite refuses static imports of Node built-ins.
 const { DatabaseSync } = process.getBuiltinModule("node:sqlite") as typeof import("node:sqlite");
 const { join } = process.getBuiltinModule("node:path") as typeof import("node:path");
 
-let seq = 0;
-export const uniq = () => `${Date.now().toString(36)}${(seq++).toString(36)}${Math.random().toString(36).slice(2, 7)}`; // unique across parallel workers
+export { uniq } from "./ids.ts";
 
 const clients = new Set<Api>();
 

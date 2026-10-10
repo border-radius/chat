@@ -9,7 +9,7 @@ import { instrument, signedUp, uniq, viewContext, type SignedUp } from "../../su
 
 type Section = "rooms" | "hidden" | "archived";
 
-describe("rooms view (§7.1, TODO Phase 4)", () => {
+describe("rooms view (§7.1)", () => {
   let root: HTMLElement;
   let me: SignedUp;
   let store: Store<AppState>;

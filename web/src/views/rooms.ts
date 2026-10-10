@@ -3,7 +3,7 @@
 
 import { ApiError, errorMessage } from "../api.ts";
 import type { Ctx } from "../context.ts";
-import { clear, h } from "../dom.ts";
+import { clear, h, uniqueId } from "../dom.ts";
 import { LIMITS } from "../lib/limits.ts";
 import type { Room } from "../lib/types.ts";
 import type { View } from "../router.ts";
@@ -13,8 +13,6 @@ import { createActionMenu, type ActionMenu, type MenuItem } from "../ui/menu.ts"
 
 type Section = "rooms" | "hidden" | "archived";
 
-let uid = 0;
-
 function nameError(err: unknown): string {
   if (err instanceof ApiError && err.codes.name === "validation_not_unique") return "A room with this name already exists.";
   if (err instanceof ApiError && err.fields.name) return err.fields.name;
@@ -22,7 +20,7 @@ function nameError(err: unknown): string {
 }
 
 export function createRoomsView({ store, sync, actions, navigate }: Ctx): View {
-  const id = `rooms-${++uid}`;
+  const id = uniqueId("rooms");
   let root: HTMLElement;
   let scope: Scope;
 

@@ -2,6 +2,8 @@ import { defineConfig, devices } from "@playwright/test";
 
 const PORT = Number(process.env.E2E_PORT ?? 8091);
 const CI = !!process.env.CI;
+// Set when pb_public/ is already a fresh production build (CI runs `npm run check` first, which builds).
+const SKIP_BUILD = !!process.env.E2E_SKIP_BUILD;
 
 export default defineConfig({
   testDir: "tests/e2e",
@@ -23,7 +25,7 @@ export default defineConfig({
       : []),
   ],
   webServer: {
-    command: "npm run build && node tests/e2e/server.ts",
+    command: SKIP_BUILD ? "node tests/e2e/server.ts" : "npm run build && node tests/e2e/server.ts",
     url: `http://127.0.0.1:${PORT}/api/health`,
     env: { E2E_PORT: String(PORT) },
     reuseExistingServer: false,

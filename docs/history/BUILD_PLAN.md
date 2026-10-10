@@ -1,6 +1,8 @@
 # Chat MVP — Implementation TODO (TDD)
 
-This plan implements [`DESIGN.md`](./DESIGN.md) using test-driven development. Section references like §7.5 point into the design doc.
+> **Archived (2026-10-10):** every phase is done; kept for its requirement → test traceability table. Ongoing work: [`../REFACTOR.md`](../REFACTOR.md).
+
+This plan implements [`DESIGN.md`](../DESIGN.md) using test-driven development. Section references like §7.5 point into the design doc.
 
 ## How to work through this list
 

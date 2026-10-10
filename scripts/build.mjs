@@ -2,26 +2,16 @@
 import * as esbuild from "esbuild";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { gzipSync } from "node:zlib";
-import { checkBudget, entryOutputs, formatSizes, injectAssets } from "./lib/build-utils.mjs";
-
-const OUTDIR = "pb_public";
-const ENTRIES = { js: "web/src/main.ts", css: "web/styles/app.css" };
+import { BASE_OPTIONS, ENTRIES, OUTDIR, checkBudget, entryOutputs, formatSizes, injectAssets } from "./lib/build-utils.mjs";
 
 await rm(OUTDIR, { recursive: true, force: true });
 await mkdir(OUTDIR, { recursive: true });
 
 const result = await esbuild.build({
-  entryPoints: [
-    { in: ENTRIES.js, out: "app" },
-    { in: ENTRIES.css, out: "app" },
-  ],
-  bundle: true,
+  ...BASE_OPTIONS,
   minify: true,
   sourcemap: "linked",
-  format: "esm",
-  target: "es2022",
   entryNames: "assets/[name]-[hash]",
-  outdir: OUTDIR,
   metafile: true,
   legalComments: "none",
   logLevel: "warning",

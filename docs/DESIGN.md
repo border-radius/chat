@@ -6,6 +6,9 @@
 | **Date** | 2026-10-10 |
 | **Scope** | MVP |
 
+Code and tests cite this document by section number (e.g. `§7.5`). **Don't renumber sections:** append new ones, and
+mark obsolete ones as such instead of deleting them.
+
 ---
 
 ## 1. Summary

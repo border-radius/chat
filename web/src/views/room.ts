@@ -4,7 +4,7 @@
 
 import { ApiError, type Action } from "../api.ts";
 import type { Ctx } from "../context.ts";
-import { clear, h } from "../dom.ts";
+import { clear, h, uniqueId } from "../dom.ts";
 import { PAGE_SIZE, first, latest, newer, older } from "../lib/cursor.ts";
 import { newId } from "../lib/id.ts";
 import { applyPage, emptyWindow, lastOwnEditable, merge, remove, trim, type MessageWindow, type PageKind } from "../lib/messages.ts";
@@ -18,10 +18,8 @@ import { createComposer, validText } from "./room/composer.ts";
 import { createRoomHeader } from "./room/header.ts";
 import { createMessageList } from "./room/messages.ts";
 
-let uid = 0;
-
 export function createRoomView({ api, store, actions }: Ctx): View {
-  const vid = `room-${++uid}`;
+  const vid = uniqueId("room");
   const scope = createScope();
   const { signal } = scope;
   let root: HTMLElement;

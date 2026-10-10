@@ -3,9 +3,6 @@
 
 export const PAGE_SIZE = 50;
 
-/** Only what the UI renders; never user emails (§6). */
-export const MSG_FIELDS = "id,room,text,created,updated,edited_at,deleted,author,expand.author.id,expand.author.name";
-
 export interface Cursor {
   created: string;
   id: string;
@@ -47,17 +44,4 @@ export function newer(room: string, c: Cursor): PageQuery {
     params: { room, created: c.created, id: c.id },
     sort: ASC,
   };
-}
-
-export interface ListOptions {
-  filter: string;
-  sort: string;
-  skipTotal: true;
-  expand: "author";
-  fields: string;
-}
-
-/** SDK list options for a page. Pass `pb.filter.bind(pb)` so values are bound and escaped, never concatenated. */
-export function listOptions(q: PageQuery, bind: (expr: string, params: Record<string, string>) => string): ListOptions {
-  return { filter: bind(q.filter, q.params), sort: q.sort, skipTotal: true, expand: "author", fields: MSG_FIELDS };
 }

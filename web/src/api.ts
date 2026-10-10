@@ -2,7 +2,7 @@
 
 import type PocketBase from "pocketbase";
 import { ClientResponseError, type RecordModel } from "pocketbase";
-import { MSG_FIELDS, PAGE_SIZE, listOptions, type PageQuery } from "./lib/cursor.ts";
+import { PAGE_SIZE, type PageQuery } from "./lib/cursor.ts";
 import type { Message, Room, User } from "./lib/types.ts";
 
 export type Unsubscribe = () => Promise<void>;
@@ -90,6 +90,9 @@ export function errorMessage(err: unknown): string {
 
 // ---- PocketBase implementation ----
 
+/** Only what the UI renders; never user emails (§6). */
+export const MSG_FIELDS = "id,room,text,created,updated,edited_at,deleted,author,expand.author.id,expand.author.name";
+const MSG_OPTS = { expand: "author", fields: MSG_FIELDS } as const;
 const ROOM_FIELDS = "id,name,archived,created_by";
 const HIDDEN_FIELDS = "id,room";
 
@@ -119,6 +122,11 @@ async function wrap<T>(p: Promise<T>): Promise<T> {
 
 const toUser = (r: RecordModel): User => ({ id: r.id, name: r.name as string });
 
+/** SDK list options for a page of messages. `bind` is `pb.filter`: values are bound and escaped, never concatenated. */
+export function listOptions(q: PageQuery, bind: (expr: string, params: Record<string, string>) => string) {
+  return { filter: bind(q.filter, q.params), sort: q.sort, skipTotal: true, ...MSG_OPTS };
+}
+
 /** `{ signal }` when there is one (exactOptionalPropertyTypes: never pass `signal: undefined`). */
 const abortable = (signal: AbortSignal | undefined) => (signal ? { signal } : {});
 
@@ -128,12 +136,14 @@ export function createApi(pb: PocketBase): Api {
   const rooms = () => pb.collection("rooms");
   const hidden = () => pb.collection("hidden_rooms");
   const messages = () => pb.collection("messages");
+  /** Every record event of a collection, narrowed to our Action type. */
+  const subscribe = <T>(collection: string, fn: RealtimeHandler<T>, opts: Record<string, unknown>) =>
+    wrap(pb.collection(collection).subscribe<T>("*", (e) => fn(e.action as Action, e.record), opts));
   const me = () => {
     const u = api.currentUser();
     if (!u) throw new ApiError("Not logged in.", 401);
     return u.id;
   };
-  const msgOpts = { expand: "author", fields: MSG_FIELDS };
 
   const api: Api = {
     currentUser() {
@@ -170,21 +180,14 @@ export function createApi(pb: PocketBase): Api {
       const opts = { ...listOptions(q, pb.filter.bind(pb)), ...abortable(signal) };
       return (await wrap(messages().getList<Message>(1, PAGE_SIZE, opts))).items;
     },
-    getMessage: (id, signal) => wrap(messages().getOne<Message>(id, { ...msgOpts, ...abortable(signal) })),
-    send: async (m) => wrap(messages().create<Message>({ id: m.id, room: m.room, author: me(), text: m.text }, msgOpts)),
-    edit: (id, text) => wrap(messages().update<Message>(id, { text }, msgOpts)),
-    softDelete: (id) => wrap(messages().update<Message>(id, { deleted: true }, msgOpts)),
+    getMessage: (id, signal) => wrap(messages().getOne<Message>(id, { ...MSG_OPTS, ...abortable(signal) })),
+    send: async (m) => wrap(messages().create<Message>({ id: m.id, room: m.room, author: me(), text: m.text }, MSG_OPTS)),
+    edit: (id, text) => wrap(messages().update<Message>(id, { text }, MSG_OPTS)),
+    softDelete: (id) => wrap(messages().update<Message>(id, { deleted: true }, MSG_OPTS)),
 
-    subscribeMessages: (room, fn) =>
-      wrap(
-        messages().subscribe<Message>("*", (e) => fn(e.action as Action, e.record), {
-          ...msgOpts,
-          filter: pb.filter("room = {:room}", { room }),
-        }),
-      ),
-    subscribeRooms: (fn) => wrap(rooms().subscribe<Room>("*", (e) => fn(e.action as Action, e.record), { fields: ROOM_FIELDS })),
-    subscribeHidden: (fn) =>
-      wrap(hidden().subscribe<HiddenRow>("*", (e) => fn(e.action as Action, e.record), { fields: HIDDEN_FIELDS })),
+    subscribeMessages: (room, fn) => subscribe("messages", fn, { ...MSG_OPTS, filter: pb.filter("room = {:room}", { room }) }),
+    subscribeRooms: (fn) => subscribe("rooms", fn, { fields: ROOM_FIELDS }),
+    subscribeHidden: (fn) => subscribe("hidden_rooms", fn, { fields: HIDDEN_FIELDS }),
 
     onConnect(fn) {
       // PB_CONNECT only reaches listeners for connections made after they subscribe. If we are already

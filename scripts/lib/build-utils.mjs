@@ -2,6 +2,27 @@
 
 /** @typedef {{ js: number, css: number, html: number }} Sizes gzipped byte sizes */
 
+/** Where builds go: PocketBase serves this directory. */
+export const OUTDIR = "pb_public";
+
+/** Source entry points; both are bundled to assets/app.* (hashed in production). */
+export const ENTRIES = Object.freeze({ js: "web/src/main.ts", css: "web/styles/app.css" });
+
+/**
+ * esbuild options shared by `build` and `dev`; each adds its own minify/sourcemap/naming.
+ * @satisfies {import("esbuild").BuildOptions}
+ */
+export const BASE_OPTIONS = {
+  entryPoints: [
+    { in: ENTRIES.js, out: "app" },
+    { in: ENTRIES.css, out: "app" },
+  ],
+  bundle: true,
+  format: /** @type {const} */ ("esm"),
+  target: "es2022",
+  outdir: OUTDIR,
+};
+
 /** Gzipped size budget in bytes (DESIGN.md §7.7). */
 export const BUDGET = Object.freeze({ js: 25 * 1024, css: 5 * 1024, html: 1536 });
 

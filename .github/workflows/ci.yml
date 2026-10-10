@@ -38,6 +38,7 @@ jobs:
       - run: npm run test:e2e
         env:
           CI: "1"
+          E2E_SKIP_BUILD: "1" # `npm run check` above already built pb_public/
 
       - name: Upload Playwright report
         if: failure()

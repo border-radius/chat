@@ -6,7 +6,7 @@ import { instrument, newApi, signedUp } from "../support/api.ts";
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
-describe("app boot (§7.1, TODO 3.5)", () => {
+describe("app boot (§7.1)", () => {
   let root: HTMLElement;
   let app: App | undefined;
 

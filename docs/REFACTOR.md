@@ -6,7 +6,8 @@ state and lifecycle live**. Today every view repeats its own copy of them.
 
 Ordered by value ÷ effort. Each item should keep `npm run check` and e2e green, and should land on its own.
 
-**Progress:** items 1, 2, 3, 5, 6, 7, 8 and 9 are done; 4 is done except for the optional DOM-free controller; parts of 11 are done.
+**Progress:** all done except **14** (blocked, see there) and **15** (needs a new dev dependency: your call), the
+optional DOM-free room controller in 4, and `findLast` in 11 (needs es2023).
 New modules: `sync.ts`, `actions.ts`, `context.ts`, `scope.ts`, `ui/menu.ts`, `views/room/{header,messages,composer}.ts`,
 `lib/limits.ts`. Writes stay unabortable on purpose (a send in flight should still land after navigating away).
 
@@ -93,12 +94,12 @@ Every view has the same fields: `ac`, `active`, `subs: Promise<Unsubscribe>[]`, 
 - [x] `rooms.ts:22` matches the server's English string `"Value must be unique."`. Match the validation **code**
       instead (`validation_not_unique`): keep `code` on `ApiError.fields` in `toApiError`.
 
-### 10. Keep SDK details in `api.ts`
-- [ ] `lib/cursor.ts` exports `MSG_FIELDS` and `listOptions()` with `expand: "author"`. That is SDK knowledge
+### 10. Keep SDK details in `api.ts` ✅
+- [x] `lib/cursor.ts` exports `MSG_FIELDS` and `listOptions()` with `expand: "author"`. That is SDK knowledge
       leaking into a pure module, and it duplicates `msgOpts` in `api.ts`. Keep `cursor.ts` as filter + params +
       sort only, and build list options inside `api.ts`.
-- [ ] `PAGE_SIZE` is used by both the query and the "is this page full?" logic. Keep it in `lib/`, but have
-      `applyPage` take `pageSize` explicitly (easier to test with small pages).
+- [x] ~~Have `applyPage` take `pageSize` explicitly~~: not needed. `PAGE_SIZE` stays in `lib/cursor.ts`, shared by the
+      queries and the "page is full" checks, and the tests build full pages from it.
 
 ### 11. Small cleanups in `room.ts` / `messages.ts`
 - [x] `loadOlder` / `loadNewer` are near-identical. Use one `loadEdge("top" | "bottom")`.
@@ -108,22 +109,24 @@ Every view has the same fields: `ac`, `active`, `subs: Promise<Unsubscribe>[]`, 
       one helper (`byDataId(id)`).
 - [x] `editable()` is computed twice per message per render (signature + actions). Compute it once in
       `messageNode`.
-- [ ] Module-level `let uid = 0` counters in three views → one `uniqueId(prefix)` in `dom.ts`.
+- [x] Module-level `let uid = 0` counters in three views → one `uniqueId(prefix)` in `dom.ts`.
 
-### 12. Typed errors at boundaries
+### 12. Typed errors at boundaries ✅
 - [x] `app.ts:110` types the refresh error as `{ status?: number }`. `refreshAuth` already throws `ApiError`, so
       use `instanceof ApiError`.
-- [ ] `e.action as Action` appears three times in `api.ts`. Add one `subscribe<T>(collection, opts, fn)` helper.
+- [x] `e.action as Action` appears three times in `api.ts`. Add one `subscribe<T>(collection, opts, fn)` helper.
 
 ---
 
 ## P3 — Tooling
 
-### 13. Share the esbuild config between build and dev
-- [ ] `scripts/build.mjs` and `scripts/dev.mjs` both list the entry points, `format`, `target` and `bundle`.
+### 13. Share the esbuild config between build and dev ✅
+- [x] `scripts/build.mjs` and `scripts/dev.mjs` both list the entry points, `format`, `target` and `bundle`.
       Export `baseOptions` from `scripts/lib/build-utils.mjs`. `ENTRIES` is already there in spirit.
 
-### 14. Typecheck the server code
+### 14. Typecheck the server code — blocked
+- [ ] Blocked: finding out which PocketBase command writes `types.d.ts` needs running `pocketbase migrate`/`serve`
+      against a scratch dir, which this session's permission rules refused. Once allowed: generate it in `npm run setup`.
 - [ ] `pb_hooks/` and `pb_migrations/` aren't in `tsconfig.include`, and their `types.d.ts` reference points into
       the git-ignored `pb_data/`. Generate the types into a tracked or cached path (`types/pocketbase.d.ts`) in
       `npm run setup`, and add a second tsconfig project for the JSVM files (`checkJs`, no DOM lib).
@@ -132,17 +135,19 @@ Every view has the same fields: `ac`, `active`, `subs: Promise<Unsubscribe>[]`, 
 - [ ] There is no formatter or linter beyond the grep-based sink check. Add Biome (one dev dependency, fast,
       format + lint). Express the HTML-sink ban as a lint rule if practical, otherwise keep the script.
 
-### 16. Test helper duplication
-- [ ] `uniq()` and the "fresh client with in-memory auth" helper exist in both `tests/support/api.ts` and
+### 16. Test helper duplication ✅
+- [x] `uniq()` and the "fresh client with in-memory auth" helper exist in both `tests/support/api.ts` and
       `tests/integration/helpers.ts`. Move them to `tests/support/`.
-- [ ] CI builds twice: `npm run check` builds, then Playwright's `webServer` runs `npm run build` again. Use
+- [x] CI builds twice: `npm run check` builds, then Playwright's `webServer` runs `npm run build` again. Use
       `E2E_SKIP_BUILD=1` or split the webServer command.
 
-### 17. Docs ↔ code coupling
-- [ ] Code comments cite `§7.5` and `TODO 3.5`. Those section numbers break when the docs are edited, and
+### 17. Docs ↔ code coupling ✅
+- [x] Code comments cite `§7.5` and `TODO 3.5`. Done: the `TODO x.y` references are gone and the plan is archived.
+      The 89 `§` references stay: DESIGN.md now says sections are never renumbered, only appended, which keeps them
+      valid without rewriting every comment. Those section numbers break when the docs are edited, and
       `docs/TODO.md` is a finished build plan (148 items checked). Archive it as `docs/history/BUILD_PLAN.md`,
       keep DESIGN.md as the living spec, and refer to sections by name rather than by number.
-- [ ] Update DESIGN §7.2 and §7.4 after items 1–3 and 7 (`update(params)`, `sync.ts`, `actions.ts`, scopes).
+- [x] Update DESIGN §7.2 and §7.4 after items 1–3 and 7 (`update(params)`, `sync.ts`, `actions.ts`, scopes).
 
 ---
 

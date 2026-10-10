@@ -43,6 +43,13 @@ export function append(el: Node, children: Child | Child[]): void {
   }
 }
 
+let idSeq = 0;
+
+/** A document-unique id for label/aria wiring, e.g. uniqueId("room") → "room-3". */
+export function uniqueId(prefix: string): string {
+  return `${prefix}-${++idSeq}`;
+}
+
 export function clear(el: Element): void {
   el.replaceChildren();
 }

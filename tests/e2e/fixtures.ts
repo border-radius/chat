@@ -5,9 +5,9 @@ import { join } from "node:path";
 import { expect, type Browser, type Locator, type Page } from "@playwright/test";
 import { newId } from "../../web/src/lib/id.ts";
 import { E2E_BASE, E2E_DATA_DIR } from "./paths.ts";
+import { uniq } from "../support/ids.ts";
 
-let seq = 0;
-export const uniq = () => `${Date.now().toString(36)}${(seq++).toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+export { uniq } from "../support/ids.ts";
 
 export interface User {
   id: string;

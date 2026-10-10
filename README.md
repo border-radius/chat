@@ -9,7 +9,7 @@ A small, fast, real-time group chat. One [PocketBase](https://pocketbase.io) bin
 - Full history: scroll back to the very first message of any room (windowed, ≤300 messages in the DOM)
 - Optimistic sending with safe retries, reconnect gap-fill, light/dark themes, works on phones
 
-Design: [`docs/DESIGN.md`](docs/DESIGN.md) · Build plan & status: [`docs/TODO.md`](docs/TODO.md)
+Design: [`docs/DESIGN.md`](docs/DESIGN.md) · Refactoring plan: [`docs/REFACTOR.md`](docs/REFACTOR.md) · Original build plan (archived): [`docs/history/BUILD_PLAN.md`](docs/history/BUILD_PLAN.md)
 
 ## Requirements
 

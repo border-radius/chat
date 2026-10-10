@@ -1,4 +1,4 @@
-// createApi() against a real PocketBase (TODO 3.2): the behavior every view relies on.
+// createApi() against a real PocketBase (§6): the behavior every view relies on.
 
 import PocketBase, { BaseAuthStore } from "pocketbase";
 import { describe, expect, inject, it } from "vitest";
@@ -6,9 +6,8 @@ import { ApiError, createApi, type Action, type Api } from "../../web/src/api.ts
 import { PAGE_SIZE, latest, older } from "../../web/src/lib/cursor.ts";
 import { newId } from "../../web/src/lib/id.ts";
 import type { Message } from "../../web/src/lib/types.ts";
+import { uniq } from "../support/ids.ts";
 
-let seq = 0;
-const uniq = () => `${Date.now().toString(36)}${(seq++).toString(36)}${Math.random().toString(36).slice(2, 7)}`; // unique across parallel workers
 
 async function eventually(fn: () => void, ms = 2_000) {
   const deadline = Date.now() + ms;

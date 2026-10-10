@@ -3,9 +3,8 @@
 import * as esbuild from "esbuild";
 import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { injectAssets } from "./lib/build-utils.mjs";
+import { BASE_OPTIONS, OUTDIR, injectAssets } from "./lib/build-utils.mjs";
 
-const OUTDIR = "pb_public";
 const PORT = process.env.PORT ?? "8090";
 
 await mkdir(OUTDIR, { recursive: true });
@@ -27,16 +26,9 @@ const writeIndex = {
 };
 
 const ctx = await esbuild.context({
-  entryPoints: [
-    { in: "web/src/main.ts", out: "app" },
-    { in: "web/styles/app.css", out: "app" },
-  ],
-  bundle: true,
+  ...BASE_OPTIONS,
   sourcemap: "inline",
-  format: "esm",
-  target: "es2022",
   entryNames: "assets/[name]",
-  outdir: OUTDIR,
   logLevel: "info",
   plugins: [writeIndex],
 });
