@@ -7,7 +7,7 @@ const CSP = [
   "script-src 'self'",
   "style-src 'self'",
   "connect-src 'self'",
-  "img-src 'self' data:",
+  "img-src 'self' data: blob:",
   "base-uri 'none'",
   "form-action 'self'",
   "frame-ancestors 'none'",
@@ -90,24 +90,42 @@ function setRoomKey(app, rec) {
 }
 
 /**
+ * The message's room, which must be active (not archived). Null when no room is set.
  * @param {core.App} app
  * @param {string} roomId
  */
-function assertRoomActive(app, roomId) {
-  if (!roomId) return; // the relation's own `required` validation reports this
+function activeRoom(app, roomId) {
+  if (!roomId) return null; // the relation's own `required` validation reports this
   const room = app.findRecordById("rooms", roomId);
   if (room.getBool("archived")) throw fieldError("room", "This room is archived and read-only.");
+  return room;
 }
 
-/** @param {core.Record} record */
-function assertText(record) {
+/** @param {core.Record} room */
+const isDm = (room) => room.getString("kind") === "dm";
+
+/**
+ * Trimmed text that isn't blank, unless `blankOk` (a message with attachments may have no text, §17.1).
+ * @param {core.Record} record
+ * @param {boolean} [blankOk]
+ */
+function assertText(record, blankOk = false) {
   trim(record, "text");
-  if (isBlank(record.getString("text"))) throw fieldError("text", "Cannot be blank.");
+  const text = record.getString("text");
+  if (!isBlank(text)) return;
+  if (!blankOk) throw fieldError("text", "Cannot be blank.");
+  record.set("text", ""); // e.g. only zero-width characters next to an attachment
 }
 
 /**
+ * Attachment names: those already stored plus those uploaded with this request.
+ * @param {core.Record} record
+ */
+const fileNames = (record) => [...record.getStringSlice("files"), ...record.getUnsavedFiles("files").map((f) => (f ? f.name : ""))];
+
+/**
  * The event's record. PocketBase always sets it in record hooks; the generated types mark it optional (a Go pointer).
- * @param {core.RecordEvent} e
+ * @param {{ record?: core.Record | undefined }} e
  */
 function recordOf(e) {
   if (!e.record) throw new Error("record hook called without a record");
@@ -120,8 +138,31 @@ function recordOf(e) {
  */
 function beforeMessageCreate(e) {
   const rec = recordOf(e);
-  assertText(rec);
-  assertRoomActive(e.app, rec.getString("room"));
+  assertText(rec, fileNames(rec).length > 0);
+  const room = activeRoom(e.app, rec.getString("room"));
+  // Defense in depth for the members-only create rule (§16.3).
+  if (room && isDm(room) && !room.getStringSlice("members").includes(rec.getString("author"))) {
+    throw fieldError("room", "You are not a member of this conversation.");
+  }
+}
+
+/**
+ * messages, after a create is committed: a DM records its latest activity (sorts the DM list) and reopens
+ * itself for members who had closed it (§16.4).
+ * @param {core.RecordEvent} e
+ */
+function afterMessageCreate(e) {
+  const rec = recordOf(e);
+  const room = e.app.findRecordById("rooms", rec.getString("room"));
+  if (!isDm(room)) return;
+  room.set("last_message_at", rec.get("created"));
+  e.app.save(room);
+  const author = rec.getString("author");
+  for (const member of room.getStringSlice("members")) {
+    if (member === author) continue;
+    const rows = e.app.findRecordsByFilter("hidden_rooms", "user = {:user} && room = {:room}", "", 1, 0, { user: member, room: room.id });
+    for (const row of rows) if (row) e.app.delete(row);
+  }
 }
 
 /**
@@ -131,7 +172,7 @@ function beforeMessageCreate(e) {
 function beforeMessageUpdate(e) {
   const rec = recordOf(e);
   const orig = rec.original();
-  assertRoomActive(e.app, orig.getString("room"));
+  activeRoom(e.app, orig.getString("room"));
 
   if (orig.getBool("deleted")) {
     // Deletion is final; API rules already refuse this, so this only guards superuser edits.
@@ -140,23 +181,80 @@ function beforeMessageUpdate(e) {
 
   if (rec.getBool("deleted")) {
     rec.set("text", "");
+    rec.set("files", []); // PocketBase deletes the stored files once the update commits (§17.1)
     rec.set("deleted_at", new DateTime());
     rec.set("edited_at", orig.get("edited_at"));
     return;
   }
 
-  assertText(rec);
+  // Attachments are immutable after sending (backs up the update rule, which field modifiers could get around).
+  const files = fileNames(rec);
+  if (files.join("/") !== orig.getStringSlice("files").join("/")) throw fieldError("files", "Attachments can't be changed.");
+  assertText(rec, files.length > 0);
   if (rec.getString("text") !== orig.getString("text")) {
     rec.set("edited_at", new DateTime());
   }
 }
 
 /**
- * rooms create: clean the name and check it is unique (§5.2).
+ * A public room needs a (unique) name; a DM has none (its title is the other member's name, §16.1).
+ * @param {core.App} app
+ * @param {core.Record} rec
+ */
+function setRoomName(app, rec) {
+  if (isDm(rec)) {
+    rec.set("name", "");
+    rec.set("name_key", "");
+    return;
+  }
+  setRoomKey(app, rec);
+  if (rec.getString("name") === "") throw fieldError("name", "Cannot be blank.", "validation_required");
+}
+
+/**
+ * rooms create: public unless said otherwise; clean the name and check it is unique (§5.2, §16.1).
  * @param {core.RecordEvent} e
  */
 function beforeRoomCreate(e) {
-  setRoomKey(e.app, recordOf(e));
+  const rec = recordOf(e);
+  if (!rec.getString("kind")) rec.set("kind", "public");
+  setRoomName(e.app, rec);
+}
+
+/** Fields only the DM route and hooks may set (§16.3). */
+const DM_FIELDS = ["kind", "members", "dm_key", "last_message_at"];
+
+/**
+ * A DM field's value, comparable with ===.
+ * @param {core.Record} rec
+ * @param {string} field
+ */
+const dmValue = (rec, field) => (field === "members" ? rec.getStringSlice(field).join(",") : rec.getString(field));
+
+/**
+ * rooms create through the API: only public rooms (DMs come from POST /api/chat/dms). Backs up the create rule,
+ * including against field modifiers such as `members+`.
+ * @param {core.RecordRequestEvent} e
+ */
+function beforeRoomCreateRequest(e) {
+  const rec = recordOf(e);
+  const kind = rec.getString("kind");
+  if (kind && kind !== "public") throw fieldError("kind", "Rooms created here are public.");
+  for (const f of DM_FIELDS.slice(1)) {
+    if (dmValue(rec, f) !== "") throw fieldError(f, "This field can't be set.");
+  }
+}
+
+/**
+ * rooms update through the API: the DM fields never change (backs up the update rule, §16.3).
+ * @param {core.RecordRequestEvent} e
+ */
+function beforeRoomUpdateRequest(e) {
+  const rec = recordOf(e);
+  const orig = rec.original();
+  for (const f of DM_FIELDS) {
+    if (dmValue(rec, f) !== dmValue(orig, f)) throw fieldError(f, "This field can't be changed.");
+  }
 }
 
 /**
@@ -173,7 +271,8 @@ function beforeUserSave(e) {
  */
 function beforeRoomUpdate(e) {
   const rec = recordOf(e);
-  setRoomKey(e.app, rec);
+  setRoomName(e.app, rec);
+  if (isDm(rec)) return;
   const was = rec.original().getBool("archived");
   const now = rec.getBool("archived");
   if (!was && now) rec.set("archived_at", new DateTime());
@@ -198,4 +297,14 @@ function headers(e) {
   }
 }
 
-module.exports = { beforeUserSave, beforeRoomCreate, beforeMessageCreate, beforeMessageUpdate, beforeRoomUpdate, headers };
+module.exports = {
+  beforeUserSave,
+  beforeRoomCreate,
+  beforeRoomCreateRequest,
+  beforeRoomUpdate,
+  beforeRoomUpdateRequest,
+  beforeMessageCreate,
+  afterMessageCreate,
+  beforeMessageUpdate,
+  headers,
+};

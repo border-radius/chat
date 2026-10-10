@@ -1,17 +1,21 @@
-// Room list (§7.1): Rooms / Hidden / Archived sections, new-room form, per-room actions.
+// Room list (§7.1, §16.5): Rooms / Direct messages / Hidden / Archived sections, new-room form, user search,
+// per-room actions.
 // The data comes from the store, kept live by sync.ts; this view only renders it and issues commands.
 
 import { ApiError, errorMessage } from "../api.ts";
 import type { Ctx } from "../context.ts";
 import { clear, h, uniqueId } from "../dom.ts";
 import { LIMITS, textLength } from "../lib/limits.ts";
-import type { Room } from "../lib/types.ts";
+import { otherMember, roomTitle } from "../lib/rooms.ts";
+import type { Room, User } from "../lib/types.ts";
 import type { View } from "../router.ts";
 import { createScope, type Scope } from "../scope.ts";
 import { roomSections } from "../store.ts";
+import { avatar } from "../ui/avatar.ts";
 import { type ActionMenu, createActionMenu, type MenuItem } from "../ui/menu.ts";
+import { createUserSearch, type UserSearch } from "../ui/user-search.ts";
 
-type Section = "rooms" | "hidden" | "archived";
+type Section = "rooms" | "dms" | "hidden" | "archived";
 
 function nameError(err: unknown): string {
   if (err instanceof ApiError && err.codes.name === "validation_not_unique") return "A room with this name already exists.";
@@ -19,7 +23,7 @@ function nameError(err: unknown): string {
   return errorMessage(err);
 }
 
-export function createRoomsView({ store, sync, actions, navigate }: Ctx): View {
+export function createRoomsView({ api, store, sync, actions, navigate }: Ctx): View {
   const id = uniqueId("rooms");
   let root: HTMLElement;
   let scope: Scope;
@@ -30,6 +34,8 @@ export function createRoomsView({ store, sync, actions, navigate }: Ctx): View {
   const menus = new Map<string, ActionMenu>();
   /** The last failed action, shown until the next action or a successful one. */
   let actionError = "";
+  /** The "New message" user search, while open (kept across renders, so typing and focus survive). */
+  let search: UserSearch | null = null;
 
   const alert = h("p", { role: "alert", class: "list-error" });
   const nav = h("nav", { "aria-label": "Rooms" });
@@ -47,12 +53,45 @@ export function createRoomsView({ store, sync, actions, navigate }: Ctx): View {
     }
   }
 
+  const title = (r: Room) => roomTitle(r, store.get().user);
+
   async function act(label: string, room: Room, fn: () => Promise<void>) {
     try {
       await fn();
       actionError = "";
     } catch {
-      actionError = `Couldn't ${label} “${room.name}”. Check your connection and try again.`;
+      actionError = `Couldn't ${label} “${room.kind === "dm" ? title(room) : room.name}”. Check your connection and try again.`;
+    }
+    if (scope.active) renderAlert();
+  }
+
+  function toggleSearch(open: boolean) {
+    if (open === !!search) return;
+    search = open
+      ? createUserSearch({
+          search: (q, signal) => api.searchUsers(q, signal),
+          avatarUrl: api.avatarUrl,
+          onPick: (u) => void message(u),
+          onClose: () => {
+            toggleSearch(false);
+            nav.querySelector<HTMLElement>("button.new-dm")?.focus();
+          },
+          signal: scope.signal,
+        })
+      : null;
+    render();
+    search?.focus();
+  }
+
+  async function message(user: User) {
+    try {
+      const room = await actions.openDm(user.id);
+      actionError = "";
+      if (!scope.active) return;
+      toggleSearch(false);
+      navigate(`#/r/${room.id}`);
+    } catch {
+      actionError = `Couldn't open the conversation with “${user.name}”. Check your connection and try again.`;
     }
     if (scope.active) renderAlert();
   }
@@ -66,6 +105,7 @@ export function createRoomsView({ store, sync, actions, navigate }: Ctx): View {
   function menuItems(r: Room, section: Section): MenuItem[] {
     const mine = r.created_by === store.get().user?.id;
     const items: MenuItem[] = [];
+    if (section === "dms") return [{ label: "Close conversation", run: () => void act("close", r, () => actions.hide(r.id)) }];
     if (section === "rooms") items.push({ label: "Hide", run: () => void hide(r) });
     // An archived room you had hidden is listed under Archived; it can still be unhidden from there.
     if (section === "hidden" || (section === "archived" && store.get().hidden.has(r.id)))
@@ -83,11 +123,12 @@ export function createRoomsView({ store, sync, actions, navigate }: Ctx): View {
 
   function rowMenu(r: Room, items: MenuItem[], live: Set<string>): HTMLElement | null {
     if (!items.length) return null;
-    const key = `${r.id}|${r.name}`;
+    const name = r.kind === "dm" ? title(r) : r.name;
+    const key = `${r.id}|${name}`;
     live.add(key);
     let menu = menus.get(key);
     if (!menu) {
-      menu = createActionMenu({ label: `Actions for ${r.name}`, signal: scope.signal });
+      menu = createActionMenu({ label: `Actions for ${name}`, signal: scope.signal });
       menus.set(key, menu);
     }
     menu.update(items);
@@ -96,8 +137,10 @@ export function createRoomsView({ store, sync, actions, navigate }: Ctx): View {
 
   function roomRow(r: Room, section: Section, live: Set<string>): HTMLElement {
     const current = store.get().activeRoomId === r.id;
-    return h("li", { dataset: { roomId: r.id } }, [
-      h("a", { href: `#/r/${r.id}`, "aria-current": current ? "page" : null }, r.name),
+    const other = r.kind === "dm" ? otherMember(r, store.get().user) : undefined;
+    const label = other ? [avatar(other, 24, api.avatarUrl), h("span", {}, other.name)] : r.kind === "dm" ? title(r) : r.name;
+    return h("li", { class: r.kind === "dm" ? "dm" : "", dataset: { roomId: r.id } }, [
+      h("a", { href: `#/r/${r.id}`, "aria-current": current ? "page" : null }, label),
       rowMenu(r, menuItems(r, section), live),
     ]);
   }
@@ -126,7 +169,7 @@ export function createRoomsView({ store, sync, actions, navigate }: Ctx): View {
   function render() {
     if (!scope.active) return;
     const s = store.get();
-    const { rooms, hidden, archived } = roomSections(s);
+    const { rooms, dms, hidden, archived } = roomSections(s);
     const loading = s.roomsStatus === "idle" || s.roomsStatus === "loading";
     const live = new Set<string>();
     // Rows are rebuilt; the focused control (a menu button, which is kept) gets its focus back below.
@@ -144,7 +187,31 @@ export function createRoomsView({ store, sync, actions, navigate }: Ctx): View {
           ? h("p", { class: "empty" }, "No rooms yet. Create the first one.")
           : null,
     ]);
-    nav.replaceChildren(main, collapsible("hidden", "Hidden", hidden, live), collapsible("archived", "Archived", archived, live));
+    const newDm = h(
+      "button",
+      {
+        type: "button",
+        class: "new-dm",
+        "aria-label": "New message",
+        "aria-expanded": String(!!search),
+        title: "New message",
+        on: { click: () => toggleSearch(!search) },
+        signal: scope.signal,
+      },
+      "+",
+    );
+    const direct = h("div", { class: "room-section", dataset: { section: "dms" } }, [
+      h("div", { class: "section-head" }, [h("h2", {}, "Direct messages"), newDm]),
+      search?.el,
+      dms.length
+        ? h(
+            "ul",
+            {},
+            dms.map((r) => roomRow(r, "dms", live)),
+          )
+        : null,
+    ]);
+    nav.replaceChildren(main, direct, collapsible("hidden", "Hidden", hidden, live), collapsible("archived", "Archived", archived, live));
     if (focused?.isConnected && document.activeElement !== focused) focused.focus();
     for (const key of menus.keys()) if (!live.has(key)) menus.delete(key);
   }
@@ -205,6 +272,7 @@ export function createRoomsView({ store, sync, actions, navigate }: Ctx): View {
       root = el;
       scope = createScope();
       menus.clear();
+      search = null;
       shell.replaceChildren(newRoomForm(), alert, nav);
       clear(root);
       root.append(shell);

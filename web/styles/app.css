@@ -183,11 +183,19 @@ body,
 }
 
 /* A long display name shrinks with an ellipsis so "Log out" stays on screen. */
-.who {
+.me-link {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
   min-width: 0;
   margin-left: auto;
-  overflow: hidden;
   color: var(--muted);
+  text-decoration: none;
+}
+
+.who {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -217,6 +225,142 @@ body,
 .pane {
   flex: 1;
   min-width: 0;
+}
+
+/* ---- Avatars (§15.4) ---- */
+
+.avatar {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  object-fit: cover;
+  overflow: hidden;
+  font-weight: 600;
+  line-height: 1;
+  color: #fff;
+  user-select: none;
+}
+
+.avatar.s24 {
+  width: 24px;
+  height: 24px;
+  font-size: 0.6rem;
+}
+
+.avatar.s32 {
+  width: 32px;
+  height: 32px;
+  font-size: 0.75rem;
+}
+
+.avatar.s96 {
+  width: 96px;
+  height: 96px;
+  font-size: 2rem;
+}
+
+/* White text on every color: ≥ 4.5:1 in both themes. */
+.avatar.c0 {
+  background: #b3261e;
+}
+.avatar.c1 {
+  background: #9a4a00;
+}
+.avatar.c2 {
+  background: #6b5e00;
+}
+.avatar.c3 {
+  background: #2e7031;
+}
+.avatar.c4 {
+  background: #00695c;
+}
+.avatar.c5 {
+  background: #1a5fb4;
+}
+.avatar.c6 {
+  background: #6a3d9a;
+}
+.avatar.c7 {
+  background: #a3195b;
+}
+
+/* ---- Profile (§15.5) ---- */
+
+.profile-body {
+  max-width: 30rem;
+  padding: 1rem;
+}
+
+.profile-body h2 {
+  margin: 0.5rem 0;
+  font-size: 1rem;
+}
+
+.profile-avatar {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.profile-picture.busy {
+  opacity: 0.6;
+}
+
+.profile-avatar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+label.button {
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+label.button:focus-within,
+.profile-avatar-actions input:focus-visible + label.button {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+label.button.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.profile-name {
+  margin-top: 1.5rem;
+}
+
+.profile-name label {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-weight: 500;
+}
+
+.profile-name .row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.profile-name input {
+  flex: 1;
+  min-width: 0;
+}
+
+.field-status {
+  margin: 0.25rem 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.field-status.error {
+  color: var(--danger);
 }
 
 /* ---- Login ---- */
@@ -349,6 +493,60 @@ body,
   color: var(--muted);
 }
 
+/* DM rows (§16.5): avatar + name, no "#". */
+.room-section li.dm a {
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.room-section li.dm a::before {
+  content: none;
+}
+
+.room-section li.dm a span:not(.avatar) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.new-dm {
+  margin-top: 0.75rem;
+  padding: 0 0.5rem;
+  line-height: 1.4;
+}
+
+.user-search {
+  margin: 0.25rem 0 0.5rem;
+}
+
+.search-status {
+  margin: 0.25rem 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.search-results {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.search-results button.person {
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
+  width: 100%;
+  border: 0;
+  background: none;
+  text-align: left;
+}
+
 .room-section li a[aria-current="page"] {
   font-weight: 600;
 }
@@ -437,6 +635,12 @@ body,
   white-space: nowrap;
 }
 
+.room-header h1.dm-title {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
 .room-header .room-error {
   flex-basis: 100%;
 }
@@ -491,10 +695,21 @@ body,
   border-top: 1px solid var(--border);
 }
 
+/* Room on the left for the author's avatar, which only group starts show (§15.4). */
 .msg {
   position: relative;
-  padding: 0.1rem 0.5rem;
+  padding: 0.1rem 0.5rem 0.1rem calc(0.5rem + 32px + 0.6rem);
   border-radius: var(--radius);
+}
+
+.msg > .avatar {
+  position: absolute;
+  top: 0.2rem;
+  left: 0.5rem;
+}
+
+.msg.group-start {
+  min-height: calc(32px + 0.3rem);
 }
 
 @media (hover: hover) {
@@ -526,6 +741,24 @@ body,
   flex: none;
 }
 
+/* Another author's name opens a menu with "Message" (§16.5). */
+.author-menu > summary.author {
+  padding: 0;
+  color: inherit;
+}
+
+.author-menu > summary.author:hover,
+.author-menu[open] > summary.author {
+  background: none;
+  text-decoration: underline;
+}
+
+.author-menu .menu-items {
+  right: auto;
+  left: 0;
+  min-width: 8rem;
+}
+
 .meta time,
 .edited,
 .hint,
@@ -551,6 +784,94 @@ body,
 .placeholder {
   font-style: italic;
   color: var(--muted);
+}
+
+/* ---- Attachments in messages (§17.5): fixed sizes, so loading images never moves the list. ---- */
+
+.attachments {
+  margin: 0.3rem 0 0.15rem;
+}
+
+.att-images {
+  display: grid;
+  gap: 4px;
+}
+
+.att-images.one {
+  grid-template-columns: 240px;
+}
+
+.att-images.grid {
+  grid-template-columns: repeat(2, 120px);
+}
+
+.att-tile {
+  display: block;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.att-images.one .att-tile {
+  width: 240px;
+  height: 180px;
+}
+
+.att-images.grid .att-tile {
+  width: 120px;
+  height: 90px;
+}
+
+.att-tile img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.att-broken {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem;
+  border: 1px dashed var(--border);
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.att-broken button {
+  padding: 0.1rem 0.5rem;
+  font-size: 0.8rem;
+}
+
+.att-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.3rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.att-file {
+  display: inline-block;
+  max-width: 18rem;
+  padding: 0.3rem 0.6rem;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: 0.85rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+a.att-file::before,
+span.att-file::before {
+  content: "📄 ";
 }
 
 .msg.pending {
@@ -659,10 +980,76 @@ body,
 }
 
 .composer {
+  padding: 0.6rem 1rem calc(0.6rem + env(safe-area-inset-bottom));
+}
+
+.composer-row {
   display: flex;
   gap: 0.5rem;
   align-items: flex-end;
-  padding: 0.6rem 1rem calc(0.6rem + env(safe-area-inset-bottom));
+}
+
+.composer .attach {
+  flex: none;
+  padding: 0.35rem 0.6rem;
+  font-weight: 600;
+}
+
+/* ---- Attachment tray (§17.4) ---- */
+
+.tray {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0 0 0.5rem;
+  padding: 0;
+  list-style: none;
+}
+
+.tray-item {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  max-width: 16rem;
+  padding: 0.25rem 0.25rem 0.25rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: 0.85rem;
+}
+
+.tray-thumb {
+  flex: none;
+  border-radius: 4px;
+  object-fit: cover;
+}
+
+.tray-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tray-size {
+  flex: none;
+  color: var(--muted);
+}
+
+.tray-item .remove {
+  flex: none;
+  padding: 0 0.4rem;
+  border: 0;
+}
+
+.tray-error {
+  margin: 0 0 0.4rem;
+  color: var(--danger);
+  font-size: 0.85rem;
+}
+
+.tray-error:empty {
+  display: none;
 }
 
 .composer textarea {

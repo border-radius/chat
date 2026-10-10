@@ -3,13 +3,15 @@
 
 import type { Api } from "./api.ts";
 import type { Room } from "./lib/types.ts";
-import { type AppState, markHidden, type Store, unmarkHidden, upsertRoom } from "./store.ts";
+import { type AppState, markHidden, type Store, unmarkHidden, unmarkHiddenRoom, upsertRoom } from "./store.ts";
 
 export interface RoomActions {
   create(name: string): Promise<Room>;
   hide(roomId: string): Promise<void>;
   unhide(roomId: string): Promise<void>;
   setArchived(roomId: string, archived: boolean): Promise<void>;
+  /** Open (or reopen) the DM with `userId` (§16.2). Resolves to the room, now in the store. */
+  openDm(userId: string): Promise<Room>;
 }
 
 export function createRoomActions({ api, store }: { api: Api; store: Store<AppState> }): RoomActions {
@@ -31,6 +33,12 @@ export function createRoomActions({ api, store }: { api: Api; store: Store<AppSt
     },
     async setArchived(roomId, archived) {
       store.set(upsertRoom(await api.setArchived(roomId, archived)));
+    },
+    async openDm(userId) {
+      const room = await api.openDm(userId);
+      store.set(upsertRoom(room));
+      store.set(unmarkHiddenRoom(room.id));
+      return room;
     },
   };
 }

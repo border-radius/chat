@@ -31,9 +31,11 @@ describe("listOptions", () => {
       "updated",
       "edited_at",
       "deleted",
+      "files",
       "author",
       "expand.author.id",
       "expand.author.name",
+      "expand.author.avatar",
     ]);
     expect(MSG_FIELDS).not.toContain("email");
   });

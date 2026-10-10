@@ -7,10 +7,12 @@ import type { Ctx } from "../context.ts";
 import { clear, h, uniqueId } from "../dom.ts";
 import { changedIn, first, latest, newer, older, PAGE_SIZE } from "../lib/cursor.ts";
 import { newId } from "../lib/id.ts";
+import { LIMITS, textLength } from "../lib/limits.ts";
 import { applyPage, emptyWindow, lastOwnEditable, type MessageWindow, merge, type PageKind, remove, trim } from "../lib/messages.ts";
+import { isDm, otherMember, roomTitle } from "../lib/rooms.ts";
 import { isNearBottom } from "../lib/scroll.ts";
 import { parsePb, toPb } from "../lib/time.ts";
-import type { Message, Room } from "../lib/types.ts";
+import type { LocalFile, Message, Room, User } from "../lib/types.ts";
 import type { View } from "../router.ts";
 import { createScope } from "../scope.ts";
 import { upsertRoom } from "../store.ts";
@@ -18,7 +20,7 @@ import { createComposer, validText } from "./room/composer.ts";
 import { createRoomHeader } from "./room/header.ts";
 import { createMessageList } from "./room/messages.ts";
 
-export function createRoomView({ api, store, actions }: Ctx): View {
+export function createRoomView({ api, store, actions, navigate }: Ctx): View {
   const vid = uniqueId("room");
   const scope = createScope();
   const { signal } = scope;
@@ -54,9 +56,22 @@ export function createRoomView({ api, store, actions }: Ctx): View {
 
   // ---------------------------------------------------------------- parts
 
-  const header = createRoomHeader({ titleId: `${vid}-title`, actions, onJumpToBeginning: () => void jump("first"), signal });
+  const header = createRoomHeader({
+    titleId: `${vid}-title`,
+    actions,
+    avatarUrl: api.avatarUrl,
+    onJumpToBeginning: () => void jump("first"),
+    onClosed: () => navigate("#/"),
+    signal,
+  });
+  /** "Beginning of #general" / "Beginning of your conversation with Bob". */
+  const beginningLabel = () => {
+    const r = room();
+    if (!r) return "Beginning of the room";
+    return isDm(r) ? `Beginning of your conversation with ${otherMember(r, me())?.name ?? "Unknown"}` : `Beginning of #${r.name}`;
+  };
   const messages = createMessageList({
-    state: () => ({ win, ready, failed, roomName: room()?.name, targetId }),
+    state: () => ({ win, ready, failed, beginning: beginningLabel(), targetId }),
     me,
     editable,
     onRetryLoad: () => retryLoad(),
@@ -65,18 +80,23 @@ export function createRoomView({ api, store, actions }: Ctx): View {
     onDelete: (id) => void doDelete(id),
     onRetrySend: (id) => void retrySend(id),
     onDiscard: (id) => {
+      revokeLocal(find(id));
       win = remove(win, id);
       render();
     },
+    fileUrl: api.fileUrl,
+    refreshFileToken: () => api.fileToken(true),
+    avatarUrl: api.avatarUrl,
+    onMessageUser: (userId) => void messageUser(userId),
     signal,
   });
   const composer = createComposer({
     id: `${vid}-text`,
-    onSend: (text) => {
+    onSend: (text, files) => {
       const user = me();
       const r = room();
       if (!user || !r || r.archived) return false;
-      void send(text, user);
+      void send(text, user, files);
       return true;
     },
     onEditLast: () => {
@@ -100,6 +120,11 @@ export function createRoomView({ api, store, actions }: Ctx): View {
   ]);
 
   const render = messages.render;
+
+  /** Release a local message's preview URLs (sent, discarded, or the view is going away). */
+  function revokeLocal(m: Message | undefined) {
+    for (const f of m?.localFiles ?? []) if (f.url) URL.revokeObjectURL(f.url);
+  }
   const scrollToBottom = () => (list.scrollTop = list.scrollHeight);
 
   function setPill(mode: typeof pillMode) {
@@ -109,8 +134,17 @@ export function createRoomView({ api, store, actions }: Ctx): View {
   }
 
   function renderHeader() {
-    const r = room();
-    header.update({ room: r, hidden: store.get().hidden.has(roomId), mine: !!r && r.created_by === me()?.id });
+    header.update({ room: room(), hidden: store.get().hidden.has(roomId), me: me() });
+  }
+
+  /** "Message" on an author: open the DM with them (§16.5). */
+  async function messageUser(userId: string) {
+    try {
+      const dm = await actions.openDm(userId);
+      if (scope.active) navigate(`#/r/${dm.id}`);
+    } catch {
+      if (scope.active) notice.textContent = "Couldn't open that conversation. Check your connection and try again.";
+    }
   }
 
   function renderFooter() {
@@ -120,7 +154,7 @@ export function createRoomView({ api, store, actions }: Ctx): View {
     if (!r || failed) return footer.replaceChildren();
     if (r.archived) footer.replaceChildren(banner);
     else if (footer.firstChild !== composer.el) footer.replaceChildren(composer.el);
-    composer.setPlaceholder(`Message #${r.name}`);
+    composer.setPlaceholder(`Message ${roomTitle(r, me())}`);
   }
 
   function renderNotFound() {
@@ -187,6 +221,8 @@ export function createRoomView({ api, store, actions }: Ctx): View {
   async function open(msgId: string | undefined) {
     const g = ++gen;
     const roomP = api.getRoom(roomId, signal).then((r) => store.set(upsertRoom(r)));
+    // Attachment URLs need a file token: have one before the first render, so images don't fail first.
+    const tokenP = api.fileToken().catch(() => "");
     // Loaders only return a window; it is committed below, and only if nothing (a jump) replaced it meanwhile.
     const pageP = (async () => {
       const around = msgId ? await windowAround(msgId) : null;
@@ -202,6 +238,7 @@ export function createRoomView({ api, store, actions }: Ctx): View {
       return;
     }
     const loaded = await pageP.catch(() => null);
+    await tokenP;
     if (!scope.active) return;
     const current = g === gen;
     // Never show a failed load as an empty room ("Beginning of #room"): say so and offer Retry.
@@ -321,7 +358,7 @@ export function createRoomView({ api, store, actions }: Ctx): View {
 
   // ---------------------------------------------------------------- sending
 
-  async function send(text: string, user: { id: string; name: string }) {
+  async function send(text: string, user: User, files: LocalFile[] = []) {
     if (win.hasNewer) await jump("latest");
     const last = win.items.at(-1);
     const created = toPb(Math.max(Date.now(), last ? parsePb(last.created) + 1 : 0));
@@ -334,8 +371,9 @@ export function createRoomView({ api, store, actions }: Ctx): View {
       updated: created,
       edited_at: "",
       deleted: false,
-      expand: { author: { id: user.id, name: user.name } },
+      expand: { author: { id: user.id, name: user.name, avatar: user.avatar ?? "" } },
       status: "pending",
+      ...(files.length ? { localFiles: files } : {}),
     };
     win = trim(merge(win, [msg]), "top").win;
     setPill(null);
@@ -346,15 +384,21 @@ export function createRoomView({ api, store, actions }: Ctx): View {
 
   async function deliver(msg: Message) {
     try {
-      const saved = await api.send({ id: msg.id, room: msg.room, text: msg.text });
+      const files = msg.localFiles?.map((f) => f.file);
+      const saved = await api.send({ id: msg.id, room: msg.room, text: msg.text, ...(files?.length ? { files } : {}) });
       if (!scope.active) return;
       win = merge(win, [saved]);
+      render();
+      revokeLocal(msg);
+      return;
     } catch (e) {
       if (!scope.active) return;
       // A retry of a send that already reached the server fails with a duplicate id: it was sent after all.
       const recovered = e instanceof ApiError && e.status === 400 ? await api.getMessage(msg.id, signal).catch(() => null) : null;
-      if (recovered && recovered.author === me()?.id) win = merge(win, [recovered]);
-      else if (find(msg.id)?.status) win = merge(win, [{ ...msg, status: "failed" }]);
+      if (recovered && recovered.author === me()?.id) {
+        win = merge(win, [recovered]);
+        revokeLocal(msg);
+      } else if (find(msg.id)?.status) win = merge(win, [{ ...msg, status: "failed" }]);
     }
     render();
   }
@@ -371,7 +415,8 @@ export function createRoomView({ api, store, actions }: Ctx): View {
 
   async function saveEdit(id: string, raw: string) {
     const m = find(id);
-    const text = validText(raw);
+    // Text may be emptied next to attachments (§17.1).
+    const text = m?.files?.length ? (textLength(raw.trim()) <= LIMITS.messageText ? raw.trim() : null) : validText(raw);
     if (!m || text === null) return; // the edit box says what is wrong (messages.ts)
     messages.stopEdit();
     if (!editable(m)) {
@@ -438,6 +483,24 @@ export function createRoomView({ api, store, actions }: Ctx): View {
         { signal },
       );
       list.addEventListener("scroll", () => pillMode === "below" && isNearBottom(list) && setPill(null), { signal });
+      // Files dropped anywhere on the room go to the composer (§17.4).
+      const hasFiles = (e: DragEvent) => !!e.dataTransfer?.types.includes("Files");
+      shell.addEventListener("dragover", (e) => hasFiles(e) && footer.contains(composer.el) && e.preventDefault(), { signal });
+      shell.addEventListener(
+        "drop",
+        (e) => {
+          if (!hasFiles(e) || !footer.contains(composer.el)) return;
+          e.preventDefault();
+          void composer.addFiles([...(e.dataTransfer?.files ?? [])]);
+        },
+        { signal },
+      );
+      // Keep a fresh file token for attachment URLs (§17.3); it only fetches when the cached one is old.
+      const keepToken = setInterval(() => void api.fileToken().catch(() => {}), 30_000);
+      scope.defer(() => clearInterval(keepToken));
+      scope.defer(() => {
+        for (const m of win.items) revokeLocal(m);
+      });
 
       const observer = new IntersectionObserver(
         (entries) => {

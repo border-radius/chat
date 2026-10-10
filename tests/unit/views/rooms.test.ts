@@ -7,7 +7,7 @@ import { type AppState, createStore, initialState, type Store } from "../../../w
 import { createRoomsView } from "../../../web/src/views/rooms.ts";
 import { instrument, type SignedUp, signedUp, uniq, viewContext } from "../../support/api.ts";
 
-type Section = "rooms" | "hidden" | "archived";
+type Section = "rooms" | "dms" | "hidden" | "archived";
 
 describe("rooms view (§7.1)", () => {
   let root: HTMLElement;
@@ -41,7 +41,9 @@ describe("rooms view (§7.1)", () => {
   const sectionOf = (room: Room): Section | null =>
     (row(room)?.closest<HTMLElement>("[data-section]")?.dataset.section as Section | undefined) ?? null;
   const section = (s: Section) => root.querySelector<HTMLElement>(`[data-section="${s}"]`)!;
-  const names = (s: Section) => [...section(s).querySelectorAll("[data-room-id] a")].map((a) => a.textContent);
+  /** Row titles (a DM row's link also holds the avatar; take the name). */
+  const names = (s: Section) =>
+    [...section(s).querySelectorAll("[data-room-id] a")].map((a) => a.querySelector("span:not(.avatar)")?.textContent ?? a.textContent);
   const button = (scope: Element, label: string) =>
     [...scope.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === label) ?? null;
   const menu = (room: Room) => row(room)!.querySelector<HTMLDetailsElement>("details")!;
@@ -326,6 +328,107 @@ describe("rooms view (§7.1)", () => {
       expect(root.childNodes).toHaveLength(0);
       expect(ctl.calls("listRooms")).toBe(1);
       expect(ctl.calls("subscribeRooms")).toBe(1);
+    });
+  });
+
+  describe("direct messages (§16.5)", () => {
+    const newDmButton = () => root.querySelector<HTMLButtonElement>("button.new-dm")!;
+    const searchInput = () => root.querySelector<HTMLInputElement>(".user-search input");
+    const results = () => [...root.querySelectorAll<HTMLButtonElement>(".user-search button.person")];
+    const searchFor = (q: string) => {
+      searchInput()!.value = q;
+      searchInput()!.dispatchEvent(new Event("input"));
+    };
+
+    it("lists open DMs by activity, titled after the other person with their avatar; no # prefix", async () => {
+      const bob = await signedUp(`Bob ${uniq()}`);
+      const cat = await signedUp(`Cat ${uniq()}`);
+      const withBob = await me.api.openDm(bob.user.id);
+      const withCat = await me.api.openDm(cat.user.id);
+      await bob.api.send({ id: newId(), room: withBob.id, text: "latest" });
+      await mount();
+      await vi.waitFor(() => expect(names("dms")).toEqual([bob.user.name, cat.user.name]));
+      expect(row(withBob)!.classList.contains("dm")).toBe(true);
+      expect(row(withBob)!.querySelector("a .avatar")!.textContent?.[0]).toBe("B");
+      expect(sectionOf(withCat)).toBe("dms");
+    });
+
+    it("a new message in a DM moves it to the top, live", async () => {
+      const bob = await signedUp(`Bob ${uniq()}`);
+      const cat = await signedUp(`Cat ${uniq()}`);
+      const withBob = await me.api.openDm(bob.user.id);
+      const withCat = await me.api.openDm(cat.user.id);
+      await bob.api.send({ id: newId(), room: withBob.id, text: "first" });
+      await mount();
+      await vi.waitFor(() => expect(names("dms")).toEqual([bob.user.name, cat.user.name]));
+      await cat.api.send({ id: newId(), room: withCat.id, text: "now me" });
+      await vi.waitFor(() => expect(names("dms")).toEqual([cat.user.name, bob.user.name]));
+    });
+
+    it("a DM someone else starts appears live", async () => {
+      await mount();
+      const bob = await signedUp(`Bob ${uniq()}`);
+      const dm = await bob.api.openDm(me.user.id);
+      await vi.waitFor(() => expect(sectionOf(dm)).toBe("dms"));
+      expect(names("dms")).toContain(bob.user.name);
+    });
+
+    it("Close conversation hides the DM from the list", async () => {
+      const bob = await signedUp(`Bob ${uniq()}`);
+      const dm = await me.api.openDm(bob.user.id);
+      await mount();
+      await vi.waitFor(() => expect(sectionOf(dm)).toBe("dms"));
+      action(dm, "Close conversation")!.click();
+      await vi.waitFor(() => expect(row(dm)).toBeNull());
+      expect(store.get().hidden.has(dm.id)).toBe(true);
+    });
+
+    it("+ opens a debounced user search; picking someone opens the DM and navigates to it", async () => {
+      const tag = uniq();
+      const bob = await signedUp(`Bobby ${tag}`);
+      const ctl = instrument(me.api);
+      await mount();
+      expect(searchInput()).toBeNull();
+      newDmButton().click();
+      expect(newDmButton().getAttribute("aria-expanded")).toBe("true");
+      expect(document.activeElement).toBe(searchInput());
+      searchFor("Bob");
+      searchFor(`Bobby ${tag}`);
+      await vi.waitFor(() => expect(results().map((b) => b.querySelector("span:not(.avatar)")!.textContent)).toEqual([bob.user.name]));
+      expect(ctl.calls("searchUsers")).toBe(1); // the first keystroke was debounced away
+      results()[0]!.click();
+      await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith(expect.stringMatching(/^#\/r\//)));
+      const roomId = navigate.mock.calls[0]![0].slice(4);
+      expect(store.get().rooms.get(roomId)?.kind).toBe("dm");
+      expect(searchInput()).toBeNull();
+    });
+
+    it("the search says when nobody matches, and Escape closes it, returning focus to +", async () => {
+      await mount();
+      newDmButton().click();
+      searchFor(`nobody-${uniq()}`);
+      await vi.waitFor(() => expect(root.querySelector(".search-status")!.textContent).toBe("No one found."));
+      searchInput()!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      expect(searchInput()).toBeNull();
+      expect(document.activeElement).toBe(newDmButton());
+    });
+
+    it("arrow keys move between the input and the results", async () => {
+      const tag = uniq();
+      await signedUp(`Arrow ${tag} 1`);
+      await signedUp(`Arrow ${tag} 2`);
+      await mount();
+      newDmButton().click();
+      searchFor(`Arrow ${tag}`);
+      await vi.waitFor(() => expect(results()).toHaveLength(2));
+      const down = (el: Element, key = "ArrowDown") => el.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+      down(searchInput()!);
+      expect(document.activeElement).toBe(results()[0]);
+      down(results()[0]!);
+      expect(document.activeElement).toBe(results()[1]);
+      down(results()[1]!, "ArrowUp");
+      down(results()[0]!, "ArrowUp");
+      expect(document.activeElement).toBe(searchInput());
     });
   });
 

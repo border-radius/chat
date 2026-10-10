@@ -1,0 +1,204 @@
+// Profile (§15.5): change or remove your avatar, change your display name.
+
+import { ApiError, errorMessage } from "../api.ts";
+import type { Ctx } from "../context.ts";
+import { clear, h, uniqueId } from "../dom.ts";
+import { prepareImage } from "../lib/image.ts";
+import { LIMITS, textLength } from "../lib/limits.ts";
+import type { User } from "../lib/types.ts";
+import type { View } from "../router.ts";
+import { createScope } from "../scope.ts";
+import { avatar } from "../ui/avatar.ts";
+
+/** Longest edge of an uploaded avatar (§15.3). */
+const AVATAR_EDGE = 512;
+
+/** Why `file` can't be an avatar (after preparation), or "". */
+export function avatarProblem(file: File): string {
+  if (!(LIMITS.avatarTypes as readonly string[]).includes(file.type)) return "Choose a JPEG, PNG, WebP or GIF image.";
+  if (file.size > LIMITS.avatarBytes) return `That image is too large (max ${LIMITS.avatarBytes / 1024 / 1024} MB).`;
+  return "";
+}
+
+const fieldMessage = (e: unknown, field: string) => (e instanceof ApiError && e.fields[field]) || errorMessage(e);
+
+export function createProfileView({ api, store }: Ctx): View {
+  const vid = uniqueId("profile");
+  const scope = createScope();
+  const { signal } = scope;
+  let root: HTMLElement;
+  let preview: string | null = null;
+  let busy = false;
+
+  const me = () => store.get().user;
+
+  const picture = h("div", { class: "profile-picture" });
+  const fileInput = h("input", {
+    id: `${vid}-file`,
+    type: "file",
+    accept: LIMITS.avatarTypes.join(","),
+    class: "visually-hidden",
+  });
+  const changeLabel = h("label", { for: `${vid}-file`, class: "button" }, "Change picture");
+  const removeBtn = h("button", { type: "button" }, "Remove");
+  const avatarError = h("p", { class: "field-error", role: "alert" });
+
+  const nameInput = h("input", { id: `${vid}-name`, name: "name", autocomplete: "nickname", "aria-describedby": `${vid}-name-status` });
+  const saveBtn = h("button", { type: "submit", class: "primary" }, "Save");
+  const nameStatus = h("p", { id: `${vid}-name-status`, class: "field-status", role: "status" });
+
+  function dropPreview() {
+    if (preview) URL.revokeObjectURL(preview);
+    preview = null;
+  }
+
+  function renderPicture() {
+    const user = me();
+    if (!user) return;
+    const shown = preview
+      ? h("img", { class: "avatar s96", src: preview, width: 96, height: 96, alt: "" })
+      : avatar(user, 96, api.avatarUrl);
+    picture.replaceChildren(shown);
+    picture.classList.toggle("busy", busy);
+    removeBtn.hidden = !user.avatar || busy;
+    fileInput.disabled = busy;
+    changeLabel.classList.toggle("disabled", busy);
+  }
+
+  async function upload(file: File | undefined) {
+    if (!file || busy) return;
+    avatarError.textContent = "";
+    // Check the type before decoding; the size after preparation (which usually shrinks it).
+    const typeProblem = avatarProblem(new File([], file.name, { type: file.type }));
+    if (typeProblem) {
+      avatarError.textContent = typeProblem;
+      return;
+    }
+    busy = true;
+    const prepared = await prepareImage(file, AVATAR_EDGE);
+    if (!scope.active) return;
+    const problem = avatarProblem(prepared);
+    if (problem) {
+      busy = false;
+      avatarError.textContent = problem;
+      return;
+    }
+    dropPreview();
+    preview = URL.createObjectURL(prepared);
+    renderPicture();
+    await save(() => api.setAvatar(prepared));
+  }
+
+  async function save(call: () => Promise<User>) {
+    busy = true;
+    renderPicture();
+    try {
+      const user = await call();
+      if (!scope.active) return;
+      store.set({ user });
+    } catch (e) {
+      if (scope.active) avatarError.textContent = fieldMessage(e, "avatar");
+    } finally {
+      if (scope.active) {
+        busy = false;
+        dropPreview();
+        renderPicture();
+      }
+    }
+  }
+
+  async function rename(e: Event) {
+    e.preventDefault();
+    const name = nameInput.value.trim();
+    nameStatus.classList.remove("error");
+    const problem = !name
+      ? "A display name can't be empty."
+      : textLength(name) > LIMITS.userName
+        ? `Must be no more than ${LIMITS.userName} characters.`
+        : "";
+    if (problem) {
+      nameStatus.textContent = problem;
+      nameStatus.classList.add("error");
+      nameInput.setAttribute("aria-invalid", "true");
+      return;
+    }
+    if (name === me()?.name) return;
+    saveBtn.disabled = true;
+    nameStatus.textContent = "";
+    nameInput.removeAttribute("aria-invalid");
+    try {
+      const user = await api.rename(name);
+      if (!scope.active) return;
+      store.set({ user });
+      nameInput.value = user.name;
+      nameStatus.textContent = "Saved.";
+    } catch (err) {
+      if (!scope.active) return;
+      nameStatus.textContent = fieldMessage(err, "name");
+      nameStatus.classList.add("error");
+      nameInput.setAttribute("aria-invalid", "true");
+    } finally {
+      saveBtn.disabled = false;
+    }
+  }
+
+  return {
+    mount(el) {
+      root = el;
+      nameInput.value = me()?.name ?? "";
+      fileInput.addEventListener(
+        "change",
+        () => {
+          const file = fileInput.files?.[0];
+          fileInput.value = ""; // picking the same file again must fire `change` again
+          void upload(file);
+        },
+        { signal },
+      );
+      removeBtn.addEventListener("click", () => void save(() => api.removeAvatar()), { signal });
+      // Drag and drop an image onto the picture.
+      picture.addEventListener("dragover", (e) => e.preventDefault(), { signal });
+      picture.addEventListener(
+        "drop",
+        (e) => {
+          e.preventDefault();
+          void upload(e.dataTransfer?.files[0]);
+        },
+        { signal },
+      );
+
+      const shell = h("section", { class: "profile", "aria-labelledby": `${vid}-title` }, [
+        h("header", { class: "room-header" }, [
+          h("a", { href: "#/", class: "back", "aria-label": "Back to rooms" }, "← Rooms"),
+          h("h1", { id: `${vid}-title` }, "Your profile"),
+        ]),
+        h("div", { class: "profile-body" }, [
+          h("h2", {}, "Picture"),
+          h("div", { class: "profile-avatar" }, [
+            picture,
+            h("div", { class: "profile-avatar-actions" }, [fileInput, changeLabel, removeBtn]),
+          ]),
+          avatarError,
+          h("form", { class: "profile-name", on: { submit: (e) => void rename(e) }, signal }, [
+            h("label", { for: `${vid}-name` }, "Display name"),
+            h("div", { class: "row" }, [nameInput, saveBtn]),
+            nameStatus,
+          ]),
+        ]),
+      ]);
+      clear(root);
+      root.append(shell);
+      renderPicture();
+      scope.defer(
+        store.subscribe((s, prev) => {
+          if (s.user !== prev.user) renderPicture();
+        }),
+      );
+      scope.defer(dropPreview);
+    },
+    unmount() {
+      scope.dispose();
+      clear(root);
+    },
+  };
+}

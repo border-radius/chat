@@ -3,10 +3,13 @@
 // delete confirm, inline errors); what those buttons *do* is up to the room view.
 
 import { h, reconcile } from "../../dom.ts";
+import { displayName, isImage } from "../../lib/files.ts";
 import { type MessageWindow, startsGroup } from "../../lib/messages.ts";
 import { captureAnchor, restoreAnchor } from "../../lib/scroll.ts";
 import { dayLabel, formatFull, formatTime, parsePb } from "../../lib/time.ts";
 import type { Message, User } from "../../lib/types.ts";
+import { type AvatarUrl, avatar } from "../../ui/avatar.ts";
+import { createActionMenu } from "../../ui/menu.ts";
 import { editProblem, fitRows, rowsFor } from "./composer.ts";
 
 export interface MsgError {
@@ -21,7 +24,8 @@ export interface ListState {
   ready: boolean;
   /** The first load failed: show an error with Retry instead of the (empty) window. */
   failed: boolean;
-  roomName: string | undefined;
+  /** Text of the "beginning of the room" marker. */
+  beginning: string;
   /** Highlighted message (#/r/:id/m/:msgId). */
   targetId: string | null;
 }
@@ -53,6 +57,13 @@ export function createMessageList(opts: {
   onDiscard: (id: string) => void;
   /** Retry button of a failed first load. */
   onRetryLoad: () => void;
+  avatarUrl: AvatarUrl;
+  /** "Message" in an author's menu (§16.5). */
+  onMessageUser: (userId: string) => void;
+  /** Signed URL of an attachment (§17.3). */
+  fileUrl: (m: Message, filename: string, thumb?: string) => string;
+  /** Get a new file token (an image failed to load, maybe because its token expired). */
+  refreshFileToken: () => Promise<unknown>;
   signal: AbortSignal;
 }): MessageList {
   const { signal } = opts;
@@ -119,7 +130,7 @@ export function createMessageList(opts: {
           if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
             e.preventDefault();
             const value = (e.currentTarget as HTMLTextAreaElement).value;
-            const problem = editProblem(value);
+            const problem = editProblem(value, !!m.files?.length);
             if (problem) {
               // Say why nothing happens (an empty edit is not a delete; over-long text can't be saved).
               hint.textContent = problem;
@@ -158,21 +169,25 @@ export function createMessageList(opts: {
       err?.text ?? "",
       targetId === m.id,
       m.expand?.author?.name ?? "",
+      m.expand?.author?.avatar ?? "",
+      (m.files ?? []).join("/"),
+      (m.localFiles ?? []).map((f) => f.url || f.file.name).join("/"),
     ]);
     const hit = cache.get(m.id);
     if (hit && hit.sig === sig) return hit.el;
 
     const me = opts.me();
-    const name = m.expand?.author?.name ?? (me && m.author === me.id ? me.name : "Unknown");
+    const author: User = m.expand?.author ?? (me && m.author === me.id ? me : { id: m.author, name: "Unknown" });
     const cls = ["msg", groupStart && "group-start", m.status, m.deleted && "deleted", targetId === m.id && "target"]
       .filter(Boolean)
       .join(" ");
 
     const parts: (HTMLElement | null)[] = [];
     if (groupStart) {
+      parts.push(avatar(author, 32, opts.avatarUrl));
       parts.push(
         h("div", { class: "meta" }, [
-          h("span", { class: "author" }, name),
+          authorEl(author, me, !!m.expand?.author),
           h("time", { datetime: new Date(ms).toISOString(), title: formatFull(ms) }, formatTime(ms)),
         ]),
       );
@@ -184,6 +199,7 @@ export function createMessageList(opts: {
       if (m.edited_at && !m.deleted)
         parts.push(h("span", { class: "edited", title: `Edited ${formatFull(parsePb(m.edited_at))}` }, "(edited)"));
     }
+    if (!m.deleted) parts.push(attachments(m));
     if (m.status === "failed") {
       parts.push(
         h("div", { class: "send-error" }, [
@@ -236,6 +252,90 @@ export function createMessageList(opts: {
     return li;
   }
 
+  /**
+   * A message's attachments (§17.5): images as fixed-size thumbnails (1 large, or a grid of up to 4 tiles), other
+   * files as download chips. A message not yet on the server shows its local previews instead.
+   */
+  function attachments(m: Message): HTMLElement | null {
+    const local = m.localFiles ?? [];
+    const names = m.files ?? [];
+    if (!local.length && !names.length) return null;
+    const imageCount = local.length ? local.filter((f) => f.url).length : names.filter(isImage).length;
+    const size = imageCount === 1 ? { w: 240, h: 180, thumb: "480x360" } : { w: 120, h: 90, thumb: "240x180" };
+    const images = h("div", { class: `att-images ${imageCount === 1 ? "one" : "grid"}` });
+    const others = h("ul", { class: "att-files" });
+
+    if (local.length) {
+      for (const f of local) {
+        if (f.url)
+          images.append(h("span", { class: "att-tile" }, h("img", { src: f.url, width: size.w, height: size.h, alt: f.file.name })));
+        else others.append(h("li", {}, h("span", { class: "att-file" }, f.file.name)));
+      }
+    } else {
+      for (const name of names) {
+        if (isImage(name)) images.append(imageTile(m, name, size));
+        else others.append(h("li", {}, fileLink(m, name, "att-file", [displayName(name)])));
+      }
+    }
+    return h("div", { class: "attachments" }, [images.childElementCount ? images : null, others.childElementCount ? others : null]);
+  }
+
+  /** A link to the full file, re-signed with the current token whenever it is about to be used. */
+  function fileLink(m: Message, name: string, cls: string, children: (Node | string)[]): HTMLAnchorElement {
+    const a = h("a", { class: cls, href: opts.fileUrl(m, name), target: "_blank", rel: "noopener", download: displayName(name) }, children);
+    const sign = () => (a.href = opts.fileUrl(m, name));
+    for (const type of ["pointerenter", "focus", "click"] as const) a.addEventListener(type, sign, { signal });
+    return a;
+  }
+
+  /** An image thumbnail linking to the full image. A failed load retries once with a new token, then offers Retry. */
+  function imageTile(m: Message, name: string, size: { w: number; h: number; thumb: string }): HTMLElement {
+    const img = h("img", {
+      src: opts.fileUrl(m, name, size.thumb),
+      width: size.w,
+      height: size.h,
+      alt: displayName(name),
+      loading: "lazy",
+      decoding: "async",
+    });
+    const tile = fileLink(m, name, "att-tile", [img]);
+    tile.removeAttribute("download"); // open images in a tab rather than download them
+    let retried = false;
+    img.addEventListener(
+      "error",
+      () => {
+        if (!retried) {
+          retried = true;
+          void opts.refreshFileToken().then(
+            () => (img.src = opts.fileUrl(m, name, size.thumb)),
+            () => img.dispatchEvent(new Event("error")),
+          );
+          return;
+        }
+        const broken = h("span", { class: "att-tile att-broken" }, [
+          "Couldn't load image ",
+          btn("Retry", () => {
+            retried = false;
+            broken.replaceWith(tile);
+            img.src = opts.fileUrl(m, name, size.thumb);
+          }),
+        ]);
+        tile.replaceWith(broken);
+      },
+      { signal },
+    );
+    return tile;
+  }
+
+  /** The author's name: for other (known) users a menu offering "Message" (§16.5). */
+  function authorEl(author: User, me: User | null, known: boolean): HTMLElement {
+    if (author.id === me?.id || !known) return h("span", { class: "author" }, author.name);
+    const menu = createActionMenu({ label: author.name, summary: author.name, className: "author", signal });
+    menu.update([{ label: "Message", run: () => opts.onMessageUser(author.id) }]);
+    menu.el.classList.add("author-menu");
+    return menu.el;
+  }
+
   function divider(ms: number): HTMLElement {
     const label = dayLabel(ms);
     const key = `${new Date(ms).toDateString()}|${label}`;
@@ -249,7 +349,7 @@ export function createMessageList(opts: {
 
   function render(o: { anchor?: boolean } = {}) {
     if (signal.aborted) return;
-    const { win, ready, failed, roomName, targetId } = opts.state();
+    const { win, ready, failed, beginning: beginningText, targetId } = opts.state();
     if (failed) {
       reconcile(el, [loadError]);
       return;
@@ -259,7 +359,7 @@ export function createMessageList(opts: {
     const canChange = (id: string | null) => !!id && win.items.some((m) => m.id === id && opts.editable(m));
     if (!canChange(editing)) editing = null;
     if (!canChange(confirmDelete)) confirmDelete = null;
-    beginning.textContent = roomName ? `Beginning of #${roomName}` : "Beginning of the room";
+    beginning.textContent = beginningText;
     const nodes: Node[] = [];
     if (win.hasOlder) nodes.push(topSentinel);
     else if (ready) nodes.push(beginning);

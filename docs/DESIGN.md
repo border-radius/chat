@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | Draft |
 | **Date** | 2026-10-10 |
-| **Scope** | MVP |
+| **Scope** | MVP (§1–§14); post-MVP features: avatars §15, direct messages §16, attachments §17 |
 
 Code and tests cite this document by section number (e.g. `§7.5`). **Don't renumber sections:** append new ones, and
 mark obsolete ones as such instead of deleting them.
@@ -36,8 +36,8 @@ The whole system is **one PocketBase binary**. It handles auth, data, realtime a
 
 These are left out on purpose. The design should not block them later.
 
-- Private rooms, room membership or invitations, direct messages
-- File and image uploads, link previews
+- Private rooms, room membership or invitations (direct messages: now designed in §16)
+- File and image uploads (avatars and attachments: now designed in §15 and §17), link previews
 - Reactions, threads, replies, mentions
 - Typing indicators, presence, read receipts
 - Push notifications, email notifications
@@ -80,38 +80,58 @@ These are left out on purpose. The design should not block them later.
 
 ```
 chat/
-├── docs/DESIGN.md
+├── docs/
+│   ├── DESIGN.md               # this document (the living spec)
+│   ├── REFACTOR.md
+│   └── history/                # finished plans: BUILD_PLAN.md (MVP), NEXT_FEATURES_PLAN.md (§15–§17)
 ├── package.json
-├── tsconfig.json
+├── tsconfig.json, tsconfig.server.json
 ├── scripts/
 │   ├── fetch-pocketbase.sh     # downloads the pinned PB release into ./bin
-│   ├── build.mjs               # esbuild production build → pb_public/
-│   └── dev.mjs                 # esbuild watch + spawns `pocketbase serve`
-├── pb_migrations/              # schema + API rules (committed)
-│   └── 1760000000_init.js
+│   ├── build.mjs               # esbuild production build → pb_public/, size budget (§7.7)
+│   ├── dev.mjs                 # esbuild watch + spawns `pocketbase serve`
+│   └── pb-types.sh             # PocketBase's generated types for typechecking hooks and migrations
+├── pb_migrations/              # schema + API rules (committed; never edited once applied, only added to)
+│   ├── 1760000000_init.js
+│   ├── 1760000001_qa_fixes.js
+│   ├── 1760000002_avatars.js           # §15.1
+│   ├── 1760000003_direct_messages.js   # §16.1, §16.3
+│   └── 1760000004_attachments.js       # §17.1
 ├── pb_hooks/                   # server-side JS hooks (committed)
-│   └── main.pb.js
+│   ├── main.pb.js              # registrations only
+│   └── lib/
+│       ├── chat.js             # validation, stamps, soft delete, DM guards, headers (§5.6, §16, §17)
+│       └── dms.js              # POST /api/chat/dms (§16.2)
 ├── web/
 │   ├── index.html              # template; build injects hashed asset names
 │   ├── styles/app.css
 │   └── src/
-│       ├── main.ts             # boot: auth restore, router start
+│       ├── main.ts             # boot
+│       ├── app.ts              # app shell: session, routes, app bar
 │       ├── api.ts              # the only module that imports the PB SDK
-│       ├── store.ts            # tiny observable state
-│       ├── router.ts           # hash router
-│       ├── dom.ts              # h(), clear(), on() helpers
-│       ├── lib/
-│       │   ├── id.ts           # client-side PB-compatible record ids
-│       │   ├── time.ts         # cached Intl formatters, relative time
-│       │   └── messages.ts     # pure list logic: merge, dedupe, group
+│       ├── store.ts            # tiny observable state + selectors
+│       ├── sync.ts             # keeps rooms + hidden rows live (§7.4)
+│       ├── actions.ts          # room commands: create, hide, archive, open DM
+│       ├── context.ts, scope.ts, router.ts, dom.ts
+│       ├── lib/                # pure logic, unit-tested without a DOM
+│       │   ├── id.ts, time.ts, cursor.ts, scroll.ts, limits.ts, types.ts
+│       │   ├── messages.ts     # window logic: merge, dedupe, trim, group (§7.5)
+│       │   ├── rooms.ts        # DM titles (§16.5)
+│       │   ├── avatar.ts       # initials + color (§15.4)
+│       │   ├── image.ts        # resize + re-encode before upload (§15.3)
+│       │   ├── files.ts        # attachment names and limits (§17)
+│       │   └── token.ts        # file token cache (§17.3)
+│       ├── ui/                 # small reusable components
+│       │   ├── menu.ts, avatar.ts, user-search.ts
 │       └── views/
-│           ├── login.ts
-│           ├── rooms.ts
-│           └── room.ts         # message list + composer
+│           ├── login.ts, rooms.ts, profile.ts
+│           ├── room.ts         # message window, loading, realtime, sending
+│           └── room/           # header.ts, messages.ts (the list), composer.ts
 ├── tests/
-│   ├── unit/                   # Vitest + happy-dom
+│   ├── unit/                   # Vitest + happy-dom, against a real throwaway PocketBase
 │   ├── integration/            # Vitest against a real PocketBase process
-│   └── e2e/                    # Playwright
+│   ├── e2e/                    # Playwright
+│   └── support/                # shared harness and fixtures
 ├── bin/                        # pocketbase binary (gitignored)
 ├── pb_public/                  # build output (gitignored)
 └── pb_data/                    # local DB (gitignored)
@@ -205,7 +225,7 @@ A separate collection was chosen over a multi-relation field on `users` for thre
 
 ² Users can't delete their own account: their messages and rooms reference them through required relations, so the delete could only fail for anyone who had posted. Removing an account (and deciding what happens to its content) is a superuser task for now.
 
-The source of truth for all rules is `pb_migrations/1760000000_init.js`.
+The source of truth for all rules is `pb_migrations/1760000000_init.js` and the migrations after it. Direct messages (§16.3) change the `rooms` and `messages` rules above; this table is the MVP version.
 
 PocketBase applies the list rule to realtime subscriptions too, so these rules also control who receives SSE events.
 
@@ -229,7 +249,7 @@ The hooks are kept small. They only do things the rules can't express:
 - **Edit stamp:** on a `messages` update where `text` actually changed (and it isn't a delete), set `edited_at = now`. An update that doesn't change the text leaves it untouched.
 - **Archive stamp:** on a `rooms` update, set `archived_at = now` when `archived` becomes true, and clear it when `archived` becomes false.
 - **Archived-room guard (defense in depth):** reject a message create, update or delete when the target room is archived. This repeats the API rule in case rule traversal through `@request.body.room.archived` behaves differently in the pinned PocketBase version. Integration tests cover both layers.
-- **Security headers** via `routerUse`: every response gets `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`. Static app paths also get `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`. The CSP is *not* applied to `/api/*` or to the admin UI `/_/`, which sends its own CSP.
+- **Security headers** via `routerUse`: every response gets `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`. Static app paths also get `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data: blob:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`. The CSP is *not* applied to `/api/*` or to the admin UI `/_/`, which sends its own CSP.
 - **Cache headers:** `/assets/*` (content-hashed) gets `Cache-Control: public, max-age=31536000, immutable`. Every other static path, including `/` and `index.html`, gets `no-cache`.
 - **Rate limiting:** PocketBase's built-in limiter, enabled from the init migration. The limits are per client IP:
   - `messages:create`: 10 requests per 5 s.
@@ -419,7 +439,7 @@ If the room's first load fails (other than "room not found"), the list shows an 
 
 | Asset | Budget (gzipped) |
 |---|---|
-| `app.js` (including the PB SDK) | **≤ 25 KB** |
+| `app.js` (including the PB SDK) | **≤ 30 KB** (25 KB for the MVP; raised for §15–§17, see §13) |
 | `app.css` | **≤ 5 KB** |
 | `index.html` | ≤ 1.5 KB |
 | Web fonts | **none** (system font stack) |
@@ -701,6 +721,7 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 - Run under systemd with `pocketbase serve chat.example.com`, which issues a Let's Encrypt certificate automatically. Alternatively, run it behind an existing reverse proxy.
 - Migrations run automatically on start.
 - Use PocketBase's built-in scheduled backups (Settings → Backups), stored locally or in S3-compatible storage.
+- Uploaded files (avatars, attachments; §15, §17) live in `pb_data/storage` (or S3-compatible storage set in PocketBase's settings) and are included in backups, so plan disk space for them.
 - Scale target for the MVP: a single node. SQLite in WAL mode easily handles thousands of concurrent SSE clients and hundreds of messages per second at this size.
 
 ## 12. Milestones
@@ -732,10 +753,347 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 | Archived room names | The name stays reserved forever and is never reused (unique index covers archived rooms). |
 | Retention | History is kept forever. Every room can be scrolled back to its first message (§7.5). |
 
+### Decided (2026-10-10, post-MVP features)
+
+| Topic | Decision |
+|---|---|
+| Build order | Avatars (§15), then direct messages (§16), then attachments (§17). Each ships on its own. Attachments come last because they must respect DM privacy. |
+| DM model | A DM is a `rooms` record with `kind = "dm"` and exactly two `members`, so the message list, windowing, realtime, edit and delete code is reused unchanged (§16.1). |
+| Creating a DM | Only through the get-or-create route `POST /api/chat/dms`, never through the `rooms` API (§16.2). |
+| Who can DM whom | Any logged-in user can DM any other user. No blocking in this round. No DMs with yourself. |
+| Closing a DM | Reuses `hidden_rooms`. A new message in the DM reopens it for the recipient (§16.4). |
+| Avatar storage | The built-in `users.avatar` file field: public, raster images only (no SVG), always displayed through thumbnails (§15.1). |
+| Attachment access | `protected` file field: downloads need a short-lived file token and pass the message's view rule, so DM files stay private (§17.3). |
+| Attachment layout | Images render in fixed-size boxes, so loading them never moves the scroll position (§17.5). |
+| Metadata stripping | The client re-encodes JPEG/PNG/WebP images before upload, which drops EXIF (including GPS). Best effort, protecting honest users only (§15.3). |
+| Bundle budget | `app.js` budget raised from 25 KB to 30 KB gzipped (§7.7): avatars + DMs measured 25.9 KB. One bundle, no lazy chunks. |
+
 ### Still open
 
-None for the MVP.
+1. **Unread state for DMs.** Without unread markers, a new DM is noticeable only because it jumps to the top of the list (§16.5). A `room_reads` collection (user, room, last_read_at) would add badges; it is left out of this round.
+2. **Upload quotas.** Rate limits cap the request rate, not stored bytes. A per-user storage cap (a hook summing file sizes) is deferred until real usage shows the need.
 
 ## 14. Future work (post-MVP)
 
-Private rooms and membership (a `room_members` collection plus rule changes), DMs, uploads (PB file fields with thumbs), reactions, typing and presence (custom realtime channels via `$app.subscriptionsBroker()`), OAuth2 providers, message search (SQLite FTS5 through a custom route), a service worker for an offline shell, and HttpOnly cookie auth.
+Private rooms (§16's `kind` + `members`, allowing more than two members), unread markers, blocking users, link previews, reactions, typing and presence (custom realtime channels via `$app.subscriptionsBroker()`), OAuth2 providers, message search (SQLite FTS5 through a custom route), a service worker for an offline shell, and HttpOnly cookie auth.
+
+---
+
+## Post-MVP features
+
+Sections 15–17 extend the MVP. They follow the same principles: access control lives in API rules (with hooks as
+defense in depth), no `innerHTML`, no new runtime dependencies, and the size budget (§7.7) still applies. The
+implementation plan (finished) is [`history/NEXT_FEATURES_PLAN.md`](history/NEXT_FEATURES_PLAN.md).
+
+**Shared rules for every uploaded file (§15, §17):**
+
+- **No SVG, no HTML from the upload pipeline into the page.** Images are shown only through PocketBase thumbnails
+  (`?thumb=`), which PocketBase re-encodes as raster images. Files are never inlined, fetched as text or parsed.
+- **Files are served from `/api/files/…` with a sandbox CSP.** PocketBase already sends
+  `Content-Security-Policy: default-src 'none'; media-src 'self'; style-src 'unsafe-inline'; sandbox` for files.
+  The headers hook (§5.6) adds `X-Content-Type-Options: nosniff` (it already does, for every response), and an
+  integration test pins both headers, so an uploaded `.html` can never run script on our origin.
+- **The app CSP (§5.6) gains `blob:` in `img-src`,** for previews of files that are not uploaded yet
+  (`URL.createObjectURL`). Every object URL is revoked when its message is sent, removed or unmounted.
+- **Images keep fixed dimensions in the layout** (`width`/`height` attributes plus CSS), with `loading="lazy"` and
+  `decoding="async"`. A late-loading image must never change the height of a message, or scroll anchoring (§7.5)
+  breaks.
+- **Client-side re-encoding (§15.3)** shrinks and strips metadata before upload; the server limits are the real
+  enforcement.
+
+## 15. Avatars
+
+### 15.1 Data model
+
+PocketBase's built-in `users` collection already has an `avatar` file field. A migration configures it:
+
+| Setting | Value |
+|---|---|
+| `maxSelect` | 1 |
+| `maxSize` | 2 MB |
+| `mimeTypes` | `image/jpeg`, `image/png`, `image/webp`, `image/gif` (**not** `image/svg+xml`) |
+| `thumbs` | `48x48`, `96x96` (center crop; 2× for high-DPI screens) |
+| `protected` | `false`: avatars are public, and the random filename suffix PocketBase adds keeps them unguessable |
+
+The `users` update rule already limits writes to the owner. Uploading a new file replaces the old one, and
+PocketBase deletes the old file from storage. Removing the avatar is `update(id, {avatar: null})`.
+
+### 15.2 API usage
+
+| Action | Call |
+|---|---|
+| Set avatar | `users.update(me, formData{avatar: File})` |
+| Remove avatar | `users.update(me, {avatar: null})` |
+| Change display name | `users.update(me, {name})` (the hook already cleans names, §5.6) |
+| Avatar URL | `pb.files.getURL(user, user.avatar, {thumb: "48x48"})`, built only in `api.ts` and exposed as `avatarUrl(user, size)` |
+
+`MSG_FIELDS` gains `expand.author.avatar`, and `User` gains `avatar: string` (the filename, `""` when unset). The
+logged-in user's own record already contains it.
+
+**Staleness:** messages carry the author's avatar from when they were fetched. A user who changes their avatar is
+seen with the new one on the next page load, window move or reconnect. This is accepted. Subscribing to `users`
+would push every profile change to every client for little benefit.
+
+### 15.3 Client-side image preparation (`lib/image.ts`)
+
+Before upload, `prepareImage(file, maxEdge)` decodes the image with `createImageBitmap`, scales it so the longest
+edge is at most `maxEdge` (512 px for avatars, 2048 px for attachments), and re-encodes it as WebP (JPEG where WebP
+encoding is unsupported) through `OffscreenCanvas.convertToBlob`, falling back to a `<canvas>` element where
+`OffscreenCanvas` is missing. Re-encoding drops EXIF, so photos never leak GPS location.
+
+- GIFs are uploaded as they are (re-encoding would drop the animation).
+- If decoding fails, the original file is uploaded unchanged, and the server limits decide.
+- The function is pure apart from the browser image APIs, and unit-testable with a stubbed `createImageBitmap`.
+
+### 15.4 Rendering
+
+- **Fallback:** a user without an avatar gets a circle with their initials. The initials are the first letters of
+  the first two words of the name, by grapheme (`Intl.Segmenter`, so emoji and combining marks don't break). The
+  background color is one of 8 palette colors picked by a hash of the user **id**, not the name, so it survives
+  renames. Both live in `lib/avatar.ts` and are pure. Every palette color passes 4.5:1 contrast with white text in both themes.
+- **Message list:** the avatar (32 px, `48x48` thumb, or `96x96` on high-DPI screens via `srcset`) sits next to
+  the author header of each group (§7.5 `group`). Continuation messages get none. The image has `alt=""` because the
+  author name is right next to it.
+- **App bar:** the user's own avatar (24 px) next to their name. Both open `#/me`.
+- A failing avatar image (`error` event) swaps itself for the initials circle.
+- `messageNode`'s signature cache (§7.5 DOM rendering) includes the avatar filename, so a changed avatar re-renders.
+
+### 15.5 Profile view (`#/me`)
+
+A new route and view (`views/profile.ts`): the avatar with **Change** (file picker, also accepts drag-and-drop)
+and **Remove**, plus the display name with **Save**.
+
+- Picking a file shows a local preview right away (object URL), then uploads the prepared image. On failure the
+  previous avatar comes back with the error text inline.
+- Client-side checks mirror the server: type in the allowlist, size ≤ 2 MB after preparation. Limits live in
+  `lib/limits.ts` with the others, and `schema.test.ts` checks they match the migration.
+- On success the store's `user` is replaced with the response, so the app bar updates.
+
+### 15.6 Tests
+
+- **Integration:** the field settings match §15.1; an SVG or a 3 MB file is rejected; user B cannot change A's
+  avatar; the thumb URL returns an image; removing the avatar deletes the file (its old URL returns 404); a message
+  list includes `expand.author.avatar` and still no email.
+- **Unit:** initials (one word, emoji, combining marks, empty name); color is stable for an id and differs across
+  ids; `prepareImage` scaling math and GIF passthrough; profile view upload success, failure rollback and remove;
+  the message group header shows the image, and initials on `error`.
+- **E2E:** A uploads an avatar on `#/me`; B sees it next to A's next message. Axe check on `#/me`.
+
+## 16. Direct messages
+
+### 16.1 Data model
+
+A DM is a room. This reuses everything the room view already does (windowing, realtime, optimistic send, edit,
+soft delete, reconnect gap-fill) without a second code path. New `rooms` fields:
+
+| Field | Type | Notes |
+|---|---|---|
+| `kind` | select (`public`, `dm`) | required; existing rooms are backfilled to `public` by the migration |
+| `members` | relation → users, `maxSelect` 2 | empty for public rooms; exactly the two participants for a DM (sorted by id) |
+| `dm_key` | text, hidden | set by the route (§16.2): the two user ids sorted and joined with `:`. Unique index where `dm_key != ''`, so a pair can only ever have one DM. Being hidden, it is also ignored when a regular user sends it to the API. |
+| `last_message_at` | date | DMs only: set by a hook on every message create in the room, used to sort the DM list (§16.5) |
+
+`name` stays required for public rooms only. The schema field becomes optional and the rooms hook enforces it
+when `kind = "public"`; for DMs it forces `name = ""` and skips the uniqueness check (`name_key` is `""`, which the
+partial unique index already ignores). The MVP's `idx_rooms_name` (case-insensitive unique `name`) becomes partial
+(`WHERE name != ''`) for the same reason. A DM's title is computed on the client from the other member's name.
+
+DMs are never archived or renamed, and they have no creator-only actions. `created_by` is set to the user who
+opened the DM, for consistency only.
+
+**Why not a separate collection:** `messages.room` would have to become a relation to one of two collections, and
+every message query, rule, hook and view would grow a branch. With `kind` + `members`, the only real changes are
+the access rules and the sidebar. The same two fields later give private group rooms (more than two members).
+
+### 16.2 Opening a DM: `POST /api/chat/dms`
+
+A custom route in `pb_hooks` (`routerAdd`, behind `$apis.requireAuth("users")`). Body: `{ "user": "<id>" }`.
+
+1. Reject a missing, unknown or own user id (400).
+2. Compute `dm_key` from the two sorted ids.
+3. If a room with that `dm_key` exists, return it (200).
+4. Otherwise create it (`kind: "dm"`, `members: [me, other]`, `created_by: me`) with `$app.save` and return it
+   (200). If two requests race, the unique index rejects the second insert; the route catches that and returns the
+   room the first one created.
+5. Delete the caller's `hidden_rooms` row for that room, if any, so reopening a closed DM brings it back.
+
+The route returns the room in the same shape as the `rooms` API (`ROOM_FIELDS` plus the expanded members), so the
+client can `upsertRoom` it directly. It is idempotent, so the client can call it every time the user clicks
+**Message**. Rate limit: `POST /api/chat/dms` 10 per 60 s per IP.
+
+Creating a DM through the `rooms` API is impossible: the create rule (§16.3) only accepts `kind = "public"`.
+
+### 16.3 API rules
+
+`MEMBER` below means `members.id ?= @request.auth.id`.
+
+| Collection | Rule | New value |
+|---|---|---|
+| `rooms` | list / view | `@auth && (kind = "public" \|\| MEMBER)` |
+| `rooms` | create | MVP rule `&& @request.body.kind = "public" && @request.body.members:isset = false && @request.body.dm_key:isset = false && @request.body.last_message_at:isset = false` |
+| `rooms` | update | MVP rule `&& kind = "public" && @request.body.kind:isset = false && @request.body.members:isset = false && @request.body.dm_key:isset = false && @request.body.last_message_at:isset = false` |
+| `messages` | list / view | `@auth && (room.kind = "public" \|\| room.members.id ?= @request.auth.id)` |
+| `messages` | create | MVP rule `&& (@request.body.room.kind = "public" \|\| @request.body.room.members.id ?= @request.auth.id)` |
+| `messages` | update | unchanged: only the author can edit, and the author was a member when they posted. Membership never changes for DMs. |
+| `hidden_rooms` | create | MVP rule `&& (@request.body.room.kind = "public" \|\| @request.body.room.members.id ?= @request.auth.id)`: nobody can hide (and so probe) a DM they aren't in |
+
+Because PocketBase applies the list rule to realtime subscriptions, a non-member never receives a DM's room or
+message events, even with a `"*"` subscription and no filter.
+
+**Defense in depth (hooks):** `beforeMessageCreate` also checks that a DM's author is a member, in case
+`@request.body.room.members` traversal behaves differently in the pinned PocketBase version (like the archived
+guard, §5.6). Request-only hooks (`onRecordCreateRequest` / `onRecordUpdateRequest` on `rooms`) reject `kind`,
+`members` and `last_message_at` in API writes, including field modifiers such as `members+`, which `:isset` rules
+don't see. They don't fire for the route's and hooks' own `$app.save`.
+
+**Query cost:** the `messages` list rule adds a join to `rooms` and, for DMs, a `json_each` over two members. The
+history query still filters by `room` first, so `idx_messages_room_created` keeps serving it. The pagination
+`EXPLAIN QUERY PLAN` test (§9.2) is repeated with the new rule in place.
+
+### 16.4 Closing and reopening
+
+**Close conversation** in a DM's menu creates a `hidden_rooms` row, exactly like hiding a room. Unlike hidden
+public rooms, closed DMs are not listed under **Hidden rooms**; they simply leave the list.
+
+A DM must not stay silent once the other person writes again. An after-create hook on `messages` in a DM deletes
+the **recipient's** `hidden_rooms` row for that room, if there is one. That delete reaches the recipient's
+`hidden_rooms` subscription (§6), so the DM reappears live. The same hook sets the room's `last_message_at`, which
+reaches both members through their `rooms` subscription.
+
+### 16.5 Frontend
+
+- **Types:** `Room` gains `kind`, `members` and `last_message_at`, plus `expand.members` (`id`, `name`, `avatar`).
+  `ROOM_FIELDS` and the rooms subscription request the same fields. Emails are never fetched.
+- **`roomTitle(room, me)`** in `lib/rooms.ts`: the room name, or for a DM the other member's name. Used by the
+  sidebar, the room header and `document.title`.
+- **Sidebar** (`roomSections`, §7.4) gains a **Direct messages** section between Rooms and Hidden: open DMs sorted by
+  `last_message_at` (then `created`) descending, each with the other member's avatar (§15.4). Closed DMs are omitted.
+- **New message:** a **+** button in the DM section header opens a user search (`users.getList(1, 20, {filter:
+  pb.filter("name ~ {:q} && id != {:me}", …), fields: "id,name,avatar"})`, debounced 200 ms, at least 1 character).
+  Choosing a user calls `actions.openDm(userId)` → `POST /api/chat/dms` → `upsertRoom` → navigate to `#/r/:id`.
+- **From a message:** clicking an author's name or avatar opens a small menu with **Message** (hidden for yourself),
+  which does the same.
+- **Room view:** unchanged apart from the header, the composer placeholder ("Message Bob") and the beginning marker
+  ("Beginning of your conversation with Bob"). A DM shows the other member's avatar and name, and its menu has
+  **Close conversation** (then back to `#/`) and **Jump to beginning**, never Archive. A closed DM opened by URL
+  offers **Reopen conversation** instead.
+- **Not a member:** opening `#/r/:id` of someone else's DM gets a 404 from `getRoom`, which already shows "room not
+  found".
+
+### 16.6 Tests
+
+- **Integration (rules):** C cannot list, view, subscribe to, or post in A–B's DM, and C's `"*"` subscription gets
+  no events from it; nobody can create `kind: "dm"` through the `rooms` API, set `members`/`dm_key`, change `kind`,
+  or archive or rename a DM; A and B can post, edit and delete their own messages in it.
+- **Integration (route):** creates on first call and returns the same room afterwards, also when called by B for A;
+  two concurrent calls create one room; own id, unknown id and an anonymous caller are rejected; it unhides the
+  caller's closed DM; the rate limit returns 429.
+- **Integration (hooks):** a message in a DM sets `last_message_at` and deletes the recipient's `hidden_rooms` row
+  (and only theirs); a public-room message touches neither; `EXPLAIN QUERY PLAN` still uses the index.
+- **Unit:** `roomTitle`; `roomSections` with DMs (ordering, closed DMs omitted, a DM is never in Archived); the user
+  search debounce and empty results; **Message** from an author menu; the DM header and menu.
+- **E2E:** A opens a DM with B from the user search and sends a message; B sees the DM appear in the sidebar live
+  and replies; C's sidebar never shows it, and C opening its URL sees "room not found". B closes the DM, A writes
+  again, and it reappears for B.
+
+## 17. Attachments
+
+### 17.1 Data model
+
+`messages` gains one field:
+
+| Field | Type | Notes |
+|---|---|---|
+| `files` | file, multiple | `maxSelect` 4, `maxSize` 8 MB each, **`protected: true`**, `thumbs`: `480x360` (center crop) and `240x180`. No `mimeTypes` allowlist: any file can be attached, because nothing is ever rendered from the file itself (§15 shared rules). |
+
+PocketBase's default request body limit (32 MB) fits 4 × 8 MB plus text; if the pinned version's default is lower, the
+route gets `$apis.bodyLimit` for multipart message creates. A test pins this.
+
+**Text becomes optional when files are attached:** the hook rule "text is non-empty" (§5.6) changes to "text is
+non-empty **or** at least one file is attached". A message with neither is still rejected.
+
+**Files are immutable after sending.** Edits change text only: the update rule adds `@request.body.files:isset =
+false`, and the update hook rejects any change to `files` (including the `files+` / `files-` modifiers) except the
+soft-delete wipe below.
+
+**Soft delete wipes the files.** When `deleted` becomes true, the hook also sets `files = []`. PocketBase deletes
+the stored files after the update commits, so the content is really gone (§5.3), and the old URLs return 404.
+PocketBase serves files with `Cache-Control: max-age=2592000`, so a browser that already loaded an attachment may
+keep it in its own cache after the delete; the server copy is gone.
+
+**Non-image files are downloads.** PocketBase serves types it doesn't consider safe to display (HTML among them)
+with `Content-Disposition: attachment`, on top of the sandbox CSP, so opening one never renders it on our origin.
+
+### 17.2 Rate limits and storage
+
+- `messages:create` keeps its 10 per 5 s limit. Uploads are bounded by that, `maxSelect` and `maxSize`.
+- Files live in `pb_data/storage` (or the S3-compatible storage configured in PocketBase's settings) and are part of
+  backups, so backup sizes grow; §11 notes this.
+- No per-user quota in this round (§13, still open).
+
+### 17.3 Access control and file tokens
+
+Because the field is `protected`, `GET /api/files/messages/:id/:file` requires `?token=` with a **file token**
+(`pb.files.getToken()`), and PocketBase checks the **message's view rule** for the token's user. Therefore:
+
+- DM attachments are visible only to the two members (§16.3), and public-room attachments only to logged-in users.
+- A leaked URL stops working when its token expires (PocketBase's default file token lifetime is 3 minutes;
+  Settings → Tokens).
+
+**Token handling (`api.ts`, `lib/token.ts`):** `fileUrl(message, filename, thumb?)` builds URLs from a cached token.
+The cache fetches a new token when the current one is older than 2 minutes, shares one in-flight request between
+callers, and is dropped when the session changes. The room view waits for a token before its first render and
+keeps one fresh (a check every 30 s). Links to full files re-sign their `href` on hover, focus and click, so a
+click never uses a stale token. Already-rendered images keep their URLs (the browser has them). An image that is lazy-loaded later with an
+expired token fails; its `error` handler asks for a fresh URL **once** and retries, then falls back to a "Couldn't
+load image" box with a Retry button.
+
+Tokens change the URL, so the browser cache can't reuse a thumbnail across token refreshes. This is accepted: each
+thumbnail is ~20–40 KB and the window holds at most 300 messages.
+
+### 17.4 Sending (optimistic, retry-safe)
+
+The composer gains an **Attach** button ("+", opening a hidden `multiple` file input), drag-and-drop onto the room and paste
+(`clipboardData.files`). Selected files show as a tray above the textarea: image thumbnails from object URLs,
+other files as chips with name and size, each with a remove (×) button.
+
+- Client checks before sending: at most 4 files, each ≤ 8 MB after preparation (§15.3, images re-encoded to at most
+  2048 px). A rejected file shows why, inline, and is not added.
+- Send works as in §7.5, with `FormData` instead of JSON: the client id, room, author, text and the files. The
+  pending message shows the local previews dimmed, with a spinner (fetch has no upload progress; a progress bar would
+  need XHR and is left out).
+- **The pending entry keeps its `File` objects,** so **Retry** re-sends the same id with the same files. A duplicate
+  id is still rejected by the server, so a retry after a lost response can never post twice.
+- Once the server version replaces the pending one (§7.5 step 4), the object URLs are revoked.
+- Leaving the room while an upload runs lets it finish (writes are not aborted, §6); a reload loses unsent files,
+  like unsent text today.
+- Archived rooms have no composer, so no attach button.
+
+### 17.5 Rendering
+
+- **Images** (by file extension: `jpg jpeg png gif webp avif`): a grid under the text. One image shows at 240×180;
+  two to four show as a 2-column grid of 120×90 tiles. All use the `480x360` thumb with `object-fit: cover` and
+  fixed `width`/`height`, so there is never a layout shift. Clicking opens the full file in a new tab
+  (`target="_blank" rel="noopener"`), served under the sandbox CSP.
+- **Other files:** a chip with an icon, the display name and a download link (`download` attribute).
+- **Display name:** PocketBase stores `report_k3j2h1g0f9.pdf` for `report.pdf`. `displayName(filename)` in
+  `lib/files.ts` strips the `_` + 10-character suffix before the extension. Pure and unit-tested.
+- **Deleted messages** show the placeholder only (the files are gone, §17.1).
+- **Edit mode** edits only the text; attachments stay visible below the textarea, without remove buttons. The text
+  of a message with attachments may be emptied.
+- `MSG_FIELDS` gains `files`, and the `messageNode` signature includes it.
+
+### 17.6 Tests
+
+- **Integration:** files-only message accepted, no text and no files rejected; a 5th file and an over-size file are
+  rejected; the file URL without a token is 403/404, with A's token works, and with C's token on an A–B DM file
+  is 404; responses carry the sandbox CSP and `nosniff` (an uploaded `.html` and `.svg` included); an edit cannot
+  add, remove or replace files; soft delete empties `files` and the old file URL returns 404; the body limit fits
+  4 × 8 MB.
+- **Unit:** `displayName`; token cache (reuse, refresh after 2 min, one in-flight request); the composer tray (add,
+  remove, limits, paste, drop); optimistic send with files, failure, and Retry with the same id and files; object
+  URLs revoked on ack, removal and unmount; image grid layout classes for 1–4 images; expired-token retry happens
+  once.
+- **E2E:** A attaches an image and a PDF and sends; B sees the thumbnail and the file chip live and can open both;
+  in a DM, C can't load the file URL even when given it; deleting the message removes the attachments for B; the
+  XSS smoke test (§9.3) also uploads an `.html` file and checks that opening it runs no script.

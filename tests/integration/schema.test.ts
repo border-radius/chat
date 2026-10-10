@@ -31,19 +31,52 @@ describe("schema (§5)", () => {
     expect(fieldsOf(cols.messages!).text!.max).toBe(LIMITS.messageText);
   });
 
+  it("users.avatar: one public raster image, 2 MB, square thumbs (§15.1)", () => {
+    const f = fieldsOf(cols.users!).avatar!;
+    expect(f).toMatchObject({ type: "file", maxSelect: 1, maxSize: LIMITS.avatarBytes, protected: false, thumbs: ["48x48", "96x96"] });
+    expect([...(f.mimeTypes as string[])].sort()).toEqual([...LIMITS.avatarTypes].sort());
+    expect(f.mimeTypes).not.toContain("image/svg+xml");
+  });
+
   it("users do not require verification", () => {
     expect(cols.users!.authRule ?? "").not.toMatch(/verified/);
   });
 
   it("rooms fields and case-insensitive unique name index", () => {
     const f = fieldsOf(cols.rooms!);
-    expect(f.name).toMatchObject({ type: "text", required: true, min: 1, max: 48 });
+    // Required for public rooms only, by pb_hooks: DMs have no name (§16.1).
+    expect(f.name).toMatchObject({ type: "text", required: false, min: 1, max: 48 });
     expect(f.created_by).toMatchObject({ type: "relation", required: true, maxSelect: 1, collectionId: cols.users!.id });
     expect(f.archived).toMatchObject({ type: "bool" });
     expect(f.archived_at).toMatchObject({ type: "date" });
     expect(f.created).toMatchObject({ type: "autodate" });
     expect(f.updated).toMatchObject({ type: "autodate" });
     expect(cols.rooms!.indexes.map(norm)).toContainEqual(expect.stringMatching(/create unique index .* on rooms \(name collate nocase\)/));
+  });
+
+  it("rooms DM fields (§16.1): kind, members, hidden dm_key with a partial unique index, last_message_at", () => {
+    const f = fieldsOf(cols.rooms!);
+    expect(f.kind).toMatchObject({ type: "select", required: true, maxSelect: 1, values: ["public", "dm"] });
+    expect(f.members).toMatchObject({ type: "relation", maxSelect: 2, collectionId: cols.users!.id });
+    expect(f.dm_key).toMatchObject({ type: "text", hidden: true });
+    expect(f.last_message_at).toMatchObject({ type: "date" });
+    const idx = cols.rooms!.indexes.map(norm);
+    expect(idx).toContainEqual(expect.stringMatching(/create unique index idx_rooms_dm_key on rooms \(dm_key\) where dm_key != ''/));
+    expect(idx).toContainEqual(
+      expect.stringMatching(/create unique index idx_rooms_name on rooms \(name collate nocase\) where name != ''/),
+    );
+  });
+
+  it("messages.files: up to 4 protected files of 8 MB, with image thumbnails (§17.1)", () => {
+    expect(fieldsOf(cols.messages!).files).toMatchObject({
+      type: "file",
+      maxSelect: LIMITS.attachments,
+      maxSize: LIMITS.attachmentBytes,
+      protected: true,
+      thumbs: ["480x360", "240x180"],
+      mimeTypes: [],
+    });
+    expect(cols.messages!.updateRule).toContain("@request.body.files:isset = false");
   });
 
   it("messages fields and (room, created, id) index", () => {

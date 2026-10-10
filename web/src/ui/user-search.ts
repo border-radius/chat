@@ -1,0 +1,117 @@
+// "New message" user search (§16.5): type a name, pick a person. Debounced, cancels stale requests.
+// Keyboard: ↓ from the input moves into the results, ↑/↓ between them, Escape closes.
+
+import { h, uniqueId } from "../dom.ts";
+import type { User } from "../lib/types.ts";
+import { type AvatarUrl, avatar } from "./avatar.ts";
+
+export const SEARCH_DEBOUNCE_MS = 200;
+
+export interface UserSearch {
+  readonly el: HTMLElement;
+  focus(): void;
+}
+
+export function createUserSearch(opts: {
+  search: (query: string, signal: AbortSignal) => Promise<User[]>;
+  avatarUrl: AvatarUrl;
+  onPick: (user: User) => void;
+  onClose: () => void;
+  signal: AbortSignal;
+}): UserSearch {
+  const { signal } = opts;
+  const id = uniqueId("user-search");
+  const input = h("input", {
+    id,
+    type: "search",
+    autocomplete: "off",
+    placeholder: "Find someone…",
+    "aria-controls": `${id}-results`,
+    "aria-describedby": `${id}-status`,
+  });
+  const status = h("p", { id: `${id}-status`, class: "search-status", role: "status" }, "Type a name.");
+  const results = h("ul", { id: `${id}-results`, class: "search-results", "aria-label": "People" });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let inflight: AbortController | null = null;
+
+  const buttons = () => [...results.querySelectorAll<HTMLButtonElement>("button")];
+
+  function show(users: User[]) {
+    status.textContent = users.length ? `${users.length === 20 ? "20+" : users.length} found` : "No one found.";
+    results.replaceChildren(
+      ...users.map((u) =>
+        h(
+          "li",
+          {},
+          h("button", { type: "button", class: "person", on: { click: () => opts.onPick(u) }, signal }, [
+            avatar(u, 24, opts.avatarUrl),
+            h("span", {}, u.name),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  async function run(query: string) {
+    inflight?.abort();
+    if (!query) {
+      status.textContent = "Type a name.";
+      results.replaceChildren();
+      return;
+    }
+    const ac = new AbortController();
+    inflight = ac;
+    status.textContent = "Searching…";
+    try {
+      const users = await opts.search(query, ac.signal);
+      if (inflight === ac && !signal.aborted) show(users);
+    } catch {
+      if (inflight === ac && !signal.aborted) status.textContent = "Couldn't search. Check your connection.";
+    }
+  }
+
+  input.addEventListener(
+    "input",
+    () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => void run(input.value.trim()), SEARCH_DEBOUNCE_MS);
+    },
+    { signal },
+  );
+
+  const el = h(
+    "div",
+    {
+      class: "user-search",
+      on: {
+        keydown: (e) => {
+          const list = buttons();
+          const at = list.indexOf(document.activeElement as HTMLButtonElement);
+          if (e.key === "Escape") {
+            e.preventDefault();
+            opts.onClose();
+          } else if (e.key === "ArrowDown" && list.length) {
+            e.preventDefault();
+            list[Math.min(at + 1, list.length - 1)]!.focus();
+          } else if (e.key === "ArrowUp" && at >= 0) {
+            e.preventDefault();
+            if (at === 0) input.focus();
+            else list[at - 1]!.focus();
+          }
+        },
+      },
+      signal,
+    },
+    [h("label", { for: id, class: "visually-hidden" }, "Find someone to message"), input, status, results],
+  );
+  signal.addEventListener(
+    "abort",
+    () => {
+      clearTimeout(timer);
+      inflight?.abort();
+    },
+    { once: true },
+  );
+
+  return { el, focus: () => input.focus() };
+}

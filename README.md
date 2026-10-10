@@ -2,14 +2,17 @@
 
 A small, fast, real-time group chat. One [PocketBase](https://pocketbase.io) binary is the whole backend
 (auth, data, realtime, static files); the frontend is vanilla TypeScript bundled by esbuild — no framework,
-~21 KB of JS gzipped.
+~28 KB of JS gzipped.
 
 - Public rooms anyone can create; hide rooms you don't care about; creators archive rooms (read-only, history kept)
 - Live messages, edits and deletes (deleted messages leave a placeholder)
 - Full history: scroll back to the very first message of any room (windowed, ≤300 messages in the DOM)
+- Direct messages between any two users, private to them; close a conversation and it comes back on the next message
+- Avatars (or colored initials) and a profile page to change your picture and display name
+- Attachments: up to 4 files per message, images shown as thumbnails; files are private to whoever can read the message
 - Optimistic sending with safe retries, reconnect gap-fill, light/dark themes, works on phones
 
-Design: [`docs/DESIGN.md`](docs/DESIGN.md) · Refactoring plan: [`docs/REFACTOR.md`](docs/REFACTOR.md) · Original build plan (archived): [`docs/history/BUILD_PLAN.md`](docs/history/BUILD_PLAN.md)
+Design: [`docs/DESIGN.md`](docs/DESIGN.md) · Refactoring plan: [`docs/REFACTOR.md`](docs/REFACTOR.md) · Archived plans: [MVP build](docs/history/BUILD_PLAN.md), [avatars, DMs, attachments](docs/history/NEXT_FEATURES_PLAN.md)
 
 ## Requirements
 
@@ -50,7 +53,7 @@ clean up. CI (`.github/workflows/ci.yml`) runs `check`, then e2e on Chromium, Fi
 
 ```
 pb_migrations/   schema + API rules (the source of truth for access control)
-pb_hooks/        server-side hooks: trimming, soft delete, edit/archive stamps, security headers
+pb_hooks/        server-side hooks: trimming, soft delete, edit/archive stamps, DM route + guards, security headers
 web/src/         frontend: api.ts (only SDK user), router, store, views/, lib/ (pure logic)
 web/styles/      the one stylesheet
 scripts/         build, dev, fetch-pocketbase, html-sink check
@@ -96,5 +99,7 @@ Behind an existing reverse proxy instead, use `serve --http=127.0.0.1:8090` and 
 `/api/realtime` unbuffered — it is a Server-Sent Events stream).
 
 **Backups:** in the admin UI, *Settings → Backups* — schedule automatic backups (optionally to S3-compatible
-storage). **Rate limits** (per IP: messages 10 per 5 s, edits/deletes 20 per 10 s, new rooms 5 per minute, signups 20
-per minute; PocketBase defaults for the rest) are set by the migrations and adjustable under *Settings → Rate limits*.
+storage). Uploaded files (avatars, attachments) live in `pb_data/storage` (or S3, under *Settings → Files storage*) and
+are part of the backups, so plan disk space for them. **Rate limits** (per IP: messages 10 per 5 s, edits/deletes 20
+per 10 s, new rooms 5 per minute, opening DMs 10 per minute, signups 20 per minute; PocketBase defaults for the rest)
+are set by the migrations and adjustable under *Settings → Rate limits*.

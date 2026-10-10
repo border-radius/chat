@@ -8,6 +8,7 @@ import { type AppState, createStore, initialState, type Store } from "../../../w
 import { createRoomView } from "../../../web/src/views/room.ts";
 import { instrument, intercept, type SignedUp, seedMessages, signedUp, uniq, viewContext } from "../../support/api.ts";
 import { fakeLayout, installIntersectionObserver } from "../../support/dom.ts";
+import { pngFile } from "../../support/files.ts";
 
 const ROW = 40;
 const VIEWPORT = 400;
@@ -1048,6 +1049,253 @@ describe("room view (§7.5–7.6)", () => {
       expect(button(headerMenu(), "Hide room")).toBeNull();
       button(headerMenu(), "Unhide room")!.click();
       await vi.waitFor(() => expect(store.get().hidden.has(theirs.id)).toBe(false));
+    });
+  });
+
+  describe("attachments (§17.4, §17.5)", () => {
+    const pdf = (name = "doc.pdf") => new File(["%PDF"], name, { type: "application/pdf" });
+    const tiles = (id: string) => [...msgEl(id)!.querySelectorAll<HTMLElement>(".att-tile")];
+    const chips = (id: string) => [...msgEl(id)!.querySelectorAll<HTMLAnchorElement>("a.att-file")];
+    let revoked: string[];
+
+    beforeEach(() => {
+      let n = 0;
+      revoked = [];
+      vi.spyOn(URL, "createObjectURL").mockImplementation(() => `blob:local-${++n}`);
+      vi.spyOn(URL, "revokeObjectURL").mockImplementation((u) => void revoked.push(u));
+    });
+
+    function paste(files: File[]) {
+      const e = new Event("paste", { bubbles: true, cancelable: true });
+      Object.defineProperty(e, "clipboardData", { value: { files } });
+      composer()!.dispatchEvent(e);
+    }
+
+    it("a pending message shows local previews; the server version replaces them and the previews are released", async () => {
+      const room = await newRoom();
+      const ctl = instrument(me.api);
+      await mount(room);
+      const release = ctl.hold("send");
+      paste([pngFile("a.png"), pdf()]);
+      await vi.waitFor(() => expect(root.querySelectorAll(".tray-item")).toHaveLength(2));
+      key(composer()!, "Enter");
+      const pending = msgEls().at(-1)!;
+      expect(pending.classList.contains("pending")).toBe(true);
+      expect(pending.querySelector(".att-tile img")!.getAttribute("src")).toBe("blob:local-1");
+      expect(pending.querySelector(".att-file")!.textContent).toBe("doc.pdf");
+      release();
+      const id = pending.dataset.id!;
+      await vi.waitFor(() => expect(msgEl(id)!.classList.contains("pending")).toBe(false));
+      const img = msgEl(id)!.querySelector<HTMLImageElement>(".att-tile img")!;
+      expect(img.getAttribute("src")).toMatch(/thumb=480x360/);
+      expect(img.getAttribute("src")).toMatch(/token=/);
+      expect(chips(id).map((a) => a.textContent)).toEqual(["doc.pdf"]);
+      expect(revoked).toEqual(["blob:local-1"]);
+    });
+
+    it("a failed send keeps its files; Retry sends the same id with the same files", async () => {
+      const room = await newRoom();
+      const ctl = instrument(me.api);
+      ctl.failNext("send", new ApiError("offline", 0));
+      // Outside the failure injection, so the failed attempt is recorded too.
+      const calls: { id: string; files?: File[] }[] = [];
+      intercept(me.api, "send", (original) => (m) => {
+        calls.push({ id: m.id, ...(m.files ? { files: m.files } : {}) });
+        return original(m);
+      });
+      await mount(room);
+      paste([pngFile("a.png")]);
+      await vi.waitFor(() => expect(root.querySelectorAll(".tray-item")).toHaveLength(1));
+      key(composer()!, "Enter");
+      await vi.waitFor(() => expect(root.querySelector("li.msg.failed")).not.toBeNull());
+      const id = root.querySelector<HTMLElement>("li.msg.failed")!.dataset.id!;
+      expect(tiles(id)).toHaveLength(1);
+      button(msgEl(id), "Retry")!.click();
+      await vi.waitFor(() => expect(msgEl(id)!.classList.contains("failed")).toBe(false));
+      await vi.waitFor(() => expect(msgEl(id)!.classList.contains("pending")).toBe(false));
+      expect(calls.map((c) => c.id)).toEqual([id, id]);
+      expect(calls[1]!.files![0]).toBe(calls[0]!.files![0]);
+      expect((await me.api.getMessage(id)).files).toHaveLength(1);
+    });
+
+    it("discarding a failed send with files releases its previews", async () => {
+      const room = await newRoom();
+      const ctl = instrument(me.api);
+      ctl.failNext("send", new ApiError("offline", 0));
+      await mount(room);
+      paste([pngFile("a.png")]);
+      await vi.waitFor(() => expect(root.querySelectorAll(".tray-item")).toHaveLength(1));
+      key(composer()!, "Enter");
+      await vi.waitFor(() => expect(root.querySelector("li.msg.failed")).not.toBeNull());
+      button(root.querySelector("li.msg.failed"), "Discard")!.click();
+      expect(revoked).toEqual(["blob:local-1"]);
+    });
+
+    it("unmount releases the previews of messages still sending", async () => {
+      const room = await newRoom();
+      const ctl = instrument(me.api);
+      await mount(room);
+      ctl.hold("send");
+      paste([pngFile("a.png")]);
+      await vi.waitFor(() => expect(root.querySelectorAll(".tray-item")).toHaveLength(1));
+      key(composer()!, "Enter");
+      view!.unmount();
+      view = undefined;
+      expect(revoked).toEqual(["blob:local-1"]);
+    });
+
+    it("one image is a large 240×180 tile; several are 120×90 grid tiles; other files are download chips", async () => {
+      const other = await signedUp("Other");
+      const room = await newRoom();
+      const one = await other.api.send({ id: newId(), room: room.id, text: "one", files: [pngFile("solo.png")] });
+      const many = await other.api.send({
+        id: newId(),
+        room: room.id,
+        text: "",
+        files: [pngFile("a.png"), pngFile("b.png"), pngFile("c.png"), pdf("report.pdf")],
+      });
+      await mount(room);
+      const [solo] = tiles(one.id);
+      expect(solo!.closest(".att-images")!.classList.contains("one")).toBe(true);
+      const big = solo!.querySelector("img")!;
+      expect([big.getAttribute("width"), big.getAttribute("height"), big.getAttribute("loading")]).toEqual(["240", "180", "lazy"]);
+      expect(big.getAttribute("alt")).toBe("solo.png");
+      expect(solo!.getAttribute("target")).toBe("_blank");
+
+      const grid = tiles(many.id);
+      expect(grid).toHaveLength(3);
+      expect(grid[0]!.closest(".att-images")!.classList.contains("grid")).toBe(true);
+      expect(grid.map((t) => t.querySelector("img")!.getAttribute("width"))).toEqual(["120", "120", "120"]);
+      expect(grid[0]!.querySelector("img")!.getAttribute("src")).toMatch(/thumb=240x180/);
+      const [chip] = chips(many.id);
+      expect(chip!.textContent).toBe("report.pdf");
+      expect(chip!.getAttribute("download")).toBe("report.pdf");
+      expect(chip!.getAttribute("href")).toMatch(/token=/);
+    });
+
+    it("a deleted message shows no attachments; editing keeps them visible", async () => {
+      const room = await newRoom();
+      const m = await me.api.send({ id: newId(), room: room.id, text: "pic", files: [pngFile()] });
+      await mount(room);
+      button(msgEl(m.id), "Edit")!.click();
+      expect(tiles(m.id)).toHaveLength(1);
+      key(root.querySelector("textarea.edit-input")!, "Escape");
+      button(msgEl(m.id), "Delete")!.click();
+      button(msgEl(m.id), "Delete message")!.click();
+      await vi.waitFor(() => expect(msgEl(m.id)!.classList.contains("deleted")).toBe(true));
+      expect(tiles(m.id)).toHaveLength(0);
+    });
+
+    it("an image that fails to load retries once with a new token, then offers Retry", async () => {
+      const room = await newRoom();
+      const m = await me.api.send({ id: newId(), room: room.id, text: "", files: [pngFile()] });
+      const ctl = instrument(me.api);
+      await mount(room);
+      const before = ctl.calls("fileToken");
+      const img = () => msgEl(m.id)!.querySelector<HTMLImageElement>(".att-tile img");
+      img()!.dispatchEvent(new Event("error"));
+      await vi.waitFor(() => expect(ctl.calls("fileToken")).toBe(before + 1));
+      img()!.dispatchEvent(new Event("error"));
+      expect(img()).toBeNull();
+      const broken = msgEl(m.id)!.querySelector(".att-broken")!;
+      expect(broken.textContent).toContain("Couldn't load image");
+      button(broken, "Retry")!.click();
+      expect(img()).not.toBeNull();
+    });
+  });
+
+  describe("direct messages (§16.5)", () => {
+    const menuLabels = () => [...headerMenu().querySelectorAll(".menu-items button")].map((b) => b.textContent);
+
+    it("a DM is titled after the other member, with their avatar; the composer and beginning say who", async () => {
+      const bob = await signedUp("Bob Builder");
+      const dm = await me.api.openDm(bob.user.id);
+      await mount(dm);
+      const h1 = root.querySelector("header.room-header h1")!;
+      expect(h1.querySelector("span:not(.avatar)")!.textContent).toBe("Bob Builder");
+      expect(h1.querySelector(".avatar")!.textContent).toBe("BB");
+      expect(composer()!.placeholder).toBe("Message Bob Builder");
+      expect(beginning()!.textContent).toBe("Beginning of your conversation with Bob Builder");
+    });
+
+    it("its menu offers Close conversation and Jump to beginning, never Archive; closing goes home", async () => {
+      const bob = await signedUp("Bob");
+      const dm = await me.api.openDm(bob.user.id);
+      await mount(dm);
+      expect(menuLabels()).toEqual(["Close conversation", "Jump to beginning"]);
+      button(headerMenu(), "Close conversation")!.click();
+      await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith("#/"));
+      expect(store.get().hidden.has(dm.id)).toBe(true);
+    });
+
+    it("a closed DM opened by URL can be reopened", async () => {
+      const bob = await signedUp("Bob");
+      const dm = await me.api.openDm(bob.user.id);
+      await me.api.hideRoom(dm.id);
+      await mount(dm);
+      await vi.waitFor(() => expect(menuLabels()[0]).toBe("Reopen conversation"));
+      button(headerMenu(), "Reopen conversation")!.click();
+      await vi.waitFor(() => expect(store.get().hidden.has(dm.id)).toBe(false));
+    });
+
+    it("someone else's DM is not found", async () => {
+      const bob = await signedUp("Bob");
+      const cat = await signedUp("Cat");
+      const theirs = await bob.api.openDm(cat.user.id);
+      view = createRoomView(viewContext(me.api, store, navigate));
+      view.mount(root, { id: theirs.id });
+      await vi.waitFor(() => expect(root.textContent).toContain("This room doesn't exist."));
+    });
+
+    it("another author's name opens a menu with Message, which opens the DM; your own name has none", async () => {
+      const bob = await signedUp("Bob");
+      const room = await newRoom();
+      await bob.api.send({ id: newId(), room: room.id, text: "hi from bob" });
+      await me.api.send({ id: newId(), room: room.id, text: "hi from me" });
+      await mount(room);
+      const [theirs, mine] = msgEls();
+      expect(mine!.querySelector("details.author-menu")).toBeNull();
+      const authorMenu = theirs!.querySelector<HTMLDetailsElement>("details.author-menu")!;
+      expect(authorMenu.querySelector("summary.author")!.textContent).toBe("Bob");
+      authorMenu.open = true;
+      button(authorMenu, "Message")!.click();
+      await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith(expect.stringMatching(/^#\/r\//)));
+      const dmId = navigate.mock.calls.at(-1)![0].slice(4);
+      expect(store.get().rooms.get(dmId)?.members).toContain(bob.user.id);
+    });
+  });
+
+  describe("avatars (§15.4)", () => {
+    const avatarOf = (el: Element) => el.querySelector(".avatar");
+
+    it("each author group starts with the author's avatar (or initials); continuations have none", async () => {
+      const other = await signedUp("Other Person");
+      const pic = await other.api.setAvatar(pngFile());
+      const room = await newRoom();
+      await other.api.send({ id: newId(), room: room.id, text: "one" });
+      await other.api.send({ id: newId(), room: room.id, text: "two" });
+      await me.api.send({ id: newId(), room: room.id, text: "three" });
+      await mount(room);
+      const [first, second, third] = msgEls();
+      const img = avatarOf(first!) as HTMLImageElement;
+      expect(img.tagName).toBe("IMG");
+      expect(img.getAttribute("src")).toContain(pic.avatar);
+      expect(avatarOf(second!)).toBeNull();
+      expect(avatarOf(third!)!.textContent).toBe("M");
+    });
+
+    it("a message whose author's avatar changed is re-rendered", async () => {
+      const room = await newRoom();
+      const handlers = captureHandler(me.api);
+      const m = await me.api.send({ id: newId(), room: room.id, text: "hi" });
+      await mount(room);
+      expect(avatarOf(msgEl(m.id)!)!.tagName).toBe("SPAN");
+      handlers[0]!("update", {
+        ...m,
+        updated: "2999-01-01 00:00:00.000Z",
+        expand: { author: { ...me.user, avatar: "new_abcdefghij.png" } },
+      });
+      await vi.waitFor(() => expect(avatarOf(msgEl(m.id)!)!.getAttribute("src")).toContain("new_abcdefghij.png"));
     });
   });
 });

@@ -1,6 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, type Page, test } from "@playwright/test";
-import { apiRoom, apiSend, apiUser, login } from "./fixtures.ts";
+import { PNG } from "../support/files.ts";
+import { apiRoom, apiSend, apiUser, attach, login, send } from "./fixtures.ts";
 
 async function seriousViolations(page: Page) {
   const { violations } = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
@@ -31,12 +32,37 @@ for (const colorScheme of ["light", "dark"] as const) {
       await expect(page.locator("li.msg")).toHaveCount(2);
       expect(await seriousViolations(page), "room").toEqual([]);
 
+      // attachments: a sent image + file, and a filled tray (§17)
+      const files = [
+        { name: "a.png", mimeType: "image/png", buffer: Buffer.from(PNG) },
+        { name: "b.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF") },
+      ];
+      await attach(page, files);
+      await send(page, "files");
+      await expect(page.locator(".att-tile")).toHaveCount(1);
+      await attach(page, files);
+      expect(await seriousViolations(page), "attachments").toEqual([]);
+
       await page.goto(`/#/r/${archived.id}`);
       await page.locator("header.room-header summary").click();
       await page.locator(".menu-items").getByRole("button", { name: "Archive room" }).click();
       await page.locator(".menu-items").getByRole("button", { name: "Archive", exact: true }).click();
       await expect(page.locator(".archived-banner")).toBeVisible();
       expect(await seriousViolations(page), "archived room").toEqual([]);
+
+      // A DM, with the user search open in the sidebar.
+      await page.goto("/#/");
+      await page.getByRole("button", { name: "New message" }).click();
+      await page.getByLabel("Find someone to message").fill("Bob");
+      await expect(page.locator(".user-search button.person").first()).toBeVisible();
+      expect(await seriousViolations(page), "user search").toEqual([]);
+      await page.locator(".user-search button.person", { hasText: "Bob" }).first().click();
+      await expect(page.locator("header.room-header h1")).toContainText("Bob");
+      expect(await seriousViolations(page), "dm").toEqual([]);
+
+      await page.goto("/#/me");
+      await expect(page.getByRole("heading", { name: "Your profile" })).toBeVisible();
+      expect(await seriousViolations(page), "profile").toEqual([]);
     });
   });
 }

@@ -58,7 +58,7 @@ describe("login view (§7.1)", () => {
     const { api } = mount();
     fill(root, { email: ada.email, password: ada.password });
     submit(root);
-    await vi.waitFor(() => expect(onLogin).toHaveBeenCalledWith({ id: ada.user.id, name: "Ada" }));
+    await vi.waitFor(() => expect(onLogin).toHaveBeenCalledWith({ id: ada.user.id, name: "Ada", avatar: "" }));
     expect(api.currentUser()).toEqual(ada.user);
   });
 
@@ -67,7 +67,7 @@ describe("login view (§7.1)", () => {
     tab(root, "Sign up").click();
     fill(root, { name: "Grace", email: `${uniq()}@test.local`, password: "password-123" });
     submit(root);
-    await vi.waitFor(() => expect(onLogin).toHaveBeenCalledWith({ id: expect.any(String), name: "Grace" }));
+    await vi.waitFor(() => expect(onLogin).toHaveBeenCalledWith({ id: expect.any(String), name: "Grace", avatar: "" }));
     expect(api.currentUser()?.name).toBe("Grace");
   });
 
@@ -83,7 +83,7 @@ describe("login view (§7.1)", () => {
     expect(tab(root, "Log in").getAttribute("aria-selected")).toBe("true");
     expect(root.querySelector<HTMLInputElement>('input[name="email"]')!.value).toBe(email);
     submit(root);
-    await vi.waitFor(() => expect(onLogin).toHaveBeenCalledWith({ id: expect.any(String), name: "Grace" }));
+    await vi.waitFor(() => expect(onLogin).toHaveBeenCalledWith({ id: expect.any(String), name: "Grace", avatar: "" }));
   });
 
   it("checks the display name length in characters (an emoji is one), before asking the server", async () => {

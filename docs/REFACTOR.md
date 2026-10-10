@@ -158,7 +158,7 @@ Every view has the same fields: `ac`, `active`, `subs: Promise<Unsubscribe>[]`, 
 
 ## Not recommended
 
-- **Adding a UI framework.** The `h()` + `reconcile()` approach fits the 25 KB budget and the strict no-HTML-sink
+- **Adding a UI framework.** The `h()` + `reconcile()` approach fits the JS budget (§7.7) and the strict no-HTML-sink
   rule. The friction comes from duplicated lifecycle and menu code (items 5 and 7), not from missing reactivity.
 - **Merging the API rules and the hooks.** The overlap, such as the archived checks in both, is deliberate
   defense in depth for superuser writes.

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Room } from "../../web/src/lib/types.ts";
-import { type AppState, createStore, initialState, roomSections } from "../../web/src/store.ts";
+import { type AppState, createStore, initialState, roomSections, unmarkHiddenRoom } from "../../web/src/store.ts";
 
 const room = (id: string, name: string, p: Partial<Room> = {}): Room => ({ id, name, archived: false, created_by: "u1", ...p });
 
@@ -79,7 +79,7 @@ describe("roomSections (§7.1)", () => {
 
   it("an archived room goes to Archived even when hidden", () => {
     const s = state([room("1", "gone", { archived: true })], ["1"]);
-    expect(roomSections(s)).toEqual({ rooms: [], hidden: [], archived: [s.rooms.get("1")] });
+    expect(roomSections(s)).toEqual({ rooms: [], dms: [], hidden: [], archived: [s.rooms.get("1")] });
   });
 
   it("a hide row for an unknown room is ignored", () => {
@@ -91,5 +91,38 @@ describe("roomSections (§7.1)", () => {
     const r = room("1", "quiet");
     const { hidden } = roomSections(state([r], ["1"]));
     expect(hidden[0]).toBe(r);
+  });
+
+  describe("direct messages (§16.5)", () => {
+    const dm = (id: string, last: string, created = "2026-01-01 00:00:00.000Z", extra: Partial<Room> = {}): Room =>
+      room(id, "", { kind: "dm", members: ["me", `u${id}`], last_message_at: last, created, ...extra });
+
+    it("lists DMs by latest activity (last message, else creation), newest first", () => {
+      const s = state([
+        dm("a", "2026-03-01 00:00:00.000Z"),
+        dm("b", "", "2026-04-01 00:00:00.000Z"),
+        dm("c", "2026-05-01 00:00:00.000Z"),
+        room("p", "public"),
+      ]);
+      const { rooms, dms } = roomSections(s);
+      expect(dms.map((r) => r.id)).toEqual(["c", "b", "a"]);
+      expect(rooms.map((r) => r.id)).toEqual(["p"]);
+    });
+
+    it("closed (hidden) DMs are left out entirely; a DM is never in Hidden or Archived", () => {
+      const s = state([dm("a", ""), dm("b", "", undefined, { archived: true })], ["a"]);
+      const { dms, hidden, archived } = roomSections(s);
+      expect(dms.map((r) => r.id)).toEqual(["b"]);
+      expect(hidden).toEqual([]);
+      expect(archived).toEqual([]);
+    });
+  });
+});
+
+describe("unmarkHiddenRoom", () => {
+  it("drops the room's hidden row, and is a no-op when it isn't hidden", () => {
+    const s = { ...initialState(), hidden: new Map([["r1", "h1"]]) };
+    expect(unmarkHiddenRoom("r1")(s).hidden?.size).toBe(0);
+    expect(unmarkHiddenRoom("r2")(s)).toEqual({});
   });
 });

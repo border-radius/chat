@@ -10,6 +10,14 @@ export const LIMITS = {
   roomName: 48,
   /** users password min (PocketBase's auth default) */
   passwordMin: 8,
+  /** users.avatar maxSize (§15.1) */
+  avatarBytes: 2 * 1024 * 1024,
+  /** users.avatar mimeTypes (§15.1) */
+  avatarTypes: ["image/jpeg", "image/png", "image/webp", "image/gif"],
+  /** messages.files maxSelect (§17.1) */
+  attachments: 4,
+  /** messages.files maxSize, per file (§17.1) */
+  attachmentBytes: 8 * 1024 * 1024,
 } as const;
 
 /** Length as PocketBase counts it for these limits: Unicode code points, not UTF-16 units (an emoji is 1, not 2). */

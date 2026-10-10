@@ -18,7 +18,7 @@ describe("security and cache headers (§5.6)", () => {
     const res = await fetch(url("/"));
     expect(res.status).toBe(200);
     const csp = res.headers.get("content-security-policy") ?? "";
-    for (const d of ["default-src 'self'", "script-src 'self'", "style-src 'self'", "connect-src 'self'", "img-src 'self' data:"]) {
+    for (const d of ["default-src 'self'", "script-src 'self'", "style-src 'self'", "connect-src 'self'", "img-src 'self' data: blob:"]) {
       expect(csp).toContain(d);
     }
     expect(csp).not.toContain("unsafe-inline");

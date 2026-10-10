@@ -101,6 +101,20 @@ describe("history pagination at scale (§6, §7.5)", () => {
       ].map((sql) =>
         (db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(roomId, "x", "x", "x") as { detail: string }[]).map((r) => r.detail).join(" | "),
       );
+      // The same pages with the DM-aware list rule (§16.3) joined in, shaped like PocketBase's generated SQL.
+      const ruled = (cursor: string, order: string) =>
+        `SELECT messages.* FROM messages LEFT JOIN rooms r ON r.id = messages.room WHERE messages.room = ? AND ${cursor} ` +
+        `AND (r.kind = 'public' OR EXISTS (SELECT 1 FROM json_each(r.members) m WHERE m.value = ?)) ORDER BY ${order} LIMIT 50`;
+      plans.push(
+        ...[
+          ruled("(messages.created < ? OR (messages.created = ? AND messages.id < ?))", "messages.created DESC, messages.id DESC"),
+          ruled("(messages.created > ? OR (messages.created = ? AND messages.id > ?))", "messages.created ASC, messages.id ASC"),
+        ].map((sql) =>
+          (db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(roomId, "x", "x", "x", "me") as { detail: string }[])
+            .map((r) => r.detail)
+            .join(" | "),
+        ),
+      );
       for (const plan of plans) {
         expect(plan).toContain("idx_messages_room_created");
         expect(plan).not.toMatch(/USE TEMP B-TREE FOR ORDER BY/);

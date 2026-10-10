@@ -5,6 +5,7 @@ import { expect, inject } from "vitest";
 import { uniq } from "../support/ids.ts";
 import { SUPERUSER } from "../support/pocketbase.ts";
 
+export { PNG, pngFile } from "../support/files.ts";
 export { uniq } from "../support/ids.ts";
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -99,4 +100,10 @@ export async function eventually(fn: () => void, ms = 2_000): Promise<void> {
       await sleep(25);
     }
   }
+}
+
+/** POST /api/chat/dms as `u` (§16.2): the DM room with `other`. */
+export function openDm(u: TestUser, other: string | TestUser): Promise<RecordModel> {
+  const user = typeof other === "string" ? other : other.user.id;
+  return u.pb.send<RecordModel>("/api/chat/dms", { method: "POST", body: { user } });
 }

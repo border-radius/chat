@@ -7,7 +7,9 @@ import { clear, h } from "./dom.ts";
 import { createRouter, type Router, type View } from "./router.ts";
 import { type AppState, createStore, initialState, type Store } from "./store.ts";
 import { createSync } from "./sync.ts";
+import { avatar } from "./ui/avatar.ts";
 import { createLoginView } from "./views/login.ts";
+import { createProfileView } from "./views/profile.ts";
 import { createRoomView } from "./views/room.ts";
 import { createRoomsView } from "./views/rooms.ts";
 
@@ -99,7 +101,10 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     if (!user) return;
     header.append(
       h("span", { class: "brand" }, "Chat"),
-      h("span", { class: "who" }, user.name),
+      h("a", { href: "#/me", class: "me-link", title: "Your profile" }, [
+        avatar(user, 24, api.avatarUrl),
+        h("span", { class: "who" }, user.name),
+      ]),
       h("button", { type: "button", class: "link", on: { click: logOut } }, "Log out"),
     );
   }
@@ -133,6 +138,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
       { pattern: "#/", view: rooms },
       { pattern: "#/r/:id", view: roomPage },
       { pattern: "#/r/:id/m/:msgId", view: roomPage },
+      { pattern: "#/me", view: withSidebar(rooms, () => createProfileView(ctx)) },
     ],
   });
 

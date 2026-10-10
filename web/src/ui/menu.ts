@@ -18,13 +18,19 @@ export interface ActionMenu {
   close(): void;
 }
 
-export function createActionMenu(opts: { label: string; signal: AbortSignal }): ActionMenu {
+/**
+ * `label` names the menu for assistive tech. With `summary`, the toggle shows that text (which then is its name,
+ * e.g. an author's name) instead of "⋯"; `className` goes on the toggle.
+ */
+export function createActionMenu(opts: { label: string; summary?: string; className?: string; signal: AbortSignal }): ActionMenu {
   const { signal } = opts;
   let items: readonly MenuItem[] = [];
   let shape = "";
   let confirming: string | null = null;
 
-  const summary = h("summary", { "aria-label": opts.label }, "⋯");
+  const summary = opts.summary
+    ? h("summary", { class: opts.className ?? "" }, opts.summary)
+    : h("summary", { "aria-label": opts.label, class: opts.className ?? "" }, "⋯");
   const body = h("div", { class: "menu-items" });
   const el = h(
     "details",

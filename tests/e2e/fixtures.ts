@@ -129,3 +129,10 @@ export async function headerAction(page: Page, label: string): Promise<void> {
   await page.locator("header.room-header summary").click();
   await page.locator("header.room-header .menu-items").getByRole("button", { name: label, exact: true }).click();
 }
+
+/** Attach files through the composer's (hidden) file input, and wait for them to show in the tray. */
+export async function attach(page: Page, files: { name: string; mimeType: string; buffer: Buffer }[]): Promise<void> {
+  const before = await page.locator(".tray-item").count();
+  await page.locator("form.composer input[type=file]").setInputFiles(files);
+  await expect(page.locator(".tray-item")).toHaveCount(before + files.length);
+}

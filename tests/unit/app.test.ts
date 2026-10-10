@@ -45,6 +45,22 @@ describe("app boot (§7.1)", () => {
     expect(logoutButton()).toBeDefined();
   });
 
+  it("the app bar shows your avatar and name, linking to #/me, and follows profile changes (§15.4)", async () => {
+    const { api } = await signedUp("Ada Lovelace");
+    app = startApp({ api, root });
+    const link = root.querySelector<HTMLAnchorElement>("header.app-bar a.me-link")!;
+    expect(link.getAttribute("href")).toBe("#/me");
+    expect(link.querySelector(".avatar")!.textContent).toBe("AL");
+    expect(link.querySelector(".who")!.textContent).toBe("Ada Lovelace");
+
+    location.hash = "#/me";
+    await vi.waitFor(() => expect(root.querySelector("section.profile")).not.toBeNull());
+    expect(root.querySelector("aside.sidebar")).not.toBeNull();
+    app.store.set({ user: await api.rename("Grace") });
+    expect(root.querySelector("header.app-bar .who")!.textContent).toBe("Grace");
+    await api.unsubscribeAll();
+  });
+
   it("#/r/:id shows the room with the room list as a sidebar; navigating between rooms switches the room", async () => {
     const { api } = await signedUp("Ada");
     const r1 = await api.createRoom(`one-${newId()}`);

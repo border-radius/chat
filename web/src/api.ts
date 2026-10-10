@@ -3,8 +3,10 @@
 import type PocketBase from "pocketbase";
 import { ClientResponseError, type RecordModel } from "pocketbase";
 import { PAGE_SIZE, type PageQuery } from "./lib/cursor.ts";
+import { createTokenCache } from "./lib/token.ts";
 import type { Message, Room, User } from "./lib/types.ts";
 
+export type AvatarSize = 48 | 96;
 export type Unsubscribe = () => Promise<void>;
 export type Action = "create" | "update" | "delete";
 export type RealtimeHandler<T> = (action: Action, record: T) => void;
@@ -19,6 +21,8 @@ export interface NewMessage {
   id: string;
   room: string;
   text: string;
+  /** Attachments (§17.4): sent as multipart. */
+  files?: File[];
 }
 
 /**
@@ -40,11 +44,25 @@ export interface Api {
    */
   onAuthChange(fn: () => void): () => void;
 
+  // profile (§15)
+  /** Upload a new avatar (already prepared, §15.3). Resolves to the updated user. */
+  setAvatar(file: File): Promise<User>;
+  removeAvatar(): Promise<User>;
+  rename(name: string): Promise<User>;
+  /** Thumbnail URL of a user's avatar at `size` px (48 or 96), or "" when they have none. */
+  avatarUrl(user: User, size: AvatarSize): string;
+
   // rooms
   listRooms(signal?: AbortSignal): Promise<Room[]>;
   getRoom(id: string, signal?: AbortSignal): Promise<Room>;
   createRoom(name: string): Promise<Room>;
   setArchived(id: string, archived: boolean): Promise<Room>;
+
+  // direct messages (§16)
+  /** The DM with `userId`, created on first use; reopens it if you had closed it. */
+  openDm(userId: string): Promise<Room>;
+  /** Up to 20 other users whose name contains `query`, by name. */
+  searchUsers(query: string, signal?: AbortSignal): Promise<User[]>;
 
   // hidden rooms
   listHidden(signal?: AbortSignal): Promise<HiddenRow[]>;
@@ -59,6 +77,15 @@ export interface Api {
   send(m: NewMessage): Promise<Message>;
   edit(id: string, text: string): Promise<Message>;
   softDelete(id: string): Promise<Message>;
+
+  // attachments (§17.3)
+  /** A fresh file token for protected attachments (cached; one request shared by concurrent callers). */
+  fileToken(force?: boolean): Promise<string>;
+  /**
+   * URL of an attachment (a thumbnail with `thumb`, e.g. "480x360"), signed with the cached file token.
+   * Starts a refresh in the background when the token is getting old.
+   */
+  fileUrl(m: Message, filename: string, thumb?: string): string;
 
   // realtime
   subscribeMessages(room: string, fn: RealtimeHandler<Message>): Promise<Unsubscribe>;
@@ -104,9 +131,13 @@ export function errorMessage(err: unknown): string {
 // ---- PocketBase implementation ----
 
 /** Only what the UI renders; never user emails (§6). */
-export const MSG_FIELDS = "id,room,text,created,updated,edited_at,deleted,author,expand.author.id,expand.author.name";
+export const MSG_FIELDS =
+  "id,room,text,created,updated,edited_at,deleted,files,author,expand.author.id,expand.author.name,expand.author.avatar";
 const MSG_OPTS = { expand: "author", fields: MSG_FIELDS } as const;
-const ROOM_FIELDS = "id,name,archived,created_by";
+/** Rooms with their members' public profile (DMs, §16.5); never emails. */
+export const ROOM_FIELDS =
+  "id,name,archived,created_by,kind,members,last_message_at,created,expand.members.id,expand.members.name,expand.members.avatar";
+const ROOM_OPTS = { expand: "members", fields: ROOM_FIELDS } as const;
 const HIDDEN_FIELDS = "id,room";
 
 function toApiError(e: unknown): ApiError {
@@ -133,7 +164,9 @@ async function wrap<T>(p: Promise<T>): Promise<T> {
   }
 }
 
-const toUser = (r: RecordModel): User => ({ id: r.id, name: r.name as string });
+const toUser = (r: RecordModel): User => ({ id: r.id, name: r.name as string, avatar: (r.avatar as string | undefined) ?? "" });
+/** What the profile calls return: never the email, even for yourself. */
+const USER_FIELDS = "id,name,avatar";
 
 /** SDK list options for a page of messages. `bind` is `pb.filter`: values are bound and escaped, never concatenated. */
 export function listOptions(q: PageQuery, bind: (expr: string, params: Record<string, string>) => string) {
@@ -152,6 +185,8 @@ export function createApi(pb: PocketBase): Api {
   /** Every record event of a collection, narrowed to our Action type. */
   const subscribe = <T>(collection: string, fn: RealtimeHandler<T>, opts: Record<string, unknown>) =>
     wrap(pb.collection(collection).subscribe<T>("*", (e) => fn(e.action as Action, e.record), opts));
+  const tokens = createTokenCache(() => wrap(pb.files.getToken()));
+  pb.authStore.onChange(() => tokens.reset());
   const me = () => {
     const u = api.currentUser();
     if (!u) throw new ApiError("Not logged in.", 401);
@@ -187,10 +222,31 @@ export function createApi(pb: PocketBase): Api {
       return pb.authStore.onChange(() => fn());
     },
 
-    listRooms: (signal) => wrap(rooms().getFullList<Room>({ sort: "name", fields: ROOM_FIELDS, ...abortable(signal) })),
-    getRoom: (id, signal) => wrap(rooms().getOne<Room>(id, { fields: ROOM_FIELDS, ...abortable(signal) })),
-    createRoom: async (name) => wrap(rooms().create<Room>({ name, created_by: me() }, { fields: ROOM_FIELDS })),
-    setArchived: (id, archived) => wrap(rooms().update<Room>(id, { archived }, { fields: ROOM_FIELDS })),
+    // The SDK sends a body holding a File as multipart, and refreshes the stored auth record from the response.
+    setAvatar: async (file) => toUser(await wrap(users().update(me(), { avatar: file }, { fields: USER_FIELDS }))),
+    removeAvatar: async () => toUser(await wrap(users().update(me(), { avatar: null }, { fields: USER_FIELDS }))),
+    rename: async (name) => toUser(await wrap(users().update(me(), { name }, { fields: USER_FIELDS }))),
+    avatarUrl(user, size) {
+      if (!user.avatar) return "";
+      return pb.files.getURL({ id: user.id, collectionName: "users" } as RecordModel, user.avatar, { thumb: `${size}x${size}` });
+    },
+
+    listRooms: (signal) => wrap(rooms().getFullList<Room>({ sort: "name", ...ROOM_OPTS, ...abortable(signal) })),
+    getRoom: (id, signal) => wrap(rooms().getOne<Room>(id, { ...ROOM_OPTS, ...abortable(signal) })),
+    createRoom: async (name) => wrap(rooms().create<Room>({ name, created_by: me() }, ROOM_OPTS)),
+    setArchived: (id, archived) => wrap(rooms().update<Room>(id, { archived }, ROOM_OPTS)),
+
+    openDm: (userId) => wrap(pb.send<Room>("/api/chat/dms", { method: "POST", body: { user: userId } })),
+    async searchUsers(query, signal) {
+      const opts = {
+        filter: pb.filter("name ~ {:q} && id != {:me}", { q: query, me: me() }),
+        sort: "name",
+        fields: USER_FIELDS,
+        skipTotal: true,
+        ...abortable(signal),
+      };
+      return (await wrap(users().getList(1, 20, opts))).items.map(toUser);
+    },
 
     listHidden: (signal) => wrap(hidden().getFullList<HiddenRow>({ fields: HIDDEN_FIELDS, ...abortable(signal) })),
     hideRoom: async (room) => wrap(hidden().create<HiddenRow>({ user: me(), room }, { fields: HIDDEN_FIELDS })),
@@ -205,12 +261,28 @@ export function createApi(pb: PocketBase): Api {
     getMessage: (id, signal) => wrap(messages().getOne<Message>(id, { ...MSG_OPTS, ...abortable(signal) })),
     changes: (q, signal) =>
       wrap(messages().getFullList<Message>({ ...listOptions(q, pb.filter.bind(pb)), batch: 200, ...abortable(signal) })),
-    send: async (m) => wrap(messages().create<Message>({ id: m.id, room: m.room, author: me(), text: m.text }, MSG_OPTS)),
+    send: async (m) =>
+      wrap(
+        messages().create<Message>(
+          { id: m.id, room: m.room, author: me(), text: m.text, ...(m.files?.length ? { files: m.files } : {}) },
+          MSG_OPTS,
+        ),
+      ),
     edit: (id, text) => wrap(messages().update<Message>(id, { text }, MSG_OPTS)),
     softDelete: (id) => wrap(messages().update<Message>(id, { deleted: true }, MSG_OPTS)),
 
+    fileToken: (force) => tokens.ensure(force),
+    fileUrl(m, filename, thumb) {
+      if (!tokens.fresh()) void tokens.ensure().catch(() => {});
+      const token = tokens.current();
+      return pb.files.getURL({ id: m.id, collectionName: "messages" } as RecordModel, filename, {
+        ...(token ? { token } : {}),
+        ...(thumb ? { thumb } : {}),
+      });
+    },
+
     subscribeMessages: (room, fn) => subscribe("messages", fn, { ...MSG_OPTS, filter: pb.filter("room = {:room}", { room }) }),
-    subscribeRooms: (fn) => subscribe("rooms", fn, { fields: ROOM_FIELDS }),
+    subscribeRooms: (fn) => subscribe("rooms", fn, ROOM_OPTS),
     subscribeHidden: (fn) => subscribe("hidden_rooms", fn, { fields: HIDDEN_FIELDS }),
 
     onConnect(fn) {

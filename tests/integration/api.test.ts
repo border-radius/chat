@@ -6,6 +6,7 @@ import { type Action, type Api, ApiError, createApi } from "../../web/src/api.ts
 import { latest, older, PAGE_SIZE } from "../../web/src/lib/cursor.ts";
 import { newId } from "../../web/src/lib/id.ts";
 import type { Message } from "../../web/src/lib/types.ts";
+import { pngFile } from "../support/files.ts";
 import { uniq } from "../support/ids.ts";
 
 async function eventually(fn: () => void, ms = 2_000) {
@@ -48,7 +49,7 @@ describe("createApi", () => {
       const { anon } = await setup();
       const email = `c-${uniq()}@test.local`;
       const user = await anon.signUp({ email, password: "password-123", name: "  Ada  " });
-      expect(user).toEqual({ id: expect.any(String), name: "Ada" });
+      expect(user).toEqual({ id: expect.any(String), name: "Ada", avatar: "" });
       expect(anon.currentUser()).toEqual(user);
       expect(await anon.refreshAuth()).toEqual(user);
 
@@ -75,11 +76,143 @@ describe("createApi", () => {
     });
   });
 
+  describe("profile (§15)", () => {
+    it("setAvatar uploads, removeAvatar clears; currentUser follows; avatarUrl points at a thumbnail", async () => {
+      const { a, b } = await setup();
+      const me = a.currentUser()!;
+      expect(a.avatarUrl(me, 48)).toBe("");
+
+      const set = await a.setAvatar(pngFile());
+      expect(set).toEqual({ id: me.id, name: me.name, avatar: expect.stringMatching(/\.png$/) });
+      expect(a.currentUser()).toEqual(set);
+      const url = a.avatarUrl(set, 96);
+      expect(url).toContain("thumb=96x96");
+      expect((await fetch(url)).status).toBe(200);
+
+      // what others see in message pages
+      const room = await b.createRoom(`r-${uniq()}`);
+      await a.send({ id: newId(), room: room.id, text: "hi" });
+      const [m] = await b.page(latest(room.id));
+      expect(m!.expand?.author).toEqual({ id: me.id, name: me.name, avatar: set.avatar });
+
+      const removed = await a.removeAvatar();
+      expect(removed.avatar).toBe("");
+      expect(a.currentUser()?.avatar).toBe("");
+    });
+
+    it("an invalid avatar rejects with an avatar field error", async () => {
+      const { a } = await setup();
+      const err = await rejection(a.setAvatar(new File(["<svg/>"], "x.svg", { type: "image/svg+xml" })));
+      expect(err.status).toBe(400);
+      expect(err.fields.avatar).toBeTruthy();
+    });
+
+    it("rename trims and validates", async () => {
+      const { a } = await setup();
+      expect((await a.rename("  New Name ")).name).toBe("New Name");
+      expect(a.currentUser()?.name).toBe("New Name");
+      const err = await rejection(a.rename("   "));
+      expect(err.fields.name).toBeTruthy();
+    });
+  });
+
+  describe("direct messages (§16)", () => {
+    it("openDm returns the DM with both members' public profiles; listRooms and getRoom include it for members only", async () => {
+      const { a, b } = await setup();
+      const c = realClient();
+      await c.signUp({ email: `c-${uniq()}@test.local`, password: "password-123", name: "Carol" });
+      const bob = b.currentUser()!;
+      const dm = await a.openDm(bob.id);
+      expect(dm).toMatchObject({ kind: "dm", name: "", archived: false });
+      expect(dm.expand?.members?.map((u) => u.name).sort()).toEqual(["Alice", "Bob"]);
+      expect(JSON.stringify(dm)).not.toContain("@test.local");
+
+      const listed = (await a.listRooms()).find((r) => r.id === dm.id)!;
+      expect(listed.kind).toBe("dm");
+      expect(listed.expand?.members?.find((u) => u.id === bob.id)).toEqual({ id: bob.id, name: "Bob", avatar: "" });
+      expect(JSON.stringify(listed)).not.toContain("@test.local");
+      expect((await b.getRoom(dm.id)).id).toBe(dm.id);
+      expect((await c.listRooms()).some((r) => r.id === dm.id)).toBe(false);
+      expect((await rejection(c.getRoom(dm.id))).status).toBe(404);
+      expect((await rejection(a.openDm(a.currentUser()!.id))).status).toBe(400);
+    });
+
+    it("public rooms come back as kind public with no members", async () => {
+      const { a } = await setup();
+      const r = await a.createRoom(`p-${uniq()}`);
+      expect(r).toMatchObject({ kind: "public", members: [] });
+    });
+
+    it("searchUsers matches names, excludes yourself, caps at 20, binds the query safely", async () => {
+      const { a } = await setup();
+      const tag = uniq();
+      const others = await Promise.all(
+        Array.from({ length: 22 }, async (_, i) => {
+          const u = realClient();
+          return u.signUp({
+            email: `s${i}-${uniq()}@test.local`,
+            password: "password-123",
+            name: `zz${tag} ${String(i).padStart(2, "0")}`,
+          });
+        }),
+      );
+      await a.rename(`zz${tag} me`);
+      const found = await a.searchUsers(`zz${tag}`);
+      expect(found).toHaveLength(20);
+      expect(found.map((u) => u.name)).toEqual(others.slice(0, 20).map((u) => u.name));
+      expect(found.every((u) => u.id !== a.currentUser()!.id)).toBe(true);
+      expect(JSON.stringify(found)).not.toContain("@test.local");
+      expect(await a.searchUsers(`zz${tag}" || name != "`)).toEqual([]);
+    });
+  });
+
+  describe("attachments (§17)", () => {
+    it("send uploads files; pages list them; fileUrl signs URLs with a cached token that works", async () => {
+      const { a, b } = await setup();
+      const room = await a.createRoom(`f-${uniq()}`);
+      const sent = await a.send({
+        id: newId(),
+        room: room.id,
+        text: "",
+        files: [pngFile("pic.png"), new File(["hi"], "a.txt", { type: "text/plain" })],
+      });
+      expect(sent.files).toHaveLength(2);
+      const [m] = await b.page(latest(room.id));
+      expect(m!.files).toEqual(sent.files);
+
+      expect(b.fileUrl(m!, m!.files![0]!)).not.toContain("token="); // none cached yet
+      const token = await b.fileToken();
+      expect(await b.fileToken()).toBe(token); // cached
+      const thumb = b.fileUrl(m!, m!.files![0]!, "480x360");
+      expect(thumb).toContain(`token=${token}`);
+      expect(thumb).toContain("thumb=480x360");
+      expect((await fetch(thumb)).status).toBe(200);
+      expect((await fetch(b.fileUrl(m!, m!.files![1]!))).status).toBe(200);
+    });
+
+    it("the token is dropped on logout", async () => {
+      const { a } = await setup();
+      await a.fileToken();
+      a.logOut();
+      expect(a.fileUrl({ id: "x" } as never, "f.png")).not.toContain("token=");
+    });
+  });
+
   describe("rooms", () => {
     it("create, list, get", async () => {
       const { a, b } = await setup();
       const room = await a.createRoom(` general-${uniq()} `);
-      expect(room).toEqual({ id: expect.any(String), name: room.name.trim(), archived: false, created_by: a.currentUser()!.id });
+      expect(room).toEqual({
+        id: expect.any(String),
+        name: room.name.trim(),
+        archived: false,
+        created_by: a.currentUser()!.id,
+        kind: "public",
+        members: [],
+        last_message_at: "",
+        created: expect.any(String),
+        expand: {},
+      });
       expect(await b.getRoom(room.id)).toEqual(room);
       expect((await b.listRooms()).find((r) => r.id === room.id)).toEqual(room);
     });
