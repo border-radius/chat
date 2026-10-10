@@ -1,7 +1,7 @@
 import type PocketBase from "pocketbase";
 import type { RecordModel } from "pocketbase";
 import { beforeAll, describe, expect, it } from "vitest";
-import { PAGE_SIZE, first, latest, newer, older, type Cursor, type PageQuery } from "../../web/src/lib/cursor.ts";
+import { PAGE_SIZE, first, latest, listOptions, newer, older, type Cursor, type PageQuery } from "../../web/src/lib/cursor.ts";
 import { adminClient, newRoom, newUser, rawDb, type TestUser } from "./helpers.ts";
 
 const TOTAL = 1000;
@@ -10,11 +10,8 @@ const TIES = 20;
 type Msg = RecordModel & Cursor & { text: string };
 
 async function page(pb: PocketBase, q: PageQuery): Promise<Msg[]> {
-  const res = await pb.collection("messages").getList<Msg>(1, PAGE_SIZE, {
-    filter: pb.filter(q.filter, q.params),
-    sort: q.sort,
-    skipTotal: true,
-  });
+  // Exactly the options the UI sends (§6): bound filter, sort, skipTotal, expand=author, lean fields.
+  const res = await pb.collection("messages").getList<Msg>(1, PAGE_SIZE, listOptions(q, pb.filter.bind(pb)));
   return res.items;
 }
 
@@ -73,6 +70,8 @@ describe("history pagination at scale (§6, §7.5)", () => {
       requests++;
     }
     expect(seen.map((m) => m.text)).toEqual(expected);
+    expect(seen[0]!.expand?.author?.name).toBeTruthy();
+    expect(JSON.stringify(seen)).not.toContain("@test.local");
     expect(requests).toBe(Math.ceil(TOTAL / PAGE_SIZE) + (TOTAL % PAGE_SIZE === 0 ? 1 : 0));
   });
 

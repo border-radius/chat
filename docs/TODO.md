@@ -245,47 +245,55 @@ Phase 1 is backend-only and fully covered by integration tests. Each test file u
 Everything in this phase is pure TypeScript with no DOM and no network, so the tests are the fastest in the project.
 
 ### 2.1 `lib/id.ts`
-- [ ] 🔴 Ids are 15 chars and match `/^[a-z0-9]{15}$/`. 10,000 ids have no collisions. The function uses `crypto.getRandomValues` (spy on it).
-- [ ] 🟢 `newId()`
+- [x] 🔴 Ids are 15 chars and match `/^[a-z0-9]{15}$/`. 10,000 ids have no collisions. The function uses `crypto.getRandomValues` (spy on it).
+- [x] 🟢 `newId()`
 
 ### 2.2 `lib/time.ts`
-- [ ] 🔴 With `TZ=UTC` and a fixed `now`:
+- [x] 🔴 With `TZ=UTC` and a fixed `now`:
   - a time today shows as the time only;
   - other days show the date and time;
   - the date divider label is correct;
   - formatters are created once (spy on `Intl.DateTimeFormat`).
-- [ ] 🟢 Formatting helpers
+- [x] 🟢 Formatting helpers
 
 ### 2.3 `lib/cursor.ts` (already partly done in 1.10)
-- [ ] 🔴 Unit tests: the `older(room, msg)`, `newer(room, msg)`, `latest(room)` and `first(room)` query builders give the correct filter, sort, `skipTotal` and fields. Values are passed as `pb.filter` params and never concatenated into the string.
-- [ ] 🟢 Fill in the remaining builders
+- [x] 🔴 Unit tests: the `older(room, msg)`, `newer(room, msg)`, `latest(room)` and `first(room)` query builders give the correct filter, sort, `skipTotal` and fields. Values are passed as `pb.filter` params and never concatenated into the string.
+- [x] 🟢 Fill in the remaining builders
 
 ### 2.4 `lib/messages.ts`: window model (§7.5)
-- [ ] 🔴 `merge`:
+- [x] 🔴 `merge`:
   - sorts by `(created, id)`, including for messages with the same `created` value;
   - dedupes by id;
   - a server version replaces a `pending` one;
   - the version with the later `updated` wins (edits and deletes);
   - merging an empty page is a no-op.
-- [ ] 🔴 `remove`: removes by id; an unknown id is a no-op
-- [ ] 🔴 `trim("bottom", 300)`: on 350 items, drops the newest 50 and sets `hasNewer`. `trim("top")` mirrors this and sets `hasOlder`. The function returns the dropped ids.
-- [ ] 🔴 `applyPage(win, page, dir)`: a short older page sets `hasOlder = false` and a short newer page sets `hasNewer = false`
-- [ ] 🔴 `group`:
+- [x] 🔴 `remove`: removes by id; an unknown id is a no-op
+- [x] 🔴 `trim("bottom", 300)`: on 350 items, drops the newest 50 and sets `hasNewer`. `trim("top")` mirrors this and sets `hasOlder`. The function returns the dropped ids.
+- [x] 🔴 `applyPage(win, page, dir)`: a short older page sets `hasOlder = false` and a short newer page sets `hasNewer = false`
+- [x] 🔴 `group`:
   - splits on author change;
   - splits on a gap over 5:00 but not at exactly 5:00;
   - deleted placeholders take part in grouping.
-- [ ] 🔴 `lastOwnEditable(win, me)`: skips deleted, pending and failed messages, and messages from others
-- [ ] 🟢 Implement all of the above
+- [x] 🔴 `lastOwnEditable(win, me)`: skips deleted, pending and failed messages, and messages from others
+- [x] 🟢 Implement all of the above
 
 ### 2.5 `store.ts`
-- [ ] 🔴 The emitter notifies subscribers on change, and unsubscribing stops notifications
-- [ ] 🔴 `roomSections(state)`:
+- [x] 🔴 The emitter notifies subscribers on change, and unsubscribing stops notifications
+- [x] 🔴 `roomSections(state)`:
   - Rooms and Hidden are sorted by name;
   - an archived room goes to Archived even when it is also hidden;
   - hidden rooms produce no unread count or badge data (a silent hide).
-- [ ] 🟢 Store and selectors
+- [x] 🟢 Store and selectors
 
 **✅ Gate 2:** unit tests are green, and `lib/` and `store.ts` have ≥ 95% line coverage (`vitest --coverage`, informational).
+  - **Status (2026-10-10): passed.**
+    - 81 unit tests are green, and `lib/` and `store.ts` have 100% line coverage (`npx vitest run --project unit --coverage`).
+  - **Implementation notes:**
+    - Shared record types live in `web/src/lib/types.ts`.
+    - `cursor.ts` gained `MSG_FIELDS` and `listOptions(q, pb.filter.bind(pb))`. The integration pagination test now uses `listOptions`, so the exact options the UI sends are checked against the real DB.
+    - In SDK 0.28, `pb.filter` quotes strings with `"` and escapes `"`. The injection test uses a double-quote payload for that reason.
+    - `applyPage` also trims the opposite end and returns the dropped ids, so the view can remove those DOM nodes in one pass.
+    - The unit test project runs with `TZ=UTC` for deterministic time formatting.
 
 ---
 

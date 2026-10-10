@@ -2,12 +2,19 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
+    coverage: {
+      provider: "v8",
+      include: ["web/src/**/*.ts"],
+      reporter: ["text-summary", "text"],
+    },
     projects: [
       {
         test: {
           name: "unit",
           include: ["tests/unit/**/*.test.ts"],
           environment: "happy-dom",
+          // Deterministic time formatting.
+          env: { TZ: "UTC" },
         },
       },
       {
