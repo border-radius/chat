@@ -1,9 +1,10 @@
 // Dev loop: esbuild watch (unminified, unhashed) → pb_public/, plus `pocketbase serve --dev`.
 // Ctrl-C stops both. Reload the browser manually after changes.
-import * as esbuild from "esbuild";
+
 import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { BASE_OPTIONS, OUTDIR, injectAssets } from "./lib/build-utils.mjs";
+import * as esbuild from "esbuild";
+import { BASE_OPTIONS, injectAssets, OUTDIR } from "./lib/build-utils.mjs";
 
 const PORT = process.env.PORT ?? "8090";
 

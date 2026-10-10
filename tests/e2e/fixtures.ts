@@ -1,11 +1,12 @@
 // Helpers for e2e specs: users and rooms are created through the real REST API (fast setup);
 // everything a spec asserts on goes through the real UI in a real browser.
-import { DatabaseSync } from "node:sqlite";
+
 import { join } from "node:path";
-import { expect, type Browser, type Locator, type Page } from "@playwright/test";
+import { DatabaseSync } from "node:sqlite";
+import { type Browser, expect, type Locator, type Page } from "@playwright/test";
 import { newId } from "../../web/src/lib/id.ts";
-import { E2E_BASE, E2E_DATA_DIR } from "./paths.ts";
 import { uniq } from "../support/ids.ts";
+import { E2E_BASE, E2E_DATA_DIR } from "./paths.ts";
 
 export { uniq } from "../support/ids.ts";
 
@@ -33,7 +34,11 @@ async function call<T>(path: string, init: RequestInit & { token?: string } = {}
 export async function apiUser(name = "User", base = E2E_BASE): Promise<User> {
   const email = `user-${uniq()}@test.local`; // not derived from the name, which may contain markup
   const password = "password-123";
-  await call("/api/collections/users/records", { method: "POST", body: JSON.stringify({ email, password, passwordConfirm: password, name }) }, base);
+  await call(
+    "/api/collections/users/records",
+    { method: "POST", body: JSON.stringify({ email, password, passwordConfirm: password, name }) },
+    base,
+  );
   const auth = await call<{ token: string; record: { id: string } }>(
     "/api/collections/users/auth-with-password",
     { method: "POST", body: JSON.stringify({ identity: email, password }) },
@@ -43,11 +48,19 @@ export async function apiUser(name = "User", base = E2E_BASE): Promise<User> {
 }
 
 export async function apiRoom(owner: User, name = `room-${uniq()}`, base = E2E_BASE): Promise<Room> {
-  return call<Room>("/api/collections/rooms/records", { method: "POST", token: owner.token, body: JSON.stringify({ name, created_by: owner.id }) }, base);
+  return call<Room>(
+    "/api/collections/rooms/records",
+    { method: "POST", token: owner.token, body: JSON.stringify({ name, created_by: owner.id }) },
+    base,
+  );
 }
 
 export async function apiSend(user: User, room: Room, text: string): Promise<{ id: string; text: string }> {
-  return call("/api/collections/messages/records", { method: "POST", token: user.token, body: JSON.stringify({ room: room.id, author: user.id, text }) });
+  return call("/api/collections/messages/records", {
+    method: "POST",
+    token: user.token,
+    body: JSON.stringify({ room: room.id, author: user.id, text }),
+  });
 }
 
 /**

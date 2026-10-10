@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import PocketBase, { type CollectionModel } from "pocketbase";
 import { beforeAll, describe, expect, it } from "vitest";
-import { SUPERUSER, startPocketBase } from "../support/pocketbase.ts";
 import { LIMITS } from "../../web/src/lib/limits.ts";
+import { SUPERUSER, startPocketBase } from "../support/pocketbase.ts";
 import { adminClient } from "./helpers.ts";
 
 type Field = { name: string; type: string; required?: boolean; min?: number; max?: number; [k: string]: unknown };
@@ -66,7 +66,9 @@ describe("schema (§5)", () => {
     expect(f.user).toMatchObject({ type: "relation", required: true, maxSelect: 1, cascadeDelete: true, collectionId: cols.users!.id });
     expect(f.room).toMatchObject({ type: "relation", required: true, maxSelect: 1, cascadeDelete: true, collectionId: cols.rooms!.id });
     expect(f.created).toMatchObject({ type: "autodate" });
-    expect(cols.hidden_rooms!.indexes.map(norm)).toContainEqual(expect.stringMatching(/create unique index .* on hidden_rooms \(user, room\)/));
+    expect(cols.hidden_rooms!.indexes.map(norm)).toContainEqual(
+      expect.stringMatching(/create unique index .* on hidden_rooms \(user, room\)/),
+    );
   });
 });
 

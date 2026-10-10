@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { createStore, initialState, roomSections, type AppState } from "../../web/src/store.ts";
 import type { Room } from "../../web/src/lib/types.ts";
+import { type AppState, createStore, initialState, roomSections } from "../../web/src/store.ts";
 
 const room = (id: string, name: string, p: Partial<Room> = {}): Room => ({ id, name, archived: false, created_by: "u1", ...p });
 

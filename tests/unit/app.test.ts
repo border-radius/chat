@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../web/src/api.ts";
-import { startApp, type App } from "../../web/src/app.ts";
+import { type App, startApp } from "../../web/src/app.ts";
 import { newId } from "../../web/src/lib/id.ts";
 import { instrument, newApi, signedUp } from "../support/api.ts";
 

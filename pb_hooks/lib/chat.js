@@ -1,4 +1,4 @@
-/// <reference path="../../pb_data/types.d.ts" />
+/// <reference path="../../types/pocketbase.d.ts" />
 // Shared logic for main.pb.js. PocketBase hook handlers can't see top-level variables,
 // so each handler require()s this module.
 
@@ -13,37 +13,66 @@ const CSP = [
   "frame-ancestors 'none'",
 ].join("; ");
 
+/**
+ * @param {string} field
+ * @param {string} message
+ */
 function fieldError(field, message) {
   return new BadRequestError("Failed to save record.", {
     [field]: new ValidationError("validation_invalid_value", message),
   });
 }
 
-/** Trim a text field in place (required/min validation then rejects blanks). */
+/**
+ * Trim a text field in place (required/min validation then rejects blanks).
+ * @param {core.Record} record
+ * @param {string} field
+ */
 function trim(record, field) {
   record.set(field, record.getString(field).trim());
 }
 
+/**
+ * @param {core.App} app
+ * @param {string} roomId
+ */
 function assertRoomActive(app, roomId) {
   if (!roomId) return; // the relation's own `required` validation reports this
   const room = app.findRecordById("rooms", roomId);
   if (room.getBool("archived")) throw fieldError("room", "This room is archived and read-only.");
 }
 
+/** @param {core.Record} record */
 function assertText(record) {
   trim(record, "text");
   if (record.getString("text") === "") throw fieldError("text", "Cannot be blank.");
 }
 
-/** messages create: trim + non-empty text, room must be active (§5.6). */
-function beforeMessageCreate(e) {
-  assertText(e.record);
-  assertRoomActive(e.app, e.record.getString("room"));
+/**
+ * The event's record. PocketBase always sets it in record hooks; the generated types mark it optional (a Go pointer).
+ * @param {core.RecordEvent} e
+ */
+function recordOf(e) {
+  if (!e.record) throw new Error("record hook called without a record");
+  return e.record;
 }
 
-/** messages update: soft delete, edit stamp, archived guard (§5.6). */
+/**
+ * messages create: trim + non-empty text, room must be active (§5.6).
+ * @param {core.RecordEvent} e
+ */
+function beforeMessageCreate(e) {
+  const rec = recordOf(e);
+  assertText(rec);
+  assertRoomActive(e.app, rec.getString("room"));
+}
+
+/**
+ * messages update: soft delete, edit stamp, archived guard (§5.6).
+ * @param {core.RecordEvent} e
+ */
 function beforeMessageUpdate(e) {
-  const rec = e.record;
+  const rec = recordOf(e);
   const orig = rec.original();
   assertRoomActive(e.app, orig.getString("room"));
 
@@ -65,18 +94,25 @@ function beforeMessageUpdate(e) {
   }
 }
 
-/** rooms update: stamp/clear archived_at when `archived` flips (§5.6). */
+/**
+ * rooms update: stamp/clear archived_at when `archived` flips (§5.6).
+ * @param {core.RecordEvent} e
+ */
 function beforeRoomUpdate(e) {
-  trim(e.record, "name");
-  const was = e.record.original().getBool("archived");
-  const now = e.record.getBool("archived");
-  if (!was && now) e.record.set("archived_at", new DateTime());
-  if (was && !now) e.record.set("archived_at", "");
+  const rec = recordOf(e);
+  trim(rec, "name");
+  const was = rec.original().getBool("archived");
+  const now = rec.getBool("archived");
+  if (!was && now) rec.set("archived_at", new DateTime());
+  if (was && !now) rec.set("archived_at", "");
 }
 
-/** Security + cache headers for every response (§5.6). */
+/**
+ * Security + cache headers for every response (§5.6).
+ * @param {core.RequestEvent} e
+ */
 function headers(e) {
-  const path = e.request.url.path;
+  const path = e.request?.url?.path ?? ""; // always set for a real request; optional in the generated types
   const h = e.response.header();
   h.set("X-Content-Type-Options", "nosniff");
   h.set("Referrer-Policy", "same-origin");

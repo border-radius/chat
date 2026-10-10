@@ -32,7 +32,10 @@ const cache = new Map<string, Intl.DateTimeFormat>();
 function fmt(style: keyof typeof STYLES, locale: string | undefined, ms: number): string {
   const key = `${locale ?? ""}|${style}`;
   let f = cache.get(key);
-  if (!f) cache.set(key, (f = new Intl.DateTimeFormat(locale, STYLES[style])));
+  if (!f) {
+    f = new Intl.DateTimeFormat(locale, STYLES[style]);
+    cache.set(key, f);
+  }
   return f.format(ms);
 }
 

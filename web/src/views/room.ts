@@ -2,12 +2,12 @@
 // This module owns the message window and everything that changes it (loading, realtime, sending, edits).
 // The DOM parts live in room/: header (title + actions menu), messages (the list), composer.
 
-import { ApiError, type Action } from "../api.ts";
+import { type Action, ApiError } from "../api.ts";
 import type { Ctx } from "../context.ts";
 import { clear, h, uniqueId } from "../dom.ts";
-import { PAGE_SIZE, first, latest, newer, older } from "../lib/cursor.ts";
+import { first, latest, newer, older, PAGE_SIZE } from "../lib/cursor.ts";
 import { newId } from "../lib/id.ts";
-import { applyPage, emptyWindow, lastOwnEditable, merge, remove, trim, type MessageWindow, type PageKind } from "../lib/messages.ts";
+import { applyPage, emptyWindow, lastOwnEditable, type MessageWindow, merge, type PageKind, remove, trim } from "../lib/messages.ts";
 import { isNearBottom } from "../lib/scroll.ts";
 import { parsePb, toPb } from "../lib/time.ts";
 import type { Message, Room } from "../lib/types.ts";
@@ -134,7 +134,8 @@ export function createRoomView({ api, store, actions }: Ctx): View {
     loading[side] = true;
     const g = gen;
     try {
-      const page = side === "top" ? await api.page(older(roomId, win.items[0]!), signal) : await api.page(newer(roomId, win.items.at(-1)!), signal);
+      const page =
+        side === "top" ? await api.page(older(roomId, win.items[0]!), signal) : await api.page(newer(roomId, win.items.at(-1)!), signal);
       if (applyLoaded(side === "top" ? "older" : "newer", page, g)) render({ anchor: true });
     } catch {
       /* the sentinel will trigger again */
@@ -161,7 +162,11 @@ export function createRoomView({ api, store, actions }: Ctx): View {
     const target = await api.getMessage(msgId, signal).catch(() => null);
     if (!target || target.room !== roomId) return null;
     const [before, after] = await Promise.all([api.page(older(roomId, target), signal), api.page(newer(roomId, target), signal)]);
-    const win = merge({ items: [], hasOlder: before.length >= PAGE_SIZE, hasNewer: after.length >= PAGE_SIZE }, [...before, target, ...after]);
+    const win = merge({ items: [], hasOlder: before.length >= PAGE_SIZE, hasNewer: after.length >= PAGE_SIZE }, [
+      ...before,
+      target,
+      ...after,
+    ]);
     return { win, target: target.id };
   }
 
@@ -298,7 +303,7 @@ export function createRoomView({ api, store, actions }: Ctx): View {
 
   async function retrySend(id: string) {
     const m = find(id);
-    if (!m || m.status !== "failed") return;
+    if (m?.status !== "failed") return;
     patchLocal(id, { status: "pending" });
     render();
     await deliver({ ...m, status: "pending" });
@@ -358,7 +363,15 @@ export function createRoomView({ api, store, actions }: Ctx): View {
       root = el;
       roomId = params.id!;
 
-      pill.addEventListener("click", () => (pillMode === "history" ? void jump("latest") : (scrollToBottom(), setPill(null))), { signal });
+      pill.addEventListener(
+        "click",
+        () => {
+          if (pillMode === "history") return void jump("latest");
+          scrollToBottom();
+          setPill(null);
+        },
+        { signal },
+      );
       list.addEventListener("scroll", () => pillMode === "below" && isNearBottom(list) && setPill(null), { signal });
 
       const observer = new IntersectionObserver(

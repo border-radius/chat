@@ -2,12 +2,11 @@
 
 import PocketBase, { BaseAuthStore } from "pocketbase";
 import { describe, expect, inject, it } from "vitest";
-import { ApiError, createApi, type Action, type Api } from "../../web/src/api.ts";
-import { PAGE_SIZE, latest, older } from "../../web/src/lib/cursor.ts";
+import { type Action, type Api, ApiError, createApi } from "../../web/src/api.ts";
+import { latest, older, PAGE_SIZE } from "../../web/src/lib/cursor.ts";
 import { newId } from "../../web/src/lib/id.ts";
 import type { Message } from "../../web/src/lib/types.ts";
 import { uniq } from "../support/ids.ts";
-
 
 async function eventually(fn: () => void, ms = 2_000) {
   const deadline = Date.now() + ms;
@@ -152,7 +151,12 @@ describe("createApi", () => {
       for (let i = 0; i < PAGE_SIZE + 5; i++) sent.push(await a.send({ id: newId(), room: room.id, text: `n${i}` }));
 
       const p1 = await b.page(latest(room.id));
-      expect(p1.map((m) => m.text)).toEqual(sent.slice(5).reverse().map((m) => m.text));
+      expect(p1.map((m) => m.text)).toEqual(
+        sent
+          .slice(5)
+          .reverse()
+          .map((m) => m.text),
+      );
       expect(p1[0]!.expand?.author?.name).toBe(a.currentUser()!.name);
       expect(JSON.stringify(p1)).not.toContain("@test.local");
 

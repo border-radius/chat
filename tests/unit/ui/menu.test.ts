@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createActionMenu, type ActionMenu } from "../../../web/src/ui/menu.ts";
+import { type ActionMenu, createActionMenu } from "../../../web/src/ui/menu.ts";
 
 describe("createActionMenu", () => {
   let ac: AbortController;
@@ -18,11 +18,14 @@ describe("createActionMenu", () => {
 
   const buttons = () => [...menu.el.querySelectorAll("button")].map((b) => b.textContent);
   const button = (label: string) => [...menu.el.querySelectorAll("button")].find((b) => b.textContent === label)!;
-  const escape = (el: Element) => el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+  const pressEscape = (el: Element) => el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
   const summary = () => menu.el.querySelector("summary")!;
 
   it("renders a labelled toggle and one button per item", () => {
-    menu.update([{ label: "A", run: () => {} }, { label: "B", run: () => {} }]);
+    menu.update([
+      { label: "A", run: () => {} },
+      { label: "B", run: () => {} },
+    ]);
     expect(summary().getAttribute("aria-label")).toBe("Actions");
     expect(buttons()).toEqual(["A", "B"]);
   });
@@ -60,7 +63,7 @@ describe("createActionMenu", () => {
   it("Escape closes, leaves the confirm step and focuses the toggle", () => {
     menu.update([{ label: "Archive", confirm: { text: "Sure?", action: "Yes" }, run: () => {} }]);
     button("Archive").click();
-    escape(document.activeElement!);
+    pressEscape(document.activeElement!);
     expect(menu.el.open).toBe(false);
     expect(buttons()).toEqual(["Archive"]);
     expect(document.activeElement).toBe(summary());

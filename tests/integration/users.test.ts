@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { client, expectRejected, newUser, post, newRoom, status, uniq } from "./helpers.ts";
+import { client, expectRejected, newRoom, newUser, post, status, uniq } from "./helpers.ts";
 
 describe("users rules (§5.5)", () => {
   it("anyone can sign up and use the account immediately, without verification", async () => {

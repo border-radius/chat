@@ -1,17 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { PAGE_SIZE } from "../../../web/src/lib/cursor.ts";
 import {
-  WINDOW_MAX,
   applyPage,
   compare,
   emptyWindow,
   group,
   lastOwnEditable,
+  type MessageWindow,
   merge,
   remove,
   startsGroup,
   trim,
-  type MessageWindow,
+  WINDOW_MAX,
 } from "../../../web/src/lib/messages.ts";
 import { toPb } from "../../../web/src/lib/time.ts";
 import type { Message } from "../../../web/src/lib/types.ts";
@@ -36,7 +36,8 @@ function msg(p: Partial<Message> & { sec?: number } = {}): Message {
   };
 }
 /** n messages, one second apart, starting at `from` seconds. */
-const seq = (count: number, from = 0) => Array.from({ length: count }, (_, i) => msg({ sec: from + i, id: `s${String(from + i).padStart(14, "0")}` }));
+const seq = (count: number, from = 0) =>
+  Array.from({ length: count }, (_, i) => msg({ sec: from + i, id: `s${String(from + i).padStart(14, "0")}` }));
 const win = (items: Message[], hasOlder = false, hasNewer = false): MessageWindow => ({ items, hasOlder, hasNewer });
 const ids = (w: MessageWindow) => w.items.map((m) => m.id);
 

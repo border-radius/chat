@@ -1,8 +1,15 @@
-/// <reference path="../pb_data/types.d.ts" />
+/// <reference path="../types/pocketbase.d.ts" />
 // Initial schema, API rules and rate limits — DESIGN.md §5.
 
 const AUTH = '@request.auth.id != ""';
 const NO_PUBLIC_EMAIL = "(@request.body.emailVisibility:isset = false || @request.body.emailVisibility = false)";
+
+/**
+ * `new Collection({...})` from a plain object. The JSVM accepts this form (it is PocketBase's documented one), but the
+ * generated types describe the Go structs (fields with methods, JSONArray indexes, non-null rules), so cast here once.
+ * @param {Record<string, unknown>} data
+ */
+const collection = (data) => new Collection(/** @type {any} */ (data));
 
 migrate(
   (app) => {
@@ -20,7 +27,7 @@ migrate(
     app.save(users);
 
     // rooms (§5.2)
-    const rooms = new Collection({
+    const rooms = collection({
       type: "base",
       name: "rooms",
       listRule: AUTH,
@@ -50,7 +57,7 @@ migrate(
     app.save(rooms);
 
     // messages (§5.3)
-    const messages = new Collection({
+    const messages = collection({
       type: "base",
       name: "messages",
       listRule: AUTH,
@@ -90,7 +97,7 @@ migrate(
     app.save(messages);
 
     // hidden_rooms (§5.4)
-    const hidden = new Collection({
+    const hidden = collection({
       type: "base",
       name: "hidden_rooms",
       listRule: "user = @request.auth.id",
@@ -114,7 +121,8 @@ migrate(
       { label: "users:create", audience: "@guest", duration: 60, maxRequests: 20 },
     ];
     const labels = ours.map((r) => r.label);
-    settings.rateLimits.rules = [...ours, ...settings.rateLimits.rules.filter((r) => !labels.includes(r.label))];
+    // Plain objects work here too; the generated RateLimitRule type is the Go struct (with methods).
+    settings.rateLimits.rules = [.../** @type {any[]} */ (ours), ...settings.rateLimits.rules.filter((r) => !labels.includes(r.label))];
     settings.rateLimits.enabled = true;
     app.save(settings);
   },

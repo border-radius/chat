@@ -1,11 +1,11 @@
 // App shell and boot (§7.1): restores the session, starts the room sync, wires the router, header and logout.
 
 import { createRoomActions } from "./actions.ts";
-import { ApiError, type Api } from "./api.ts";
+import { type Api, ApiError } from "./api.ts";
 import type { Ctx } from "./context.ts";
 import { clear, h } from "./dom.ts";
 import { createRouter, type Router, type View } from "./router.ts";
-import { createStore, initialState, type AppState, type Store } from "./store.ts";
+import { type AppState, createStore, initialState, type Store } from "./store.ts";
 import { createSync } from "./sync.ts";
 import { createLoginView } from "./views/login.ts";
 import { createRoomView } from "./views/room.ts";

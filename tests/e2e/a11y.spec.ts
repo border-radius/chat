@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import { apiRoom, apiSend, apiUser, login } from "./fixtures.ts";
 
 async function seriousViolations(page: Page) {

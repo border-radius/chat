@@ -3,7 +3,7 @@
 
 import type { Api } from "./api.ts";
 import type { Room } from "./lib/types.ts";
-import { markHidden, unmarkHidden, upsertRoom, type AppState, type Store } from "./store.ts";
+import { type AppState, markHidden, type Store, unmarkHidden, upsertRoom } from "./store.ts";
 
 export interface RoomActions {
   create(name: string): Promise<Room>;

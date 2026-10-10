@@ -7,8 +7,7 @@ test("hiding a room is personal; a hidden room still opens by URL; unhide restor
   const room = await apiRoom(ada);
   const a = await openRoom(browser, ada, room);
   const b = await openRoom(browser, bob, room);
-  const inSection = (page: typeof a, section: string) =>
-    page.locator(`aside.sidebar [data-section="${section}"] a[href="#/r/${room.id}"]`);
+  const inSection = (page: typeof a, section: string) => page.locator(`aside.sidebar [data-section="${section}"] a[href="#/r/${room.id}"]`);
 
   await expect(inSection(a, "rooms")).toBeVisible();
   await headerAction(a, "Hide room");

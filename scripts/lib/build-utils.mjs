@@ -65,7 +65,7 @@ export function injectAssets(template, assets) {
  * @returns {{ js: string, css: string }} paths relative to outdir
  */
 export function entryOutputs(metafile, outdir, entries) {
-  const prefix = outdir.replace(/\/$/, "") + "/";
+  const prefix = `${outdir.replace(/\/$/, "")}/`;
   const find = (/** @type {string} */ entry) => {
     const out = Object.entries(metafile.outputs).find(([, o]) => o.entryPoint === entry)?.[0];
     if (!out) throw new Error(`no esbuild output for entry ${entry}`);

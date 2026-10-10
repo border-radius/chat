@@ -22,7 +22,11 @@ describe("rooms rules (§5.2, §5.5)", () => {
     });
 
     it("anonymous users cannot create rooms", async () => {
-      await expectRejected(client().collection("rooms").create({ name: `r-${uniq()}`, created_by: "" }));
+      await expectRejected(
+        client()
+          .collection("rooms")
+          .create({ name: `r-${uniq()}`, created_by: "" }),
+      );
     });
 
     it("trims the name and rejects blank or over-long names", async () => {

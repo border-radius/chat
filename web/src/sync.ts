@@ -3,7 +3,7 @@
 
 import type { Api } from "./api.ts";
 import { createScope, type Scope } from "./scope.ts";
-import { markHidden, removeRoom, unmarkHidden, upsertRoom, type AppState, type Store } from "./store.ts";
+import { type AppState, markHidden, removeRoom, type Store, unmarkHidden, upsertRoom } from "./store.ts";
 
 export interface Sync {
   /** Load and subscribe. Call once a user is logged in. */
@@ -36,7 +36,8 @@ export function createSync({ api, store }: { api: Api; store: Store<AppState> })
   return {
     start() {
       if (scope) return;
-      const s = (scope = createScope());
+      const s = createScope();
+      scope = s;
       s.sub(
         api.subscribeRooms((action, room) => {
           if (s.active) store.set(action === "delete" ? removeRoom(room.id) : upsertRoom(room));

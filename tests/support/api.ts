@@ -4,7 +4,7 @@
 import PocketBase, { BaseAuthStore } from "pocketbase";
 import { inject, vi } from "vitest";
 import { createRoomActions } from "../../web/src/actions.ts";
-import { createApi, type Api } from "../../web/src/api.ts";
+import { type Api, createApi } from "../../web/src/api.ts";
 import type { Ctx } from "../../web/src/context.ts";
 import { newId } from "../../web/src/lib/id.ts";
 import { toPb } from "../../web/src/lib/time.ts";
@@ -74,7 +74,17 @@ export async function seedMessages(
     db.exec("BEGIN IMMEDIATE");
     for (let i = 0; i < n; i++) {
       const ts = toPb(start + i * stepMs);
-      const m: Message = { id: newId(), room, author, text: text(i), created: ts, updated: ts, edited_at: "", deleted: false, expand: { author: { id: author, name } } };
+      const m: Message = {
+        id: newId(),
+        room,
+        author,
+        text: text(i),
+        created: ts,
+        updated: ts,
+        edited_at: "",
+        deleted: false,
+        expand: { author: { id: author, name } },
+      };
       insert.run(m.id, room, author, m.text, ts, ts);
       out.push(m);
     }
@@ -119,16 +129,21 @@ export function instrument(api: Api): Controls {
 
   for (const op of Object.keys(api) as (keyof Api)[]) {
     if (SYNC.has(op)) continue;
-    intercept(api, op as AsyncOp, (original) => (async (...args: never[]) => {
-      counts.set(op, (counts.get(op) ?? 0) + 1);
-      const held = holds.get(op);
-      const queued = failures.get(op);
-      const failure = queued?.length ? queued.shift() : undefined;
-      const result = failure ? Promise.reject(failure) : (original as (...a: never[]) => Promise<unknown>)(...args);
-      result.catch(() => {}); // observed below; avoid an unhandled rejection while held
-      if (held) await held;
-      return result;
-    }) as never);
+    intercept(
+      api,
+      op as AsyncOp,
+      (original) =>
+        (async (...args: never[]) => {
+          counts.set(op, (counts.get(op) ?? 0) + 1);
+          const held = holds.get(op);
+          const queued = failures.get(op);
+          const failure = queued?.length ? queued.shift() : undefined;
+          const result = failure ? Promise.reject(failure) : (original as (...a: never[]) => Promise<unknown>)(...args);
+          result.catch(() => {}); // observed below; avoid an unhandled rejection while held
+          if (held) await held;
+          return result;
+        }) as never,
+    );
   }
 
   intercept(api, "onConnect", (original) => (fn) => {
@@ -151,7 +166,9 @@ export function instrument(api: Api): Controls {
         release();
       };
     },
-    reconnect: () => connectFns.forEach((fn) => fn(true)),
+    reconnect() {
+      for (const fn of connectFns) fn(true);
+    },
   };
 }
 

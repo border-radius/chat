@@ -42,8 +42,6 @@ describe("entryOutputs", () => {
   });
 
   it("throws when an entry has no output", () => {
-    expect(() => entryOutputs(metafile, "pb_public", { js: "web/src/other.ts", css: "web/styles/app.css" })).toThrow(
-      /web\/src\/other\.ts/,
-    );
+    expect(() => entryOutputs(metafile, "pb_public", { js: "web/src/other.ts", css: "web/styles/app.css" })).toThrow(/web\/src\/other\.ts/);
   });
 });

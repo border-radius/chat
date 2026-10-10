@@ -1,9 +1,9 @@
-import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import PocketBase, { ClientResponseError, type RecordModel, type RecordSubscription } from "pocketbase";
 import { expect, inject } from "vitest";
-import { SUPERUSER } from "../support/pocketbase.ts";
 import { uniq } from "../support/ids.ts";
+import { SUPERUSER } from "../support/pocketbase.ts";
 
 export { uniq } from "../support/ids.ts";
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

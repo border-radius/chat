@@ -6,8 +6,7 @@ state and lifecycle live**. Today every view repeats its own copy of them.
 
 Ordered by value ÷ effort. Each item should keep `npm run check` and e2e green, and should land on its own.
 
-**Progress:** all done except **14** (blocked, see there) and **15** (needs a new dev dependency: your call), the
-optional DOM-free room controller in 4, and `findLast` in 11 (needs es2023).
+**Progress:** all done except the optional DOM-free room controller in 4 and `findLast` in 11 (needs es2023).
 New modules: `sync.ts`, `actions.ts`, `context.ts`, `scope.ts`, `ui/menu.ts`, `views/room/{header,messages,composer}.ts`,
 `lib/limits.ts`. Writes stay unabortable on purpose (a send in flight should still land after navigating away).
 
@@ -124,15 +123,21 @@ Every view has the same fields: `ac`, `active`, `subs: Promise<Unsubscribe>[]`, 
 - [x] `scripts/build.mjs` and `scripts/dev.mjs` both list the entry points, `format`, `target` and `bundle`.
       Export `baseOptions` from `scripts/lib/build-utils.mjs`. `ENTRIES` is already there in spirit.
 
-### 14. Typecheck the server code — blocked
-- [ ] Blocked: finding out which PocketBase command writes `types.d.ts` needs running `pocketbase migrate`/`serve`
-      against a scratch dir, which this session's permission rules refused. Once allowed: generate it in `npm run setup`.
-- [ ] `pb_hooks/` and `pb_migrations/` aren't in `tsconfig.include`, and their `types.d.ts` reference points into
+### 14. Typecheck the server code ✅
+- [x] Done: `scripts/pb-types.sh` runs `pocketbase migrate up` against a throwaway dir, which writes `types.d.ts`, and
+      keeps it as `types/pocketbase.d.ts` (git-ignored; regenerated when the binary changes). `npm run typecheck` runs it,
+      then checks `tsconfig.server.json` (strict, no DOM). The generated types model Go structs, so the migration casts
+      its plain-object `new Collection({...})` input once (`collection()` helper), and hooks guard the optional `e.record`.
+- [x] `pb_hooks/` and `pb_migrations/` aren't in `tsconfig.include`, and their `types.d.ts` reference points into
       the git-ignored `pb_data/`. Generate the types into a tracked or cached path (`types/pocketbase.d.ts`) in
       `npm run setup`, and add a second tsconfig project for the JSVM files (`checkJs`, no DOM lib).
 
-### 15. A real linter/formatter
-- [ ] There is no formatter or linter beyond the grep-based sink check. Add Biome (one dev dependency, fast,
+### 15. A real linter/formatter ✅
+- [x] Done: Biome 2.5.14 (pinned), `biome.json` matches the existing style (2 spaces, double quotes, 140 columns).
+      `npm run lint` is part of `check`, and `npm run format` applies fixes. `noNonNullAssertion` is off because
+      `noUncheckedIndexedAccess` makes `xs[i]!` the deliberate idiom. The grep-based HTML-sink check stays: Biome has
+      no rule for DOM sinks outside React.
+- [x] There is no formatter or linter beyond the grep-based sink check. Add Biome (one dev dependency, fast,
       format + lint). Express the HTML-sink ban as a lint rule if practical, otherwise keep the script.
 
 ### 16. Test helper duplication ✅

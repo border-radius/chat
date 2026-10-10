@@ -1,6 +1,6 @@
 import PocketBase from "pocketbase";
 import { describe, expect, it } from "vitest";
-import { MSG_FIELDS, listOptions } from "../../web/src/api.ts";
+import { listOptions, MSG_FIELDS } from "../../web/src/api.ts";
 import { latest } from "../../web/src/lib/cursor.ts";
 
 describe("listOptions", () => {

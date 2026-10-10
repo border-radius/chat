@@ -3,7 +3,7 @@
 // delete confirm, inline errors); what those buttons *do* is up to the room view.
 
 import { h, reconcile } from "../../dom.ts";
-import { startsGroup, type MessageWindow } from "../../lib/messages.ts";
+import { type MessageWindow, startsGroup } from "../../lib/messages.ts";
 import { captureAnchor, restoreAnchor } from "../../lib/scroll.ts";
 import { dayLabel, formatFull, formatTime, parsePb } from "../../lib/time.ts";
 import type { Message, User } from "../../lib/types.ts";
@@ -127,7 +127,9 @@ export function createMessageList(opts: {
     const me = opts.me();
     const ms = parsePb(m.created);
     const name = m.expand?.author?.name ?? (me && m.author === me.id ? me.name : "Unknown");
-    const cls = ["msg", groupStart && "group-start", m.status, m.deleted && "deleted", targetId === m.id && "target"].filter(Boolean).join(" ");
+    const cls = ["msg", groupStart && "group-start", m.status, m.deleted && "deleted", targetId === m.id && "target"]
+      .filter(Boolean)
+      .join(" ");
 
     const parts: (HTMLElement | null)[] = [];
     if (groupStart) {
@@ -142,10 +144,17 @@ export function createMessageList(opts: {
       parts.push(...editBox(m));
     } else {
       parts.push(m.deleted ? h("div", { class: "body placeholder" }, "Message deleted") : h("div", { class: "body" }, m.text));
-      if (m.edited_at && !m.deleted) parts.push(h("span", { class: "edited", title: `Edited ${formatFull(parsePb(m.edited_at))}` }, "(edited)"));
+      if (m.edited_at && !m.deleted)
+        parts.push(h("span", { class: "edited", title: `Edited ${formatFull(parsePb(m.edited_at))}` }, "(edited)"));
     }
     if (m.status === "failed") {
-      parts.push(h("div", { class: "send-error" }, ["Not sent. ", btn("Retry", () => opts.onRetrySend(m.id)), btn("Discard", () => opts.onDiscard(m.id))]));
+      parts.push(
+        h("div", { class: "send-error" }, [
+          "Not sent. ",
+          btn("Retry", () => opts.onRetrySend(m.id)),
+          btn("Discard", () => opts.onDiscard(m.id)),
+        ]),
+      );
     }
     if (confirmDelete === m.id) {
       parts.push(
@@ -155,18 +164,33 @@ export function createMessageList(opts: {
             class: "confirm",
             role: "group",
             "aria-label": "Confirm delete",
-            on: { keydown: (e) => e.key === "Escape" && (e.preventDefault(), cancelDelete(m.id)) },
+            on: {
+              keydown: (e) => {
+                if (e.key !== "Escape") return;
+                e.preventDefault();
+                cancelDelete(m.id);
+              },
+            },
             signal,
           },
           [
             "Delete this message? ",
-            btn("Delete message", () => ((confirmDelete = null), opts.onDelete(m.id)), "danger"),
+            btn(
+              "Delete message",
+              () => {
+                confirmDelete = null;
+                opts.onDelete(m.id);
+              },
+              "danger",
+            ),
             btn("Cancel", () => cancelDelete(m.id), "cancel"),
           ],
         ),
       );
     } else if (editable && editing !== m.id) {
-      parts.push(h("div", { class: "actions" }, [btn("Edit", () => list.startEdit(m.id), "edit"), btn("Delete", () => askDelete(m.id), "delete")]));
+      parts.push(
+        h("div", { class: "actions" }, [btn("Edit", () => list.startEdit(m.id), "edit"), btn("Delete", () => askDelete(m.id), "delete")]),
+      );
     }
     if (err) parts.push(h("div", { class: "msg-error", role: "alert" }, [`${err.text} `, btn("Retry", err.retry)]));
 
@@ -179,7 +203,10 @@ export function createMessageList(opts: {
     const label = dayLabel(ms);
     const key = `${new Date(ms).toDateString()}|${label}`;
     let d = dividers.get(key);
-    if (!d) dividers.set(key, (d = h("li", { class: "day" }, label)));
+    if (!d) {
+      d = h("li", { class: "day" }, label);
+      dividers.set(key, d);
+    }
     return d;
   }
 
@@ -214,7 +241,8 @@ export function createMessageList(opts: {
     if (focusAfter) {
       const target = el.querySelector<HTMLElement>(`${byId(focusAfter.id)} ${focusAfter.selector}`);
       target?.focus();
-      if (focusAfter.caretToEnd && target instanceof HTMLTextAreaElement) target.setSelectionRange(target.value.length, target.value.length);
+      if (focusAfter.caretToEnd && target instanceof HTMLTextAreaElement)
+        target.setSelectionRange(target.value.length, target.value.length);
       focusAfter = null;
     }
   }

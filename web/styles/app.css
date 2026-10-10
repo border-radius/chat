@@ -14,7 +14,12 @@
   --highlight: #fff4c2;
   --shadow: 0 4px 16px rgb(0 0 0 / 12%);
   --radius: 8px;
-  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font:
+    15px / 1.45 system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -41,6 +46,7 @@
 
 /* Author display rules (e.g. .app-bar { display: flex }) would otherwise beat the UA [hidden] style. */
 [hidden] {
+  /* biome-ignore lint/complexity/noImportantStyles: [hidden] must win over any author display rule (see above) */
   display: none !important;
 }
 
@@ -512,13 +518,13 @@ body,
   overflow-wrap: anywhere;
 }
 
+.edited {
+  margin-left: 0.35rem;
+}
+
 .msg .body,
 .msg .edited {
   display: inline;
-}
-
-.edited {
-  margin-left: 0.35rem;
 }
 
 .placeholder {

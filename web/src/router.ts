@@ -28,7 +28,10 @@ export interface Router {
 const HOME = "#/";
 const LOGIN = "#/login";
 
-export function matchRoute<R extends { pattern: string }>(routes: readonly R[], hash: string): { route: R; params: Record<string, string> } | null {
+export function matchRoute<R extends { pattern: string }>(
+  routes: readonly R[],
+  hash: string,
+): { route: R; params: Record<string, string> } | null {
   const path = hash === "" || hash === "#" ? HOME : hash;
   const parts = path.split("/");
   for (const route of routes) {
@@ -58,7 +61,7 @@ export function createRouter(opts: { root: HTMLElement; routes: Route[]; isAuthe
   }
 
   /** Where `hash` must go instead, or null if it may be shown. */
-  function redirect(hash: string, route: Route | undefined): string | null {
+  function redirect(route: Route | undefined): string | null {
     if (!route) return HOME;
     if (!route.public && !isAuthed()) return LOGIN;
     if (route.pattern === LOGIN && isAuthed()) return HOME;
@@ -69,7 +72,7 @@ export function createRouter(opts: { root: HTMLElement; routes: Route[]; isAuthe
     if (!running) return;
     const hash = location.hash;
     const m = matchRoute(routes, hash);
-    const target = redirect(hash, m?.route);
+    const target = redirect(m?.route);
     if (target !== null && target !== hash) {
       history.replaceState(null, "", target);
       return resolve();

@@ -9,7 +9,7 @@ import type { Room } from "../lib/types.ts";
 import type { View } from "../router.ts";
 import { createScope, type Scope } from "../scope.ts";
 import { roomSections } from "../store.ts";
-import { createActionMenu, type ActionMenu, type MenuItem } from "../ui/menu.ts";
+import { type ActionMenu, createActionMenu, type MenuItem } from "../ui/menu.ts";
 
 type Section = "rooms" | "hidden" | "archived";
 
@@ -84,7 +84,10 @@ export function createRoomsView({ store, sync, actions, navigate }: Ctx): View {
     const key = `${r.id}|${r.name}`;
     live.add(key);
     let menu = menus.get(key);
-    if (!menu) menus.set(key, (menu = createActionMenu({ label: `Actions for ${r.name}`, signal: scope.signal })));
+    if (!menu) {
+      menu = createActionMenu({ label: `Actions for ${r.name}`, signal: scope.signal });
+      menus.set(key, menu);
+    }
     menu.update(items);
     return menu.el;
   }
@@ -107,7 +110,14 @@ export function createRoomsView({ store, sync, actions, navigate }: Ctx): View {
         on: { toggle: (e) => (open[section] = (e.currentTarget as HTMLDetailsElement).open) },
         signal: scope.signal,
       },
-      [h("summary", {}, `${title} (${rooms.length})`), h("ul", {}, rooms.map((r) => roomRow(r, section, live)))],
+      [
+        h("summary", {}, `${title} (${rooms.length})`),
+        h(
+          "ul",
+          {},
+          rooms.map((r) => roomRow(r, section, live)),
+        ),
+      ],
     );
   }
 
@@ -123,7 +133,11 @@ export function createRoomsView({ store, sync, actions, navigate }: Ctx): View {
     const main = h("div", { class: "room-section", dataset: { section: "rooms" } }, [
       h("h2", {}, "Rooms"),
       rooms.length
-        ? h("ul", {}, rooms.map((r) => roomRow(r, "rooms", live)))
+        ? h(
+            "ul",
+            {},
+            rooms.map((r) => roomRow(r, "rooms", live)),
+          )
         : s.roomsStatus === "ready"
           ? h("p", { class: "empty" }, "No rooms yet. Create the first one.")
           : null,
@@ -189,10 +203,19 @@ export function createRoomsView({ store, sync, actions, navigate }: Ctx): View {
       clear(root);
       root.append(shell);
 
-      scope.defer(store.subscribe((s, prev) => {
-        if (s.roomsStatus !== prev.roomsStatus) renderAlert();
-        if (s.rooms !== prev.rooms || s.hidden !== prev.hidden || s.activeRoomId !== prev.activeRoomId || s.user !== prev.user || s.roomsStatus !== prev.roomsStatus) render();
-      }));
+      scope.defer(
+        store.subscribe((s, prev) => {
+          if (s.roomsStatus !== prev.roomsStatus) renderAlert();
+          if (
+            s.rooms !== prev.rooms ||
+            s.hidden !== prev.hidden ||
+            s.activeRoomId !== prev.activeRoomId ||
+            s.user !== prev.user ||
+            s.roomsStatus !== prev.roomsStatus
+          )
+            render();
+        }),
+      );
       renderAlert();
       render();
     },

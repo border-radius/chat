@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError, type Api } from "../../../web/src/api.ts";
+import { type Api, ApiError } from "../../../web/src/api.ts";
 import { newId } from "../../../web/src/lib/id.ts";
 import type { Room } from "../../../web/src/lib/types.ts";
 import type { View } from "../../../web/src/router.ts";
-import { createStore, initialState, type AppState, type Store } from "../../../web/src/store.ts";
+import { type AppState, createStore, initialState, type Store } from "../../../web/src/store.ts";
 import { createRoomsView } from "../../../web/src/views/rooms.ts";
-import { instrument, signedUp, uniq, viewContext, type SignedUp } from "../../support/api.ts";
+import { instrument, type SignedUp, signedUp, uniq, viewContext } from "../../support/api.ts";
 
 type Section = "rooms" | "hidden" | "archived";
 

@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../web/src/api.ts";
 import type { Room } from "../../web/src/lib/types.ts";
-import { createStore, initialState, type AppState, type Store } from "../../web/src/store.ts";
+import { type AppState, createStore, initialState, type Store } from "../../web/src/store.ts";
 import { createSync, type Sync } from "../../web/src/sync.ts";
-import { instrument, newApi, signedUp, uniq, type SignedUp } from "../support/api.ts";
+import { instrument, newApi, type SignedUp, signedUp, uniq } from "../support/api.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -107,7 +107,10 @@ describe("sync (room list + hidden rows)", () => {
   it("stop() cancels a load in flight", async () => {
     const signals: (AbortSignal | undefined)[] = [];
     const original = me.api.listRooms.bind(me.api);
-    vi.spyOn(me.api, "listRooms").mockImplementation((signal) => (signals.push(signal), original(signal)));
+    vi.spyOn(me.api, "listRooms").mockImplementation((signal) => {
+      signals.push(signal);
+      return original(signal);
+    });
     start();
     sync!.stop();
     expect(signals[0]?.aborted).toBe(true);

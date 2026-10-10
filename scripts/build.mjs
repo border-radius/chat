@@ -1,8 +1,9 @@
 // Production build: web/ → pb_public/ (hashed assets + index.html), then enforce the size budget.
-import * as esbuild from "esbuild";
+
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { gzipSync } from "node:zlib";
-import { BASE_OPTIONS, ENTRIES, OUTDIR, checkBudget, entryOutputs, formatSizes, injectAssets } from "./lib/build-utils.mjs";
+import * as esbuild from "esbuild";
+import { BASE_OPTIONS, checkBudget, ENTRIES, entryOutputs, formatSizes, injectAssets, OUTDIR } from "./lib/build-utils.mjs";
 
 await rm(OUTDIR, { recursive: true, force: true });
 await mkdir(OUTDIR, { recursive: true });

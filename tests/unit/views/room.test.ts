@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError, type Action, type Api } from "../../../web/src/api.ts";
+import { type Action, type Api, ApiError } from "../../../web/src/api.ts";
 import { newId } from "../../../web/src/lib/id.ts";
+import { dayLabel, parsePb } from "../../../web/src/lib/time.ts";
 import type { Message, Room } from "../../../web/src/lib/types.ts";
 import type { View } from "../../../web/src/router.ts";
-import { createStore, initialState, type AppState, type Store } from "../../../web/src/store.ts";
-import { dayLabel, parsePb } from "../../../web/src/lib/time.ts";
+import { type AppState, createStore, initialState, type Store } from "../../../web/src/store.ts";
 import { createRoomView } from "../../../web/src/views/room.ts";
-import { instrument, intercept, seedMessages, signedUp, uniq, viewContext, type SignedUp } from "../../support/api.ts";
+import { instrument, intercept, type SignedUp, seedMessages, signedUp, uniq, viewContext } from "../../support/api.ts";
 import { fakeLayout, installIntersectionObserver } from "../../support/dom.ts";
 
 const ROW = 40;
@@ -46,7 +46,6 @@ describe("room view (§7.5–7.6)", () => {
   const ids = () => msgEls().map((el) => el.dataset.id!);
   const msgEl = (id: string) => root.querySelector<HTMLElement>(`li.msg[data-id="${id}"]`);
   const bodyOf = (id: string) => msgEl(id)?.querySelector(".body")?.textContent ?? null;
-  const texts = () => msgEls().map((el) => el.querySelector(".body")!.textContent);
   const sentinel = (which: "top" | "bottom") => root.querySelector<HTMLElement>(`li.sentinel[data-sentinel="${which}"]`);
   const beginning = () => root.querySelector("li.beginning");
   const pill = () => root.querySelector<HTMLButtonElement>("button.new-messages")!;
@@ -87,10 +86,13 @@ describe("room view (§7.5–7.6)", () => {
   /** Drop realtime message events while `offline` is true (to simulate a dropped connection). */
   function gateRealtime(api: Api) {
     const state = { offline: false };
-    intercept(api, "subscribeMessages", (original) => (roomId, fn) =>
-      original(roomId, (action, rec) => {
-        if (!state.offline) fn(action, rec);
-      }),
+    intercept(
+      api,
+      "subscribeMessages",
+      (original) => (roomId, fn) =>
+        original(roomId, (action, rec) => {
+          if (!state.offline) fn(action, rec);
+        }),
     );
     return state;
   }
@@ -212,8 +214,14 @@ describe("room view (§7.5–7.6)", () => {
     it("unmount cancels the room's pending reads", async () => {
       const room = await newRoom();
       const signals: (AbortSignal | undefined)[] = [];
-      intercept(me.api, "getRoom", (original) => (id, signal) => (signals.push(signal), original(id, signal)));
-      intercept(me.api, "page", (original) => (q, signal) => (signals.push(signal), original(q, signal)));
+      intercept(me.api, "getRoom", (original) => (id, signal) => {
+        signals.push(signal);
+        return original(id, signal);
+      });
+      intercept(me.api, "page", (original) => (q, signal) => {
+        signals.push(signal);
+        return original(q, signal);
+      });
       view = createRoomView(viewContext(me.api, store, navigate));
       view.mount(root, { id: room.id });
       expect(signals).toHaveLength(2);
@@ -230,7 +238,16 @@ describe("room view (§7.5–7.6)", () => {
       await mount(room);
       view!.unmount();
       view = undefined;
-      handlers[0]!("create", { id: newId(), room: room.id, author: "x", text: "late", created: "", updated: "", edited_at: "", deleted: false });
+      handlers[0]!("create", {
+        id: newId(),
+        room: room.id,
+        author: "x",
+        text: "late",
+        created: "",
+        updated: "",
+        edited_at: "",
+        deleted: false,
+      });
       expect(root.childNodes).toHaveLength(0);
       expect(ctl.calls("subscribeMessages")).toBe(1);
     });

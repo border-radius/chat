@@ -6,3 +6,4 @@ coverage/
 test-results/
 playwright-report/
 *.log
+types/pocketbase.d.ts

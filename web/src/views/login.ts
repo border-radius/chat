@@ -1,6 +1,6 @@
 // Login / signup screen (§7.1).
 
-import { ApiError, errorMessage, type Api } from "../api.ts";
+import { type Api, ApiError, errorMessage } from "../api.ts";
 import { clear, h, uniqueId } from "../dom.ts";
 import { LIMITS } from "../lib/limits.ts";
 import type { User } from "../lib/types.ts";

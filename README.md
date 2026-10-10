@@ -35,12 +35,13 @@ The PocketBase admin UI is at http://127.0.0.1:8090/_/ (create a superuser with
 |---|---|
 | `npm run dev` | Unminified watch build into `pb_public/` + `pocketbase serve --dev` |
 | `npm run build` | Production build (hashed assets) into `pb_public/`; fails if over the size budget |
-| `npm run typecheck` | `tsc --noEmit` (strict) |
+| `npm run typecheck` | `tsc` (strict) for the frontend, tests and scripts, plus `pb_hooks/` + `pb_migrations/` against PocketBase's generated types (`types/pocketbase.d.ts`, written by `scripts/pb-types.sh`) |
+| `npm run lint` | Biome: formatting, lint rules, import order (`npm run format` applies the fixes) |
 | `npm run lint:sinks` | Fails if frontend code uses `innerHTML` & co. (XSS guard) |
 | `npm test` | Unit/view tests (Vitest + happy-dom) against a real, throwaway PocketBase |
 | `npm run test:int` | Integration tests: schema, API rules, hooks, realtime, pagination |
 | `npm run test:e2e` | Playwright end-to-end tests against the production build |
-| `npm run check` | typecheck + lint:sinks + test + test:int + build (what CI runs before e2e) |
+| `npm run check` | typecheck + lint + lint:sinks + test + test:int + build (what CI runs before e2e) |
 
 Every test run starts its own PocketBase on a free port with a temp data dir — there are no fakes and nothing to
 clean up. CI (`.github/workflows/ci.yml`) runs `check`, then e2e on Chromium, Firefox and WebKit.

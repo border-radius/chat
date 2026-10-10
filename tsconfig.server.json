@@ -1,0 +1,15 @@
+{
+  // pb_hooks/ and pb_migrations/ run in PocketBase's JS engine (goja), not Node or a browser:
+  // no DOM, no Node types, only PocketBase's generated globals (scripts/pb-types.sh).
+  "compilerOptions": {
+    "target": "es2020",
+    "lib": ["es2020"],
+    "types": [],
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": true,
+    "skipLibCheck": true
+  },
+  "include": ["pb_hooks", "pb_migrations", "types/pocketbase.d.ts"]
+}

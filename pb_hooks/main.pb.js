@@ -1,4 +1,4 @@
-/// <reference path="../pb_data/types.d.ts" />
+/// <reference path="../types/pocketbase.d.ts" />
 // Server-side hooks (DESIGN.md §5.6). Logic lives in lib/chat.js; handlers can't share top-level scope.
 
 routerUse((e) => {
@@ -6,10 +6,14 @@ routerUse((e) => {
   return e.next();
 });
 
-onRecordCreate((e) => {
-  require(`${__hooks}/lib/chat.js`).trim(e.record, "name");
-  e.next();
-}, "users", "rooms");
+onRecordCreate(
+  (e) => {
+    require(`${__hooks}/lib/chat.js`).trim(e.record, "name");
+    e.next();
+  },
+  "users",
+  "rooms",
+);
 
 onRecordUpdate((e) => {
   require(`${__hooks}/lib/chat.js`).trim(e.record, "name");

@@ -6,7 +6,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { expect, test } from "@playwright/test";
-import { disableRateLimits, startPocketBase, type PocketBaseServer } from "../support/pocketbase.ts";
+import { disableRateLimits, type PocketBaseServer, startPocketBase } from "../support/pocketbase.ts";
 import { apiRoom, apiUser, messages, openRoom, seed } from "./fixtures.ts";
 
 const freePort = () =>

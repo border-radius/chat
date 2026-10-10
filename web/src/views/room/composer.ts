@@ -64,12 +64,20 @@ export function createComposer(opts: {
     { signal },
   );
 
-  const el = h("form", { class: "composer", on: { submit: (e) => (e.preventDefault(), submit()) }, signal }, [
-    h("label", { for: opts.id, class: "visually-hidden" }, "Message"),
-    textarea,
-    counter,
-    sendBtn,
-  ]);
+  const el = h(
+    "form",
+    {
+      class: "composer",
+      on: {
+        submit: (e) => {
+          e.preventDefault();
+          submit();
+        },
+      },
+      signal,
+    },
+    [h("label", { for: opts.id, class: "visually-hidden" }, "Message"), textarea, counter, sendBtn],
+  );
 
   return {
     el,

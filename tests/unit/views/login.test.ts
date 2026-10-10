@@ -13,7 +13,8 @@ function fill(root: HTMLElement, values: Record<string, string>) {
   }
 }
 const submit = (root: HTMLElement) => root.querySelector("form")!.requestSubmit();
-const tab = (root: HTMLElement, name: string) => [...root.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((t) => t.textContent === name)!;
+const tab = (root: HTMLElement, name: string) =>
+  [...root.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((t) => t.textContent === name)!;
 const fieldNames = (root: HTMLElement) => [...root.querySelectorAll<HTMLInputElement>("form input")].map((i) => i.name);
 const alertText = (root: HTMLElement) => root.querySelector('[role="alert"]')!.textContent;
 

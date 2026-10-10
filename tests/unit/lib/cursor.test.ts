@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PAGE_SIZE, first, latest, newer, older } from "../../../web/src/lib/cursor.ts";
+import { first, latest, newer, older, PAGE_SIZE } from "../../../web/src/lib/cursor.ts";
 
 const C = { created: "2026-10-10 12:00:00.000Z", id: "abc123def456ghi" };
 

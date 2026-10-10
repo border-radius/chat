@@ -1,6 +1,6 @@
 // Spawns a throwaway PocketBase process on a free port with its own temp data dir.
 // Shared by the Vitest integration globalSetup and the Playwright webServer.
-import { spawn, execFile, type ChildProcess } from "node:child_process";
+import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -45,17 +45,9 @@ export async function startPocketBase(opts: StartOptions = {}): Promise<PocketBa
 
   const port = opts.port ?? (await freePort());
   const url = `http://127.0.0.1:${port}`;
-  const proc = spawn(
-    bin,
-    [
-      "serve",
-      `--http=127.0.0.1:${port}`,
-      `--publicDir=${publicDir}`,
-      "--hooksWatch=false",
-      ...dirArgs,
-    ],
-    { stdio: opts.verbose ? "inherit" : "pipe" },
-  );
+  const proc = spawn(bin, ["serve", `--http=127.0.0.1:${port}`, `--publicDir=${publicDir}`, "--hooksWatch=false", ...dirArgs], {
+    stdio: opts.verbose ? "inherit" : "pipe",
+  });
 
   let output = "";
   proc.stdout?.on("data", (d: Buffer) => (output += d));

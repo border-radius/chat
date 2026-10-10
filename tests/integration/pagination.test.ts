@@ -1,8 +1,8 @@
 import type PocketBase from "pocketbase";
-import type { Message } from "../../web/src/lib/types.ts";
 import { beforeAll, describe, expect, it } from "vitest";
 import { createApi } from "../../web/src/api.ts";
-import { PAGE_SIZE, first, latest, newer, older, type PageQuery } from "../../web/src/lib/cursor.ts";
+import { first, latest, newer, older, PAGE_SIZE, type PageQuery } from "../../web/src/lib/cursor.ts";
+import type { Message } from "../../web/src/lib/types.ts";
 import { adminClient, newRoom, newUser, rawDb, type TestUser } from "./helpers.ts";
 
 const TOTAL = 1000;
@@ -38,11 +38,15 @@ describe("history pagination at scale (§6, §7.5)", () => {
     // Force identical `created` values on a block of messages: the API can't set autodate fields.
     const db = rawDb({ write: true });
     try {
-      const ids = db.prepare("SELECT id FROM messages WHERE room = ? ORDER BY created, id LIMIT ? OFFSET 500").all(roomId, TIES) as { id: string }[];
+      const ids = db.prepare("SELECT id FROM messages WHERE room = ? ORDER BY created, id LIMIT ? OFFSET 500").all(roomId, TIES) as {
+        id: string;
+      }[];
       const stamp = db.prepare("SELECT created FROM messages WHERE id = ?").get(ids[0]!.id) as { created: string };
       const upd = db.prepare("UPDATE messages SET created = ? WHERE id = ?");
       for (const { id } of ids) upd.run(stamp.created, id);
-      expected = (db.prepare("SELECT text FROM messages WHERE room = ? ORDER BY created, id").all(roomId) as { text: string }[]).map((r) => r.text);
+      expected = (db.prepare("SELECT text FROM messages WHERE room = ? ORDER BY created, id").all(roomId) as { text: string }[]).map(
+        (r) => r.text,
+      );
     } finally {
       db.close();
     }
@@ -52,7 +56,9 @@ describe("history pagination at scale (§6, §7.5)", () => {
     expect(expected).toHaveLength(TOTAL);
     const db = rawDb();
     try {
-      const row = db.prepare("SELECT MAX(n) AS n FROM (SELECT COUNT(*) AS n FROM messages WHERE room = ? GROUP BY created)").get(roomId) as { n: number };
+      const row = db
+        .prepare("SELECT MAX(n) AS n FROM (SELECT COUNT(*) AS n FROM messages WHERE room = ? GROUP BY created)")
+        .get(roomId) as { n: number };
       expect(row.n).toBe(TIES);
     } finally {
       db.close();

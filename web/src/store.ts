@@ -53,20 +53,26 @@ export const initialState = (): AppState => ({
 
 type Update = (s: AppState) => Partial<AppState>;
 
-export const upsertRoom = (r: Room): Update => (s) => ({ rooms: new Map(s.rooms).set(r.id, r) });
+export function upsertRoom(r: Room): Update {
+  return (s) => ({ rooms: new Map(s.rooms).set(r.id, r) });
+}
 
-export const removeRoom = (roomId: string): Update => (s) => {
-  const rooms = new Map(s.rooms);
-  rooms.delete(roomId);
-  return { rooms };
-};
+export function removeRoom(roomId: string): Update {
+  return (s) => {
+    const rooms = new Map(s.rooms);
+    rooms.delete(roomId);
+    return { rooms };
+  };
+}
 
-export const markHidden = (roomId: string, rowId: string): Update => (s) => ({ hidden: new Map(s.hidden).set(roomId, rowId) });
+export function markHidden(roomId: string, rowId: string): Update {
+  return (s) => ({ hidden: new Map(s.hidden).set(roomId, rowId) });
+}
 
 /** Forget a hidden_rooms row (realtime deletes only carry the row id, not the room). */
-export const unmarkHidden = (rowId: string): Update => (s) => ({
-  hidden: new Map([...s.hidden].filter(([, row]) => row !== rowId)),
-});
+export function unmarkHidden(rowId: string): Update {
+  return (s) => ({ hidden: new Map([...s.hidden].filter(([, row]) => row !== rowId)) });
+}
 
 // ---- selectors
 
