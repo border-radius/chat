@@ -1,0 +1,12 @@
+{
+  "healthchecks": {
+    "web": [
+      {
+        "type": "startup",
+        "name": "pocketbase health",
+        "path": "/api/health",
+        "attempts": 5
+      }
+    ]
+  }
+}

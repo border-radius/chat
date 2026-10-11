@@ -1,0 +1,9 @@
+.git
+node_modules
+bin
+pb_data
+pb_public
+coverage
+test-results
+playwright-report
+*.log
