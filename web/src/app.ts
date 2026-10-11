@@ -24,6 +24,9 @@ export interface App {
 
 /** Statuses meaning "the server rejected this session" (vs. 0 = network trouble). */
 const AUTH_REJECTED = new Set([401, 403, 404]);
+/** Longest wait between session renewals, and the wait before another try after one failed for lack of network. */
+const RENEW_MAX_MS = 24 * 60 * 60 * 1000;
+const RENEW_RETRY_MS = 60 * 1000;
 
 /**
  * Page layout (§7.1): the room list as a sidebar next to the main view. New params remount only the
@@ -63,6 +66,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
   const store = createStore<AppState>({ ...initialState(), user: api.currentUser() });
   const sync = createSync({ api, store });
   const unread = createUnread({ api, store });
+  const drafts = new Map<string, string>();
   const startSession = () => {
     sync.start();
     unread.start();
@@ -81,6 +85,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     unread.stop();
     sync.stop();
     void api.unsubscribeAll().catch(() => {});
+    drafts.clear();
     store.set({ ...initialState() });
   }
 
@@ -90,6 +95,36 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     api.logOut();
     router.refresh();
   }
+
+  /**
+   * Renew the session halfway through its lifetime, for as long as the tab stays open. A tab left open longer than a
+   * session lasts (7 days by default) would otherwise look logged in while every request fails (QA BUG-45).
+   */
+  let renewTimer: ReturnType<typeof setTimeout> | undefined;
+  function scheduleRenew(ms = Math.min(Math.max((api.sessionExpiry() - Date.now()) / 2, 0), RENEW_MAX_MS)) {
+    clearTimeout(renewTimer);
+    if (store.get().user) renewTimer = setTimeout(renew, ms);
+  }
+  function renew() {
+    const user = store.get().user;
+    if (!user) return;
+    // Already over (e.g. the computer slept through it): it can't be renewed, so say so instead of failing quietly.
+    if (api.sessionExpiry() <= Date.now()) return logOut();
+    api.refreshAuth().then(
+      (fresh) => {
+        if (store.get().user?.id !== fresh.id) return;
+        store.set({ user: fresh });
+        scheduleRenew();
+      },
+      (err: unknown) => {
+        if (store.get().user?.id !== user.id) return;
+        if (err instanceof ApiError && AUTH_REJECTED.has(err.status)) logOut();
+        else scheduleRenew(RENEW_RETRY_MS); // offline ≠ logged out: try again later
+      },
+    );
+  }
+  // Timers are late (or paused) while the computer sleeps or the tab is in the background: check on coming back.
+  const onVisible = () => document.visibilityState === "visible" && scheduleRenew();
 
   /**
    * The session is shared by every tab of this browser. When another tab logs out or logs in as someone else,
@@ -132,6 +167,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     unread,
     actions: createRoomActions({ api, store }),
     navigate: (hash) => router.navigate(hash),
+    drafts,
   };
   const rooms = () => createRoomsView(ctx);
   const roomPage = withSidebar(rooms, () => createRoomView(ctx));
@@ -162,7 +198,11 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
   const offStore = store.subscribe((s, prev) => {
     if (s.user === prev.user) return;
     renderHeader();
-    if (s.user && !prev.user) startSession();
+    if (s.user && !prev.user) {
+      startSession();
+      scheduleRenew();
+    }
+    if (!s.user) clearTimeout(renewTimer);
   });
   const offAuth = api.onAuthChange(onAuthChange);
   // A file dropped where nothing takes it must not make the browser open it and leave the app (QA BUG-27).
@@ -172,21 +212,13 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
   };
   window.addEventListener("dragover", swallowFileDrag);
   window.addEventListener("drop", swallowFileDrag);
+  document.addEventListener("visibilitychange", onVisible);
   renderHeader();
   if (store.get().user) startSession();
   router.start();
 
-  const restored = store.get().user;
-  if (restored) {
-    api.refreshAuth().then(
-      (user) => {
-        if (store.get().user?.id === user.id) store.set({ user });
-      },
-      (err: unknown) => {
-        if (store.get().user?.id === restored.id && err instanceof ApiError && AUTH_REJECTED.has(err.status)) logOut();
-      },
-    );
-  }
+  // A restored session is checked (and renewed) right away.
+  if (store.get().user) renew();
 
   return {
     store,
@@ -195,6 +227,8 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
       offAuth();
       window.removeEventListener("dragover", swallowFileDrag);
       window.removeEventListener("drop", swallowFileDrag);
+      document.removeEventListener("visibilitychange", onVisible);
+      clearTimeout(renewTimer);
       offStore();
       router.stop();
       unread.stop();

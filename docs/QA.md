@@ -236,3 +236,91 @@ kept both, giving the second a key made unique with its id. As that room's creat
 Known, not fixed here: a renamed user's old name stays in other people's open DMs and already-loaded messages until
 they reload (nothing pushes user changes). The per-IP limit of 120 reads a minute may be tight for a large office
 behind a single NAT.
+
+---
+
+# QA pass 4 — whole app
+
+Exploratory QA of the whole app, 2026-10-11, on PocketBase 0.40.4. It used scripted multi-user Chromium sessions
+(desktop 1100×720 and phone 390×844, light and dark, several tabs per user), axe on states the e2e suite doesn't
+cover, and REST, hook and migration probes. Beforehand, the whole suite passed: typecheck, lint, html-sink check,
+432 unit and 207 integration tests, and the build. Each fix comes with a test that fails without it.
+
+| # | Severity | Area | Summary | Status |
+|---|---|---|---|---|
+| BUG-43 | Medium | Editing | An open edit box loses what you typed (and its focus) whenever its message is redrawn | Fixed |
+| BUG-45 | Medium | Session | A tab left open longer than the session lasts looks logged in, but nothing can be sent | Fixed |
+| BUG-47 | Medium | Accounts | Emails are case-sensitive: "Ada@x.com" can't log in as "ada@x.com", and can sign up twice | Fixed |
+| BUG-44 | Low | Rooms | With every room hidden or archived, the list says "No rooms yet. Create the first one." | Fixed |
+| BUG-46 | Low | Menus | "⋯" and author menus stay open after a click elsewhere, pile up and cover messages | Fixed |
+| BUG-48 | Low | Rooms | A room created as "#random" is shown as "##random", next to a different "random" | Fixed |
+| BUG-49 | Low | Signup | Signing up with an email that is taken says "Value must be unique." | Fixed |
+| BUG-50 | Low | Composer | A half-typed message is lost when you look at another room and come back | Fixed |
+
+## BUG-43 — The edit box forgets your typing (Medium)
+
+**Steps:** follow a link to one of your messages (or click a reply's quote), click Edit and type for a few seconds.
+Or: edit a reply of yours while the author of the message it quotes edits theirs.
+**Actual:** after 3 s the highlight fades, the message is redrawn, and the edit box is back to the original text,
+without focus. The same happens on any redraw of that message (quoted message edited, midnight).
+**Fix:** the list keeps the typed text, and gives the rebuilt box back the focus and caret. Escape (not while composing
+with an input method) still discards it.
+
+## BUG-45 — Expired sessions fail silently (Medium)
+
+**Steps:** stay on the app, without reloading, for longer than the users' token lifetime (7 days by default; reproduced
+with 20 s).
+**Actual:** the app still shows you logged in. Every send ends in "Not sent." and Retry never works. Only the page load
+renewed the session.
+**Fix:** the app renews the session halfway through its lifetime (at least daily), and again when the tab comes back to
+the foreground (timers are late while a computer sleeps). It retries after a network failure. A session that has
+already expired goes to the login screen instead of failing quietly.
+
+## BUG-47 — Emails depend on their capitalization (Medium)
+
+**Steps:** sign up as "Mixed@Test.Local", log out, log in as "mixed@test.local". Or sign up again with the lower-case address.
+**Actual:** "Wrong email or password." The second signup succeeds, so the same mailbox has two accounts.
+**Fix:** new emails are stored in lower case (users create hook). A login whose email matches nobody as typed is
+looked up in lower case (`onRecordAuthWithPasswordRequest`). A migration lowers existing emails, except for pairs
+that already differ only in case. Those keep their addresses, and each still logs in as typed.
+
+## BUG-44 — "No rooms yet" while rooms exist (Low)
+
+**Steps:** hide (or archive) every room. **Actual:** "No rooms yet. Create the first one." above "Hidden (4)".
+**Fix:** "No other rooms. Hidden and archived ones are listed below." whenever those sections aren't empty.
+
+## BUG-46 — Menus never close on their own (Low)
+
+**Steps:** open a room's "⋯", the header's "⋯" and an author's name menu, then click into the messages.
+**Actual:** all three stay open. The author menu's "Message" covers the message text.
+**Fix:** an open menu closes on a pointer press or focus anywhere outside it.
+
+## BUG-48 — "##random" (Low)
+
+**Steps:** New room → "#random". **Actual:** the room is titled "##random", and "random" can still be created next to
+it. **Fix:** leading "#"s (and spaces) are dropped from room names on save. "c#" keeps its inner "#".
+
+## BUG-49 — "Value must be unique." on signup (Low)
+
+**Fix:** "There is already an account with this email. Log in instead."
+
+## BUG-50 — Drafts lost on switching rooms (Low)
+
+**Steps:** type a message, click another room to look something up, come back. **Actual:** the composer is empty.
+**Fix:** unsent text is kept per room (in memory, for the session; cleared on logout or a user switch).
+
+## Checked and fine
+
+- Two tabs of one user: sends, reads and unread badges stay in sync. Logging out in one logs out the other.
+- DMs: opened from the search, the first message brings it to the other person with a badge. A closed DM comes back on
+  the next message.
+- History: scrolling back to the first message of a 180-message room, jumping to the beginning, "New messages · Jump
+  to latest", sending from the beginning, the pill while scrolled up, and deep links scrolled forward to the live edge.
+- Attachments: image thumbnail plus a PDF under its original name, and a 0-byte file. Replying to a files-only
+  message, and the reply bar closing when that message is deleted.
+- No horizontal overflow from 400-character words or long URLs, at desktop or phone width.
+- axe (WCAG 2.1 AA): no violations with the reply bar, delete confirm, header menu or edit box open, at both widths
+  and in both themes.
+- Limits: 2000 emoji in a message, 32 in a name, 48 in a room name.
+
+Known, not fixed here: the document title never shows unread counts.

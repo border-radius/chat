@@ -112,14 +112,27 @@ describe("login view (§7.1)", () => {
   });
 
   it("shows server field errors inline next to their inputs, without a redundant generic alert", async () => {
+    mount();
+    tab(root, "Sign up").click();
+    fill(root, { name: "\u200b", email: `${uniq()}@test.local`, password: "password-123" }); // invisible only: the server refuses it
+    submit(root);
+    await vi.waitFor(() => expect(root.querySelector('input[name="name"]')!.getAttribute("aria-invalid")).toBe("true"));
+    const input = root.querySelector<HTMLInputElement>('input[name="name"]')!;
+    expect(document.getElementById(input.getAttribute("aria-describedby")!)!.textContent).toBe("Cannot be blank.");
+    expect(alertText(root)).toBe("");
+  });
+
+  it("QA BUG-47/49: an email already signed up, in any case, says so in plain words", async () => {
     const taken = await signedUp();
     mount();
     tab(root, "Sign up").click();
-    fill(root, { name: "Copycat", email: taken.email, password: "password-123" });
+    fill(root, { name: "Copycat", email: taken.email.toUpperCase(), password: "password-123" });
     submit(root);
     await vi.waitFor(() => expect(root.querySelector('input[name="email"]')!.getAttribute("aria-invalid")).toBe("true"));
     const input = root.querySelector<HTMLInputElement>('input[name="email"]')!;
-    expect(document.getElementById(input.getAttribute("aria-describedby")!)!.textContent).toBe("Value must be unique.");
+    expect(document.getElementById(input.getAttribute("aria-describedby")!)!.textContent).toBe(
+      "There is already an account with this email. Log in instead.",
+    );
     expect(alertText(root)).toBe("");
   });
 

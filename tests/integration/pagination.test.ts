@@ -1,8 +1,8 @@
-import type PocketBase from "pocketbase";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, inject, it } from "vitest";
 import { createApi } from "../../web/src/api.ts";
 import { first, latest, newer, older, PAGE_SIZE, type PageQuery } from "../../web/src/lib/cursor.ts";
 import type { Message } from "../../web/src/lib/types.ts";
+import { createClient } from "../../web/src/pb.ts";
 import { adminClient, newRoom, newUser, rawDb, type TestUser } from "./helpers.ts";
 
 const TOTAL = 1000;
@@ -10,8 +10,10 @@ const TIES = 20;
 
 type Msg = Message;
 
-async function page(pb: PocketBase, q: PageQuery): Promise<Msg[]> {
+async function page(u: TestUser, q: PageQuery): Promise<Msg[]> {
   // Exactly the request the UI sends (§6): bound filter, sort, skipTotal, expand=author, lean fields.
+  const pb = createClient(inject("pbUrl"));
+  pb.authStore.save(u.pb.authStore.token, u.pb.authStore.record);
   return createApi(pb).page(q);
 }
 
@@ -67,12 +69,12 @@ describe("history pagination at scale (§6, §7.5)", () => {
 
   it("walking older pages from the latest reaches the first message, each exactly once, in order", async () => {
     const seen: Msg[] = [];
-    let batch = await page(reader.pb, latest(roomId));
+    let batch = await page(reader, latest(roomId));
     let requests = 1;
     while (batch.length) {
       seen.unshift(...batch.slice().reverse());
       if (batch.length < PAGE_SIZE) break;
-      batch = await page(reader.pb, older(roomId, batch[batch.length - 1]!));
+      batch = await page(reader, older(roomId, batch[batch.length - 1]!));
       requests++;
     }
     expect(seen.map((m) => m.text)).toEqual(expected);
@@ -83,11 +85,11 @@ describe("history pagination at scale (§6, §7.5)", () => {
 
   it("walking newer pages from the first gives the same sequence", async () => {
     const seen: Msg[] = [];
-    let batch = await page(reader.pb, first(roomId));
+    let batch = await page(reader, first(roomId));
     while (batch.length) {
       seen.push(...batch);
       if (batch.length < PAGE_SIZE) break;
-      batch = await page(reader.pb, newer(roomId, batch[batch.length - 1]!));
+      batch = await page(reader, newer(roomId, batch[batch.length - 1]!));
     }
     expect(seen.map((m) => m.text)).toEqual(expected);
   });

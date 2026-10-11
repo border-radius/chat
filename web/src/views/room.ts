@@ -19,7 +19,7 @@ import { type Change, createRoomController, type Phase, type RoomController } fr
 import { createRoomHeader } from "./room/header.ts";
 import { createMessageList } from "./room/messages.ts";
 
-export function createRoomView({ api, store, unread, actions, navigate }: Ctx): View {
+export function createRoomView({ api, store, unread, actions, navigate, drafts }: Ctx): View {
   const vid = uniqueId("room");
   const scope = createScope();
   const { signal } = scope;
@@ -315,6 +315,13 @@ export function createRoomView({ api, store, unread, actions, navigate }: Ctx): 
       root.append(shell);
       renderHeader();
       renderFooter();
+      // What you were writing here before visiting another room (QA BUG-50).
+      composer.setText(drafts.get(roomId) ?? "");
+      scope.defer(() => {
+        const draft = composer.text();
+        if (draft.trim()) drafts.set(roomId, draft);
+        else drafts.delete(roomId);
+      });
 
       store.set({ activeRoomId: roomId });
       scope.defer(() => store.set({ activeRoomId: null }));

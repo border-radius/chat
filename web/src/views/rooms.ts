@@ -229,7 +229,14 @@ export function createRoomsView({ api, store, sync, unread, actions, navigate }:
             rooms.map((r) => roomRow(r, "rooms", live)),
           )
         : s.roomsStatus === "ready"
-          ? h("p", { class: "empty" }, "No rooms yet. Create the first one.")
+          ? h(
+              "p",
+              { class: "empty" },
+              // Rooms you hid (or that were archived) are still there, under their own sections (QA BUG-44).
+              hidden.length || archived.length
+                ? "No other rooms. Hidden and archived ones are listed below."
+                : "No rooms yet. Create the first one.",
+            )
           : null,
     ]);
     const newDm = h(

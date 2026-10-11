@@ -38,7 +38,12 @@ export function createActionMenu(opts: { label: string; summary?: string; classN
       class: "menu",
       on: {
         toggle: () => {
-          if (!el.open && confirming) setConfirming(null);
+          if (el.open) watchOutside();
+          else {
+            outside?.abort();
+            outside = null;
+            if (confirming) setConfirming(null);
+          }
         },
         keydown: (e) => {
           if (e.key !== "Escape" || !el.open) return;
@@ -51,6 +56,20 @@ export function createActionMenu(opts: { label: string; summary?: string; classN
     },
     [summary, body],
   );
+
+  /** While open: listeners that close it when you click or tab anywhere else (QA BUG-46). */
+  let outside: AbortController | null = null;
+  function watchOutside() {
+    if (outside || signal.aborted) return;
+    outside = new AbortController();
+    const opts = { capture: true, signal: outside.signal };
+    const away = (e: Event) => {
+      if (e.target instanceof Node && !el.contains(e.target)) close();
+    };
+    document.addEventListener("pointerdown", away, opts);
+    document.addEventListener("focusin", away, opts);
+  }
+  signal.addEventListener("abort", () => outside?.abort(), { once: true });
 
   const button = (label: string, onClick: () => void, cls?: string) =>
     h("button", { type: "button", ...(cls ? { class: cls } : {}), on: { click: onClick }, signal }, label);
@@ -99,6 +118,8 @@ export function createActionMenu(opts: { label: string; summary?: string; classN
 
   function close() {
     el.open = false;
+    outside?.abort();
+    outside = null;
     confirming = null;
     render();
   }

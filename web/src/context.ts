@@ -13,4 +13,6 @@ export interface Ctx {
   unread: Unread;
   actions: RoomActions;
   navigate: (hash: string) => void;
+  /** Unsent composer text by room id, kept while you visit other rooms (QA BUG-50). Cleared when the session ends. */
+  drafts: Map<string, string>;
 }

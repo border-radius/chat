@@ -1,13 +1,13 @@
-import PocketBase from "pocketbase";
 import { describe, expect, it } from "vitest";
 import { listOptions, MSG_FIELDS } from "../../web/src/api.ts";
 import { latest } from "../../web/src/lib/cursor.ts";
+import { createClient } from "../../web/src/pb.ts";
 
 describe("listOptions", () => {
-  const pb = new PocketBase("http://localhost");
+  const pb = createClient("http://localhost");
 
   it("binds params via the given filter function and requests a lean, totals-free page", () => {
-    const opts = listOptions(latest("r1"), pb.filter.bind(pb));
+    const opts = listOptions(latest("r1"), pb.filter);
     expect(opts).toEqual({
       filter: `room = "r1"`,
       sort: "-created,-id",
@@ -18,7 +18,7 @@ describe("listOptions", () => {
   });
 
   it("escapes hostile values through pb.filter", () => {
-    const opts = listOptions(latest(`x" || id != "`), pb.filter.bind(pb));
+    const opts = listOptions(latest(`x" || id != "`), pb.filter);
     expect(opts.filter).toBe(`room = "x\\" || id != \\""`);
   });
 

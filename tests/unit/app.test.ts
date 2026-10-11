@@ -1,8 +1,8 @@
-import PocketBase, { BaseAuthStore } from "pocketbase";
 import { afterEach, beforeEach, describe, expect, inject, it, vi } from "vitest";
 import { type Api, ApiError, createApi } from "../../web/src/api.ts";
 import { type App, startApp } from "../../web/src/app.ts";
 import { newId } from "../../web/src/lib/id.ts";
+import { createClient } from "../../web/src/pb.ts";
 import { instrument, newApi, signedUp } from "../support/api.ts";
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -172,6 +172,27 @@ describe("app boot (§7.1)", () => {
     expect(api.currentUser()).toBeNull();
   });
 
+  it("QA BUG-45: an open tab renews the session halfway through its lifetime", async () => {
+    const { api } = await signedUp("Ada");
+    const ctl = instrument(api);
+    vi.spyOn(api, "sessionExpiry").mockImplementation(() => Date.now() + 400); // renew every 200 ms
+    app = startApp({ api, root });
+    await vi.waitFor(() => expect(ctl.calls("refreshAuth")).toBeGreaterThanOrEqual(3));
+    expect(app.store.get().user?.name).toBe("Ada");
+  });
+
+  it("QA BUG-45: a session that ran out (e.g. while the computer slept) logs out once the tab is back", async () => {
+    const { api } = await signedUp("Ada");
+    const ctl = instrument(api);
+    app = startApp({ api, root });
+    await vi.waitFor(() => expect(ctl.calls("refreshAuth")).toBe(1));
+    await tick();
+    vi.spyOn(api, "sessionExpiry").mockReturnValue(Date.now() - 1);
+    document.dispatchEvent(new Event("visibilitychange"));
+    await vi.waitFor(() => expect(location.hash).toBe("#/login"));
+    expect(app.store.get().user).toBeNull();
+  });
+
   it("logging in through the form goes to the room list", async () => {
     const ada = await signedUp("Ada");
     app = startApp({ api: newApi(), root });
@@ -219,7 +240,7 @@ describe("app boot (§7.1)", () => {
 
     /** A client whose auth store the test can change directly, as another tab would through localStorage. */
     async function sharedSession(email: string, password: string) {
-      const pb = new PocketBase(inject("pbUrl"), new BaseAuthStore());
+      const pb = createClient(inject("pbUrl"));
       const api = createApi(pb);
       opened.push(api);
       await api.logIn(email, password);
@@ -261,8 +282,8 @@ describe("app boot (§7.1)", () => {
       history.replaceState(null, "", `#/r/${room.id}`);
       app = startApp({ api, root });
       await vi.waitFor(() => expect(root.querySelector(".who")?.textContent).toBe("Ada"));
-      const other = new PocketBase(inject("pbUrl"), new BaseAuthStore());
-      await other.collection("users").authWithPassword(bob.email, bob.password);
+      const other = createClient(inject("pbUrl"));
+      await createApi(other).logIn(bob.email, bob.password);
       pb.authStore.save(other.authStore.token, other.authStore.record);
       await vi.waitFor(() => expect(root.querySelector(".who")?.textContent).toBe("Bob"));
       expect(app.store.get().user?.id).toBe(bob.user.id);

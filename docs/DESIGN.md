@@ -57,7 +57,7 @@ These are left out on purpose. The design should not block them later.
 │  router ─► views (login / rooms / room) ─► dom helpers       │
 │              │                                               │
 │              ▼                                               │
-│            store  ◄──── api.ts (wraps PocketBase JS SDK)     │
+│            store  ◄──── api.ts (wraps pb.ts, a PB client)    │
 └──────────────────────────────┬───────────────────────────────┘
                 REST (JSON)    │    SSE (realtime)
 ┌──────────────────────────────▼───────────────────────────────┐
@@ -113,7 +113,8 @@ chat/
 │   └── src/
 │       ├── main.ts             # boot
 │       ├── app.ts              # app shell: session, routes, app bar
-│       ├── api.ts              # the only module that imports the PB SDK
+│       ├── api.ts              # the only module that talks to PocketBase (through pb.ts)
+│       ├── pb.ts               # minimal PocketBase client: requests, auth store, realtime (§6)
 │       ├── store.ts            # tiny observable state + selectors
 │       ├── sync.ts             # keeps rooms + hidden rows live (§7.4)
 │       ├── actions.ts          # room commands: create, hide, archive, open DM
@@ -268,7 +269,7 @@ The hooks are kept small. They only do things the rules can't express:
 
 ## 6. API usage (frontend ↔ backend)
 
-The frontend uses the official **PocketBase JS SDK**. It has no dependencies, is roughly 10 KB gzipped, and handles auth token storage and refresh, SSE reconnects, and request cancellation. Only `api.ts` imports it, so it could be replaced later.
+The frontend talks to PocketBase through `pb.ts`, a minimal client (about 2 KB gzipped) that replaced the official **PocketBase JS SDK** (about 10 KB, most of it admin services, OAuth2/OTP/MFA flows and cookie helpers the app never used; §13). It keeps the SDK 0.28 wire behavior the app relies on: JSON or multipart requests with the auth header, `pb.filter()` binding, the auth record in `localStorage` under the SDK's key `pocketbase_auth` (shared with other tabs through the `storage` event), and the realtime protocol (one `EventSource`, `PB_CONNECT` client id, subscriptions POSTed to `/api/realtime` and resent after reconnects with the same backoff). Only `api.ts` imports it. The record calls in the table below are named as in the SDK; `api.ts` implements them on top of `pb.send()`. The tests still use the SDK as an admin client.
 
 | Action | Call |
 |---|---|
@@ -408,7 +409,7 @@ The window state machine above lives in `views/room/controller.ts`, which has no
 4. Whichever arrives first, the `create()` response or the realtime `create` event, **replaces** the pending entry by id. The second one is a no-op because of the dedupe.
 5. On error the entry is marked `failed` with a **Retry** button that reuses the same id, so a retry can never create a duplicate.
 
-**Reconnects:** the SDK reconnects SSE automatically. On every `PB_CONNECT` after the first, the room view checks where its window is:
+**Reconnects:** the client (`pb.ts`) reconnects SSE automatically. On every `PB_CONNECT` after the first, the room view checks where its window is:
 
 - **At the live edge:** it fetches *newer than the newest loaded message* (by cursor, repeating until a short page comes back) and merges the results in. This fills the gap from the disconnect, however long it was.
 - **Scrolled into history:** it fetches nothing newer, because the next newer-page fetch picks up the missed messages naturally.
@@ -447,7 +448,7 @@ If the room's first load fails (other than "room not found"), the list shows an 
 
 | Asset | Budget (gzipped) |
 |---|---|
-| `app.js` (including the PB SDK) | **≤ 32 KB** (25 KB for the MVP; raised for §15–§17 and §19, see §13) |
+| `app.js` (including the PocketBase client) | **≤ 32 KB** (25 KB for the MVP; raised for §15–§17 and §19, see §13) |
 | `app.css` | **≤ 5 KB** |
 | `index.html` | ≤ 1.5 KB |
 | Web fonts | **none** (system font stack) |
@@ -477,7 +478,7 @@ Other rules:
 
 | Package | Kind | Purpose |
 |---|---|---|
-| `pocketbase` | runtime | JS SDK |
+| `pocketbase` | dev | JS SDK, only for tests (admin and raw-API clients); the app uses `web/src/pb.ts` |
 | `esbuild` | dev | bundling and minification |
 | `typescript` | dev | type checking only (`tsc --noEmit`) |
 | `vitest`, `happy-dom` | dev | unit and integration tests |
@@ -719,7 +720,7 @@ Playwright traces are uploaded when a test fails. The job runs on every push and
 | Filter injection | `pb.filter()` with bound params everywhere. |
 | Email harvesting | `emailVisibility = false`, and `fields` requests never include email. |
 | Spam and flooding | PocketBase rate limits, the 2000-char cap, and signup rate limiting. |
-| Token theft | The token is stored in `localStorage` by the SDK. The CSP greatly lowers XSS risk. Moving to HttpOnly cookies is noted as future work. |
+| Token theft | The token is stored in `localStorage` by the client (`pb.ts`). The CSP greatly lowers XSS risk. Moving to HttpOnly cookies is noted as future work. |
 | Admin UI exposure | Strong superuser password. In production, optionally restrict `/_/` by IP using a hook. |
 
 ## 11. Deployment
@@ -786,6 +787,12 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 | Where read state lives | On the server (`room_reads`, §18.1), so it follows you across tabs and devices. |
 | When a room is read | When the room view shows its latest messages, scrolled to the bottom, in a visible tab (§18.3). Scrolled up, new messages stay unread until you scroll down to them. |
 | Before you joined | Messages older than your account never count, so a new user doesn't start with 99+ everywhere. |
+
+### Decided (2026-10-11, bundle size)
+
+| Topic | Decision |
+|---|---|
+| PocketBase SDK | Replaced in the app by `web/src/pb.ts` (§6): the SDK builds every service in its constructor, so none of its unused code could be tree-shaken. `app.js` went from 31.1 KB to 23.1 KB gzipped; the 32 KB budget (§7.7) is unchanged. Same storage key, so existing sessions survive the switch. |
 
 ### Still open
 

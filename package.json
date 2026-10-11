@@ -20,9 +20,6 @@
     "test:e2e": "playwright test",
     "check": "npm run typecheck && npm run lint && npm run lint:sinks && npm test && npm run test:int && npm run build"
   },
-  "dependencies": {
-    "pocketbase": "0.28.1"
-  },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",
     "@biomejs/biome": "2.5.14",
@@ -33,6 +30,7 @@
     "eventsource": "5.1.2",
     "happy-dom": "20.14.5",
     "playwright-core": "1.63.0",
+    "pocketbase": "0.28.1",
     "typescript": "7.0.2",
     "vitest": "5.0.2"
   },

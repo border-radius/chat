@@ -20,6 +20,11 @@ onRecordUpdate((e) => {
   e.next();
 }, "users");
 
+onRecordAuthWithPasswordRequest((e) => {
+  require(`${__hooks}/lib/chat.js`).findLoginByEmail(e);
+  e.next();
+}, "users");
+
 onRecordCreateRequest((e) => {
   require(`${__hooks}/lib/chat.js`).beforeRoomCreateRequest(e);
   e.next();

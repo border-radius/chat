@@ -89,4 +89,26 @@ describe("createActionMenu", () => {
     menu.update([{ label: "Unarchive", run: () => {} }]);
     expect(buttons()).toEqual(["Unarchive"]);
   });
+
+  it("QA BUG-46: a click or focus anywhere else closes it; inside, it stays open", async () => {
+    menu.update([{ label: "A", run: () => {} }]);
+    const other = document.body.appendChild(document.createElement("button"));
+    try {
+      await vi.waitFor(() => {
+        // The toggle event (which starts watching) is async: retry until a click inside is ignored and outside isn't.
+        button("A").dispatchEvent(new Event("pointerdown", { bubbles: true }));
+        expect(menu.el.open).toBe(true);
+        other.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+        expect(menu.el.open).toBe(false);
+      });
+      menu.el.open = true;
+      await vi.waitFor(() => {
+        other.blur(); // so that focus() fires focusin again on a retry
+        other.focus();
+        expect(menu.el.open).toBe(false);
+      });
+    } finally {
+      other.remove();
+    }
+  });
 });

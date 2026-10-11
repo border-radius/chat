@@ -99,6 +99,11 @@ export function createMessageList(opts: {
   signal.addEventListener("abort", () => clearTimeout(midnight), { once: true });
 
   let editing: string | null = null;
+  /**
+   * What is typed in the open edit box, once it differs from the message (null: not yet). The box is rebuilt whenever
+   * its message is redrawn (a highlight fading, the quoted message edited…), and must keep it (QA BUG-43).
+   */
+  let editText: string | null = null;
   let confirmDelete: string | null = null;
   const errors = new Map<string, MsgError>();
   const cache = new Map<string, { sig: string; el: HTMLElement }>();
@@ -128,9 +133,10 @@ export function createMessageList(opts: {
       class: "edit-input",
       rows: rowsFor(m.text),
       "aria-label": "Edit message",
-      value: m.text,
+      value: editText ?? m.text,
       on: {
         input: (e) => {
+          editText = (e.currentTarget as HTMLTextAreaElement).value;
           fitRows(e.currentTarget as HTMLTextAreaElement);
           hint.textContent = hintText;
           hint.classList.remove("error");
@@ -147,9 +153,10 @@ export function createMessageList(opts: {
               return;
             }
             opts.onSaveEdit(m.id, value);
-          } else if (e.key === "Escape") {
+          } else if (e.key === "Escape" && !e.isComposing) {
             e.preventDefault();
             editing = null;
+            editText = null;
             render();
             opts.onCancelEdit();
           }
@@ -412,7 +419,10 @@ export function createMessageList(opts: {
     // An edit box or delete confirm only stays open while its message can still be changed (it may have been
     // deleted in another tab, or the room archived, meanwhile).
     const canChange = (id: string | null) => !!id && win.items.some((m) => m.id === id && opts.editable(m));
-    if (!canChange(editing)) editing = null;
+    if (!canChange(editing)) {
+      editing = null;
+      editText = null;
+    }
     if (!canChange(confirmDelete)) confirmDelete = null;
     beginning.textContent = beginningText;
     const nodes: Node[] = [];
@@ -432,8 +442,17 @@ export function createMessageList(opts: {
     if (win.hasNewer) nodes.push(bottomSentinel);
 
     const anchor = o.anchor ? captureAnchor(el, "li.msg") : null;
+    // A redrawn edit box is a new element: give it back the focus and caret the old one had (QA BUG-43).
+    const box = document.activeElement;
+    const typing = box instanceof HTMLTextAreaElement && box.matches("textarea.edit-input") && el.contains(box) ? box : null;
+    const caret = typing && ([typing.selectionStart, typing.selectionEnd, typing.selectionDirection] as const);
     reconcile(el, nodes);
     if (anchor) restoreAnchor(el, anchor);
+    if (typing && caret && !typing.isConnected && editing && !focusAfter) {
+      const next = el.querySelector<HTMLTextAreaElement>(`${byId(editing)} textarea.edit-input`);
+      next?.focus();
+      next?.setSelectionRange(...caret);
+    }
 
     // forget elements for messages no longer in the window
     const live = new Set(win.items.map((m) => m.id));
@@ -455,12 +474,14 @@ export function createMessageList(opts: {
     render,
     startEdit(id) {
       editing = id;
+      editText = null;
       confirmDelete = null;
       focusAfter = { id, selector: "textarea.edit-input", caretToEnd: true };
       render();
     },
     stopEdit() {
       editing = null;
+      editText = null;
     },
     setError(id, error) {
       if (error) errors.set(id, error);

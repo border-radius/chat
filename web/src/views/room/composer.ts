@@ -65,6 +65,9 @@ export function fitRows(t: HTMLTextAreaElement): void {
 
 export interface Composer {
   readonly el: HTMLFormElement;
+  /** The text typed so far (a draft to keep), and replacing it. */
+  text(): string;
+  setText(text: string): void;
   setPlaceholder(text: string): void;
   focus(): void;
   /** Add attachments (e.g. dropped on the room). Images are prepared first (§15.3). */
@@ -263,6 +266,11 @@ export function createComposer(opts: {
   return {
     el,
     addFiles,
+    text: () => textarea.value,
+    setText(text) {
+      textarea.value = text;
+      onInput();
+    },
     setPlaceholder(text) {
       textarea.placeholder = text;
     },

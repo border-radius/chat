@@ -1051,6 +1051,53 @@ describe("room view (§7.5–7.6)", () => {
       await mount(room, { msgId: m.id });
       expect(root.querySelector(".room-notice")!.textContent).toContain("isn't in this room");
     });
+
+    it("BUG-43: an open edit box keeps what you typed, its focus and caret when its message is redrawn", async () => {
+      const other = await signedUp("Other");
+      const room = await newRoom();
+      const quoted = await other.api.send({ id: newId(), room: room.id, text: "v1" });
+      const reply = await me.api.send({ id: newId(), room: room.id, text: "my reply", replyTo: quoted.id });
+      await mount(room);
+      button(msgEl(reply.id), "Edit")!.click();
+      const box = editBox(reply.id)!;
+      box.value = "my reply, edited";
+      box.dispatchEvent(new Event("input", { bubbles: true }));
+      box.setSelectionRange(3, 3);
+      await other.api.edit(quoted.id, "v2"); // the reply's quote changes: its element is rebuilt
+      await vi.waitFor(() => expect(msgEl(reply.id)!.querySelector(".reply-text")!.textContent).toBe("v2"));
+      expect(editBox(reply.id)).not.toBe(box);
+      expect(editBox(reply.id)!.value).toBe("my reply, edited");
+      expect(document.activeElement).toBe(editBox(reply.id));
+      expect(editBox(reply.id)!.selectionStart).toBe(3);
+      // Escape forgets the typing: the next edit starts from the message again.
+      key(editBox(reply.id)!, "Escape");
+      button(msgEl(reply.id), "Edit")!.click();
+      expect(editBox(reply.id)!.value).toBe("my reply");
+    });
+
+    it("BUG-50: what you were typing is still there when you come back from another room", async () => {
+      const a = await newRoom();
+      const b = await newRoom();
+      const ctx = viewContext(me.api, store, navigate);
+      const open = async (room: Room) => {
+        view?.unmount();
+        view = createRoomView(ctx);
+        view.mount(root, { id: room.id });
+        fakeLayout(list(), { rowHeight: ROW, clientHeight: VIEWPORT });
+        await loaded();
+      };
+      await open(a);
+      type("half a thought");
+      await open(b);
+      expect(composer()!.value).toBe("");
+      await open(a);
+      expect(composer()!.value).toBe("half a thought");
+      expect(sendButton().disabled).toBe(false);
+      send("half a thought, finished");
+      await open(b);
+      await open(a);
+      expect(composer()!.value).toBe(""); // sent: nothing left to keep
+    });
   });
 
   describe("room header menu (§7.1)", () => {

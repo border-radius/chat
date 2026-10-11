@@ -1,12 +1,12 @@
 // Replies (§19): reply_to is set on create only, to a message of the same room that isn't deleted, and comes back
 // expanded (author name, text) through every way the client reads messages.
 
-import PocketBase, { BaseAuthStore } from "pocketbase";
 import { describe, expect, inject, it } from "vitest";
 import { type Action, type Api, createApi } from "../../web/src/api.ts";
 import { latest } from "../../web/src/lib/cursor.ts";
 import { newId } from "../../web/src/lib/id.ts";
 import type { Message } from "../../web/src/lib/types.ts";
+import { createClient } from "../../web/src/pb.ts";
 import { uniq } from "../support/ids.ts";
 import { adminClient, eventually, expectRejected, newRoom, newUser, openDm, post } from "./helpers.ts";
 
@@ -102,7 +102,7 @@ describe("replies: rules and hooks (§19)", () => {
 });
 
 describe("replies through the client API (§19)", () => {
-  const realClient = (): Api => createApi(new PocketBase(inject("pbUrl"), new BaseAuthStore()));
+  const realClient = (): Api => createApi(createClient(inject("pbUrl")));
   async function setup() {
     const a = realClient();
     const b = realClient();

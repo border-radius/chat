@@ -118,6 +118,13 @@ function roomKey(name) {
 }
 
 /**
+ * Leading "#"s of a room name: rooms are shown as "#name", so "#general" would read "##general", next to a
+ * different "general" (QA BUG-48).
+ * @param {string} name
+ */
+const stripHashes = (name) => name.replace(/^[#\s]+/, "");
+
+/**
  * rooms create/update: clean the name and enforce case-insensitive (Unicode) uniqueness via `name_key`.
  * The unique index on name_key backs this up against races.
  * @param {core.App} app
@@ -125,6 +132,7 @@ function roomKey(name) {
  */
 function setRoomKey(app, rec) {
   cleanName(rec);
+  rec.set("name", stripHashes(rec.getString("name")));
   const key = roomKey(rec.getString("name"));
   rec.set("name_key", key);
   if (key === "") return; // `required` on name reports it
@@ -374,11 +382,15 @@ function beforeRoomUpdateRequest(e) {
 }
 
 /**
- * users create/update: clean the display name (§5.1).
+ * users create/update: clean the display name (§5.1). A new email is stored in lower case, so the same address can't
+ * make two accounts and logging in doesn't depend on how it was capitalized (QA BUG-47). Existing ones are left as they
+ * are on other updates (the migration lowered every one it could).
  * @param {core.RecordEvent} e
  */
 function beforeUserSave(e) {
   const rec = recordOf(e);
+  const email = rec.getString("email");
+  if (rec.isNew() || email !== rec.original().getString("email")) rec.set("email", email.trim().toLowerCase());
   cleanName(rec);
   assertImagesFit(rec, "avatar");
   originalNames(rec, "avatar"); // only for the upload's own name (QA BUG-35)
@@ -406,6 +418,20 @@ function beforeRoomUpdate(e) {
 }
 
 /**
+ * users auth-with-password: an email that matched nobody as typed is looked up in lower case, the way emails are
+ * stored (QA BUG-47). PocketBase then checks the password as usual.
+ * @param {core.RecordAuthWithPasswordRequestEvent} e
+ */
+function findLoginByEmail(e) {
+  if (e.record || (e.identityField && e.identityField !== "email") || !e.identity.includes("@")) return;
+  try {
+    e.record = e.app.findFirstRecordByFilter("users", "email = {:email}", { email: e.identity.trim().toLowerCase() });
+  } catch {
+    // no such user: PocketBase answers "Failed to authenticate." as for any wrong login
+  }
+}
+
+/**
  * Security + cache headers for every response (§5.6).
  * @param {core.RequestEvent} e
  */
@@ -425,6 +451,7 @@ function headers(e) {
 
 module.exports = {
   beforeUserSave,
+  findLoginByEmail,
   beforeRoomCreate,
   beforeRoomCreateRequest,
   beforeRoomUpdate,

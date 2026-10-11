@@ -140,6 +140,10 @@ export function createLoginView(deps: { api: Api; onLogin: (user: User) => void 
       // Errors for fields on screen go next to them; anything else (network, rate limit, …) above the button.
       const all = e instanceof ApiError ? e.fields : {};
       const fields = Object.fromEntries(Object.entries(all).filter(([k]) => FIELDS[mode].some((f) => f.name === k)));
+      // PocketBase says "Value must be unique." (QA BUG-49).
+      if (mode === "signup" && e instanceof ApiError && e.codes.email === "validation_not_unique") {
+        fields.email = "There is already an account with this email. Log in instead.";
+      }
       // A refused login is a 400 without field errors; PocketBase's "Failed to authenticate." doesn't say why (QA BUG-40).
       const badLogin = mode === "login" && e instanceof ApiError && e.status === 400;
       const form = Object.keys(fields).length ? "" : badLogin ? "Wrong email or password." : errorMessage(e);

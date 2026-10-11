@@ -103,6 +103,19 @@ describe("rooms view (§7.1)", () => {
       expect(section("rooms").textContent).toContain("No rooms yet");
     });
 
+    it("QA BUG-44: with every room hidden or archived, it doesn't claim there are no rooms", async () => {
+      const hidden = await room();
+      const archived = await room();
+      await me.api.hideRoom(hidden.id);
+      await me.api.setArchived(archived.id, true);
+      vi.spyOn(me.api, "listRooms").mockResolvedValue([hidden, { ...archived, archived: true }]);
+      vi.spyOn(me.api, "subscribeRooms").mockResolvedValue(async () => {});
+      await mount();
+      expect(sectionOf(hidden)).toBe("hidden");
+      expect(section("rooms").textContent).not.toContain("No rooms yet");
+      expect(section("rooms").textContent).toContain("Hidden and archived ones are listed below.");
+    });
+
     it("shows an error with a retry when loading fails", async () => {
       const ctl = instrument(me.api);
       ctl.failNext("listRooms", new ApiError("Failed to fetch", 0));

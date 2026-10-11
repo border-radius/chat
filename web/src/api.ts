@@ -1,10 +1,9 @@
-// The only module that talks to PocketBase (§6). Views depend on the `Api` interface, never on the SDK.
+// The only module that talks to PocketBase (§6). Views depend on the `Api` interface, never on the client.
 
-import type PocketBase from "pocketbase";
-import { ClientResponseError, type RecordModel } from "pocketbase";
 import { PAGE_SIZE, type PageQuery } from "./lib/cursor.ts";
 import { createTokenCache } from "./lib/token.ts";
 import type { Message, Room, User } from "./lib/types.ts";
+import { type AuthRecord, type PbClient, PbError, type Query } from "./pb.ts";
 
 export type AvatarSize = 48 | 96;
 export type Unsubscribe = () => Promise<void>;
@@ -49,8 +48,10 @@ export interface Api {
   currentUser(): User | null;
   signUp(input: { email: string; password: string; name: string }): Promise<User>;
   logIn(email: string, password: string): Promise<User>;
-  /** Re-validate the stored session with the server. Rejects when it is no longer valid. */
+  /** Re-validate the stored session with the server, which renews it. Rejects when it is no longer valid. */
   refreshAuth(): Promise<User>;
+  /** When the stored session expires (epoch ms), or 0 without one. */
+  sessionExpiry(): number;
   logOut(): void;
   /**
    * Called whenever the stored session changes, including from another tab of the same browser (they share
@@ -169,16 +170,15 @@ const ACTIVITY_FIELDS = "id,room,author,created,deleted";
 
 function toApiError(e: unknown): ApiError {
   if (e instanceof ApiError) return e;
-  if (e instanceof ClientResponseError) {
-    const data = (e.response?.data ?? {}) as Record<string, { message?: unknown; code?: unknown }>;
+  if (e instanceof PbError) {
+    const data = e.response.data ?? {};
     const pick = (key: "message" | "code") =>
       Object.fromEntries(
         Object.entries(data)
           .filter(([, v]) => v && typeof v[key] === "string")
           .map(([k, v]) => [k, v[key] as string]),
       );
-    const message = (e.response?.message as string | undefined) || e.message;
-    return new ApiError(message, e.isAbort ? 0 : e.status, pick("message"), pick("code"));
+    return new ApiError(e.message, e.status, pick("message"), pick("code"));
   }
   return new ApiError(e instanceof Error ? e.message : String(e), 0);
 }
@@ -191,28 +191,74 @@ async function wrap<T>(p: Promise<T>): Promise<T> {
   }
 }
 
-const toUser = (r: RecordModel): User => ({ id: r.id, name: r.name as string, avatar: (r.avatar as string | undefined) ?? "" });
+const toUser = (r: AuthRecord): User => ({ id: r.id, name: r.name as string, avatar: (r.avatar as string | undefined) ?? "" });
 /** What the profile calls return: never the email, even for yourself. */
 const USER_FIELDS = "id,name,avatar";
 
-/** SDK list options for a page of messages. `bind` is `pb.filter`: values are bound and escaped, never concatenated. */
+/** Query for a page of messages. `bind` is `pb.filter`: values are bound and escaped, never concatenated. */
 export function listOptions(q: PageQuery, bind: (expr: string, params: Record<string, string>) => string) {
   return { filter: bind(q.filter, q.params), sort: q.sort, skipTotal: true, ...MSG_OPTS };
 }
 
-/** `{ signal }` when there is one (exactOptionalPropertyTypes: never pass `signal: undefined`). */
-const abortable = (signal: AbortSignal | undefined) => (signal ? { signal } : {});
+/** Record endpoints of one collection: the part of the SDK's RecordService we use. */
+function records(pb: PbClient, collection: string) {
+  const path = `/api/collections/${collection}`;
+  const one = (id: string) => `${path}/records/${encodeURIComponent(id)}`;
+  const list = <T>(page: number, perPage: number, query: Query, signal?: AbortSignal) =>
+    pb.send<{ items: T[] }>(`${path}/records`, { query: { page, perPage, ...query }, signal });
+  /** Save a fresh auth response, as the SDK does. */
+  const auth = async (p: Promise<{ token: string; record: AuthRecord }>) => {
+    const { token, record } = await p;
+    pb.authStore.save(token, record);
+    return record;
+  };
+  return {
+    list,
+    /** Every page, `batch` records at a time. */
+    async fullList<T>(query: Query, signal?: AbortSignal, batch = 1000): Promise<T[]> {
+      const out: T[] = [];
+      for (let page = 1; ; page++) {
+        const { items } = await list<T>(page, batch, { skipTotal: true, ...query }, signal);
+        out.push(...items);
+        if (items.length < batch) return out;
+      }
+    },
+    get: <T>(id: string, query: Query, signal?: AbortSignal) => pb.send<T>(one(id), { query, signal }),
+    create: <T>(body: Record<string, unknown>, query?: Query) => pb.send<T>(`${path}/records`, { method: "POST", body, query }),
+    async update<T>(id: string, body: Record<string, unknown>, query: Query): Promise<T> {
+      const item = await pb.send<AuthRecord>(one(id), { method: "PATCH", body, query });
+      // Updating the logged-in user refreshes the stored record (other tabs and onAuthChange see it).
+      const r = pb.authStore.record;
+      if (r?.id === item.id && r.collectionName === collection) pb.authStore.save(pb.authStore.token, { ...r, ...item });
+      return item as T;
+    },
+    delete: (id: string) => pb.send(one(id), { method: "DELETE" }),
+    authWithPassword: (identity: string, password: string) =>
+      auth(pb.send(`${path}/auth-with-password`, { method: "POST", body: { identity, password } })),
+    authRefresh: () => auth(pb.send(`${path}/auth-refresh`, { method: "POST" })),
+  };
+}
 
-export function createApi(pb: PocketBase): Api {
-  pb.autoCancellation(false);
-  const users = () => pb.collection("users");
-  const rooms = () => pb.collection("rooms");
-  const hidden = () => pb.collection("hidden_rooms");
-  const messages = () => pb.collection("messages");
+export function createApi(pb: PbClient): Api {
+  const users = records(pb, "users");
+  const rooms = records(pb, "rooms");
+  const hidden = records(pb, "hidden_rooms");
+  const messages = records(pb, "messages");
   /** Every record event of a collection, narrowed to our Action type. */
-  const subscribe = <T>(collection: string, fn: RealtimeHandler<T>, opts: Record<string, unknown>) =>
-    wrap(pb.collection(collection).subscribe<T>("*", (e) => fn(e.action as Action, e.record), opts));
-  const tokens = createTokenCache(() => wrap(pb.files.getToken()));
+  const subscribe = <T>(collection: string, fn: RealtimeHandler<T>, query: Query) =>
+    wrap(
+      pb.realtime.subscribe(
+        `${collection}/*`,
+        (e) => {
+          const { action, record } = e as { action: Action; record: T };
+          fn(action, record);
+        },
+        query,
+      ),
+    );
+  const tokens = createTokenCache(() =>
+    wrap(pb.send<{ token?: string }>("/api/files/token", { method: "POST" })).then((d) => d.token || ""),
+  );
   // A file token belongs to a user: drop it when the user changes, but not on a session refresh of the same user
   // (every page load does one, often while the first token request is in flight: QA BUG-25).
   const sessionUser = () => (pb.authStore.isValid ? (pb.authStore.record?.id ?? "") : "");
@@ -234,7 +280,7 @@ export function createApi(pb: PocketBase): Api {
       return pb.authStore.isValid && r?.collectionName === "users" ? toUser(r) : null;
     },
     async signUp({ email, password, name }) {
-      await wrap(users().create({ email, password, passwordConfirm: password, name }));
+      await wrap(users.create({ email, password, passwordConfirm: password, name }));
       try {
         return await api.logIn(email, password);
       } catch (e) {
@@ -243,33 +289,34 @@ export function createApi(pb: PocketBase): Api {
       }
     },
     async logIn(email, password) {
-      return toUser((await wrap(users().authWithPassword(email, password))).record);
+      return toUser(await wrap(users.authWithPassword(email, password)));
     },
     async refreshAuth() {
       if (!api.currentUser()) throw new ApiError("Not logged in.", 401);
-      return toUser((await wrap(users().authRefresh())).record);
+      return toUser(await wrap(users.authRefresh()));
     },
+    sessionExpiry: () => pb.authStore.expiresAt,
     logOut() {
       pb.authStore.clear();
     },
     onAuthChange(fn) {
-      // The SDK's LocalAuthStore also fires this when another tab saves or clears the shared session.
+      // A localStorage-backed store also fires this when another tab saves or clears the shared session.
       return pb.authStore.onChange(() => fn());
     },
 
-    // The SDK sends a body holding a File as multipart, and refreshes the stored auth record from the response.
-    setAvatar: async (file) => toUser(await wrap(users().update(me(), { avatar: file }, { fields: USER_FIELDS }))),
-    removeAvatar: async () => toUser(await wrap(users().update(me(), { avatar: null }, { fields: USER_FIELDS }))),
-    rename: async (name) => toUser(await wrap(users().update(me(), { name }, { fields: USER_FIELDS }))),
+    // A body holding a File is sent as multipart; update() refreshes the stored auth record from the response.
+    setAvatar: async (file) => toUser(await wrap(users.update(me(), { avatar: file }, { fields: USER_FIELDS }))),
+    removeAvatar: async () => toUser(await wrap(users.update(me(), { avatar: null }, { fields: USER_FIELDS }))),
+    rename: async (name) => toUser(await wrap(users.update(me(), { name }, { fields: USER_FIELDS }))),
     avatarUrl(user, size) {
       if (!user.avatar) return "";
-      return pb.files.getURL({ id: user.id, collectionName: "users" } as RecordModel, user.avatar, { thumb: `${size}x${size}` });
+      return pb.fileUrl("users", user.id, user.avatar, { thumb: `${size}x${size}` });
     },
 
-    listRooms: (signal) => wrap(rooms().getFullList<Room>({ sort: "name", ...ROOM_OPTS, ...abortable(signal) })),
-    getRoom: (id, signal) => wrap(rooms().getOne<Room>(id, { ...ROOM_OPTS, ...abortable(signal) })),
-    createRoom: async (name) => wrap(rooms().create<Room>({ name, created_by: me() }, ROOM_OPTS)),
-    setArchived: (id, archived) => wrap(rooms().update<Room>(id, { archived }, ROOM_OPTS)),
+    listRooms: (signal) => wrap(rooms.fullList<Room>({ sort: "name", ...ROOM_OPTS }, signal)),
+    getRoom: (id, signal) => wrap(rooms.get<Room>(id, ROOM_OPTS, signal)),
+    createRoom: async (name) => wrap(rooms.create<Room>({ name, created_by: me() }, ROOM_OPTS)),
+    setArchived: (id, archived) => wrap(rooms.update<Room>(id, { archived }, ROOM_OPTS)),
 
     openDm: (userId) => wrap(pb.send<Room>("/api/chat/dms", { method: "POST", body: { user: userId } })),
     async searchUsers(query, signal) {
@@ -279,32 +326,29 @@ export function createApi(pb: PocketBase): Api {
         sort: "name",
         fields: USER_FIELDS,
         skipTotal: true,
-        ...abortable(signal),
       };
-      return (await wrap(users().getList(1, 20, opts))).items.map(toUser);
+      return (await wrap(users.list<AuthRecord>(1, 20, opts, signal))).items.map(toUser);
     },
 
-    listHidden: (signal) => wrap(hidden().getFullList<HiddenRow>({ fields: HIDDEN_FIELDS, ...abortable(signal) })),
-    hideRoom: async (room) => wrap(hidden().create<HiddenRow>({ user: me(), room }, { fields: HIDDEN_FIELDS })),
+    listHidden: (signal) => wrap(hidden.fullList<HiddenRow>({ fields: HIDDEN_FIELDS }, signal)),
+    hideRoom: async (room) => wrap(hidden.create<HiddenRow>({ user: me(), room }, { fields: HIDDEN_FIELDS })),
     unhideRoom: async (rowId) => {
-      await wrap(hidden().delete(rowId));
+      await wrap(hidden.delete(rowId));
     },
 
-    unreadCounts: (signal) => wrap(pb.send<UnreadCounts>("/api/chat/unread", { method: "GET", ...abortable(signal) })),
+    unreadCounts: (signal) => wrap(pb.send<UnreadCounts>("/api/chat/unread", { signal })),
     markRead: async (room, at) => {
       await wrap(pb.send("/api/chat/reads", { method: "POST", body: { room, at } }));
     },
 
     async page(q, signal) {
-      const opts = { ...listOptions(q, pb.filter.bind(pb)), ...abortable(signal) };
-      return (await wrap(messages().getList<Message>(1, PAGE_SIZE, opts))).items;
+      return (await wrap(messages.list<Message>(1, PAGE_SIZE, listOptions(q, pb.filter), signal))).items;
     },
-    getMessage: (id, signal) => wrap(messages().getOne<Message>(id, { ...MSG_OPTS, ...abortable(signal) })),
-    changes: (q, signal) =>
-      wrap(messages().getFullList<Message>({ ...listOptions(q, pb.filter.bind(pb)), batch: 200, ...abortable(signal) })),
+    getMessage: (id, signal) => wrap(messages.get<Message>(id, MSG_OPTS, signal)),
+    changes: (q, signal) => wrap(messages.fullList<Message>(listOptions(q, pb.filter), signal, 200)),
     send: async (m) =>
       wrap(
-        messages().create<Message>(
+        messages.create<Message>(
           {
             id: m.id,
             room: m.room,
@@ -316,17 +360,14 @@ export function createApi(pb: PocketBase): Api {
           MSG_OPTS,
         ),
       ),
-    edit: (id, text) => wrap(messages().update<Message>(id, { text }, MSG_OPTS)),
-    softDelete: (id) => wrap(messages().update<Message>(id, { deleted: true }, MSG_OPTS)),
+    edit: (id, text) => wrap(messages.update<Message>(id, { text }, MSG_OPTS)),
+    softDelete: (id) => wrap(messages.update<Message>(id, { deleted: true }, MSG_OPTS)),
 
     fileToken: (force) => tokens.ensure(force),
     fileUrl(m, filename, thumb) {
       if (!tokens.fresh()) void tokens.ensure().catch(() => {});
       const token = tokens.current();
-      return pb.files.getURL({ id: m.id, collectionName: "messages" } as RecordModel, filename, {
-        ...(token ? { token } : {}),
-        ...(thumb ? { thumb } : {}),
-      });
+      return pb.fileUrl("messages", m.id, filename, { token: token || undefined, thumb });
     },
 
     subscribeMessages: (room, fn) => subscribe("messages", fn, { ...MSG_OPTS, filter: pb.filter("room = {:room}", { room }) }),

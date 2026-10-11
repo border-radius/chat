@@ -1,11 +1,11 @@
 // createApi() against a real PocketBase (§6): the behavior every view relies on.
 
-import PocketBase, { BaseAuthStore } from "pocketbase";
 import { describe, expect, inject, it } from "vitest";
 import { type Action, type Api, ApiError, createApi } from "../../web/src/api.ts";
 import { latest, older, PAGE_SIZE } from "../../web/src/lib/cursor.ts";
 import { newId } from "../../web/src/lib/id.ts";
 import type { Message } from "../../web/src/lib/types.ts";
+import { createClient } from "../../web/src/pb.ts";
 import { pngFile } from "../support/files.ts";
 import { uniq } from "../support/ids.ts";
 
@@ -32,7 +32,7 @@ async function rejection(p: Promise<unknown>): Promise<ApiError> {
 }
 
 /** A real client with its own in-memory auth store (no shared localStorage). */
-const realClient = (): Api => createApi(new PocketBase(inject("pbUrl"), new BaseAuthStore()));
+const realClient = (): Api => createApi(createClient(inject("pbUrl")));
 
 /** Two fresh logged-in clients and one logged-out client. */
 async function setup(): Promise<{ a: Api; b: Api; anon: Api }> {
@@ -450,7 +450,16 @@ describe("createApi", () => {
     });
 
     it("onConnect registered while already connected reports the next connection as a reconnect", async () => {
-      const pb = new PocketBase(inject("pbUrl"), new BaseAuthStore());
+      // Record the client's EventSources, so the test can drop the connection the way the network would.
+      const sources: EventSource[] = [];
+      const Real = globalThis.EventSource;
+      globalThis.EventSource = class extends Real {
+        constructor(url: string | URL, init?: EventSourceInit) {
+          super(url, init);
+          sources.push(this);
+        }
+      };
+      const pb = createClient(inject("pbUrl"));
       const api = createApi(pb);
       await api.signUp({ email: `r-${uniq()}@test.local`, password: "password-123", name: "R" });
       const unsub = await api.subscribeRooms(() => {});
@@ -458,10 +467,12 @@ describe("createApi", () => {
       const calls: boolean[] = [];
       const off = api.onConnect((re) => calls.push(re)); // registered after the connection is up
       try {
-        // Force the SDK down its real reconnect path (as after a dropped connection).
-        (pb.realtime as unknown as { connectErrorHandler(e: Error): void }).connectErrorHandler(new Error("dropped"));
+        // The connection errors (as after a network drop): the client goes down its real reconnect path.
+        sources.at(-1)!.onerror!(new Event("error"));
         await eventually(() => expect(calls).toEqual([true]), 5_000);
+        expect(sources).toHaveLength(2);
       } finally {
+        globalThis.EventSource = Real;
         off();
         await unsub();
         await api.unsubscribeAll();

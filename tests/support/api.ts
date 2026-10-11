@@ -1,7 +1,6 @@
 // Real PocketBase clients for view tests, plus test controls layered on top of them.
 // There is no fake backend: every call reaches the throwaway server started by global-setup.ts.
 
-import PocketBase, { BaseAuthStore } from "pocketbase";
 import { inject, vi } from "vitest";
 import { createRoomActions } from "../../web/src/actions.ts";
 import { type Api, createApi } from "../../web/src/api.ts";
@@ -9,6 +8,7 @@ import type { Ctx } from "../../web/src/context.ts";
 import { newId } from "../../web/src/lib/id.ts";
 import { toPb } from "../../web/src/lib/time.ts";
 import type { Message, User } from "../../web/src/lib/types.ts";
+import { createClient } from "../../web/src/pb.ts";
 import type { AppState, Store } from "../../web/src/store.ts";
 import { createSync } from "../../web/src/sync.ts";
 import { createUnread, type UnreadTiming } from "../../web/src/unread.ts";
@@ -28,7 +28,7 @@ const SUBSCRIBE_OPS = ["subscribeMessages", "subscribeRooms", "subscribeHidden",
 
 /** A logged-out real client with its own in-memory auth store. */
 export function newApi(): Api {
-  const api = createApi(new PocketBase(inject("pbUrl"), new BaseAuthStore()));
+  const api = createApi(createClient(inject("pbUrl")));
   const pending: Promise<unknown>[] = [];
   subscriptions.set(api, pending);
   // A plain wrapper, not intercept(): that installs a vi.fn, which a later vi.spyOn would reuse (and call itself).
@@ -46,7 +46,7 @@ export function newApi(): Api {
 
 /**
  * Resolves once every realtime subscription `api` has asked for so far (by the services, the views, or the test) is
- * registered on the server: an event caused after this reaches it. The SDK's subscribe() resolves only then.
+ * registered on the server: an event caused after this reaches it. The client's subscribe() resolves only then.
  * Replaces "sleep to let the subscriptions settle".
  */
 export async function subscribed(api: Api): Promise<void> {
@@ -138,7 +138,7 @@ export interface Controls {
   reconnect(): void;
 }
 
-const SYNC = new Set<keyof Api>(["currentUser", "logOut", "onAuthChange", "onConnect", "avatarUrl", "fileUrl"]);
+const SYNC = new Set<keyof Api>(["currentUser", "sessionExpiry", "logOut", "onAuthChange", "onConnect", "avatarUrl", "fileUrl"]);
 
 /**
  * Replace `api[op]` with a vi.fn built from the current implementation. Composes by reassignment, so
@@ -217,7 +217,7 @@ export function viewContext(api: Api, store: Store<AppState>, navigate: (hash: s
   unread.start();
   contexts.add(sync);
   contexts.add(unread);
-  return { api, store, sync, unread, actions: createRoomActions({ api, store }), navigate };
+  return { api, store, sync, unread, actions: createRoomActions({ api, store }), navigate, drafts: new Map() };
 }
 
 const contexts = new Set<{ stop(): void }>();
