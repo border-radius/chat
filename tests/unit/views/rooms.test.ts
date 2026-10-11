@@ -116,10 +116,36 @@ describe("rooms view (§7.1)", () => {
   });
 
   describe("creating", () => {
-    it("creates a room, shows it, and opens it", async () => {
+    const toggle = () => root.querySelector<HTMLButtonElement>("button.new-room-toggle")!;
+    /** Opens the form with "+ New room" and returns its input. */
+    function openForm(): HTMLInputElement {
+      toggle().click();
+      return root.querySelector<HTMLInputElement>('form.new-room input[name="name"]')!;
+    }
+
+    it("the form is closed until “+ New room” (in the Rooms heading) opens it, focused; Escape or the toggle closes it", async () => {
+      await mount();
+      expect(toggle().closest("[data-section]")).toBe(section("rooms"));
+      expect(root.querySelector("form.new-room")).toBeNull();
+      expect(toggle().getAttribute("aria-expanded")).toBe("false");
+
+      const input = openForm();
+      expect(toggle().getAttribute("aria-expanded")).toBe("true");
+      expect(document.activeElement).toBe(input);
+      input.value = "draft";
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      expect(root.querySelector("form.new-room")).toBeNull();
+      expect(document.activeElement).toBe(toggle());
+
+      expect(openForm().value).toBe(""); // closing discards the draft
+      toggle().click();
+      expect(root.querySelector("form.new-room")).toBeNull();
+    });
+
+    it("creates a room, shows it, opens it, and closes the form", async () => {
       await mount();
       const name = `new-${uniq()}`;
-      const input = root.querySelector<HTMLInputElement>('form input[name="name"]')!;
+      const input = openForm();
       input.value = name;
       root.querySelector<HTMLFormElement>("form")!.requestSubmit();
       await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith(expect.stringMatching(/^#\/r\/[a-z0-9]{15}$/)));
@@ -127,12 +153,13 @@ describe("rooms view (§7.1)", () => {
       expect(store.get().rooms.get(id)?.name).toBe(name);
       expect(root.querySelector(`[data-room-id="${id}"]`)).not.toBeNull();
       expect(input.value).toBe("");
+      expect(root.querySelector("form.new-room")).toBeNull();
     });
 
     it("shows a duplicate-name error inline and keeps the input", async () => {
       const taken = await room(`taken-${uniq()}`);
       await mount();
-      const input = root.querySelector<HTMLInputElement>('form input[name="name"]')!;
+      const input = openForm();
       input.value = taken.name.toUpperCase();
       root.querySelector<HTMLFormElement>("form")!.requestSubmit();
       const err = () => document.getElementById(input.getAttribute("aria-describedby")!)!;
@@ -145,7 +172,7 @@ describe("rooms view (§7.1)", () => {
     it("the name must be 1–48 characters, counted as the server counts them (an emoji is one)", async () => {
       const ctl = instrument(me.api);
       await mount();
-      const input = root.querySelector<HTMLInputElement>('form input[name="name"]')!;
+      const input = openForm();
       const err = () => document.getElementById(input.getAttribute("aria-describedby")!)!;
       expect(input.required).toBe(true);
       // No maxlength: the browser would count UTF-16 units and stop at 24 emoji.

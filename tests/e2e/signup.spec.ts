@@ -25,7 +25,9 @@ test("sign up, create a room, send the first message", async ({ page }) => {
   expect(greet.x).toBeGreaterThan(side.x + side.width);
 
   const name = `general-${uniq()}`;
-  await page.getByLabel("New room").fill(name);
+  await page.getByRole("button", { name: "New room" }).click();
+  await expect(page.getByLabel("Room name")).toBeFocused();
+  await page.getByLabel("Room name").fill(name);
   await page.getByRole("button", { name: "Create" }).click();
   await expect(page).toHaveURL(/#\/r\/[a-z0-9]{15}$/);
   await expect(page.locator("header.room-header h1")).toHaveText(`#${name}`);

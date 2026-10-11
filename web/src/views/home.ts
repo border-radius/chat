@@ -21,7 +21,9 @@ export function createHomeView({ store }: Pick<Ctx, "store">): View {
       root = el;
       render();
       clear(root);
-      root.append(h("section", { class: "welcome" }, [title, h("p", {}, "Pick a room or a conversation from the list, or start a new one.")]));
+      root.append(
+        h("section", { class: "welcome" }, [title, h("p", {}, "Pick a room or a conversation from the list, or start a new one.")]),
+      );
       scope.defer(
         store.subscribe((s, prev) => {
           if (s.user !== prev.user) render();

@@ -36,6 +36,9 @@ export function createRoomsView({ api, store, sync, actions, navigate }: Ctx): V
   let actionError = "";
   /** The "New message" user search, while open (kept across renders, so typing and focus survive). */
   let search: UserSearch | null = null;
+  /** The new-room form, built once per mount and shown while `creating` (so a half-typed name survives). */
+  let newRoom: { form: HTMLFormElement; input: HTMLInputElement; reset: () => void };
+  let creating = false;
 
   const alert = h("p", { role: "alert", class: "list-error" });
   const nav = h("nav", { "aria-label": "Rooms" });
@@ -81,6 +84,15 @@ export function createRoomsView({ api, store, sync, actions, navigate }: Ctx): V
       : null;
     render();
     search?.focus();
+  }
+
+  function toggleNewRoom(open: boolean) {
+    if (open === creating) return;
+    creating = open;
+    if (!open) newRoom.reset();
+    render();
+    if (open) newRoom.input.focus();
+    else nav.querySelector<HTMLElement>("button.new-room-toggle")?.focus();
   }
 
   async function message(user: User) {
@@ -175,8 +187,20 @@ export function createRoomsView({ api, store, sync, actions, navigate }: Ctx): V
     // Rows are rebuilt; the focused control (a menu button, which is kept) gets its focus back below.
     const focused = nav.contains(document.activeElement) ? (document.activeElement as HTMLElement) : null;
     shell.setAttribute("aria-busy", String(loading));
+    const newRoomToggle = h(
+      "button",
+      {
+        type: "button",
+        class: "link new-room-toggle",
+        "aria-expanded": String(creating),
+        on: { click: () => toggleNewRoom(!creating) },
+        signal: scope.signal,
+      },
+      "+ New room",
+    );
     const main = h("div", { class: "room-section", dataset: { section: "rooms" } }, [
-      h("h2", {}, "Rooms"),
+      h("div", { class: "section-head" }, [h("h2", {}, "Rooms"), newRoomToggle]),
+      creating ? newRoom.form : null,
       rooms.length
         ? h(
             "ul",
@@ -216,7 +240,7 @@ export function createRoomsView({ api, store, sync, actions, navigate }: Ctx): V
     for (const key of menus.keys()) if (!live.has(key)) menus.delete(key);
   }
 
-  function newRoomForm(): HTMLFormElement {
+  function newRoomForm(): typeof newRoom {
     const inputId = `${id}-name`;
     const errId = `${inputId}-error`;
     const err = h("p", { id: errId, class: "field-error" });
@@ -226,7 +250,7 @@ export function createRoomsView({ api, store, sync, actions, navigate }: Ctx): V
       required: true,
       // No `maxlength`: it counts UTF-16 units (an emoji is 2), the server counts characters. Checked on submit.
       autocomplete: "off",
-      placeholder: "general",
+      placeholder: "room-name",
       "aria-describedby": errId,
     });
     const submit = h("button", { type: "submit" }, "Create");
@@ -235,11 +259,14 @@ export function createRoomsView({ api, store, sync, actions, navigate }: Ctx): V
       if (msg) input.setAttribute("aria-invalid", "true");
       else input.removeAttribute("aria-invalid");
     };
-    return h(
+    const form = h(
       "form",
       {
         class: "new-room",
         on: {
+          keydown: (e) => {
+            if (e.key === "Escape") toggleNewRoom(false);
+          },
           submit: async (e) => {
             e.preventDefault();
             if (submit.disabled) return;
@@ -252,7 +279,7 @@ export function createRoomsView({ api, store, sync, actions, navigate }: Ctx): V
             try {
               const room = await actions.create(input.value);
               if (!scope.active) return;
-              input.value = "";
+              toggleNewRoom(false);
               navigate(`#/r/${room.id}`);
             } catch (e) {
               if (scope.active) setError(nameError(e));
@@ -263,8 +290,16 @@ export function createRoomsView({ api, store, sync, actions, navigate }: Ctx): V
         },
         signal: scope.signal,
       },
-      [h("label", { for: inputId }, "New room"), input, submit, err],
+      [h("label", { for: inputId, class: "visually-hidden" }, "Room name"), input, submit, err],
     );
+    return {
+      form,
+      input,
+      reset() {
+        input.value = "";
+        setError("");
+      },
+    };
   }
 
   return {
@@ -273,7 +308,9 @@ export function createRoomsView({ api, store, sync, actions, navigate }: Ctx): V
       scope = createScope();
       menus.clear();
       search = null;
-      shell.replaceChildren(newRoomForm(), alert, nav);
+      creating = false;
+      newRoom = newRoomForm();
+      shell.replaceChildren(alert, nav);
       clear(root);
       root.append(shell);
 

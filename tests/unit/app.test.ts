@@ -114,6 +114,7 @@ describe("app boot (§7.1)", () => {
     app = startApp({ api, root });
     await vi.waitFor(() => expect(root.querySelector("header.room-header h1")?.textContent).toBe(`#${r1.name}`));
     const sidebar = root.querySelector("aside.sidebar")!;
+    sidebar.querySelector<HTMLButtonElement>("button.new-room-toggle")!.click();
     const input = sidebar.querySelector<HTMLInputElement>('form.new-room input[name="name"]')!;
     input.value = "half-typ";
     const fetches = ctl.calls("listRooms");
@@ -159,7 +160,7 @@ describe("app boot (§7.1)", () => {
     expect(app.store.get().user).toEqual(ada.user);
     expect(logoutButton()).toBeDefined();
     await vi.waitFor(() => expect(root.querySelector('nav[aria-label="Rooms"]')).not.toBeNull()); // mounted on hashchange
-    expect(root.querySelector('form.new-room input[name="name"]')).not.toBeNull();
+    expect(root.querySelector("button.new-room-toggle")).not.toBeNull();
   });
 
   it("log out clears auth, drops realtime subscriptions and returns to login", async () => {
