@@ -1,7 +1,7 @@
 // POST /api/chat/dms (§16.2) and the DM message hooks (§16.4).
 
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
-import { adminClient, client, collect, newRoom, newUser, openDm, post, rawDb, sleep, status } from "./helpers.ts";
+import { adminClient, client, collect, eventually, newRoom, newUser, openDm, post, rawDb, status } from "./helpers.ts";
 
 describe("POST /api/chat/dms (§16.2)", () => {
   it("creates the DM on first call and returns the same room afterwards, whoever asks", async () => {
@@ -82,13 +82,13 @@ describe("DM message hooks (§16.4)", () => {
     const dm = await openDm(a, b);
     expect(dm.last_message_at).toBe("");
     const bRooms = await collect(b.pb, "rooms");
-    await sleep(200);
     const m = await post(a, dm.id, "hi");
-    await sleep(400);
     const room = await b.pb.collection("rooms").getOne(dm.id);
     expect(room.last_message_at).toBe(m.created);
-    expect(bRooms.events).toContainEqual(
-      expect.objectContaining({ action: "update", record: expect.objectContaining({ id: dm.id, last_message_at: m.created }) }),
+    await eventually(() =>
+      expect(bRooms.events).toContainEqual(
+        expect.objectContaining({ action: "update", record: expect.objectContaining({ id: dm.id, last_message_at: m.created }) }),
+      ),
     );
     await bRooms.stop();
   });
@@ -100,11 +100,13 @@ describe("DM message hooks (§16.4)", () => {
     await a.pb.collection("hidden_rooms").create({ user: a.user.id, room: dm.id });
     const bRow = await b.pb.collection("hidden_rooms").create({ user: b.user.id, room: dm.id });
     const bHidden = await collect(b.pb, "hidden_rooms");
-    await sleep(200);
-    await post(a, dm.id, "are you there?");
-    await sleep(400);
+    await post(a, dm.id, "are you there?"); // the hook runs after the create commits, before the response
     expect(await b.pb.collection("hidden_rooms").getFullList({ filter: `room = "${dm.id}"` })).toHaveLength(0);
-    expect(bHidden.events).toContainEqual(expect.objectContaining({ action: "delete", record: expect.objectContaining({ id: bRow.id }) }));
+    await eventually(() =>
+      expect(bHidden.events).toContainEqual(
+        expect.objectContaining({ action: "delete", record: expect.objectContaining({ id: bRow.id }) }),
+      ),
+    );
     expect(await a.pb.collection("hidden_rooms").getFullList({ filter: `room = "${dm.id}"` })).toHaveLength(1);
     await bHidden.stop();
   });

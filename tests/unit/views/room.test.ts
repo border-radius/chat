@@ -6,7 +6,17 @@ import type { Message, Room } from "../../../web/src/lib/types.ts";
 import type { View } from "../../../web/src/router.ts";
 import { type AppState, bumpUnread, createStore, initialState, type Store } from "../../../web/src/store.ts";
 import { createRoomView } from "../../../web/src/views/room.ts";
-import { instrument, intercept, type SignedUp, seedMessages, signedUp, uniq, viewContext } from "../../support/api.ts";
+import {
+  instrument,
+  intercept,
+  READ_WINDOW_MS,
+  type SignedUp,
+  seedMessages,
+  signedUp,
+  subscribed,
+  uniq,
+  viewContext,
+} from "../../support/api.ts";
 import { fakeLayout, installIntersectionObserver } from "../../support/dom.ts";
 import { pngFile } from "../../support/files.ts";
 
@@ -82,20 +92,40 @@ describe("room view (§7.5–7.6)", () => {
     view.mount(root, { id: room.id, ...params });
     layout = fakeLayout(list(), { rowHeight: ROW, clientHeight: VIEWPORT });
     await loaded();
+    await subscribed(api); // live events caused from here on reach the view
   }
 
-  /** Drop realtime message events while `offline` is true (to simulate a dropped connection). */
+  /**
+   * Drop realtime message events while `offline` is true (to simulate a dropped connection). `dropped` counts them, so
+   * a test can wait until the events it caused really were lost (instead of sleeping and hoping they came already).
+   */
   function gateRealtime(api: Api) {
-    const state = { offline: false };
+    const state = { offline: false, dropped: 0 };
     intercept(
       api,
       "subscribeMessages",
       (original) => (roomId, fn) =>
         original(roomId, (action, rec) => {
-          if (!state.offline) fn(action, rec);
+          if (state.offline) state.dropped++;
+          else fn(action, rec);
         }),
     );
     return state;
+  }
+
+  /** Ids of the message events the view's subscription has received (to wait for one deterministically). */
+  function deliveries(api: Api) {
+    const ids: string[] = [];
+    intercept(
+      api,
+      "subscribeMessages",
+      (original) => (roomId, fn) =>
+        original(roomId, (action, rec) => {
+          ids.push(rec.id);
+          fn(action, rec);
+        }),
+    );
+    return ids;
   }
 
   /** Capture the view's realtime message handler so tests can inject events directly. */
@@ -191,14 +221,15 @@ describe("room view (§7.5–7.6)", () => {
     it("live messages that arrive before the first page loads are not lost", async () => {
       const other = await signedUp("Other");
       const room = await newRoom();
+      const delivered = deliveries(me.api);
       const ctl = instrument(me.api);
       const release = ctl.hold("page");
       view = createRoomView(viewContext(me.api, store, navigate));
       view.mount(root, { id: room.id });
-      await vi.waitFor(() => expect(ctl.calls("subscribeMessages")).toBe(1));
-      await sleep(200); // let the SSE subscription settle before the other user posts
+      await subscribed(me.api);
       const early = await other.api.send({ id: newId(), room: room.id, text: "early bird" });
-      await sleep(300);
+      await vi.waitFor(() => expect(delivered).toContain(early.id)); // arrived before the first page
+      expect(ctl.calls("page")).toBe(1);
       release();
       await loaded();
       await vi.waitFor(() => expect(ids()).toContain(early.id));
@@ -259,6 +290,7 @@ describe("room view (§7.5–7.6)", () => {
   describe("composer and optimistic send (5.2)", () => {
     it("Enter sends; the message shows immediately as pending, then confirmed, never duplicated", async () => {
       const room = await newRoom();
+      const delivered = deliveries(me.api);
       const ctl = instrument(me.api);
       await mount(room);
       const release = ctl.hold("send");
@@ -270,7 +302,7 @@ describe("room view (§7.5–7.6)", () => {
       release();
       const id = pending.dataset.id!;
       await vi.waitFor(() => expect(msgEl(id)!.classList.contains("pending")).toBe(false));
-      await sleep(300); // realtime echo of our own message
+      await vi.waitFor(() => expect(delivered).toContain(id)); // the realtime echo of our own message
       expect(ids().filter((x) => x === id)).toHaveLength(1);
       expect(atBottom()).toBe(true);
     });
@@ -607,7 +639,7 @@ describe("room view (§7.5–7.6)", () => {
       gate.offline = true;
       const missed: Message[] = [];
       for (let i = 0; i < 80; i++) missed.push(await other.api.send({ id: newId(), room: room.id, text: `missed ${i}` }));
-      await sleep(200);
+      await vi.waitFor(() => expect(gate.dropped).toBe(80));
       expect(ids()).not.toContain(missed[0]!.id);
       gate.offline = false;
       const pagesBefore = ctl.calls("page");
@@ -932,12 +964,11 @@ describe("room view (§7.5–7.6)", () => {
       const handlers = captureHandler(me.api);
       await mount(room);
       expect(calls).toEqual([]); // nothing to read in an empty room
-      const sent: Message[] = [];
-      for (const text of ["one", "two"]) {
-        const m = await other.api.send({ id: newId(), room: room.id, text });
-        handlers[0]!("create", m);
-        sent.push(m);
-      }
+      const sent = [
+        await other.api.send({ id: newId(), room: room.id, text: "one" }),
+        await other.api.send({ id: newId(), room: room.id, text: "two" }),
+      ];
+      for (const m of sent) handlers[0]!("create", m); // both in one tick: one batch, however slow the sends were
       await vi.waitFor(() => expect(calls).toEqual([[room.id, sent[1]!.created]]), { timeout: 3000 });
     });
 
@@ -957,7 +988,7 @@ describe("room view (§7.5–7.6)", () => {
       const calls = reads(me.api);
       const ctl = instrument(me.api);
       await mount(room, { msgId: all[150]!.id });
-      await sleep(1200);
+      await sleep(READ_WINDOW_MS);
       expect(calls).toEqual([]);
       const before = ctl.calls("unreadCounts");
       view!.unmount();
@@ -971,7 +1002,7 @@ describe("room view (§7.5–7.6)", () => {
       const calls = reads(me.api);
       setVisibility("hidden");
       await mount(room);
-      await sleep(1200);
+      await sleep(READ_WINDOW_MS);
       expect(calls).toEqual([]);
       setVisibility("visible");
       await vi.waitFor(() => expect(calls).toEqual([[room.id, m!.created]]), { timeout: 3000 });
@@ -989,7 +1020,7 @@ describe("room view (§7.5–7.6)", () => {
       const m = await other.api.send({ id: newId(), room: room.id, text: "unseen" });
       handlers[0]!("create", m);
       expect(pill().hidden).toBe(false);
-      await sleep(1200);
+      await sleep(READ_WINDOW_MS);
       expect(calls).toHaveLength(1);
       layout.scrollToBottom();
       await vi.waitFor(() => expect(calls.at(-1)).toEqual([room.id, m.created]), { timeout: 3000 });
@@ -1029,7 +1060,7 @@ describe("room view (§7.5–7.6)", () => {
       gate.offline = true;
       await other.api.softDelete(secret.id);
       await other.api.edit(typo.id, "typo");
-      await sleep(200);
+      await vi.waitFor(() => expect(gate.dropped).toBe(2));
       expect(bodyOf(secret.id)).toBe("secret"); // missed
       gate.offline = false;
       ctl.reconnect();
@@ -1046,6 +1077,7 @@ describe("room view (§7.5–7.6)", () => {
       await mount(room, { msgId: all[10]!.id });
       gate.offline = true;
       await me.api.edit(all[10]!.id, "changed while away");
+      await vi.waitFor(() => expect(gate.dropped).toBe(1)); // really missed, not just late
       gate.offline = false;
       ctl.reconnect();
       await vi.waitFor(() => expect(bodyOf(all[10]!.id)).toBe("changed while away"));

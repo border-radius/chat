@@ -3,7 +3,18 @@ import { ApiError } from "../../web/src/api.ts";
 import { newId } from "../../web/src/lib/id.ts";
 import { type AppState, createStore, initialState, type Store } from "../../web/src/store.ts";
 import { createUnread, type Unread } from "../../web/src/unread.ts";
-import { instrument, intercept, newApi, type SignedUp, seedMessages, signedUp, uniq } from "../support/api.ts";
+import {
+  instrument,
+  intercept,
+  newApi,
+  READ_WINDOW_MS,
+  type SignedUp,
+  seedMessages,
+  signedUp,
+  subscribed,
+  TEST_TIMING,
+  uniq,
+} from "../support/api.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -24,7 +35,7 @@ describe("unread counts (§18.3)", () => {
   });
 
   const start = () => {
-    unread = createUnread({ api: me.api, store });
+    unread = createUnread({ api: me.api, store, timing: TEST_TIMING });
     unread.start();
     return unread;
   };
@@ -63,13 +74,13 @@ describe("unread counts (§18.3)", () => {
       const active = await other.api.createRoom(`active-${uniq()}`);
       store.set({ activeRoomId: active.id });
       start();
-      await sleep(300); // let the subscriptions settle
+      await subscribed(me.api);
       await say(other, r.id);
       await say(me, r.id);
       await say(other, active.id);
-      await vi.waitFor(() => expect(count(r.id)).toBe(1));
-      await sleep(300);
-      expect(count(r.id)).toBe(1);
+      // A marker after them: events arrive in order, so once it has counted, the two above have been handled.
+      await say(other, r.id);
+      await vi.waitFor(() => expect(count(r.id)).toBe(2));
       expect(count(active.id)).toBeUndefined();
     });
 
@@ -80,7 +91,7 @@ describe("unread counts (§18.3)", () => {
       await say(other, r.id);
       start();
       await vi.waitFor(() => expect(count(r.id)).toBe(2));
-      await sleep(300);
+      await subscribed(me.api);
       await other.api.softDelete(m.id);
       await vi.waitFor(() => expect(count(r.id)).toBe(1));
     });
@@ -91,7 +102,7 @@ describe("unread counts (§18.3)", () => {
       const m = await say(other, r.id);
       start();
       await vi.waitFor(() => expect(count(r.id)).toBe(1));
-      await sleep(300);
+      await subscribed(me.api);
       const otherTab = newApi();
       await otherTab.logIn(me.email, me.password);
       await otherTab.markRead(r.id, m.created);
@@ -114,7 +125,7 @@ describe("unread counts (§18.3)", () => {
       start();
       await vi.waitFor(() => expect(ctl.calls("unreadCounts")).toBe(1));
       for (let i = 0; i < 5; i++) unread!.refresh();
-      await sleep(500);
+      await sleep(TEST_TIMING.refreshMs * 4);
       expect(ctl.calls("unreadCounts")).toBe(2);
     });
 
@@ -123,7 +134,7 @@ describe("unread counts (§18.3)", () => {
       const ctl = instrument(me.api);
       start();
       await vi.waitFor(() => expect(count(r.id)).toBe(2));
-      await sleep(300);
+      await subscribed(me.api);
       const release = ctl.hold("unreadCounts");
       unread!.refresh();
       await vi.waitFor(() => expect(ctl.calls("unreadCounts")).toBe(2));
@@ -131,7 +142,7 @@ describe("unread counts (§18.3)", () => {
       await say(other, r.id); // so it isn't in that answer
       await vi.waitFor(() => expect(count(r.id)).toBe(3));
       release();
-      await sleep(400);
+      await sleep(TEST_TIMING.refreshMs * 4); // a refetch would have gone out by now
       expect(count(r.id)).toBe(3);
       expect(ctl.calls("unreadCounts")).toBe(2);
     });
@@ -163,12 +174,14 @@ describe("unread counts (§18.3)", () => {
   });
 
   describe("reading a room (RoomReader)", () => {
-    /** Calls to api.markRead, as [room, at]. */
-    function reads() {
+    /** Calls to api.markRead, as [room, at]. Their promises go to `sent`, if given, to wait for the answers. */
+    function reads(sent: Promise<unknown>[] = []) {
       const calls: [string, string][] = [];
       intercept(me.api, "markRead", (original) => (room, at) => {
         calls.push([room, at]);
-        return original(room, at);
+        const p = original(room, at);
+        sent.push(p.catch(() => {}));
+        return p;
       });
       return calls;
     }
@@ -181,7 +194,7 @@ describe("unread counts (§18.3)", () => {
       return { r, msgs };
     }
 
-    it("seen() clears the count at once and tells the server once a second, with the newest position", async () => {
+    it("seen() clears the count at once and tells the server after the batching delay, with the newest position", async () => {
       const { r, msgs } = await freshRoom(3);
       const calls = reads();
       start();
@@ -206,7 +219,7 @@ describe("unread counts (§18.3)", () => {
       expect(calls).toEqual([[r.id, msgs[0]!.created]]);
       expect(count(r.id)).toBeUndefined();
       reader.seen("9999"); // closed: nothing happens
-      await sleep(1200);
+      await sleep(READ_WINDOW_MS);
       expect(calls).toHaveLength(1);
     });
 
@@ -240,10 +253,12 @@ describe("unread counts (§18.3)", () => {
       const third = await signedUp("Third");
       const calls = reads();
       start();
-      const reader = unread!.open(r.id);
+      const reader = unread!.open(r.id); // for Me
+      await me.api.logIn(third.email, third.password); // another tab: the shared session is now Third's
       reader.seen(msgs[0]!.created);
-      await me.api.logIn(third.email, third.password);
       unread!.flush();
+      reader.seen("9999-12-31 23:59:59.999Z"); // a later position: batched, not flushed
+      await sleep(READ_WINDOW_MS); // the batched send, too
       reader.close(true);
       expect(calls).toEqual([]);
     });
@@ -252,13 +267,15 @@ describe("unread counts (§18.3)", () => {
       const { r, msgs } = await freshRoom(1);
       const ctl = instrument(me.api);
       ctl.failNext("markRead", new ApiError("Failed to fetch", 0));
-      const calls = reads(); // outside the failure, so the failed call is recorded too
+      const sent: Promise<unknown>[] = [];
+      const calls = reads(sent); // outside the failure, so the failed call is recorded too
       start();
       const reader = unread!.open(r.id);
       reader.seen(msgs[0]!.created);
       unread!.flush();
       expect(calls).toHaveLength(1);
-      await sleep(50); // the failure has come back
+      await Promise.all(sent); // the failure has come back
+      await Promise.resolve(); // and the reader's own catch has run
       reader.seen(msgs[0]!.created); // the same position: sent again only because it failed
       await vi.waitFor(() => expect(calls).toHaveLength(2), { timeout: 3000 });
       await vi.waitFor(async () => expect((await me.api.unreadCounts()).rooms[r.id]).toBeUndefined());
@@ -273,7 +290,7 @@ describe("unread counts (§18.3)", () => {
       unread!.stop();
       unread!.flush();
       reader.close(true);
-      await sleep(1200);
+      await sleep(READ_WINDOW_MS);
       expect(calls).toEqual([]);
     });
   });

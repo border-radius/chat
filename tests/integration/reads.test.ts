@@ -3,20 +3,7 @@
 import { readFileSync } from "node:fs";
 import type { RecordModel } from "pocketbase";
 import { describe, expect, inject, it } from "vitest";
-import {
-  client,
-  collect,
-  eventually,
-  expectRejected,
-  newRoom,
-  newUser,
-  openDm,
-  post,
-  rawDb,
-  sleep,
-  status,
-  type TestUser,
-} from "./helpers.ts";
+import { client, collect, eventually, expectRejected, newRoom, newUser, openDm, post, rawDb, status, type TestUser } from "./helpers.ts";
 
 const counts = (u: TestUser) => u.pb.send<{ at: string; rooms: Record<string, number> }>("/api/chat/unread", { method: "GET" });
 const unread = async (u: TestUser) => (await counts(u)).rooms;
@@ -63,14 +50,13 @@ describe("GET /api/chat/unread (§18.2)", () => {
     const a = await newUser();
     const b = await newUser();
     const room = await newRoom(a);
-    await sleep(200); // all 150 fixture messages (1 ms apart, ending now) are newer than b
     const db = rawDb({ write: true });
     try {
       const insert = db.prepare(
         "INSERT INTO messages (id, room, author, text, edited_at, deleted, deleted_at, created, updated) VALUES (?, ?, ?, 'x', '', 0, '', ?, ?)",
       );
       db.exec("BEGIN");
-      const start = Date.now() - 160;
+      const start = Date.parse(b.user.created.replace(" ", "T")) + 1; // all newer than b's signup
       for (let i = 0; i < 150; i++) {
         const ts = new Date(start + i).toISOString().replace("T", " ");
         insert.run(`${room.id.slice(0, 5)}${String(i).padStart(10, "0")}`, room.id, a.user.id, ts, ts);

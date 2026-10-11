@@ -5,7 +5,7 @@ import type { Room } from "../../../web/src/lib/types.ts";
 import type { View } from "../../../web/src/router.ts";
 import { type AppState, createStore, initialState, type Store } from "../../../web/src/store.ts";
 import { createRoomsView } from "../../../web/src/views/rooms.ts";
-import { instrument, type SignedUp, signedUp, uniq, viewContext } from "../../support/api.ts";
+import { instrument, type SignedUp, signedUp, subscribed, uniq, viewContext } from "../../support/api.ts";
 
 type Section = "rooms" | "dms" | "hidden" | "archived";
 
@@ -35,6 +35,7 @@ describe("rooms view (§7.1)", () => {
     view = createRoomsView(viewContext(api, store, navigate));
     view.mount(root, {});
     await vi.waitFor(() => expect(root.querySelector("[aria-busy='true']")).toBeNull());
+    await subscribed(api); // live events caused from here on reach the view
   }
 
   const row = (room: Room) => root.querySelector<HTMLElement>(`[data-room-id="${room.id}"]`);
@@ -374,7 +375,6 @@ describe("rooms view (§7.1)", () => {
       const r = await other.api.createRoom(`room-${uniq()}`);
       const dm = await other.api.openDm(me.user.id);
       await mount();
-      await new Promise((done) => setTimeout(done, 300)); // let the subscriptions settle
       await other.api.send({ id: newId(), room: r.id, text: "hello" });
       await other.api.send({ id: newId(), room: dm.id, text: "psst" });
       await vi.waitFor(() => expect(badge(r)?.textContent).toBe("1 unread"));

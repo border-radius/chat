@@ -11,7 +11,7 @@ import { toPb } from "../../web/src/lib/time.ts";
 import type { Message, User } from "../../web/src/lib/types.ts";
 import type { AppState, Store } from "../../web/src/store.ts";
 import { createSync } from "../../web/src/sync.ts";
-import { createUnread } from "../../web/src/unread.ts";
+import { createUnread, type UnreadTiming } from "../../web/src/unread.ts";
 import { uniq } from "./ids.ts";
 
 // The unit project runs in happy-dom, where Vite refuses static imports of Node built-ins.
@@ -22,11 +22,39 @@ export { uniq } from "./ids.ts";
 
 const clients = new Set<Api>();
 
+/** Realtime subscriptions each client has asked for, as promises that settle once the server has them. */
+const subscriptions = new WeakMap<Api, Promise<unknown>[]>();
+const SUBSCRIBE_OPS = ["subscribeMessages", "subscribeRooms", "subscribeHidden", "subscribeAllMessages", "subscribeReads"] as const;
+
 /** A logged-out real client with its own in-memory auth store. */
 export function newApi(): Api {
   const api = createApi(new PocketBase(inject("pbUrl"), new BaseAuthStore()));
+  const pending: Promise<unknown>[] = [];
+  subscriptions.set(api, pending);
+  // A plain wrapper, not intercept(): that installs a vi.fn, which a later vi.spyOn would reuse (and call itself).
+  for (const op of SUBSCRIBE_OPS) {
+    const original = (api[op] as (...a: never[]) => Promise<unknown>).bind(api);
+    (api as unknown as Record<string, unknown>)[op] = (...args: never[]) => {
+      const p = original(...args);
+      pending.push(p.catch(() => {}));
+      return p;
+    };
+  }
   clients.add(api);
   return api;
+}
+
+/**
+ * Resolves once every realtime subscription `api` has asked for so far (by the services, the views, or the test) is
+ * registered on the server: an event caused after this reaches it. The SDK's subscribe() resolves only then.
+ * Replaces "sleep to let the subscriptions settle".
+ */
+export async function subscribed(api: Api): Promise<void> {
+  const pending = subscriptions.get(api) ?? [];
+  for (let seen = -1; seen !== pending.length; ) {
+    seen = pending.length;
+    await Promise.all(pending);
+  }
 }
 
 /** Close every client's realtime connection (run after each test, before happy-dom tears the window down). */
@@ -177,9 +205,14 @@ export function instrument(api: Api): Controls {
  * What the app shell hands a view, around a real client, with the room sync and the unread counts already running
  * (as they are whenever someone is logged in). Build it after `instrument()`/`intercept()` so they see those.
  */
+/** Unread timing for tests: the app's, shortened (reads batch for 100 ms, not 1 s). */
+export const TEST_TIMING: UnreadTiming = { refreshMs: 50, readMs: 100 };
+/** Long enough that a read batched with TEST_TIMING would have been sent: to check that none was. */
+export const READ_WINDOW_MS = 300;
+
 export function viewContext(api: Api, store: Store<AppState>, navigate: (hash: string) => void): Ctx {
   const sync = createSync({ api, store });
-  const unread = createUnread({ api, store });
+  const unread = createUnread({ api, store, timing: TEST_TIMING });
   sync.start();
   unread.start();
   contexts.add(sync);

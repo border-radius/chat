@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { client, collect, eventually, newRoom, newUser, post, sleep } from "./helpers.ts";
+import { barrier, client, collect, eventually, newRoom, newUser, post, sleep } from "./helpers.ts";
 
 const MSG_OPTS = (room: string) => ({
   filter: `room = "${room}"`,
@@ -25,7 +25,7 @@ describe("realtime (§5.5, §6)", () => {
       expect(e.record.expand?.author).toEqual({ id: a.user.id, name: a.user.name });
       expect(JSON.stringify(e.record)).not.toContain("@test.local");
 
-      await sleep(500);
+      await barrier(sub, () => post(a, r1.id, "marker")); // after "in r2": it would have arrived by now
       expect(sub.events).toHaveLength(1);
     } finally {
       await sub.stop();
@@ -58,6 +58,7 @@ describe("realtime (§5.5, §6)", () => {
     const sub = await collect(anon, "messages");
     try {
       await post(a, room.id, "private-ish");
+      // No barrier possible: an anonymous client may receive no event at all. Give a wrong delivery time to show up.
       await sleep(500);
       expect(sub.events).toHaveLength(0);
     } finally {
@@ -88,7 +89,7 @@ describe("realtime (§5.5, §6)", () => {
     try {
       await a.pb.collection("hidden_rooms").create({ user: a.user.id, room: room.id });
       await eventually(() => expect(subA.events).toHaveLength(1));
-      await sleep(300);
+      await barrier(subB, () => b.pb.collection("hidden_rooms").create({ user: b.user.id, room: room.id }));
       expect(subB.events).toHaveLength(0);
     } finally {
       await subA.stop();

@@ -89,6 +89,17 @@ export async function collect(
   };
 }
 
+/**
+ * Make "this subscription received nothing it shouldn't" deterministic, without sleeping: `trigger` causes an event
+ * the subscription must receive (on the same client, so the same connection). Events on one connection arrive in
+ * order, so once that marker is in, anything sent before it has arrived too. The marker is removed from `events`.
+ */
+export async function barrier(sub: { events: RecordSubscription<RecordModel>[] }, trigger: () => Promise<{ id: string }>) {
+  const { id } = await trigger();
+  await eventually(() => expect(sub.events.some((e) => e.record.id === id)).toBe(true));
+  for (let i = sub.events.length - 1; i >= 0; i--) if (sub.events[i]!.record.id === id) sub.events.splice(i, 1);
+}
+
 /** Poll until `fn` stops throwing, or fail after `ms`. */
 export async function eventually(fn: () => void, ms = 2_000): Promise<void> {
   const deadline = Date.now() + ms;

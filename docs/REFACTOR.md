@@ -173,3 +173,19 @@ Every view has the same fields: `ac`, `active`, `subs: Promise<Unsubscribe>[]`, 
 - [x] Now `web/src/unread.ts`: counts + `open(roomId) → RoomReader { seen, close }` + `flush()`. `sync.ts` is back to
       rooms and hidden rows. The room view only reports what is on screen. `app.ts` `endSession()` flushes pending
       reads explicitly before the session ends. Tests: `tests/unit/unread.test.ts` (service and reader, no DOM).
+
+### 19. Deterministic realtime tests ✅
+- [x] 36 `sleep()`s in unit and integration tests, many "let the subscriptions settle": a test that acted before its
+      subscription was registered lost the event and failed under load. The SDK's `subscribe()` resolves only once
+      the server has the subscription, so tests now wait for that instead.
+- [x] `tests/support/api.ts`: every test client records its subscriptions; `subscribed(api)` resolves when all are
+      registered. The view tests' `mount()` helpers call it, so every live-update test is covered, not only those that
+      had a sleep. No app code changed for this: the app never needs to know.
+- [x] Waiting *for* an event: `eventually` / `vi.waitFor` on the event, or on what the view received (`deliveries()`).
+      Simulated outages (`gateRealtime`) count dropped events and wait for them: before, a late event could arrive
+      after the gate reopened and pass the test without exercising gap fill (BUG-01 tests).
+- [x] Proving an event did *not* arrive: `barrier()` (integration) causes a later event the same connection must
+      receive; events on one connection are ordered, so the earlier one would have arrived first. Kept as sleeps:
+      anonymous subscribers (nothing at all can be delivered to them), and negative checks after `stop()`.
+- [x] Unread timing is injectable (`createUnread({ timing })`): tests batch reads for 100 ms, not 1 s, and wait
+      `READ_WINDOW_MS` (300 ms) to check that nothing was sent.

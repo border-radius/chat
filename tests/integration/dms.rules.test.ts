@@ -1,7 +1,7 @@
 // Direct messages: who can see and write what (§16.3).
 
 import { describe, expect, it } from "vitest";
-import { collect, expectRejected, newRoom, newUser, openDm, post, rawDb, sleep, status } from "./helpers.ts";
+import { barrier, collect, eventually, expectRejected, newRoom, newUser, openDm, post, rawDb, status } from "./helpers.ts";
 
 /** dm_key straight from the DB (it is hidden from the API). */
 function dmKeyOf(roomId: string): string {
@@ -45,10 +45,12 @@ describe("DM visibility (§16.3)", () => {
     const cMsgs = await collect(c.pb, "messages");
     const cRooms = await collect(c.pb, "rooms");
     const bMsgs = await collect(b.pb, "messages", { filter: `room = "${dm.id}"` });
-    await sleep(200);
     await post(a, dm.id, "psst");
-    await sleep(500);
-    expect(bMsgs.events.map((e) => e.record.text)).toEqual(["psst"]);
+    await eventually(() => expect(bMsgs.events.map((e) => e.record.text)).toEqual(["psst"]));
+    // C must see these two, after the DM's events: once they are in, anything from the DM would be too.
+    const pub = await newRoom(a);
+    await barrier(cRooms, async () => pub);
+    await barrier(cMsgs, () => post(a, pub.id, "public"));
     expect(cMsgs.events).toEqual([]);
     expect(cRooms.events).toEqual([]); // not even the last_message_at update
     await Promise.all([cMsgs.stop(), cRooms.stop(), bMsgs.stop()]);

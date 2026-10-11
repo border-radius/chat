@@ -29,12 +29,16 @@ export interface RoomReader {
   close(caughtUp: boolean): void;
 }
 
-/** How long refresh() waits for more calls before it fetches. */
-const REFRESH_DEBOUNCE_MS = 250;
-/** How long reads are batched before the server is told. */
-const READ_DELAY_MS = 1000;
+export interface UnreadTiming {
+  /** How long refresh() waits for more calls before it fetches. */
+  refreshMs: number;
+  /** How long reads are batched before the server is told. */
+  readMs: number;
+}
 
-export function createUnread({ api, store }: { api: Api; store: Store<AppState> }): Unread {
+const TIMING: UnreadTiming = { refreshMs: 250, readMs: 1000 };
+
+export function createUnread({ api, store, timing = TIMING }: { api: Api; store: Store<AppState>; timing?: UnreadTiming }): Unread {
   /** The current run; callbacks hold on to theirs, so a restart can't revive them. */
   let scope: Scope | null = null;
   /**
@@ -69,7 +73,7 @@ export function createUnread({ api, store }: { api: Api; store: Store<AppState> 
     const s = scope;
     if (!s) return;
     clearTimeout(refreshTimer);
-    refreshTimer = setTimeout(() => void load(s), REFRESH_DEBOUNCE_MS);
+    refreshTimer = setTimeout(() => void load(s), timing.refreshMs);
   }
 
   function open(roomId: string): RoomReader {
@@ -104,7 +108,7 @@ export function createUnread({ api, store }: { api: Api; store: Store<AppState> 
         store.set(clearUnread(roomId));
         if (timer) return;
         pending.add(self);
-        timer = setTimeout(self.send, READ_DELAY_MS);
+        timer = setTimeout(self.send, timing.readMs);
       },
       close(caughtUp) {
         if (closed) return;
