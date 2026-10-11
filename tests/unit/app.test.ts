@@ -196,6 +196,60 @@ describe("app boot (§7.1)", () => {
     expect(app.store.get().user).toBeNull();
   });
 
+  describe("QA BUG-51: a session revoked on another device (its password changed) is noticed", () => {
+    /** Ada, with the app running on a session that another device then revokes by changing the password. */
+    async function revoked() {
+      const ada = await signedUp("Ada");
+      const ctl = instrument(ada.api);
+      const room = await ada.api.createRoom(`r-${newId()}`);
+      app = startApp({ api: ada.api, root });
+      await vi.waitFor(() => expect(ctl.calls("refreshAuth")).toBe(1));
+      await tick();
+      const elsewhere = newApi();
+      await elsewhere.logIn(ada.email, ada.password);
+      await elsewhere.changePassword(ada.password, "new-password-1");
+      return { ...ada, ctl, room };
+    }
+    /** Time passing (the checks are spaced out), without waiting for it. */
+    function later(ms: number) {
+      const now = Date.now.bind(Date);
+      vi.spyOn(Date, "now").mockImplementation(() => now() + ms);
+    }
+
+    it("a refused send checks the session, and a revoked one goes to the login screen instead of “Not sent”", async () => {
+      const { api, ctl, room } = await revoked();
+      later(60_000);
+      await expect(api.send({ id: newId(), room: room.id, text: "lost" })).rejects.toThrow();
+      await vi.waitFor(() => expect(location.hash).toBe("#/login"));
+      expect(ctl.calls("refreshAuth")).toBe(2);
+      expect(app!.store.get().user).toBeNull();
+    });
+
+    it("coming back to a tab whose session wasn't checked for a while checks it", async () => {
+      await revoked();
+      later(6 * 60_000);
+      document.dispatchEvent(new Event("visibilitychange"));
+      await vi.waitFor(() => expect(location.hash).toBe("#/login"));
+    });
+
+    it("a refused change with a good session keeps you logged in, and checks at most every 30 s", async () => {
+      const { api } = await signedUp("Ada");
+      const ctl = instrument(api);
+      const room = await api.createRoom(`r-${newId()}`);
+      app = startApp({ api, root });
+      await vi.waitFor(() => expect(ctl.calls("refreshAuth")).toBe(1));
+      await tick();
+      later(60_000);
+      await expect(api.createRoom(room.name)).rejects.toThrow(); // taken
+      await vi.waitFor(() => expect(ctl.calls("refreshAuth")).toBe(2));
+      await expect(api.createRoom(room.name)).rejects.toThrow();
+      await tick();
+      expect(ctl.calls("refreshAuth")).toBe(2);
+      expect(app.store.get().user?.name).toBe("Ada");
+      expect(location.hash).toBe("#/");
+    });
+  });
+
   it("logging in through the form goes to the room list", async () => {
     const ada = await signedUp("Ada");
     app = startApp({ api: newApi(), root });

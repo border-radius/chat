@@ -324,3 +324,93 @@ it. **Fix:** leading "#"s (and spaces) are dropped from room names on save. "c#"
 - Limits: 2000 emoji in a message, 32 in a name, 48 in a room name.
 
 Known, not fixed here: the document title never shows unread counts.
+
+---
+
+# QA pass 5 — whole app
+
+Exploratory QA of the whole app, 2026-10-12, on PocketBase 0.40.4: scripted multi-user Chromium sessions (several
+devices and tabs per user, desktop 1100×720 and phone 390×844, light and dark), axe on states the e2e suite doesn't
+cover (profile errors, emoji picker, selecting, bulk-delete confirm, forward dialog, user search, new room), and REST
+probes of the rules and routes. Beforehand, the whole suite passed: typecheck, lint, html-sink check, 505 unit and 248
+integration tests, the build, and e2e (except the known local timeouts in `reactions.spec.ts`). Each fix comes with a
+test that fails without it.
+
+| # | Severity | Area | Summary | Status |
+|---|---|---|---|---|
+| BUG-51 | Medium | Session | After a password change, other devices still look logged in: nothing arrives, every send is "Not sent" | Fixed |
+| BUG-52 | Medium | Realtime | After a password change, the user's other tabs (and the sidebar of the tab that changed it) stop updating live | Fixed |
+| BUG-55 | Medium | DMs | The user search ignores case only for ASCII: "иван" doesn't find "Иван" | Fixed |
+| BUG-53 | Low (security) | Accounts | A password can be changed through the users API, around the route's rate limit and checks | Fixed |
+| BUG-54 | Low | Attachments | A file named `Q&A "v2".txt` shows and downloads as `Q&A %22v2%22.txt` | Fixed |
+| BUG-56 | Low | Profile | After "This display name is taken", putting your own name back leaves the error showing | Fixed |
+| BUG-57 | Low (a11y) | Theme | Red text on a hovered button (Delete, Log out, confirms) is 4.25:1, under WCAG AA's 4.5:1 | Fixed |
+| BUG-58 | Low | Selecting | A failed delete of several messages always says "Check your connection", even when rate limited | Fixed |
+
+## BUG-51 — Signed-out devices don't know it (Medium)
+
+**Steps:** be logged in on two devices. On one, change the password (the page says "You were logged out everywhere
+else"). Use the other.
+**Actual:** it still shows you logged in. No new messages arrive, and everything you send ends in "Not sent." with a
+Retry that never works, until you reload. The token was revoked, but the app only checked its session on load and when
+it neared expiry, and a revoked token gets 400/404 on writes (PocketBase treats it as no session), not 401.
+**Fix:** when the server refuses a change sent with the session (400, 401, 403, 404), the app checks the session (at
+most every 30 s); it also checks when the tab comes back after 5 minutes. A revoked session goes to the login screen.
+
+## BUG-52 — Other tabs go quiet after a password change (Medium)
+
+**Steps:** two tabs of the same browser in a room. Change the password in one; have someone post.
+**Actual:** the other tab gets the new token (tabs share the session) but never shows the message, and its badges stop
+updating, until you switch rooms or reload. The tab that changed it loses its sidebar's live updates the same way.
+**Cause:** PocketBase knows who a realtime client is from the token its subscriptions were sent with. The old one was
+revoked, and the subscriptions were only sent again when they changed.
+**Fix:** the realtime client sends its subscriptions again whenever the session token changes.
+
+## BUG-55 — User search is case-sensitive outside ASCII (Medium)
+
+**Steps:** New message (or Forward) → search "иван" for a user called "Иван", or "élodie" for "Élodie".
+**Actual:** nobody found. The search was `name ~ q`, and SQLite's `LIKE` only ignores the case of ASCII letters.
+**Fix:** a `GET /api/chat/users?q=` route matches the query's name key against `users.name_key` (NFKC, case folded,
+§22.1), so "иван", "ИВАН" and "Иван" are the same, and "strasse" finds "Straße". It answers only id, name and avatar.
+
+## BUG-53 — Password changes around POST /api/chat/password (Low, security)
+
+**Steps:** `PATCH /api/collections/users/records/<me>` with `oldPassword`, `password`, `passwordConfirm`.
+**Actual:** 200: the password changes at the generic limit (300 requests per 10 s), not the route's 5 per minute, so a
+stolen session could guess the current password far faster. It also skipped the route's "same password" check.
+**Fix:** the users update rule refuses `password` and `passwordConfirm`. The route saves directly, so it still works.
+
+## BUG-54 — `"` in file names becomes `%22` (Low)
+
+**Steps:** attach `Q&A "v2".txt`. **Actual:** shown and downloaded as `Q&A %22v2%22.txt`. Browsers escape `"` (and line
+breaks) in multipart file names, per the HTML spec. **Fix:** the upload hooks undo that escaping before keeping the name.
+
+## BUG-56 — A stale "taken" error on the profile (Low)
+
+**Fix:** saving your current name clears the error (there is nothing to save).
+
+## BUG-57 — Low contrast of red text on hover (Low, accessibility)
+
+**Steps:** hover a red button (a message's Delete, the bulk-delete confirm, Log out). **Actual:** `#d1213b` on the hover
+background `#e9e4fb` is 4.25:1. **Fix:** the light theme's red is `#c41d36` (4.74:1 hovered, 5.65:1 on the page). A unit
+test checks red text against every background token in both themes.
+
+## BUG-58 — "Check your connection" for every failed bulk delete (Low)
+
+**Steps:** delete selected messages more than 20 times in a minute. **Actual:** "Couldn't delete those messages. Check
+your connection and try again." on a 429. BUG-39 fixed this elsewhere. **Fix:** it says why, with `errorMessage()`.
+
+## Checked and fine
+
+- Forwarding: to a room, an existing DM and a new DM (found by name), with attachments and from a reply; Bob gets the
+  DM live with a badge and can open the copied files. Nothing can be forwarded from or into someone else's DM, into an
+  archived room, or more than 50 at once; duplicate ids forward once.
+- Selecting and deleting several of your own messages, with the confirm step; others' messages can't be deleted.
+- Drafts survive switching rooms and a reload, and are gone once sent. The tab title and favicon follow unread counts,
+  DMs included.
+- Signup with a taken name (in another case) says so; names are tidied ("  Fresh   Person  " → "Fresh Person").
+- Room names made only of "#" are refused; a hidden room can't be hidden twice; replies can't point into another room.
+- No horizontal overflow at 390 px; axe found nothing else in the states listed above.
+
+Known, not fixed here: in the forward dialog, the first Escape in a non-empty search field clears it (the browser's
+behaviour for search fields) and the second closes the dialog.

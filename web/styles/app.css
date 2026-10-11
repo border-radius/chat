@@ -14,7 +14,7 @@
   --accent-2: #c42a7c;
   --grad: linear-gradient(135deg, #6a4bff, #c42a7c);
   --tint: color-mix(in srgb, var(--accent) 12%, transparent);
-  --danger: #d1213b;
+  --danger: #c41d36; /* ≥ 4.5:1 on every light background, hover included (QA BUG-57) */
   --highlight: #fff1b8;
   --shadow: 0 6px 24px rgb(60 30 140 / 14%);
   --radius: 12px;

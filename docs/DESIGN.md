@@ -115,6 +115,7 @@ chat/
 │       ├── reactions.js        # POST /api/chat/reactions (§20.2)
 │       ├── bulk.js             # POST /api/chat/delete, POST /api/chat/forward (§21)
 │       ├── account.js          # POST /api/chat/password (§22.2)
+│       ├── users.js            # GET /api/chat/users: user search (§16.5)
 │       ├── emoji.js            # the emoji a reaction may be (§20.1)
 │       └── images.js           # upload image size limit (§15, QA BUG-24)
 ├── web/
@@ -1047,8 +1048,10 @@ reaches both members through their `rooms` subscription.
   and a DM without messages is listed only for the member who opened it, so opening one doesn't show up for the other
   person until something is sent (QA BUG-29). `%` in the search text is escaped: PocketBase's `~` treats it as a
   wildcard (QA BUG-34).
-- **New message:** a **+** button in the DM section header opens a user search (`users.getList(1, 20, {filter:
-  pb.filter("name ~ {:q} && id != {:me}", …), fields: "id,name,avatar"})`, debounced 200 ms, at least 1 character).
+- **New message:** a **+** button in the DM section header opens a user search (`GET /api/chat/users?q=`,
+  `pb_hooks/lib/users.js`: up to 20 other users by name, `id,name,avatar` only; debounced 200 ms, at least 1
+  character). It matches the query's name key against `users.name_key` (§22.1), so case is ignored beyond ASCII
+  ("иван" finds "Иван"), which SQLite's `LIKE` on `name` didn't do (QA BUG-55).
   Choosing a user calls `actions.openDm(userId)` → `POST /api/chat/dms` → `upsertRoom` → navigate to `#/r/:id`.
 - **From a message:** clicking an author's name or avatar opens a small menu with **Message** (hidden for yourself),
   which does the same.
@@ -1522,6 +1525,12 @@ the current password (400 on `oldPassword` if wrong), refuses an unchanged one, 
 rules, e.g. at least 8 characters, apply), refreshes the user's token key, so every token issued so far stops working
 (other devices are signed out), and answers like a login (`{ token, record }`). `api.changePassword` saves that
 answer, so this tab (and the others of this browser, which share the session) stays logged in. Rate limit: 5 per 60 s.
+It is the only way to change a password: the users update rule refuses `password` (QA BUG-53).
+
+Who a realtime client is comes from the token its subscriptions were sent with, so whenever the token changes the
+client sends them again (`pb.ts`, QA BUG-52). A device that was signed out finds out when the server refuses a change
+it sends (`api.onRejected`, checked at most every 30 s) or when its tab comes back after 5 minutes: the session check
+(`refreshAuth`) then fails and it goes to the login screen (QA BUG-51).
 
 The profile page has a "Password" form (current, new, confirm; checked in the page first, each error under its field)
 and a "Session" section with **Log out**, which moved there from the app bar.

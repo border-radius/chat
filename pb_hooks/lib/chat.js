@@ -186,6 +186,13 @@ function assertText(record, blankOk = false) {
 }
 
 /**
+ * An upload's name as the user's file is called. Browsers send `"` as "%22" (and line breaks as "%0D"/"%0A") in a
+ * multipart file name, per the HTML spec, so "Q&A "v2".txt" arrived as "Q&A %22v2%22.txt" (QA BUG-54).
+ * @param {string} name
+ */
+const unescapeUploadName = (name) => name.replace(/%22/g, '"').replace(/%0[AD]/gi, " ");
+
+/**
  * Original names of this request's uploads in `field`, keyed by stored name (QA BUG-28). Cleaned like display
  * names, so bidi overrides can't disguise a file ("invoice‮fdp.exe"), and capped in length with the extension
  * kept. The upload itself gets the same name, so PocketBase never has to cut it (QA BUG-35).
@@ -197,7 +204,7 @@ function originalNames(record, field) {
   const names = {};
   for (const f of record.getUnsavedFiles(field)) {
     if (!f) continue;
-    const original = clipFileName(tidy(f.originalName));
+    const original = clipFileName(tidy(unescapeUploadName(f.originalName)));
     f.originalName = original || f.name;
     if (original) names[f.name] = original;
   }
@@ -518,6 +525,7 @@ function headers(e) {
 }
 
 module.exports = {
+  nameKey,
   beforeUserSave,
   findLoginByEmail,
   beforeRoomCreate,

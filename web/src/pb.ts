@@ -194,9 +194,19 @@ export function createClient(baseUrl: string, authStore: AuthStore = createAuthS
     return data as T;
   }
 
+  const realtime = createRealtime(`${base}/api/realtime`, send);
+  // The server reads who a realtime client is from the token its subscriptions were sent with. A new token (a password
+  // change, which revokes the old ones, here or in another tab) must reach it, or nothing more arrives (QA BUG-52).
+  let token = authStore.token;
+  authStore.onChange(() => {
+    if (authStore.token === token) return;
+    token = authStore.token;
+    realtime.resubmit();
+  });
+
   return {
     authStore,
-    realtime: createRealtime(`${base}/api/realtime`, send),
+    realtime,
     send,
     filter: (expr, params) =>
       expr.replace(/\{:(\w+)\}/g, (match, name: string) => {
@@ -221,7 +231,7 @@ type Listener = (e: Event) => void;
  * The SDK's realtime protocol: one EventSource; PB_CONNECT carries the client id; the set of subscriptions (each a
  * topic plus its serialized options) is POSTed to /api/realtime whenever it changes, and again after a reconnect.
  */
-function createRealtime(url: string, send: PbClient["send"]): Realtime {
+function createRealtime(url: string, send: PbClient["send"]): Realtime & { resubmit(): void } {
   let es: EventSource | null = null;
   let clientId = "";
   /** Subscription key → listeners. A key is the topic plus its options, and the event name the server uses. */
@@ -364,6 +374,12 @@ function createRealtime(url: string, send: PbClient["send"]): Realtime {
       bindAll(false);
       subs.clear();
       await submit();
+    },
+    /** Send the subscriptions again (with the current token), if connected. */
+    resubmit() {
+      if (!clientId || !subs.size) return;
+      lastSent = [];
+      submit().catch(() => connectError(new PbError(0)));
     },
   };
 }

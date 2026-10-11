@@ -3,7 +3,7 @@
 import { PAGE_SIZE, type PageQuery } from "./lib/cursor.ts";
 import { createTokenCache } from "./lib/token.ts";
 import type { Message, Room, User } from "./lib/types.ts";
-import { type AuthRecord, type PbClient, PbError, type Query } from "./pb.ts";
+import { type AuthRecord, type PbClient, PbError, type Query, type RequestOptions } from "./pb.ts";
 
 export type AvatarSize = 48 | 96;
 export type Unsubscribe = () => Promise<void>;
@@ -58,6 +58,12 @@ export interface Api {
    * it). Read `currentUser()` to see who is logged in now. Returns an unsubscribe function.
    */
   onAuthChange(fn: () => void): () => void;
+  /**
+   * Called when the server refuses a change sent with the session (400, 401, 403 or 404). Often a plain mistake, but
+   * also what a session revoked elsewhere gets (a password change signs out every other device), which only checking
+   * the session can tell. Returns an unsubscribe function.
+   */
+  onRejected(fn: () => void): () => void;
 
   // profile (§15)
   /** Upload a new avatar (already prepared, §15.3). Resolves to the updated user. */
@@ -81,7 +87,7 @@ export interface Api {
   // direct messages (§16)
   /** The DM with `userId`, created on first use; reopens it if you had closed it. */
   openDm(userId: string): Promise<Room>;
-  /** Up to 20 other users whose name contains `query`, by name. */
+  /** Up to 20 other users whose name contains `query` (ignoring case, as names are compared), by name. */
   searchUsers(query: string, signal?: AbortSignal): Promise<User[]>;
   /** The users with these ids (at most 50), e.g. to name who reacted (§20.3). Unknown ids are left out. */
   usersById(ids: readonly string[], signal?: AbortSignal): Promise<User[]>;
@@ -255,7 +261,30 @@ function records(pb: PbClient, collection: string) {
   };
 }
 
-export function createApi(pb: PbClient): Api {
+/** Statuses of a refused change: invalid data, or no (valid) session. */
+const REFUSED = new Set([400, 401, 403, 404]);
+
+export function createApi(client: PbClient): Api {
+  const rejected = new Set<() => void>();
+  /** The client, telling onRejected listeners about changes refused while the session was sent with them. */
+  const pb: PbClient = {
+    authStore: client.authStore,
+    realtime: client.realtime,
+    filter: client.filter,
+    fileUrl: client.fileUrl,
+    async send<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+      const token = client.authStore.token;
+      try {
+        return await client.send<T>(path, opts);
+      } catch (e) {
+        const write = (opts.method ?? "GET") !== "GET" && !path.includes("/auth-"); // a login or refresh says so itself
+        if (e instanceof PbError && REFUSED.has(e.status) && write && token && token === client.authStore.token) {
+          for (const fn of [...rejected]) fn();
+        }
+        throw e;
+      }
+    },
+  };
   const users = records(pb, "users");
   const rooms = records(pb, "rooms");
   const hidden = records(pb, "hidden_rooms");
@@ -319,6 +348,10 @@ export function createApi(pb: PbClient): Api {
       // A localStorage-backed store also fires this when another tab saves or clears the shared session.
       return pb.authStore.onChange(() => fn());
     },
+    onRejected(fn) {
+      rejected.add(fn);
+      return () => void rejected.delete(fn);
+    },
 
     // A body holding a File is sent as multipart; update() refreshes the stored auth record from the response.
     setAvatar: async (file) => toUser(await wrap(users.update(me(), { avatar: file }, { fields: USER_FIELDS }))),
@@ -340,14 +373,9 @@ export function createApi(pb: PbClient): Api {
 
     openDm: (userId) => wrap(pb.send<Room>("/api/chat/dms", { method: "POST", body: { user: userId } })),
     async searchUsers(query, signal) {
-      const opts = {
-        // PocketBase's ~ treats a % in the value as a wildcard (and then stops wrapping it in its own): escape it (BUG-34).
-        filter: pb.filter("name ~ {:q} && id != {:me}", { q: query.replaceAll("%", "\\%"), me: me() }),
-        sort: "name",
-        fields: USER_FIELDS,
-        skipTotal: true,
-      };
-      return (await wrap(users.list<AuthRecord>(1, 20, opts, signal))).items.map(toUser);
+      me();
+      // A route, not a filter on `name`: it matches case-insensitively beyond ASCII ("иван" finds "Иван", QA BUG-55).
+      return (await wrap(pb.send<AuthRecord[]>("/api/chat/users", { query: { q: query }, signal }))).map(toUser);
     },
 
     async usersById(ids, signal) {

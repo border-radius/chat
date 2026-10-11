@@ -141,7 +141,16 @@ export interface Controls {
   reconnect(): void;
 }
 
-const SYNC = new Set<keyof Api>(["currentUser", "sessionExpiry", "logOut", "onAuthChange", "onConnect", "avatarUrl", "fileUrl"]);
+const SYNC = new Set<keyof Api>([
+  "currentUser",
+  "sessionExpiry",
+  "logOut",
+  "onAuthChange",
+  "onRejected",
+  "onConnect",
+  "avatarUrl",
+  "fileUrl",
+]);
 
 /**
  * Replace `api[op]` with a vi.fn built from the current implementation. Composes by reassignment, so

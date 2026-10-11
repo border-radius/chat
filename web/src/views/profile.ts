@@ -156,10 +156,11 @@ export function createProfileView({ api, store, logOut }: Ctx): View {
       nameInput.setAttribute("aria-invalid", "true");
       return;
     }
-    if (name === me()?.name) return;
-    saveBtn.disabled = true;
+    // Your own name back (after "taken", say): nothing to save, and nothing wrong any more (QA BUG-56).
     nameStatus.textContent = "";
     nameInput.removeAttribute("aria-invalid");
+    if (name === me()?.name) return;
+    saveBtn.disabled = true;
     try {
       const user = await api.rename(name);
       if (!scope.active) return;

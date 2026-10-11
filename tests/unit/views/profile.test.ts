@@ -148,6 +148,21 @@ describe("profile view (§15.5)", () => {
     await other.api.unsubscribeAll();
   });
 
+  it("QA BUG-56: putting your own name back after a refusal clears the error", async () => {
+    const other = await signedUp();
+    mount();
+    const submit = () => root.querySelector("form.profile-name")!.dispatchEvent(new Event("submit", { cancelable: true }));
+    nameInput().value = other.user.name;
+    submit();
+    await vi.waitFor(() => expect(status().textContent).toBe("This display name is taken. Choose another one."));
+    nameInput().value = "Ada Lovelace";
+    submit();
+    expect(status().textContent).toBe("");
+    expect(status().classList.contains("error")).toBe(false);
+    expect(nameInput().getAttribute("aria-invalid")).toBeNull();
+    await other.api.unsubscribeAll();
+  });
+
   describe("changing the password (§22.2)", () => {
     const pw = (name: string) => root.querySelector<HTMLInputElement>(`form.profile-password input[name="${name}"]`)!;
     const errorOf = (name: string) => document.getElementById(pw(name).getAttribute("aria-describedby")!)!.textContent;

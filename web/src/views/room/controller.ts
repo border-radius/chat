@@ -83,8 +83,11 @@ export interface RoomController {
   remove(id: string): Promise<boolean> | null;
   /** Can this message be selected, to forward (or delete) it with others? Saved and not deleted (§21). */
   selectable(m: Message): boolean;
-  /** Soft-delete several messages in one request, all or none (§21.2). null: none of them deletable. Resolves false if it failed. */
-  removeMany(ids: readonly string[]): Promise<boolean> | null;
+  /**
+   * Soft-delete several messages in one request, all or none (§21.2). null: none of them deletable. Resolves to why it
+   * failed (the error), or null once they are deleted.
+   */
+  removeMany(ids: readonly string[]): Promise<unknown> | null;
   /** Can I react to this message right now? (§20) */
   reactable(m: Message): boolean;
   /** A message's reactions as they should show: the server's, with my changes still on their way applied. */
@@ -514,10 +517,10 @@ export function createRoomController(opts: {
     return ms.length ? deleteAll(ms) : null;
   }
 
-  async function deleteAll(ms: Message[]) {
+  async function deleteAll(ms: Message[]): Promise<unknown> {
     for (const m of ms) patchLocal(m.id, { text: "", deleted: true });
     emit({ render: { anchor: true } });
-    let ok = true;
+    let failure: unknown = null;
     try {
       const saved = await api.deleteMany(ms.map((m) => m.id));
       if (scope.active)
@@ -525,13 +528,13 @@ export function createRoomController(opts: {
           win,
           saved.filter((m) => find(m.id)),
         );
-    } catch {
-      if (!scope.active) return false;
+    } catch (e) {
+      if (!scope.active) return e;
       for (const m of ms) patchLocal(m.id, { text: m.text, deleted: false });
-      ok = false;
+      failure = e;
     }
     emit({ render: { anchor: true } });
-    return ok;
+    return failure;
   }
 
   // ---------------------------------------------------------------- reactions

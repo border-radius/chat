@@ -267,8 +267,9 @@ export function createRoomView({ api, store, unread, actions, navigate, drafts }
   async function deleteSelected() {
     const ids = [...(selected ?? [])];
     endSelect(true);
-    const ok = await ctl.removeMany(ids);
-    if (ok === false && scope.active) notice.textContent = "Couldn't delete those messages. Check your connection and try again.";
+    const failed = await ctl.removeMany(ids);
+    // Say why: network trouble, rate limiting or the server's reason (QA BUG-58).
+    if (failed && scope.active) notice.textContent = `Couldn't delete those messages. ${errorMessage(failed)}`;
   }
 
   function openForward(ids: string[]) {

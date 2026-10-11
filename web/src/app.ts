@@ -31,6 +31,12 @@ const AUTH_REJECTED = new Set([401, 403, 404]);
 /** Longest wait between session renewals, and the wait before another try after one failed for lack of network. */
 const RENEW_MAX_MS = 24 * 60 * 60 * 1000;
 const RENEW_RETRY_MS = 60 * 1000;
+/**
+ * A session can also be revoked before it expires: a password change signs out every other device. It is checked again
+ * when the server refuses a change (at most this often), and when the tab comes back after this long (QA BUG-51).
+ */
+const CHECK_MIN_MS = 30 * 1000;
+const CHECK_STALE_MS = 5 * 60 * 1000;
 
 /**
  * Page layout (§7.1): the room list as a sidebar next to the main view. New params remount only the
@@ -105,6 +111,8 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
    * session lasts (7 days by default) would otherwise look logged in while every request fails (QA BUG-45).
    */
   let renewTimer: ReturnType<typeof setTimeout> | undefined;
+  /** When the session was last checked with the server (renewed, or found revoked). */
+  let checkedAt = 0;
   function scheduleRenew(ms = Math.min(Math.max((api.sessionExpiry() - Date.now()) / 2, 0), RENEW_MAX_MS)) {
     clearTimeout(renewTimer);
     if (store.get().user) renewTimer = setTimeout(renew, ms);
@@ -114,6 +122,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     if (!user) return;
     // Already over (e.g. the computer slept through it): it can't be renewed, so say so instead of failing quietly.
     if (api.sessionExpiry() <= Date.now()) return logOut();
+    checkedAt = Date.now();
     api.refreshAuth().then(
       (fresh) => {
         if (store.get().user?.id !== fresh.id) return;
@@ -128,7 +137,16 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     );
   }
   // Timers are late (or paused) while the computer sleeps or the tab is in the background: check on coming back.
-  const onVisible = () => document.visibilityState === "visible" && scheduleRenew();
+  // Also check a session not checked for a while: revoked meanwhile, this tab would get nothing live and send nothing.
+  const onVisible = () => {
+    if (document.visibilityState !== "visible") return;
+    if (store.get().user && Date.now() - checkedAt > CHECK_STALE_MS) renew();
+    else scheduleRenew();
+  };
+  /** A refused change: was it the session? A revoked one logs out instead of failing every send ("Not sent"). */
+  const onRejected = () => {
+    if (store.get().user && Date.now() - checkedAt >= CHECK_MIN_MS) renew();
+  };
 
   /**
    * The session is shared by every tab of this browser. When another tab logs out or logs in as someone else,
@@ -209,6 +227,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     if (!s.user) clearTimeout(renewTimer);
   });
   const offAuth = api.onAuthChange(onAuthChange);
+  const offRejected = api.onRejected(onRejected);
   // A file dropped where nothing takes it must not make the browser open it and leave the app (QA BUG-27).
   // The room and the profile picture handle their own drops; this only cancels the browser's default.
   const swallowFileDrag = (e: DragEvent) => {
@@ -231,6 +250,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     logOut,
     stop() {
       offAuth();
+      offRejected();
       window.removeEventListener("dragover", swallowFileDrag);
       window.removeEventListener("drop", swallowFileDrag);
       document.removeEventListener("visibilitychange", onVisible);

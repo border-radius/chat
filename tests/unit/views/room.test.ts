@@ -2041,15 +2041,23 @@ describe("room view (§7.5–7.6)", () => {
       await vi.waitFor(async () => expect((await other.api.getMessage(m2.id)).deleted).toBe(true));
     });
 
-    it("a failed delete puts the messages back and says so", async () => {
+    it("a failed delete puts the messages back and says why (QA BUG-58: not always “Check your connection”)", async () => {
       const room = await newRoom();
       const m1 = await me.api.send({ id: newId(), room: room.id, text: "one" });
-      instrument(me.api).failNext("deleteMany", new ApiError("Failed to fetch", 0));
+      const ctl = instrument(me.api);
+      ctl.failNext("deleteMany", new ApiError("Failed to fetch", 0));
+      ctl.failNext("deleteMany", new ApiError("Too Many Requests.", 429));
       await mount(room);
+      const notice = () => root.querySelector(".room-notice")!.textContent;
       select(m1.id);
       button(bar(), "Delete")!.click();
       button(bar(), "Delete")!.click();
-      await vi.waitFor(() => expect(root.querySelector(".room-notice")!.textContent).toContain("Couldn't delete those messages."));
+      await vi.waitFor(() => expect(notice()).toBe("Couldn't delete those messages. Can't reach the server. Check your connection."));
+      expect(bodyOf(m1.id)).toBe("one");
+      select(m1.id);
+      button(bar(), "Delete")!.click();
+      button(bar(), "Delete")!.click();
+      await vi.waitFor(() => expect(notice()).toBe("Couldn't delete those messages. Too many attempts. Wait a few seconds and try again."));
       expect(bodyOf(m1.id)).toBe("one");
     });
 
