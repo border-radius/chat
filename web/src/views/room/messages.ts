@@ -8,7 +8,7 @@ import { type MessageWindow, quoteText, startsGroup } from "../../lib/messages.t
 import { reactors } from "../../lib/reactions.ts";
 import { captureAnchor, restoreAnchor } from "../../lib/scroll.ts";
 import { dayLabel, formatFull, formatTime, parsePb } from "../../lib/time.ts";
-import type { Message, Quoted, Reaction, User } from "../../lib/types.ts";
+import type { LocalFile, Message, Quoted, Reaction, User } from "../../lib/types.ts";
 import { type AvatarUrl, avatar } from "../../ui/avatar.ts";
 import { createActionMenu } from "../../ui/menu.ts";
 import { editProblem, fitRows, rowsFor } from "./composer.ts";
@@ -130,6 +130,8 @@ export function createMessageList(opts: {
   let confirmDelete: string | null = null;
   const errors = new Map<string, MsgError>();
   const cache = new Map<string, { sig: string; el: HTMLElement }>();
+  /** Aspect ratios of a sending message's image previews, so its server thumbnails take their width before loading. */
+  const sentRatios = new Map<string, string[]>();
   const dividers = new Map<string, HTMLElement>();
   /** Focus to apply after the next render: message elements are rebuilt when they change. The first selector found wins. */
   let focusAfter: { id: string; selector: string | readonly string[]; caretToEnd?: boolean } | null = null;
@@ -371,27 +373,44 @@ export function createMessageList(opts: {
   }
 
   /**
-   * A message's attachments (§17.5): images as fixed-size thumbnails (1 large, or a grid of up to 4 tiles), other
-   * files as download chips. A message not yet on the server shows its local previews instead.
+   * A message's attachments (§17.5): images as uncropped thumbnails of a fixed height (1 large, or a row of up to 4
+   * small ones), other files as download chips. A message not yet on the server shows its local previews instead.
    */
   function attachments(m: Message): HTMLElement | null {
     const local = m.localFiles ?? [];
     const names = m.files ?? [];
     if (!local.length && !names.length) return null;
-    const imageCount = local.length ? local.filter((f) => f.url).length : names.filter(isImage).length;
-    const size = imageCount === 1 ? { w: 240, h: 180, thumb: "480x360" } : { w: 120, h: 90, thumb: "240x180" };
-    const images = h("div", { class: `att-images ${imageCount === 1 ? "one" : "grid"}` });
+    // Shown as an image only if the server will show it as one too, so nothing changes shape once it is sent.
+    const shown = (f: LocalFile) => !!f.url && isImage(f.file.name);
+    const imageCount = local.length ? local.filter(shown).length : names.filter(isImage).length;
+    const thumb = imageCount === 1 ? "800x480f" : "480x240f";
+    const images = h("div", { class: `att-images ${imageCount === 1 ? "one" : "row"}` });
     const others = h("ul", { class: "att-files" });
 
     if (local.length) {
       for (const f of local) {
-        if (f.url)
-          images.append(h("span", { class: "att-tile" }, h("img", { src: f.url, width: size.w, height: size.h, alt: f.file.name })));
-        else others.append(h("li", {}, h("span", { class: "att-file" }, f.file.name)));
+        if (!shown(f)) {
+          others.append(h("li", {}, h("span", { class: "att-file" }, f.file.name)));
+          continue;
+        }
+        const img = h("img", { src: f.url, alt: f.file.name });
+        const i = images.childElementCount;
+        img.addEventListener(
+          "load",
+          () => {
+            if (!img.naturalWidth || !img.naturalHeight) return;
+            const ratios = sentRatios.get(m.id) ?? [];
+            ratios[i] = `${img.naturalWidth} / ${img.naturalHeight}`;
+            sentRatios.set(m.id, ratios);
+          },
+          { signal },
+        );
+        images.append(h("span", { class: "att-tile" }, img));
       }
     } else {
+      const ratios = sentRatios.get(m.id);
       for (const name of names) {
-        if (isImage(name)) images.append(imageTile(m, name, size));
+        if (isImage(name)) images.append(imageTile(m, name, thumb, ratios?.[images.childElementCount]));
         else others.append(h("li", {}, fileLink(m, name, "att-file", [attachmentName(m, name)])));
       }
     }
@@ -411,15 +430,14 @@ export function createMessageList(opts: {
   }
 
   /** An image thumbnail linking to the full image. A failed load retries once with a new token, then offers Retry. */
-  function imageTile(m: Message, name: string, size: { w: number; h: number; thumb: string }): HTMLElement {
+  function imageTile(m: Message, name: string, thumb: string, ratio?: string): HTMLElement {
     const img = h("img", {
-      src: opts.fileUrl(m, name, size.thumb),
-      width: size.w,
-      height: size.h,
+      src: opts.fileUrl(m, name, thumb),
       alt: attachmentName(m, name),
       loading: "lazy",
       decoding: "async",
     });
+    if (ratio) img.style.aspectRatio = ratio;
     const tile = fileLink(m, name, "att-tile", [img]);
     tile.removeAttribute("download"); // open images in a tab rather than download them
     let retried = false;
@@ -429,7 +447,7 @@ export function createMessageList(opts: {
         if (!retried) {
           retried = true;
           void opts.refreshFileToken().then(
-            () => (img.src = opts.fileUrl(m, name, size.thumb)),
+            () => (img.src = opts.fileUrl(m, name, thumb)),
             () => img.dispatchEvent(new Event("error")),
           );
           return;
@@ -439,7 +457,7 @@ export function createMessageList(opts: {
           btn("Retry", () => {
             retried = false;
             broken.replaceWith(tile);
-            img.src = opts.fileUrl(m, name, size.thumb);
+            img.src = opts.fileUrl(m, name, thumb);
           }),
         ]);
         tile.replaceWith(broken);

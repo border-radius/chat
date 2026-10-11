@@ -1081,47 +1081,47 @@ label.button.disabled {
   border: 0;
 }
 
-/* ---- Attachments in messages (§17.5): fixed sizes, so loading images never moves the list. ---- */
+/* ---- Attachments in messages (§17.5): uncropped, at a fixed height (narrower when too wide), so loading images
+   never moves the list vertically. ---- */
 
 .attachments {
   margin: 0.3rem 0 0.15rem;
 }
 
 .att-images {
-  display: grid;
+  --att-h: 120px;
+  --att-max-w: 240px;
+  display: flex;
+  flex-wrap: wrap;
   gap: 4px;
 }
 
 .att-images.one {
-  grid-template-columns: 240px;
-}
-
-.att-images.grid {
-  grid-template-columns: repeat(2, 120px);
+  --att-h: 240px;
+  --att-max-w: 400px;
 }
 
 .att-tile {
   display: block;
+  min-width: calc(var(--att-h) / 2);
+  max-width: min(100%, var(--att-max-w));
+  height: var(--att-h);
   overflow: hidden;
   border-radius: var(--radius);
   background: var(--surface);
 }
 
-.att-images.one .att-tile {
-  width: 240px;
-  height: 180px;
-}
-
-.att-images.grid .att-tile {
-  width: 120px;
-  height: 90px;
-}
-
+/*
+ * Full height; a too-wide image is narrowed to the max width and letterboxed rather than shortened or cropped, a
+ * too-narrow one is centred in the min width, and a small one is never enlarged.
+ */
 .att-tile img {
   display: block;
-  width: 100%;
+  width: auto;
+  max-width: 100%;
   height: 100%;
-  object-fit: cover;
+  margin-inline: auto;
+  object-fit: scale-down;
   transition: transform 0.25s;
 }
 

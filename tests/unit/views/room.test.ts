@@ -1208,16 +1208,39 @@ describe("room view (§7.5–7.6)", () => {
       key(composer()!, "Enter");
       const pending = msgEls().at(-1)!;
       expect(pending.classList.contains("pending")).toBe(true);
-      expect(pending.querySelector(".att-tile img")!.getAttribute("src")).toBe("blob:local-1");
+      const preview = pending.querySelector<HTMLImageElement>(".att-tile img")!;
+      expect(preview.getAttribute("src")).toBe("blob:local-1");
       expect(pending.querySelector(".att-file")!.textContent).toBe("doc.pdf");
+      Object.defineProperties(preview, { naturalWidth: { value: 600 }, naturalHeight: { value: 300 } });
+      preview.dispatchEvent(new Event("load"));
       release();
       const id = pending.dataset.id!;
       await vi.waitFor(() => expect(msgEl(id)!.classList.contains("pending")).toBe(false));
       const img = msgEl(id)!.querySelector<HTMLImageElement>(".att-tile img")!;
-      expect(img.getAttribute("src")).toMatch(/thumb=480x360/);
+      expect(img.getAttribute("src")).toMatch(/thumb=800x480f/);
       expect(img.getAttribute("src")).toMatch(/token=/);
+      // Takes the preview's shape before it loads, so the tile doesn't narrow and widen again.
+      expect(img.style.aspectRatio).toBe("600 / 300");
       expect(chips(id).map((a) => a.textContent)).toEqual(["doc.pdf"]);
       expect(revoked).toEqual(["blob:local-1"]);
+    });
+
+    it("an image the server shows as a file is a file while sending too", async () => {
+      const room = await newRoom();
+      const ctl = instrument(me.api);
+      await mount(room);
+      const release = ctl.hold("send");
+      paste([new File(["BM"], "scan.bmp", { type: "image/bmp" }), pngFile("a.png")]);
+      await vi.waitFor(() => expect(root.querySelectorAll(".tray-item")).toHaveLength(2));
+      key(composer()!, "Enter");
+      const pending = msgEls().at(-1)!;
+      expect(pending.querySelector(".att-images")!.classList.contains("one")).toBe(true);
+      expect(pending.querySelector(".att-file")!.textContent).toBe("scan.bmp");
+      release();
+      const id = pending.dataset.id!;
+      await vi.waitFor(() => expect(msgEl(id)!.classList.contains("pending")).toBe(false));
+      expect(tiles(id)).toHaveLength(1);
+      expect(chips(id).map((a) => a.textContent)).toEqual(["scan.bmp"]);
     });
 
     it("a failed send keeps its files; Retry sends the same id with the same files", async () => {
@@ -1271,7 +1294,7 @@ describe("room view (§7.5–7.6)", () => {
       expect(revoked).toEqual(["blob:local-1"]);
     });
 
-    it("one image is a large 240×180 tile; several are 120×90 grid tiles; other files are download chips", async () => {
+    it("one image is a large tile; several are a row of small ones; other files are download chips", async () => {
       const other = await signedUp("Other");
       const room = await newRoom();
       const one = await other.api.send({ id: newId(), room: room.id, text: "one", files: [pngFile("solo.png")] });
@@ -1285,15 +1308,16 @@ describe("room view (§7.5–7.6)", () => {
       const [solo] = tiles(one.id);
       expect(solo!.closest(".att-images")!.classList.contains("one")).toBe(true);
       const big = solo!.querySelector("img")!;
-      expect([big.getAttribute("width"), big.getAttribute("height"), big.getAttribute("loading")]).toEqual(["240", "180", "lazy"]);
+      // Uncropped thumbs of any aspect ratio: CSS fixes the height, the image's own ratio sets the width.
+      expect([big.hasAttribute("width"), big.hasAttribute("height"), big.getAttribute("loading")]).toEqual([false, false, "lazy"]);
+      expect(big.getAttribute("src")).toMatch(/thumb=800x480f/);
       expect(big.getAttribute("alt")).toBe("solo.png");
       expect(solo!.getAttribute("target")).toBe("_blank");
 
       const grid = tiles(many.id);
       expect(grid).toHaveLength(3);
-      expect(grid[0]!.closest(".att-images")!.classList.contains("grid")).toBe(true);
-      expect(grid.map((t) => t.querySelector("img")!.getAttribute("width"))).toEqual(["120", "120", "120"]);
-      expect(grid[0]!.querySelector("img")!.getAttribute("src")).toMatch(/thumb=240x180/);
+      expect(grid[0]!.closest(".att-images")!.classList.contains("row")).toBe(true);
+      expect(grid.map((t) => t.querySelector("img")!.getAttribute("src"))).toEqual(Array(3).fill(expect.stringMatching(/thumb=480x240f/)));
       const [chip] = chips(many.id);
       expect(chip!.textContent).toBe("report.pdf");
       expect(chip!.getAttribute("download")).toBe("report.pdf");

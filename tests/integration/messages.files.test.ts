@@ -99,7 +99,7 @@ describe("protected access (§17.3)", () => {
     const name = m.files[0] as string;
     expect([403, 404]).toContain((await fetchFile(null, a, m, name)).status);
     expect((await fetchFile(a, a, m, name)).status).toBe(200);
-    expect((await fetchFile(b, a, m, name, "480x360")).status).toBe(200);
+    expect((await fetchFile(b, a, m, name, "800x480f")).status).toBe(200);
     expect([403, 404]).toContain((await fetchFile(c, a, m, name)).status);
   });
 
@@ -107,7 +107,7 @@ describe("protected access (§17.3)", () => {
     const [a, b] = await Promise.all([newUser(), newUser()]);
     const room = await newRoom(a);
     const m = await withFiles(a, room.id, [pngFile()]);
-    expect((await fetchFile(b, a, m, m.files[0], "240x180")).status).toBe(200);
+    expect((await fetchFile(b, a, m, m.files[0], "480x240f")).status).toBe(200);
   });
 
   it("an uploaded .html or .svg is served inert: sandbox CSP and nosniff", async () => {

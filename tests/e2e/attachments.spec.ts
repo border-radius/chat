@@ -1,8 +1,37 @@
+import { deflateSync } from "node:zlib";
 import { expect, type Page, test } from "@playwright/test";
 import { PNG } from "../support/files.ts";
 import { apiRoom, apiUser, attach, composer, login, message, openRoom, send, uniq } from "./fixtures.ts";
 
 const png = (name: string) => ({ name, mimeType: "image/png", buffer: Buffer.from(PNG) });
+/** A w×h PNG (a horizontal gradient). */
+function sizedPng(name: string, w: number, h: number) {
+  const crc = (buf: Buffer) => {
+    let c = ~0;
+    for (const b of buf) {
+      c ^= b;
+      for (let k = 0; k < 8; k++) c = c & 1 ? (c >>> 1) ^ 0xedb88320 : c >>> 1;
+    }
+    return ~c >>> 0;
+  };
+  const chunk = (type: string, data: Buffer) => {
+    const body = Buffer.concat([Buffer.from(type), data]);
+    const out = Buffer.alloc(body.length + 8);
+    out.writeUInt32BE(data.length);
+    body.copy(out, 4);
+    out.writeUInt32BE(crc(body), body.length + 4);
+    return out;
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0);
+  ihdr.writeUInt32BE(h, 4);
+  ihdr.set([8, 2], 8); // 8-bit RGB
+  const raw = Buffer.alloc((w * 3 + 1) * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) raw[y * (w * 3 + 1) + 1 + x * 3] = (x * 255) / w;
+  const sig = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  const buffer = Buffer.concat([sig, chunk("IHDR", ihdr), chunk("IDAT", deflateSync(raw)), chunk("IEND", Buffer.alloc(0))]);
+  return { name, mimeType: "image/png", buffer };
+}
 const pdf = { name: "notes.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\n%%EOF\n") };
 
 /** HTTP status of a URL fetched from inside the page, bypassing the HTTP cache (files are cached for 30 days). */
@@ -23,10 +52,14 @@ test("attachments: an image and a PDF go live to others, open, and disappear wit
   const theirs = message(b, "look at this");
   const tile = theirs.locator(".att-tile");
   await expect(tile).toHaveCount(1);
-  // fixed size whether or not the image has loaded: loading never moves the list
-  expect(await tile.boundingBox()).toMatchObject({ width: 240, height: 180 });
-  await expect.poll(() => tile.locator("img").evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
-  expect(await tile.boundingBox()).toMatchObject({ width: 240, height: 180 });
+  // fixed height whether or not the image has loaded: loading never moves the list
+  expect((await tile.boundingBox())!.height).toBe(240);
+  const img = tile.locator("img");
+  await expect.poll(() => img.evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth > 0)).toBe(true);
+  expect((await tile.boundingBox())!.height).toBe(240);
+  // uncropped, in the image's own aspect ratio (within the 400px width cap)
+  const ratio = await img.evaluate((i: HTMLImageElement) => i.naturalWidth / i.naturalHeight);
+  expect((await tile.boundingBox())!.width).toBeCloseTo(Math.min(400, Math.max(120, 240 * ratio)), 0);
 
   const chip = theirs.locator("a.att-file");
   await expect(chip).toHaveText("notes.pdf");
@@ -43,6 +76,44 @@ test("attachments: an image and a PDF go live to others, open, and disappear wit
   await expect(b.locator("li.msg.deleted")).toHaveCount(1);
   await expect(b.locator(".att-tile, .att-file")).toHaveCount(0);
   expect(await statusOf(b, pdfUrl)).toBe(404);
+});
+
+test("images keep their shape: narrow ones are centred, and a sent one doesn't change width as it loads (§17.5)", async ({ browser }) => {
+  const ada = await apiUser("Ada");
+  const room = await apiRoom(ada);
+  const a = await openRoom(browser, ada, room);
+  // Thumbnails load slowly, so the sent message shows its server tile before the image arrives.
+  await a.route(/thumb=/, async (r) => {
+    await new Promise((res) => setTimeout(res, 1000));
+    await r.continue().catch(() => {});
+  });
+  await attach(a, [sizedPng("tall.png", 100, 1000)]);
+  await send(a, "tall");
+  const tile = message(a, "tall").locator("a.att-tile");
+  await expect(tile).toHaveCount(1);
+  // Not yet loaded, but already the preview's width (the 120px minimum: half the height).
+  const img = tile.locator("img");
+  expect(await img.evaluate((i: HTMLImageElement) => i.complete)).toBe(false);
+  const box = (await tile.boundingBox())!;
+  expect([box.width, box.height]).toEqual([120, 240]);
+  await expect.poll(() => img.evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth > 0)).toBe(true);
+  // 24px of image, centred in its 120px tile.
+  const pic = (await img.boundingBox())!;
+  expect(pic.x - box.x + pic.width / 2).toBeCloseTo(60, 0);
+
+  await attach(a, [sizedPng("wide.png", 1600, 900), sizedPng("square.png", 600, 600)]);
+  await send(a, "pair");
+  const widths = () =>
+    message(a, "pair")
+      .locator("a.att-tile")
+      .evaluateAll((ts) => ts.map((t) => Math.round(t.getBoundingClientRect().width)));
+  await expect(message(a, "pair").locator("a.att-tile")).toHaveCount(2);
+  expect(
+    await message(a, "pair")
+      .locator("a.att-tile img")
+      .evaluateAll((is) => is.some((i) => (i as HTMLImageElement).complete)),
+  ).toBe(false);
+  expect(await widths()).toEqual([213, 120]);
 });
 
 test("a DM's attachments can't be fetched by others, not even with the URL (§17.3)", async ({ browser }) => {

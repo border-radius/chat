@@ -73,7 +73,7 @@ describe("schema (§5)", () => {
       maxSelect: LIMITS.attachments,
       maxSize: LIMITS.attachmentBytes,
       protected: true,
-      thumbs: ["480x360", "240x180"],
+      thumbs: ["800x480f", "480x240f"],
       mimeTypes: [],
     });
     expect(cols.messages!.updateRule).toContain("@request.body.files:isset = false");

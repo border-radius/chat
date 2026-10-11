@@ -780,7 +780,8 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 | Closing a DM | Reuses `hidden_rooms`. A new message in the DM reopens it for the recipient (§16.4). |
 | Avatar storage | The built-in `users.avatar` file field: public, raster images only (no SVG), always displayed through thumbnails (§15.1). |
 | Attachment access | `protected` file field: downloads need a short-lived file token and pass the message's view rule, so DM files stay private (§17.3). |
-| Attachment layout | Images render in fixed-size boxes, so loading them never moves the scroll position (§17.5). |
+| Attachment layout | Images render at a fixed height, so loading them never moves the scroll position (§17.5). |
+| Attachment aspect ratio | Images keep their aspect ratio, uncropped: fixed height, width from the image, capped (a too-wide image is narrowed and letterboxed in its fixed-height box rather than shortened, §17.5). |
 | Metadata stripping | The client re-encodes JPEG/PNG/WebP images (PNG as PNG, the rest as JPEG) before upload, which drops EXIF (including GPS). Best effort, protecting honest users only (§15.3). |
 | Bundle budget | `app.js` budget raised from 25 KB to 30 KB gzipped (§7.7): avatars + DMs measured 25.9 KB. One bundle, no lazy chunks. |
 | Bundle budget (replies) | `app.js` budget raised from 30 KB to 32 KB gzipped (§7.7): replies (§19) took it to 30.8 KB. |
@@ -1125,10 +1126,14 @@ other files as chips with name and size, each with a remove (×) button.
 
 ### 17.5 Rendering
 
-- **Images** (by file extension: `jpg jpeg png gif webp avif`): a grid under the text. One image shows at 240×180;
-  two to four show as a 2-column grid of 120×90 tiles. All use the `480x360` thumb with `object-fit: cover` and
-  fixed `width`/`height`, so there is never a layout shift. Clicking opens the full file in a new tab
-  (`target="_blank" rel="noopener"`), served under the sandbox CSP.
+- **Images** (by file extension: `jpg jpeg png gif webp avif`): a wrapping row under the text, uncropped, in their
+  own aspect ratio. One image shows 240px high and at most 400px wide (the `800x480f` thumb); two to four show
+  120px high and at most 240px wide (the `480x240f` thumb). The height is fixed, so loading never shifts the list
+  vertically: a too-wide image is narrowed and letterboxed rather than shortened, a very narrow one is centred in a
+  tile at least half as wide as it is high, and a small one is never enlarged (`object-fit: scale-down`). While a
+  message sends it shows the local previews, at the size its thumbnails will take: the thumbnails get the previews'
+  aspect ratio before they load. Only files the server will show as images (by extension) show as previews. Clicking
+  opens the full file in a new tab (`target="_blank" rel="noopener"`), served under the sandbox CSP.
 - **Other files:** a chip with an icon, the display name and a download link (`download` attribute).
 - **Display name:** PocketBase stores `quarterly_report_final_k3j2h1g0f9.pdf` for "Quarterly Report (final).pdf". The
   create hook records each upload's original name in `file_names` (§17.1), and the list shows and downloads files

@@ -196,9 +196,9 @@ describe("createApi", () => {
       expect(b.fileUrl(m!, m!.files![0]!)).not.toContain("token="); // none cached yet
       const token = await b.fileToken();
       expect(await b.fileToken()).toBe(token); // cached
-      const thumb = b.fileUrl(m!, m!.files![0]!, "480x360");
+      const thumb = b.fileUrl(m!, m!.files![0]!, "800x480f");
       expect(thumb).toContain(`token=${token}`);
-      expect(thumb).toContain("thumb=480x360");
+      expect(thumb).toContain("thumb=800x480f");
       expect((await fetch(thumb)).status).toBe(200);
       expect((await fetch(b.fileUrl(m!, m!.files![1]!))).status).toBe(200);
     });
