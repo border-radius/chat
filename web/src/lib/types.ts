@@ -47,7 +47,9 @@ export interface Message {
   reply_to?: string;
   /** Emoji reactions (§20), in the order they were first added; empty or absent when there are none. */
   reactions?: Reaction[];
-  expand?: { author?: User; reply_to?: Quoted };
+  /** Who first wrote it, when it was forwarded (§21.3); "" or absent otherwise. */
+  forwarded_from?: string;
+  expand?: { author?: User; reply_to?: Quoted; forwarded_from?: User };
   status?: SendStatus;
   /** Client-only: attachments of a message not (yet) on the server, with local preview URLs (§17.4). */
   localFiles?: LocalFile[];

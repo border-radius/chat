@@ -110,7 +110,7 @@ export function lastSaved(win: MessageWindow): Message | undefined {
 export function lastOwnEditable(win: MessageWindow, me: string): Message | undefined {
   for (let i = win.items.length - 1; i >= 0; i--) {
     const m = win.items[i]!;
-    if (m.author === me && !m.deleted && !m.status) return m;
+    if (m.author === me && !m.deleted && !m.status && !m.forwarded_from) return m;
   }
   return undefined;
 }

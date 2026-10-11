@@ -265,6 +265,33 @@ function replyTargetRemoved(app, rec, orig) {
 }
 
 /**
+ * Is this update PocketBase clearing `forwarded_from` because the user it named was deleted (by a superuser)? The
+ * update rule refuses any `forwarded_from` in a request body.
+ * @param {core.App} app
+ * @param {core.Record} rec
+ * @param {core.Record} orig
+ */
+function forwardSourceRemoved(app, rec, orig) {
+  const id = orig.getString("forwarded_from");
+  if (!id || rec.getString("forwarded_from") !== "") return false;
+  try {
+    app.findRecordById("users", id);
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * messages create through the API: only POST /api/chat/forward, whose own saves don't come through here, says who
+ * first wrote a message (§21.3). Backs up the create rule against field modifiers.
+ * @param {core.RecordRequestEvent} e
+ */
+function beforeMessageCreateRequest(e) {
+  if (recordOf(e).getString("forwarded_from") !== "") throw fieldError("forwarded_from", "This field can't be set.");
+}
+
+/**
  * messages, after a create is committed: a DM records its latest activity (sorts the DM list) and reopens
  * itself for members who had closed it (§16.4).
  * @param {core.RecordEvent} e
@@ -292,7 +319,7 @@ function beforeMessageUpdate(e) {
   const orig = rec.original();
   // A message deleted for good (by a superuser, or with its room) is already gone when PocketBase unsets the
   // reply_to of its replies (§19.1). Let that save through: the guards below would refuse it, and with it the delete.
-  if (replyTargetRemoved(e.app, rec, orig)) return;
+  if (replyTargetRemoved(e.app, rec, orig) || forwardSourceRemoved(e.app, rec, orig)) return;
   activeRoom(e.app, orig.getString("room"));
 
   if (orig.getBool("deleted")) {
@@ -301,6 +328,9 @@ function beforeMessageUpdate(e) {
   }
   // Backs up the update rule, which field modifiers could get around (§19).
   if (rec.getString("reply_to") !== orig.getString("reply_to")) throw fieldError("reply_to", "This field can't be changed.");
+  if (rec.getString("forwarded_from") !== orig.getString("forwarded_from")) {
+    throw fieldError("forwarded_from", "This field can't be changed.");
+  }
 
   if (rec.getBool("deleted")) {
     rec.set("text", "");
@@ -323,6 +353,8 @@ function beforeMessageUpdate(e) {
   if (files.join("/") !== orig.getStringSlice("files").join("/")) throw fieldError("files", "Attachments can't be changed.");
   assertText(rec, files.length > 0);
   if (rec.getString("text") !== orig.getString("text")) {
+    // A forward's words are someone else's: "Forwarded from Bob" must stay true (§21.3). It can still be deleted.
+    if (orig.getString("forwarded_from") !== "") throw fieldError("text", "Forwarded messages can't be edited.");
     rec.set("edited_at", new DateTime());
   }
 }
@@ -473,6 +505,7 @@ module.exports = {
   beforeRoomCreateRequest,
   beforeRoomUpdate,
   beforeRoomUpdateRequest,
+  beforeMessageCreateRequest,
   beforeMessageCreate,
   afterMessageCreate,
   beforeMessageUpdate,

@@ -12,7 +12,7 @@ describe("listOptions", () => {
       filter: `room = "r1"`,
       sort: "-created,-id",
       skipTotal: true,
-      expand: "author,reply_to.author",
+      expand: "author,reply_to.author,forwarded_from",
       fields: MSG_FIELDS,
     });
   });
@@ -47,6 +47,10 @@ describe("listOptions", () => {
       "expand.reply_to.files",
       "expand.reply_to.expand.author.id",
       "expand.reply_to.expand.author.name",
+      // who first wrote a forwarded message (§21.3)
+      "forwarded_from",
+      "expand.forwarded_from.id",
+      "expand.forwarded_from.name",
     ]);
     expect(MSG_FIELDS).not.toContain("email");
   });

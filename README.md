@@ -12,6 +12,7 @@ A small, fast, real-time group chat. One [PocketBase](https://pocketbase.io) bin
 - Replies: answer any message with a quote of it; click the quote to jump to the original, however far back
 - Emoji: a picker in the composer, and reactions on any message (as many different ones as you like), live for everyone
 - Attachments: up to 4 files per message, images shown as thumbnails; files are private to whoever can read the message
+- Select messages (up to 50): forward them to any room or DM, with "Forwarded from" and their attachments, or delete them together when they are yours
 - Unread counts on every room and DM, live, and in sync across your tabs and devices
 - Optimistic sending with safe retries, reconnect gap-fill, light/dark themes, works on phones
 
@@ -104,5 +105,5 @@ Behind an existing reverse proxy instead, use `serve --http=127.0.0.1:8090` and 
 **Backups:** in the admin UI, *Settings → Backups* — schedule automatic backups (optionally to S3-compatible
 storage). Uploaded files (avatars, attachments) live in `pb_data/storage` (or S3, under *Settings → Files storage*) and
 are part of the backups, so plan disk space for them. **Rate limits** (per IP: messages 10 per 5 s, edits/deletes 20
-per 10 s, reactions 30 per 10 s, new rooms 5 per minute, opening DMs 10 per minute, signups 20 per minute; PocketBase defaults for the rest)
+per 10 s, reactions 30 per 10 s, forwarding and deleting several messages 20 requests per minute each, new rooms 5 per minute, opening DMs 10 per minute, signups 20 per minute; PocketBase defaults for the rest)
 are set by the migrations and adjustable under *Settings → Rate limits*.

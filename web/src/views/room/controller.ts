@@ -1,5 +1,5 @@
 // Room controller (§7.5, §7.6): one room's message window and everything that changes it. That covers loading,
-// realtime, reconnects, sending, edits, deletes and reactions (§20). No DOM: every change is reported to `onChange` with a hint
+// realtime, reconnects, sending, edits, deletes, reactions (§20) and deleting several messages at once (§21). No DOM: every change is reported to `onChange` with a hint
 // (render, keep the anchor, scroll), and the room view (views/room.ts) applies it to the list.
 
 import { type Action, type Api, ApiError } from "../../api.ts";
@@ -64,8 +64,10 @@ export interface RoomController {
   /** The user is at the bottom now: hide a "new messages below" pill. */
   dismissPill(): void;
   find(id: string): Message | undefined;
-  /** Can I edit or delete this message right now? */
+  /** Can I edit this message right now? Not a forward: its words are someone else's (§21.3). */
   editable(m: Message): boolean;
+  /** Can I delete this message right now? */
+  deletable(m: Message): boolean;
   /** Can I reply to this message right now? (§19) */
   repliable(m: Message): boolean;
   /** My newest editable message (Up arrow in an empty composer). */
@@ -79,6 +81,10 @@ export interface RoomController {
   edit(id: string, text: string): Promise<boolean> | null;
   /** Soft delete. null: not in the window. Resolves false if the delete failed. */
   remove(id: string): Promise<boolean> | null;
+  /** Can this message be selected, to forward (or delete) it with others? Saved and not deleted (§21). */
+  selectable(m: Message): boolean;
+  /** Soft-delete several messages in one request, all or none (§21.2). null: none of them deletable. Resolves false if it failed. */
+  removeMany(ids: readonly string[]): Promise<boolean> | null;
   /** Can I react to this message right now? (§20) */
   reactable(m: Message): boolean;
   /** A message's reactions as they should show: the server's, with my changes still on their way applied. */
@@ -124,10 +130,11 @@ export function createRoomController(opts: {
   const room = (): Room | undefined => store.get().rooms.get(roomId);
   const me = () => store.get().user;
   const find = (id: string) => win.items.find((m) => m.id === id);
-  const editable = (m: Message) => {
+  const deletable = (m: Message) => {
     const r = room();
     return !!r && !r.archived && m.author === me()?.id && !m.deleted && !m.status;
   };
+  const editable = (m: Message) => deletable(m) && !m.forwarded_from;
   const repliable = (m: Message) => {
     const r = room();
     return !!r && !r.archived && !m.deleted && !m.status;
@@ -499,6 +506,34 @@ export function createRoomController(opts: {
     return optimistic(id, { text: "", deleted: true }, { text: m.text, deleted: false }, () => api.softDelete(id));
   }
 
+  function removeMany(ids: readonly string[]) {
+    const ms = ids.flatMap((id) => {
+      const m = find(id);
+      return m && deletable(m) ? [m] : [];
+    });
+    return ms.length ? deleteAll(ms) : null;
+  }
+
+  async function deleteAll(ms: Message[]) {
+    for (const m of ms) patchLocal(m.id, { text: "", deleted: true });
+    emit({ render: { anchor: true } });
+    let ok = true;
+    try {
+      const saved = await api.deleteMany(ms.map((m) => m.id));
+      if (scope.active)
+        win = merge(
+          win,
+          saved.filter((m) => find(m.id)),
+        );
+    } catch {
+      if (!scope.active) return false;
+      for (const m of ms) patchLocal(m.id, { text: m.text, deleted: false });
+      ok = false;
+    }
+    emit({ render: { anchor: true } });
+    return ok;
+  }
+
   // ---------------------------------------------------------------- reactions
 
   function reactionsOf(m: Message): readonly Reaction[] {
@@ -567,6 +602,7 @@ export function createRoomController(opts: {
     },
     find,
     editable,
+    deletable,
     repliable,
     lastEditable() {
       const mine = lastOwnEditable(win, me()?.id ?? "");
@@ -577,6 +613,8 @@ export function createRoomController(opts: {
     discard,
     edit,
     remove: removeMessage,
+    selectable: (m) => !m.deleted && !m.status,
+    removeMany,
     reactable: repliable,
     reactions: reactionsOf,
     react(id, emoji, on) {

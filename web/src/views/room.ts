@@ -1,22 +1,25 @@
 // Room view (§7.5, §7.6): windowed message history, optimistic send, edit, soft delete, replies (§19), reactions and
-// the emoji picker (§20), archived mode, read state (§18.3).
+// the emoji picker (§20), selecting messages to forward or delete them (§21), archived mode, read state (§18.3).
 // The message window and everything that changes it live in room/controller.ts (no DOM). This module puts the
 // controller's changes on screen and wires the DOM parts in room/: header (title + actions menu), messages (the
-// list), composer.
+// list), composer, forward dialog.
 
 import { errorMessage } from "../api.ts";
 import type { Ctx } from "../context.ts";
 import { clear, h, uniqueId } from "../dom.ts";
+import { MAX_SELECTED } from "../lib/limits.ts";
 import { lastSaved, quoteText } from "../lib/messages.ts";
 import { isDm, otherMember, roomTitle } from "../lib/rooms.ts";
 import { isNearBottom } from "../lib/scroll.ts";
 import type { Message } from "../lib/types.ts";
 import type { View } from "../router.ts";
 import { createScope } from "../scope.ts";
+import { roomSections } from "../store.ts";
 import { createEmojiPicker } from "../ui/emoji-picker.ts";
 import type { RoomReader } from "../unread.ts";
 import { createComposer, validEdit } from "./room/composer.ts";
 import { type Change, createRoomController, type Phase, type RoomController } from "./room/controller.ts";
+import { createForwardDialog } from "./room/forward.ts";
 import { createRoomHeader } from "./room/header.ts";
 import { createMessageList, reactionFocus } from "./room/messages.ts";
 
@@ -34,6 +37,12 @@ export function createRoomView({ api, store, unread, actions, navigate, drafts }
   let reader: RoomReader | null = null;
   /** The message the composer is replying to (§19). */
   let replyTo: Message | null = null;
+  /** The selected messages while selecting (§21.1), else null. */
+  let selected: Set<string> | null = null;
+  /** The selection bar asks "Delete these messages?". */
+  let confirmingDelete = false;
+  /** The messages the forward dialog is open for. */
+  let forwarding: string[] = [];
 
   const room = () => store.get().rooms.get(roomId);
   const me = () => store.get().user;
@@ -59,12 +68,23 @@ export function createRoomView({ api, store, unread, actions, navigate, drafts }
   const messages = createMessageList({
     state: () => {
       const s = ctl.state();
-      return { win: s.win, ready: s.phase === "ready", failed: s.phase === "failed", beginning: beginningLabel(), targetId: s.targetId };
+      return {
+        win: s.win,
+        ready: s.phase === "ready",
+        failed: s.phase === "failed",
+        beginning: beginningLabel(),
+        targetId: s.targetId,
+        selected,
+      };
     },
     me,
     editable: (m) => ctl.editable(m),
+    deletable: (m) => ctl.deletable(m),
     repliable: (m) => ctl.repliable(m),
     onReply: (id) => startReply(id),
+    selectable: (m) => ctl.selectable(m),
+    onSelect: (id) => select(id),
+    onForward: (id) => openForward([id]),
     reactable: (m) => ctl.reactable(m),
     reactions: (m) => ctl.reactions(m),
     onReact: (id, emoji, on) => void react(id, emoji, on),
@@ -99,6 +119,29 @@ export function createRoomView({ api, store, unread, actions, navigate, drafts }
     onEmoji: (opener, insert) => picker.open(opener, { label: "Insert emoji", onPick: insert, restoreFocus: () => composer.focus() }),
     signal,
   });
+  const forwardDialog = createForwardDialog({
+    rooms: () => {
+      const s = roomSections(store.get());
+      return [...s.dms, ...s.rooms, ...s.hidden];
+    },
+    me,
+    searchUsers: (q, sig) => api.searchUsers(q, sig),
+    avatarUrl: api.avatarUrl,
+    onPick: async (to) => {
+      try {
+        const target = "room" in to ? to.room : await actions.openDm(to.user.id);
+        const n = (await api.forward(forwarding, target.id)).length;
+        if (!scope.active) return null;
+        endSelect();
+        if (target.id !== roomId) navigate(`#/r/${target.id}`);
+        else notice.textContent = n === 1 ? "Message forwarded." : `${n} messages forwarded.`;
+        return null;
+      } catch (e) {
+        return `Couldn't forward. ${errorMessage(e)}`;
+      }
+    },
+    signal,
+  });
   const list = messages.el;
   const pill = h("button", { type: "button", class: "new-messages", hidden: true });
   const footer = h("footer", { class: "room-footer" });
@@ -110,12 +153,111 @@ export function createRoomView({ api, store, unread, actions, navigate, drafts }
     h("div", { class: "room-body" }, [list, pill]),
     footer,
     picker.el,
+    forwardDialog.el,
   ]);
+
+  // ---------------------------------------------------------------- selecting (§21)
+
+  const selCount = h("span", { class: "sel-count", role: "status" });
+  const selBar = h("div", { class: "selection-bar", role: "toolbar", "aria-label": "Selected messages" });
+  const barBtn = (label: string, run: () => void, cls = "") =>
+    h("button", { type: "button", class: cls, on: { click: run }, signal }, label);
+  const forwardBtn = barBtn("Forward", () => openForward([...(selected ?? [])]), "primary");
+  const deleteBtn = barBtn("Delete", () => setConfirmDelete(true), "danger");
+  const selActions = [selCount, forwardBtn, deleteBtn, barBtn("Cancel", () => endSelect(true))];
+  const confirmText = h("span");
+  const confirmActions = [
+    confirmText,
+    barBtn("Delete", () => void deleteSelected(), "danger confirm-delete"),
+    barBtn("Cancel", () => setConfirmDelete(false), "cancel"),
+  ];
 
   /** Render the list, then mark what it shows as read. */
   function render(o?: { anchor?: boolean }) {
+    pruneSelection();
     messages.render(o);
     markRead();
+  }
+
+  const LIMIT_NOTICE = `You can select up to ${MAX_SELECTED} messages at a time.`;
+
+  /** Select or unselect message `id`; the first one starts selecting, unselecting the last one stops. */
+  function select(id: string) {
+    const m = ctl.find(id);
+    if (!m || !ctl.selectable(m)) return;
+    if (!selected) {
+      selected = new Set();
+      picker.close();
+      messages.focusIn(id, ["input.select"], true);
+    }
+    if (selected.has(id)) selected.delete(id);
+    else if (selected.size >= MAX_SELECTED) {
+      notice.textContent = LIMIT_NOTICE;
+      return;
+    } else selected.add(id);
+    confirmingDelete = false;
+    if (!selected.size) return endSelect(true);
+    renderFooter();
+    render({ anchor: true });
+  }
+
+  /** Stop selecting; `focus`: put the caret back in the composer. */
+  function endSelect(focus = false) {
+    if (!selected) return;
+    selected = null;
+    confirmingDelete = false;
+    if (notice.textContent === LIMIT_NOTICE) notice.textContent = "";
+    renderFooter();
+    render({ anchor: true });
+    if (focus) composer.focus();
+  }
+
+  /** Selected messages that left the window, or can't be selected any more (deleted meanwhile), are unselected. */
+  function pruneSelection() {
+    if (!selected) return;
+    for (const id of selected) {
+      const m = ctl.find(id);
+      if (!m || !ctl.selectable(m)) selected.delete(id);
+    }
+    if (selected.size) return updateBar();
+    selected = null;
+    renderFooter();
+  }
+
+  /** Deletable: every selected message is mine (and may still be deleted). */
+  const allMine = () => !!selected?.size && [...selected].every((id) => ctl.deletable(ctl.find(id)!));
+
+  function updateBar() {
+    const n = selected?.size ?? 0;
+    if (confirmingDelete && allMine()) {
+      confirmText.textContent = n === 1 ? "Delete this message? " : `Delete these ${n} messages? `;
+      if (selBar.firstChild !== confirmText) selBar.replaceChildren(...confirmActions);
+      return;
+    }
+    confirmingDelete = false;
+    selCount.textContent = `${n} selected`;
+    deleteBtn.hidden = !allMine();
+    if (selBar.firstChild !== selCount) selBar.replaceChildren(...selActions);
+  }
+
+  function setConfirmDelete(on: boolean) {
+    confirmingDelete = on;
+    updateBar();
+    selBar.querySelector<HTMLElement>(on ? ".cancel" : ".danger")?.focus();
+  }
+
+  async function deleteSelected() {
+    const ids = [...(selected ?? [])];
+    endSelect(true);
+    const ok = await ctl.removeMany(ids);
+    if (ok === false && scope.active) notice.textContent = "Couldn't delete those messages. Check your connection and try again.";
+  }
+
+  function openForward(ids: string[]) {
+    if (!ids.length) return;
+    forwarding = ids;
+    picker.close();
+    forwardDialog.open(ids.length);
   }
 
   // ---------------------------------------------------------------- replies
@@ -208,7 +350,12 @@ export function createRoomView({ api, store, unread, actions, navigate, drafts }
     // No composer while the room failed to load: you'd be writing into history you can't see.
     // (The composer element, and anything typed into it, is kept for when the load succeeds.)
     if (!r || shown === "failed") return footer.replaceChildren();
-    if (r.archived) {
+    if (selected) {
+      // The composer (and anything typed into it) comes back when selecting ends.
+      updateBar();
+      if (footer.firstChild !== selBar) footer.replaceChildren(selBar);
+      picker.close();
+    } else if (r.archived) {
       footer.replaceChildren(banner);
       picker.close(); // nothing left to insert into or react to
     } else if (footer.firstChild !== composer.el) footer.replaceChildren(composer.el);
@@ -336,6 +483,17 @@ export function createRoomView({ api, store, unread, actions, navigate, drafts }
         { signal },
       );
       list.addEventListener("scroll", () => isNearBottom(list) && ctl.dismissPill(), { signal });
+      // Escape stops selecting (the forward dialog handles its own Escape).
+      shell.addEventListener(
+        "keydown",
+        (e) => {
+          if (e.key !== "Escape" || !selected || e.defaultPrevented || forwardDialog.el.open) return;
+          e.preventDefault();
+          if (confirmingDelete) setConfirmDelete(false);
+          else endSelect(true);
+        },
+        { signal },
+      );
       document.addEventListener("visibilitychange", markRead, { signal });
       // Coming back to the window: put the caret in the composer so you can just type. Only when nothing else has
       // focus (or a link does, e.g. an attachment opened in a new tab): never away from a field, menu or confirm you

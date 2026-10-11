@@ -26,3 +26,6 @@ export function textLength(s: string): number {
   for (const _ of s) n++;
   return n;
 }
+
+/** Most messages that can be selected, and so deleted or forwarded at once (§21; MAX_MESSAGES in pb_hooks/lib/bulk.js). */
+export const MAX_SELECTED = 50;

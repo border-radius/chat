@@ -589,6 +589,19 @@ describe("room view (§7.5–7.6)", () => {
       expect(document.activeElement).toBe(editBox(keep.id));
     });
 
+    it("my forwards have Delete but no Edit, and Up arrow skips them (§21.3)", async () => {
+      const other = await signedUp("Other");
+      const room = await newRoom();
+      const mine = await me.api.send({ id: newId(), room: room.id, text: "mine" });
+      const theirs = await other.api.send({ id: newId(), room: room.id, text: "theirs" });
+      const [copy] = await me.api.forward([theirs.id], room.id);
+      await mount(room);
+      expect(button(msgEl(copy!.id), "Edit")).toBeNull();
+      expect(button(msgEl(copy!.id), "Delete")).not.toBeNull();
+      key(composer()!, "ArrowUp");
+      expect(editBox(mine.id)).not.toBeNull();
+    });
+
     it("others' messages have no Edit or Delete", async () => {
       const other = await signedUp("Other");
       const room = await newRoom();
@@ -1878,6 +1891,249 @@ describe("room view (§7.5–7.6)", () => {
       key(document.activeElement!, "Escape");
       expect(document.activeElement).toBe(composer());
       expect(composer()!.value).toBe("hello 🌎");
+    });
+  });
+
+  describe("selecting, deleting and forwarding several messages (§21)", () => {
+    const bar = () => root.querySelector<HTMLElement>(".selection-bar");
+    const box = (id: string) => msgEl(id)?.querySelector<HTMLInputElement>("input.select") ?? null;
+    const dialog = () => root.querySelector<HTMLDialogElement>("dialog.forward")!;
+    const targetEls = () => [...dialog().querySelectorAll<HTMLButtonElement>(".forward-list button")];
+    const targets = () => targetEls().map((b) => b.lastElementChild!.textContent);
+    const target = (label: string) => targetEls().find((b) => b.lastElementChild!.textContent === label)!;
+    const select = (id: string) => button(msgEl(id), "Select")!.click();
+
+    it("Select starts selecting: checkboxes on every message, a bar instead of the composer", async () => {
+      const room = await newRoom();
+      const [a, b] = await seedMessages(room.id, me.user.id, 2);
+      await mount(room);
+      expect(bar()).toBeNull();
+      select(a!.id);
+      expect(box(a!.id)!.checked).toBe(true);
+      expect(box(b!.id)!.checked).toBe(false);
+      expect(document.activeElement).toBe(box(a!.id));
+      expect(composer()).toBeNull();
+      expect(bar()!.textContent).toContain("1 selected");
+      expect(msgEl(a!.id)!.querySelector(".actions")).toBeNull(); // no single-message actions meanwhile
+      // A click anywhere on a message toggles it, as does its checkbox.
+      msgEl(b!.id)!.querySelector<HTMLElement>(".body")!.click();
+      expect(bar()!.textContent).toContain("2 selected");
+      expect(msgEl(b!.id)!.classList.contains("selected")).toBe(true);
+      box(a!.id)!.click();
+      expect(bar()!.textContent).toContain("1 selected");
+      // Unselecting the last one, Cancel or Escape stops selecting; the composer and its text come back.
+      box(b!.id)!.click();
+      expect(bar()).toBeNull();
+      expect(box(a!.id)).toBeNull();
+      type("draft");
+      select(a!.id);
+      key(box(a!.id)!, "Escape");
+      expect(bar()).toBeNull();
+      expect(composer()!.value).toBe("draft");
+      expect(document.activeElement).toBe(composer());
+      select(a!.id);
+      button(bar(), "Cancel")!.click();
+      expect(bar()).toBeNull();
+    });
+
+    it("deleted and unsent messages can't be selected; one deleted meanwhile is unselected", async () => {
+      const other = await signedUp("Other");
+      const room = await newRoom();
+      const gone = await me.api.send({ id: newId(), room: room.id, text: "gone" });
+      await me.api.softDelete(gone.id);
+      const theirs = await other.api.send({ id: newId(), room: room.id, text: "theirs" });
+      const mine = await me.api.send({ id: newId(), room: room.id, text: "mine" });
+      await mount(room);
+      expect(button(msgEl(gone.id), "Select")).toBeNull();
+      select(theirs.id);
+      expect(box(gone.id)).toBeNull();
+      msgEl(mine.id)!.click();
+      expect(bar()!.textContent).toContain("2 selected");
+      await other.api.softDelete(theirs.id);
+      await vi.waitFor(() => expect(bar()!.textContent).toContain("1 selected"));
+      expect(box(theirs.id)).toBeNull();
+    });
+
+    it("at most 50 messages at a time", async () => {
+      const room = await newRoom();
+      const seeded = await seedMessages(room.id, me.user.id, 50);
+      await mount(room);
+      const extra = await me.api.send({ id: newId(), room: room.id, text: "one more" });
+      await vi.waitFor(() => expect(msgEl(extra.id)).not.toBeNull());
+      select(seeded[0]!.id);
+      for (const m of seeded.slice(1)) box(m.id)!.click();
+      expect(bar()!.textContent).toContain("50 selected");
+      box(extra.id)!.click();
+      expect(bar()!.textContent).toContain("50 selected");
+      expect(box(extra.id)!.checked).toBe(false);
+      expect(root.querySelector(".room-notice")!.textContent).toBe("You can select up to 50 messages at a time.");
+      button(bar(), "Cancel")!.click();
+      expect(root.querySelector(".room-notice")!.textContent).toBe("");
+    });
+
+    it("forwarding can't be cancelled halfway: a failure is always seen", async () => {
+      const room = await newRoom();
+      const m = await me.api.send({ id: newId(), room: room.id, text: "x" });
+      const ctl = instrument(me.api);
+      await mount(room);
+      await vi.waitFor(() => expect(store.get().rooms.has(room.id)).toBe(true));
+      const release = ctl.hold("forward");
+      ctl.failNext("forward", new ApiError("Failed to fetch", 0));
+      button(msgEl(m.id), "Forward")!.click();
+      target(`#${room.name}`).click();
+      expect(button(dialog(), "Cancel")!.disabled).toBe(true);
+      const cancel = new Event("cancel", { cancelable: true });
+      dialog().dispatchEvent(cancel); // Escape
+      expect(cancel.defaultPrevented).toBe(true);
+      dialog().close(); // closed anyway (a browser lets a second Escape through)
+      release();
+      await vi.waitFor(() => expect(dialog().textContent).toContain("Couldn't forward."));
+      expect(dialog().open).toBe(true);
+      expect(button(dialog(), "Cancel")!.disabled).toBe(false);
+    });
+
+    it("the dialog says it is searching for people, not that nothing was found, until it knows", async () => {
+      const name = `Quinn ${uniq()}`;
+      await signedUp(name);
+      const room = await newRoom();
+      const m = await me.api.send({ id: newId(), room: room.id, text: "x" });
+      await mount(room);
+      button(msgEl(m.id), "Forward")!.click();
+      const search = dialog().querySelector<HTMLInputElement>("input")!;
+      const status = () => dialog().querySelector(".search-status")!.textContent;
+      search.value = name;
+      search.dispatchEvent(new Event("input"));
+      expect(status()).toBe("Searching…");
+      await vi.waitFor(() => expect(targets()).toEqual([name]));
+      expect(status()).toBe("");
+      search.value = `nobody-${uniq()}`;
+      search.dispatchEvent(new Event("input"));
+      expect(status()).toBe("Searching…");
+      await vi.waitFor(() => expect(status()).toBe("Nothing found."));
+    });
+
+    it("Delete is offered only when every selected message is mine; it asks, then deletes them all in one request", async () => {
+      const other = await signedUp("Other");
+      const room = await newRoom();
+      const m1 = await me.api.send({ id: newId(), room: room.id, text: "one" });
+      const m2 = await me.api.send({ id: newId(), room: room.id, text: "two" });
+      const theirs = await other.api.send({ id: newId(), room: room.id, text: "theirs" });
+      const ctl = instrument(me.api);
+      await mount(room);
+      select(m1.id);
+      box(theirs.id)!.click();
+      expect(button(bar(), "Delete")!.hidden).toBe(true);
+      box(theirs.id)!.click();
+      box(m2.id)!.click();
+      expect(button(bar(), "Delete")!.hidden).toBe(false);
+      button(bar(), "Delete")!.click();
+      expect(bar()!.textContent).toContain("Delete these 2 messages?");
+      expect(document.activeElement).toBe(button(bar(), "Cancel"));
+      key(document.activeElement!, "Escape"); // back to the bar, still selecting
+      expect(bar()!.textContent).toContain("2 selected");
+      button(bar(), "Delete")!.click();
+      button(bar(), "Delete")!.click();
+      expect(bar()).toBeNull();
+      expect([bodyOf(m1.id), bodyOf(m2.id), bodyOf(theirs.id)]).toEqual(["Message deleted", "Message deleted", "theirs"]);
+      await vi.waitFor(() => expect(ctl.calls("deleteMany")).toBe(1));
+      expect(ctl.calls("softDelete")).toBe(0);
+      await vi.waitFor(async () => expect((await other.api.getMessage(m2.id)).deleted).toBe(true));
+    });
+
+    it("a failed delete puts the messages back and says so", async () => {
+      const room = await newRoom();
+      const m1 = await me.api.send({ id: newId(), room: room.id, text: "one" });
+      instrument(me.api).failNext("deleteMany", new ApiError("Failed to fetch", 0));
+      await mount(room);
+      select(m1.id);
+      button(bar(), "Delete")!.click();
+      button(bar(), "Delete")!.click();
+      await vi.waitFor(() => expect(root.querySelector(".room-notice")!.textContent).toContain("Couldn't delete those messages."));
+      expect(bodyOf(m1.id)).toBe("one");
+    });
+
+    it("Forward offers your rooms and DMs; picking one forwards the selection there, in order, and goes there", async () => {
+      const bob = await signedUp("Bob");
+      const room = await newRoom();
+      const elsewhere = await newRoom();
+      const dm = await me.api.openDm(bob.user.id);
+      const m1 = await bob.api.send({ id: newId(), room: room.id, text: "first" });
+      const m2 = await me.api.send({ id: newId(), room: room.id, text: "second" });
+      await mount(room);
+      await vi.waitFor(() => expect(store.get().rooms.has(elsewhere.id)).toBe(true));
+      select(m2.id);
+      box(m1.id)!.click();
+      button(bar(), "Forward")!.click();
+      expect(dialog().open).toBe(true);
+      expect(dialog().querySelector("h2")!.textContent).toBe("Forward 2 messages");
+      expect(targets()).toEqual(expect.arrayContaining(["Bob", `#${room.name}`, `#${elsewhere.name}`]));
+      expect(targets()[0]).toBe("Bob"); // conversations first
+      const search = dialog().querySelector<HTMLInputElement>("input")!;
+      expect(document.activeElement).toBe(search);
+      search.value = elsewhere.name.slice(-6);
+      search.dispatchEvent(new Event("input"));
+      expect(targets()).toEqual([`#${elsewhere.name}`]);
+      target(`#${elsewhere.name}`).click();
+      await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith(`#/r/${elsewhere.id}`));
+      expect(dialog().open).toBe(false);
+      const page = await me.api.page({ filter: "room = {:r}", params: { r: elsewhere.id }, sort: "created,id" });
+      expect(page.map((m) => [m.text, m.author, m.expand?.forwarded_from?.name])).toEqual([
+        ["first", me.user.id, "Bob"],
+        ["second", me.user.id, "Me"],
+      ]);
+      void dm;
+    });
+
+    it("Forward on a single message; to someone you have no DM with yet, found by name", async () => {
+      const name = `Zed ${uniq()}`;
+      const zed = await signedUp(name);
+      const room = await newRoom();
+      const m = await me.api.send({ id: newId(), room: room.id, text: "psst" });
+      await mount(room);
+      button(msgEl(m.id), "Forward")!.click();
+      expect(dialog().querySelector("h2")!.textContent).toBe("Forward message");
+      const search = dialog().querySelector<HTMLInputElement>("input")!;
+      search.value = name;
+      search.dispatchEvent(new Event("input"));
+      await vi.waitFor(() => expect(targets()).toEqual([name]));
+      target(name).click();
+      await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith(expect.stringMatching(/^#\/r\//)));
+      const dmId = navigate.mock.calls.at(-1)![0].slice(4);
+      expect(store.get().rooms.get(dmId)?.members).toContain(zed.user.id);
+      const [copy] = await zed.api.page({ filter: "room = {:r}", params: { r: dmId }, sort: "created,id" });
+      expect(copy).toMatchObject({ text: "psst", forwarded_from: me.user.id });
+    });
+
+    it("a forward that fails says why in the dialog and can be tried again; forwarding here stays here", async () => {
+      const room = await newRoom();
+      const m = await me.api.send({ id: newId(), room: room.id, text: "again" });
+      const ctl = instrument(me.api);
+      await mount(room);
+      await vi.waitFor(() => expect(store.get().rooms.has(room.id)).toBe(true));
+      ctl.failNext("forward", new ApiError("Failed to fetch", 0));
+      button(msgEl(m.id), "Forward")!.click();
+      target(`#${room.name}`).click();
+      await vi.waitFor(() => expect(dialog().textContent).toContain("Couldn't forward. Can't reach the server."));
+      expect(dialog().open).toBe(true);
+      target(`#${room.name}`).click();
+      await vi.waitFor(() => expect(dialog().open).toBe(false));
+      expect(navigate).not.toHaveBeenCalled();
+      expect(root.querySelector(".room-notice")!.textContent).toBe("Message forwarded.");
+      await vi.waitFor(() => expect(msgEls().at(-1)!.querySelector(".forwarded")?.textContent).toBe("Forwarded from Me"));
+    });
+
+    it("archived rooms: forwarding still works, deleting doesn't", async () => {
+      const room = await newRoom();
+      const m = await me.api.send({ id: newId(), room: room.id, text: "kept" });
+      await me.api.setArchived(room.id, true);
+      await mount(room);
+      expect(button(msgEl(m.id), "Forward")).not.toBeNull();
+      select(m.id);
+      expect(button(bar(), "Forward")).not.toBeNull();
+      expect(button(bar(), "Delete")!.hidden).toBe(true);
+      expect(root.querySelector(".archived-banner")).toBeNull();
+      button(bar(), "Cancel")!.click();
+      expect(root.querySelector(".archived-banner")).not.toBeNull();
     });
   });
 });

@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | Draft |
 | **Date** | 2026-10-10 |
-| **Scope** | MVP (§1–§14); post-MVP features: avatars §15, direct messages §16, attachments §17, unread counts §18, replies §19, reactions and emoji §20 |
+| **Scope** | MVP (§1–§14); post-MVP features: avatars §15, direct messages §16, attachments §17, unread counts §18, replies §19, reactions and emoji §20, selecting, forwarding and deleting several messages §21 |
 
 Code and tests cite this document by section number (e.g. `§7.5`). **Don't renumber sections:** append new ones, and
 mark obsolete ones as such instead of deleting them.
@@ -102,7 +102,9 @@ chat/
 │   ├── 1760000006_room_reads.js        # §18.1
 │   ├── 1760000007_replies.js           # §19.1
 │   ├── 1760000008_lowercase_emails.js  # QA BUG-47
-│   └── 1760000009_reactions.js         # §20.1
+│   ├── 1760000009_reactions.js         # §20.1
+│   ├── 1760000010_fit_thumbs.js        # §17.5
+│   └── 1760000011_forwarding.js        # §21.3
 ├── pb_hooks/                   # server-side JS hooks (committed)
 │   ├── main.pb.js              # registrations only
 │   └── lib/
@@ -110,6 +112,7 @@ chat/
 │       ├── dms.js              # POST /api/chat/dms (§16.2)
 │       ├── reads.js            # GET /api/chat/unread, POST /api/chat/reads (§18.2)
 │       ├── reactions.js        # POST /api/chat/reactions (§20.2)
+│       ├── bulk.js             # POST /api/chat/delete, POST /api/chat/forward (§21)
 │       ├── emoji.js            # the emoji a reaction may be (§20.1)
 │       └── images.js           # upload image size limit (§15, QA BUG-24)
 ├── web/
@@ -140,7 +143,7 @@ chat/
 │           ├── login.ts, rooms.ts, home.ts, profile.ts
 │           ├── room.ts         # puts the controller's changes on screen, wires the parts
 │           └── room/           # controller.ts (message window, loading, realtime, sending; no DOM),
-│                               # header.ts, messages.ts (the list), composer.ts
+│                               # header.ts, messages.ts (the list), composer.ts, forward.ts (§21.3)
 ├── tests/
 │   ├── unit/                   # Vitest + happy-dom, against a real throwaway PocketBase
 │   ├── integration/            # Vitest against a real PocketBase process
@@ -456,7 +459,7 @@ If the room's first load fails (other than "room not found"), the list shows an 
 | Asset | Budget (gzipped) |
 |---|---|
 | `app.js` (including the PocketBase client) | **≤ 32 KB** (25 KB for the MVP; raised for §15–§17 and §19, see §13) |
-| `app.css` | **≤ 5 KB** |
+| `app.css` | **≤ 5.5 KB** (5 KB until §21, see §13) |
 | `index.html` | ≤ 1.5 KB |
 | Web fonts | **none** (system font stack) |
 | Requests on first load | 3 (html, js, css) + API |
@@ -811,6 +814,16 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 | Where they live | On the message (`messages.reactions`, §20.1), not in a collection of their own: they travel with the message through pages, realtime, reconnect refetches and the window's merge logic, with nothing new on the client's read path. |
 | Who can react | Anyone who can see the message, on any saved message that isn't deleted, in a room that isn't archived. Your own messages too. |
 | Picker | Categories and a "Recent" row (per browser, `localStorage`), no search: names for ~600 emoji would cost about as much again as the emoji themselves. |
+
+### Decided (2026-10-11, selecting, forwarding and deleting several messages)
+
+| Topic | Decision |
+|---|---|
+| What can be selected | Any saved message that isn't deleted, yours or not; at most 50 at a time (`MAX_SELECTED`). Forwarding works on any of them, archived rooms included; deleting only when every selected message is yours and the room isn't archived (§21.1). |
+| One request, all or nothing | Deleting or forwarding several messages is one request to a route that runs in one transaction (§21.2, §21.3), not one request per message: the per-message rate limits would refuse a large selection halfway, and a half-done delete or forward is harder to explain than a failed one. |
+| What a forward is | A new message by the forwarder, with the text and copies of the attachments, saying who first wrote it (`forwarded_from`, kept through forwards of forwards). Not a link to the original: the recipient may not be able to see the original's room, and the original can be deleted. Replies, reactions and edit stamps are not copied. |
+| Where to | Any room or DM you can write in, or someone you have no DM with yet (found by name, which opens one). Afterwards the view goes to where the messages went. |
+| CSS budget | `app.css` raised from 5 KB to 5.5 KB gzipped (§7.7): §21 took it to 5.15 KB. |
 
 ### Still open
 
@@ -1392,3 +1405,87 @@ reactions. It is a `role="dialog"` named for what it does ("Insert emoji", "Add 
 - **E2E** (`reactions.spec.ts`, light and dark): Ada inserts an emoji from the composer's picker. Bob reacts twice, once
   by keyboard. Ada sees both live, with Bob's name, and adds hers. Reactions survive a reload, and axe finds no serious
   violations in the open picker or the chips.
+
+## 21. Selecting, forwarding and deleting several messages
+
+Messages can be selected, one or many, then forwarded to another room or DM, or deleted together when they are all
+yours. A single message can be forwarded straight from its action pill. Decisions: §13 (2026-10-11, selecting,
+forwarding and deleting several messages).
+
+### 21.1 Selecting
+
+- **Select** in a message's action pill starts selecting, with that message selected. While selecting, every
+  selectable message (saved, not deleted: `ctl.selectable`) has a checkbox ("Select message from Ada, …"); a click
+  anywhere on a message toggles it too, rather than following a link or pressing a button in it. Selected messages are
+  tinted. Single-message actions (the pill, the delete confirm, an open edit box) are gone meanwhile.
+- **The selection bar** replaces the composer (which keeps what was typed): "*n* selected", **Forward**, **Delete**
+  (only when you could delete every selected message, §7.6.1) and **Cancel**. Delete asks first in the bar ("Delete
+  these 3 messages?", focus on Cancel).
+- **Stopping:** Cancel, Escape, or unselecting the last message; focus goes back to the composer. A selected message
+  that leaves the window, or is deleted meanwhile, is unselected.
+- **At most 50** (`MAX_SELECTED` in `lib/limits.ts`, `MAX_MESSAGES` in `pb_hooks/lib/bulk.js`). One more is refused
+  with a notice above the list (gone when selecting stops), and its checkbox stays unchecked.
+
+### 21.2 Deleting: `POST /api/chat/delete`
+
+`{ messages: [ids] }` → the messages, soft-deleted, expanded and filtered like a read (`?expand`, `?fields`).
+
+1. 1 to 50 distinct ids, else 400. Any message the caller can't see (messages view rule) is a 404 for the whole request.
+2. Any message that isn't the caller's is a 403; any in an archived room a 400.
+3. In one transaction, each message not yet deleted is saved with `deleted: true`. The save goes through
+   `beforeMessageUpdate` (§5.6), which wipes text, files and reactions as for a single delete; already deleted ones
+   are left alone, so a retry succeeds.
+
+Every room member gets the usual realtime `update` per message. The client shows the placeholders at once
+(`ctl.removeMany`) and puts the messages back, with a notice, if the request fails. Rate limit: 20 per 60 s per IP.
+
+### 21.3 Forwarding: `POST /api/chat/forward`
+
+`{ messages: [ids], room }` → the new messages, oldest first, expanded and filtered like a read.
+
+1. 1 to 50 distinct ids (400). A target room the caller can't see is a 404, an archived one a 400. Any message the
+   caller can't see is a 404, and any deleted one a 400: forwarding never reveals a message you couldn't read.
+2. In one transaction, a new message per original, in the originals' order (`created`, then id): `author` is the caller,
+   `text` the original's, `forwarded_from` the original's `forwarded_from` or else its author. Attachments are copied
+   (`getReuploadableFile`, under their original names); `reply_to`, reactions and `edited_at` are not. The copies
+   are `created` a millisecond apart so they keep their order. The saves go through `beforeMessageCreate` and
+   `afterMessageCreate` like any message: a DM's members are checked, a closed DM reopens for the recipient, and
+   unread counts and realtime follow.
+
+**`messages.forwarded_from`**: an optional relation to `users` (max 1, no cascade). The create and update rules add
+`@request.body.forwarded_from:isset = false`; `beforeMessageCreateRequest` and `beforeMessageUpdate` back that up
+against field modifiers (superusers included). As with `reply_to` (§19.1), `beforeMessageUpdate` lets PocketBase
+clear it when a superuser deletes the user it names. `MSG_FIELDS` gains `forwarded_from` and its expanded `id` and
+`name`; the message shows "Forwarded from *name*" above its text. Rate limit: 20 per 60 s per IP.
+
+**A forward can't be edited**, only deleted: its words are someone else's, and "Forwarded from Bob" must stay true.
+`beforeMessageUpdate` refuses a text change on a message with `forwarded_from` (400); the client splits
+`ctl.editable` (no Edit button, skipped by Up arrow) from `ctl.deletable` (Delete, the selection bar).
+
+**The forward dialog** (`views/room/forward.ts`) is a modal `<dialog>` named "Forward *n* messages": a search box
+that filters your open DMs (most recent first), rooms and hidden rooms by title, and also finds people you have no DM
+with yet (`api.searchUsers`, debounced); picking one of those opens the DM (`actions.openDm`) first. On success the
+dialog closes, selecting stops and the view goes to the target room (or, for the room you are in, says "*n* messages
+forwarded"). A failure is shown in the dialog, which stays open to try again. While a forward is on its way the dialog
+can't be cancelled (Cancel disabled, Escape refused), and if the browser closes it anyway a failure reopens it: what
+happened must be seen. While a people search is pending the status says "Searching…", not "Nothing found."; people
+found for an earlier query stay only while they match the new one.
+
+The pill's Forward button has the class `forward` too, so the dialog's styles are scoped to `dialog.forward`.
+
+### 21.4 Tests
+
+- **Integration** (`bulk.test.ts`): a forward can be deleted but not edited; delete several, all or nothing (someone else's message → 403), idempotent, refused
+  in archived rooms and for invisible or unknown messages, live for others; forward in order with `forwarded_from`
+  (kept through a forward of a forward), attachments copied and readable, the answer expanded like a read, into a DM
+  only for its members and reopening it, nothing forwarded from a DM you're not in or of deleted messages, clients
+  (and superusers) can't set or change `forwarded_from`; the rate limits.
+- **Unit** (room view): selecting by Select, checkbox and click; Cancel, Escape and the last unselect; deleted and unsent
+  messages not selectable, one deleted meanwhile unselected; the 50 limit; Delete only for your own, its confirm, one
+  request, and a failure putting them back; forwarding a selection in order and going there; forwarding one message to
+  someone found by name; a failed forward and forwarding into the same room; archived rooms; forwards have Delete but
+  no Edit and Up arrow skips them; the limit notice goes when selecting stops; a forward can't be cancelled halfway and
+  a failure is always seen; "Searching…" until the people search answers.
+- **E2E** (`forward.spec.ts`, light and dark): Ada selects Bob's message and hers, forwards both to Bob (found by name),
+  and Bob sees them live with "Forwarded from"; she then deletes two of her own at once and Bob sees the placeholders.
+  axe finds no serious violations while selecting or in the dialog.

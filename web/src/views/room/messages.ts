@@ -1,6 +1,7 @@
 // The message list DOM (§7.5, §7.6.1, §7.6.2): renders a MessageWindow with author groups and day dividers,
 // reusing each message's element until something it shows changes. Owns the per-message UI state (edit box,
-// delete confirm, inline errors) and shows reactions (§20.3); what those buttons *do* is up to the room view.
+// delete confirm, inline errors), shows reactions (§20.3) and which messages are selected (§21.1); what those buttons
+// *do* is up to the room view.
 
 import { h, reconcile } from "../../dom.ts";
 import { attachmentName, isImage } from "../../lib/files.ts";
@@ -29,6 +30,8 @@ export interface ListState {
   beginning: string;
   /** Highlighted message (#/r/:id/m/:msgId). */
   targetId: string | null;
+  /** The selected messages while selecting (§21.1), else null. */
+  selected: ReadonlySet<string> | null;
 }
 
 export interface MessageList {
@@ -64,11 +67,20 @@ const byId = (id: string) => `li.msg[data-id="${CSS.escape(id)}"]`;
 export function createMessageList(opts: {
   state: () => ListState;
   me: () => User | null;
+  /** Does the message get an Edit button? */
   editable: (m: Message) => boolean;
+  /** Does the message get a Delete button? */
+  deletable: (m: Message) => boolean;
   /** Does the message get a Reply button? (§19) */
   repliable: (m: Message) => boolean;
   /** Reply on a message. */
   onReply: (id: string) => void;
+  /** Can the message be selected (and forwarded)? (§21) */
+  selectable: (m: Message) => boolean;
+  /** Select or unselect a message; the first one starts selecting. */
+  onSelect: (id: string) => void;
+  /** Forward on a message. */
+  onForward: (id: string) => void;
   /** Can I react to the message? (§20) */
   reactable: (m: Message) => boolean;
   /** The message's reactions as they should show (with my changes on their way). */
@@ -120,6 +132,20 @@ export function createMessageList(opts: {
   };
   scheduleMidnight();
   signal.addEventListener("abort", () => clearTimeout(midnight), { once: true });
+
+  // Selecting (§21.1): a click anywhere on a message selects it, rather than following a link or pressing a button.
+  el.addEventListener(
+    "click",
+    (e) => {
+      const t = e.target as Element;
+      const li = opts.state().selected && !t.matches("input.select") ? t.closest<HTMLElement>("li.msg") : null;
+      if (!li?.querySelector("input.select")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      opts.onSelect(li.dataset.id!);
+    },
+    { capture: true, signal },
+  );
 
   let editing: string | null = null;
   /**
@@ -204,9 +230,19 @@ export function createMessageList(opts: {
     return inWindow ?? m.expand?.reply_to ?? { id: m.reply_to, author: "", text: "", deleted: true };
   }
 
-  function messageNode(m: Message, groupStart: boolean, targetId: string | null, quoted: Quoted | null): HTMLElement {
+  function messageNode(
+    m: Message,
+    groupStart: boolean,
+    targetId: string | null,
+    quoted: Quoted | null,
+    selected: ReadonlySet<string> | null,
+  ): HTMLElement {
     const err = errors.get(m.id);
+    const selectable = opts.selectable(m);
+    /** Selecting: whether this message is one of them (null: it can't be). */
+    const picked = selected && selectable ? selected.has(m.id) : null;
     const editable = opts.editable(m);
+    const deletable = opts.deletable(m);
     const repliable = opts.repliable(m);
     const reactable = opts.reactable(m);
     const me = opts.me();
@@ -223,8 +259,13 @@ export function createMessageList(opts: {
       formatTime(ms), // changes at midnight ("7:36 PM" → "Oct 10, 7:36 PM")
       groupStart,
       editable,
+      deletable,
       repliable,
       reactable,
+      selectable,
+      !!selected,
+      picked,
+      m.forwarded_from ? (m.expand?.forwarded_from?.name ?? "") : "",
       reactions.map((r) => [r.emoji, r.users.length, r.users.includes(me?.id ?? ""), r.who]),
       quoted ? [quoted.expand?.author?.name ?? "", quoteText(quoted)] : null,
       editing === m.id,
@@ -240,11 +281,29 @@ export function createMessageList(opts: {
     if (hit && hit.sig === sig) return hit.el;
 
     const author: User = m.expand?.author ?? (me && m.author === me.id ? me : { id: m.author, name: "Unknown" });
-    const cls = ["msg", groupStart && "group-start", m.status, m.deleted && "deleted", targetId === m.id && "target"]
+    const cls = ["msg", groupStart && "group-start", m.status, m.deleted && "deleted", targetId === m.id && "target", picked && "selected"]
       .filter(Boolean)
       .join(" ");
 
     const parts: (HTMLElement | null)[] = [];
+    if (picked !== null) {
+      parts.push(
+        h("input", {
+          type: "checkbox",
+          class: "select",
+          checked: picked,
+          "aria-label": `Select message from ${author.name}, ${formatFull(ms)}`,
+          on: {
+            change: (e) => {
+              // Shows what is selected, not what was clicked: a refused one (the limit) stays unchecked.
+              (e.currentTarget as HTMLInputElement).checked = picked;
+              opts.onSelect(m.id);
+            },
+          },
+          signal,
+        }),
+      );
+    }
     if (groupStart) {
       parts.push(avatar(author, 32, opts.avatarUrl));
       parts.push(
@@ -253,6 +312,9 @@ export function createMessageList(opts: {
           h("time", { datetime: new Date(ms).toISOString(), title: formatFull(ms) }, formatTime(ms)),
         ]),
       );
+    }
+    if (m.forwarded_from && !m.deleted) {
+      parts.push(h("div", { class: "forwarded" }, `Forwarded from ${m.expand?.forwarded_from?.name ?? "Unknown"}`));
     }
     if (quoted) parts.push(quote(quoted));
     if (editing === m.id) {
@@ -275,7 +337,9 @@ export function createMessageList(opts: {
         ]),
       );
     }
-    if (confirmDelete === m.id) {
+    if (selected) {
+      // Selecting: no actions on single messages.
+    } else if (confirmDelete === m.id) {
       parts.push(
         h(
           "div",
@@ -306,13 +370,15 @@ export function createMessageList(opts: {
           ],
         ),
       );
-    } else if (editing !== m.id && (reactable || repliable || editable)) {
+    } else if (editing !== m.id && (reactable || repliable || deletable || selectable)) {
       parts.push(
         h("div", { class: "actions" }, [
           reactable ? pickerButton(m.id, "React", "Add reaction", "react") : null,
           repliable ? btn("Reply", () => opts.onReply(m.id), "reply") : null,
+          selectable ? btn("Forward", () => opts.onForward(m.id), "forward") : null,
+          selectable ? btn("Select", () => opts.onSelect(m.id), "select") : null,
           editable ? btn("Edit", () => list.startEdit(m.id), "edit") : null,
-          editable ? btn("Delete", () => askDelete(m.id), "delete") : null,
+          deletable ? btn("Delete", () => askDelete(m.id), "delete") : null,
         ]),
       );
     }
@@ -511,19 +577,20 @@ export function createMessageList(opts: {
 
   function render(o: { anchor?: boolean } = {}) {
     if (signal.aborted) return;
-    const { win, ready, failed, beginning: beginningText, targetId } = opts.state();
+    const { win, ready, failed, beginning: beginningText, targetId, selected } = opts.state();
+    el.classList.toggle("selecting", !!selected);
     if (failed) {
       reconcile(el, [loadError]);
       return;
     }
     // An edit box or delete confirm only stays open while its message can still be changed (it may have been
     // deleted in another tab, or the room archived, meanwhile).
-    const canChange = (id: string | null) => !!id && win.items.some((m) => m.id === id && opts.editable(m));
-    if (!canChange(editing)) {
+    const canChange = (id: string | null, can: (m: Message) => boolean) => !!id && win.items.some((m) => m.id === id && can(m));
+    if (selected || !canChange(editing, opts.editable)) {
       editing = null;
       editText = null;
     }
-    if (!canChange(confirmDelete)) confirmDelete = null;
+    if (selected || !canChange(confirmDelete, opts.deletable)) confirmDelete = null;
     beginning.textContent = beginningText;
     names = new Map();
     const me = opts.me();
@@ -542,7 +609,7 @@ export function createMessageList(opts: {
       const day = new Date(ms).toDateString();
       const newDay = day !== prevDay;
       if (newDay) nodes.push(divider(ms));
-      nodes.push(messageNode(m, newDay || startsGroup(prev, m), targetId, quotedOf(m, win)));
+      nodes.push(messageNode(m, newDay || startsGroup(prev, m), targetId, quotedOf(m, win), selected));
       prev = m;
       prevDay = day;
     }
@@ -553,8 +620,10 @@ export function createMessageList(opts: {
     const box = document.activeElement;
     const typing = box instanceof HTMLTextAreaElement && box.matches("textarea.edit-input") && el.contains(box) ? box : null;
     const caret = typing && ([typing.selectionStart, typing.selectionEnd, typing.selectionDirection] as const);
-    // Likewise a button in a redrawn message (it changes whenever someone reacts, §20.3): focus its replacement.
-    const held = !typing && box instanceof HTMLButtonElement && el.contains(box) ? sameButton(box) : null;
+    // Likewise a button or checkbox in a redrawn message (it changes whenever someone reacts, §20.3, or it is
+    // selected, §21.1): focus its replacement.
+    const held =
+      !typing && (box instanceof HTMLButtonElement || box instanceof HTMLInputElement) && el.contains(box) ? sameButton(box) : null;
     reconcile(el, nodes);
     if (anchor) restoreAnchor(el, anchor);
     if (typing && caret && !typing.isConnected && editing && !focusAfter) {
@@ -579,9 +648,10 @@ export function createMessageList(opts: {
   }
 
   /** Where the focused button `b` will be once its message is redrawn: the same button, or the nearest one left. */
-  function sameButton(b: HTMLButtonElement): { id: string; selectors: readonly string[] } | null {
+  function sameButton(b: HTMLButtonElement | HTMLInputElement): { id: string; selectors: readonly string[] } | null {
     const id = b.closest<HTMLElement>("li.msg")?.dataset.id;
     if (!id) return null;
+    if (b instanceof HTMLInputElement) return { id, selectors: ["input.select"] };
     const emoji = b.closest<HTMLElement>(".reactions [data-emoji]")?.dataset.emoji;
     if (emoji) return { id, selectors: reactionFocus(emoji) };
     const cls = b.classList[0];

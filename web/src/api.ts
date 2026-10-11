@@ -102,6 +102,10 @@ export interface Api {
   softDelete(id: string): Promise<Message>;
   /** Add (`on`) or remove your `emoji` reaction on a message (§20). Idempotent. */
   react(id: string, emoji: string, on: boolean): Promise<Message>;
+  /** Soft-delete several of your messages at once, all or none (§21.2). Resolves to them, deleted. */
+  deleteMany(ids: readonly string[]): Promise<Message[]>;
+  /** Copy messages into `room` as yours, saying who first wrote them, all or none (§21.3). Resolves to the copies. */
+  forward(ids: readonly string[], room: string): Promise<Message[]>;
 
   // attachments (§17.3)
   /** A fresh file token for protected attachments (cached; one request shared by concurrent callers). */
@@ -163,8 +167,9 @@ export function errorMessage(err: unknown): string {
 export const MSG_FIELDS =
   "id,room,text,created,updated,edited_at,deleted,files,file_names,reactions,author,expand.author.id,expand.author.name,expand.author.avatar," +
   "reply_to,expand.reply_to.id,expand.reply_to.author,expand.reply_to.text,expand.reply_to.deleted,expand.reply_to.files," +
-  "expand.reply_to.expand.author.id,expand.reply_to.expand.author.name";
-const MSG_OPTS = { expand: "author,reply_to.author", fields: MSG_FIELDS } as const;
+  "expand.reply_to.expand.author.id,expand.reply_to.expand.author.name," +
+  "forwarded_from,expand.forwarded_from.id,expand.forwarded_from.name";
+const MSG_OPTS = { expand: "author,reply_to.author,forwarded_from", fields: MSG_FIELDS } as const;
 /** Rooms with their members' public profile (DMs, §16.5); never emails. */
 export const ROOM_FIELDS =
   "id,name,archived,created_by,kind,members,last_message_at,created,expand.members.id,expand.members.name,expand.members.avatar";
@@ -377,6 +382,9 @@ export function createApi(pb: PbClient): Api {
     react: (id, emoji, on) =>
       wrap(pb.send<Message>("/api/chat/reactions", { method: "POST", body: { message: id, emoji, on }, query: MSG_OPTS })),
 
+    deleteMany: (ids) => wrap(pb.send<Message[]>("/api/chat/delete", { method: "POST", body: { messages: ids }, query: MSG_OPTS })),
+    forward: (ids, room) =>
+      wrap(pb.send<Message[]>("/api/chat/forward", { method: "POST", body: { messages: ids, room }, query: MSG_OPTS })),
     fileToken: (force) => tokens.ensure(force),
     fileUrl(m, filename, thumb) {
       if (!tokens.fresh()) void tokens.ensure().catch(() => {});

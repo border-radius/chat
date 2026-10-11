@@ -86,7 +86,10 @@ function imageSize(b) {
 function assertImagesFit(record, field) {
   for (const f of record.getUnsavedFiles(field)) {
     if (!f) continue;
-    const reader = f.reader.open();
+    // A copy of a stored file (a forward, §21.3) has a Go func type as its reader, which reaches JS as a plain
+    // function: calling it is its Open().
+    const r = /** @type {any} */ (f.reader);
+    const reader = typeof r === "function" ? r() : r.open();
     let bytes;
     try {
       bytes = toBytes(reader, HEADER_BYTES);
