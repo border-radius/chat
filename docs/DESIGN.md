@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | Draft |
 | **Date** | 2026-10-10 |
-| **Scope** | MVP (§1–§14); post-MVP features: avatars §15, direct messages §16, attachments §17, unread counts §18 |
+| **Scope** | MVP (§1–§14); post-MVP features: avatars §15, direct messages §16, attachments §17, unread counts §18, replies §19, reactions and emoji §20 |
 
 Code and tests cite this document by section number (e.g. `§7.5`). **Don't renumber sections:** append new ones, and
 mark obsolete ones as such instead of deleting them.
@@ -38,7 +38,7 @@ These are left out on purpose. The design should not block them later.
 
 - Private rooms, room membership or invitations (direct messages: now designed in §16)
 - File and image uploads (avatars and attachments: now designed in §15 and §17), link previews
-- Reactions, threads, replies, mentions
+- Reactions, threads, replies, mentions (replies: now designed in §19; reactions: §20)
 - Typing indicators, presence, read receipts
 - Push notifications, email notifications
 - Message search
@@ -100,12 +100,17 @@ chat/
 │   ├── 1760000004_attachments.js       # §17.1
 │   ├── 1760000005_file_names.js        # §17.1 (QA BUG-28)
 │   ├── 1760000006_room_reads.js        # §18.1
-│   └── 1760000007_replies.js           # §19.1
+│   ├── 1760000007_replies.js           # §19.1
+│   ├── 1760000008_lowercase_emails.js  # QA BUG-47
+│   └── 1760000009_reactions.js         # §20.1
 ├── pb_hooks/                   # server-side JS hooks (committed)
 │   ├── main.pb.js              # registrations only
 │   └── lib/
 │       ├── chat.js             # validation, stamps, soft delete, DM guards, headers (§5.6, §16, §17)
 │       ├── dms.js              # POST /api/chat/dms (§16.2)
+│       ├── reads.js            # GET /api/chat/unread, POST /api/chat/reads (§18.2)
+│       ├── reactions.js        # POST /api/chat/reactions (§20.2)
+│       ├── emoji.js            # the emoji a reaction may be (§20.1)
 │       └── images.js           # upload image size limit (§15, QA BUG-24)
 ├── web/
 │   ├── index.html              # template; build injects hashed asset names
@@ -126,9 +131,11 @@ chat/
 │       │   ├── avatar.ts       # initials + color (§15.4)
 │       │   ├── image.ts        # resize + re-encode before upload (§15.3)
 │       │   ├── files.ts        # attachment names and limits (§17)
+│       │   ├── emoji.ts        # the picker's emoji, recently used (§20.4)
+│       │   ├── reactions.ts    # optimistic reaction changes, who reacted (§20.3)
 │       │   └── token.ts        # file token cache (§17.3)
 │       ├── ui/                 # small reusable components
-│       │   ├── menu.ts, avatar.ts, user-search.ts
+│       │   ├── menu.ts, avatar.ts, user-search.ts, emoji-picker.ts
 │       └── views/
 │           ├── login.ts, rooms.ts, home.ts, profile.ts
 │           ├── room.ts         # puts the controller's changes on screen, wires the parts
@@ -794,6 +801,16 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 |---|---|
 | PocketBase SDK | Replaced in the app by `web/src/pb.ts` (§6): the SDK builds every service in its constructor, so none of its unused code could be tree-shaken. `app.js` went from 31.1 KB to 23.1 KB gzipped; the 32 KB budget (§7.7) is unchanged. Same storage key, so existing sessions survive the switch. |
 
+### Decided (2026-10-11, reactions and emoji)
+
+| Topic | Decision |
+|---|---|
+| How many | Any number of different emoji per person per message; each one once (clicking it again takes it back). |
+| Which emoji | Exactly the picker's set (§20.4, about 600, Emoji 12 and older), checked by the server. This bounds what a message can collect without a per-message cap, and every current system font shows them all. |
+| Where they live | On the message (`messages.reactions`, §20.1), not in a collection of their own: they travel with the message through pages, realtime, reconnect refetches and the window's merge logic, with nothing new on the client's read path. |
+| Who can react | Anyone who can see the message, on any saved message that isn't deleted, in a room that isn't archived. Your own messages too. |
+| Picker | Categories and a "Recent" row (per browser, `localStorage`), no search: names for ~600 emoji would cost about as much again as the emoji themselves. |
+
 ### Still open
 
 1. ~~**Unread state for DMs.**~~ Done for every room: §18.
@@ -801,7 +818,7 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 
 ## 14. Future work (post-MVP)
 
-Private rooms (§16's `kind` + `members`, allowing more than two members), blocking users, link previews, reactions, typing and presence (custom realtime channels via `$app.subscriptionsBroker()`), OAuth2 providers, message search (SQLite FTS5 through a custom route), a service worker for an offline shell, and HttpOnly cookie auth.
+Private rooms (§16's `kind` + `members`, allowing more than two members), blocking users, link previews, typing and presence (custom realtime channels via `$app.subscriptionsBroker()`), OAuth2 providers, message search (SQLite FTS5 through a custom route), a service worker for an offline shell, and HttpOnly cookie auth.
 
 ---
 
@@ -1278,3 +1295,95 @@ always true for someone who can see the reply. `NewMessage.replyTo` sends `reply
 - **E2E** (`replies.spec.ts`, light and dark): Bob replies to Ada and she sees the quote live; Ada replies to a message
   far back in history, and Bob's click on the quote loads that history and highlights it; axe finds no serious
   violations in the reply bar or the quotes.
+
+## 20. Reactions and emoji
+
+Anyone who can read a message can react to it with emoji, as many different ones as they like, and the composer has
+an emoji button. Decisions: §13 (2026-10-11, reactions and emoji).
+
+### 20.1 Data model
+
+`messages.reactions`: a JSON list with one entry per emoji, in the order each was first used. Each entry holds the ids
+of who reacted with it, in the order they did: `[{ "emoji": "👍", "users": ["<id>", …] }, …]`. An emoji nobody uses
+any more is removed; `[]` when there are none.
+
+- **Only the route below writes it.** The create and update rules add `@request.body.reactions:isset = false`. The
+  create hook sets `[]` whatever was sent, and a request hook (`beforeMessageUpdateRequest`) refuses an update that
+  changes it, superusers included. The route's own saves don't go through request hooks.
+- **The emoji are the picker's** (`pb_hooks/lib/emoji.js`, the same list as `web/src/lib/emoji.ts`; a unit test fails
+  if they drift apart). Anything else is a 400.
+- **A soft delete wipes them** with the text and files (§5.6). Edits keep them, and they never set `edited_at`.
+- **An edit keeps the stored reactions**, not the ones loaded with the record. PocketBase writes every field on a save,
+  so an edit that read the message before a reaction was added would otherwise erase that reaction.
+  `beforeMessageUpdate` re-reads them, and the update request runs in a transaction so that nothing can commit between
+  that read and the write.
+
+### 20.2 `POST /api/chat/reactions`
+
+`{ message, emoji, on }` → the message, expanded and filtered like a read of it (`?expand`, `?fields`): the caller's `emoji` reaction on `message` is there
+(`on: true`) or not (`on: false`). Setting a state rather than toggling makes it idempotent, so a retry or a double
+click can't flip it back. The whole message comes back, not just its reactions. A client that patched only the reactions
+and took the newer `updated` would hide an edit it hadn't heard of yet (its realtime connection was down), even from
+the reconnect refetch.
+
+1. `emoji` not in the set, or `on` not a boolean: 400.
+2. A message the caller can't see (the messages view rule, via `canAccessRecord`) is a 404, like one that doesn't exist.
+3. In one transaction: read the message, refuse it if it is deleted or in an archived room (400), change the list,
+   save. Because the read and the write share one transaction, two people reacting at the same moment both count.
+4. Nothing to change (already there, or not there to remove): no save, the same answer.
+
+Saving the message bumps `updated`. The change therefore reaches every client as a messages `update` event, wins over
+older copies in `merge` (§7.5), and is picked up by the reconnect refetch of changed messages. `MSG_FIELDS` gains
+`reactions`. Rate limit: 30 per 10 s per IP. The unread counter ignores these updates (only deletes matter to it, §18.3).
+
+### 20.3 Frontend
+
+- **Showing them:** under a message's text and attachments, a chip per emoji with its count; yours are tinted and
+  `aria-pressed`. The tooltip says who: "You, Ada and 2 others reacted with 🎉". Names come from the window's
+  authors. Anyone else is looked up (`api.usersById`), with one request for all the unknown names a render needs.
+- **Changing them:** clicking a chip adds yours or takes it back. **React** in a message's action pill and **☺+**
+  after the chips open the picker; picking an emoji you already used takes it back. In archived rooms the chips show
+  but are not buttons, and there is no React.
+- **Optimistic:** a change shows at once, as an overlay over every copy of the message (the controller's `reactions(m)`)
+  until the server answers. A realtime update made before yours therefore doesn't flicker it away. The requests for one
+  message go one at a time, in order, and a change superseded before its request went out is skipped. The server ends
+  up with the last choice, in the order the changes were made. A failure shows the reaction as it was, with an inline
+  error and Retry. A request that fails after a later change to the same reaction isn't reported, since the later one
+  decides what shows.
+- **Focus** stays on the chip that changed, or moves to React when the chip is gone (a failure, the last one taken
+  back). A message is redrawn whenever it changes, for instance when someone else reacts. When that replaces the
+  focused button, focus moves to the new one.
+
+### 20.4 Emoji picker (`ui/emoji-picker.ts`)
+
+One popover per room view, used by the composer's emoji button (it inserts at the caret, replacing a selection) and by
+reactions. It is a `role="dialog"` named for what it does ("Insert emoji", "Add reaction"). It sits next to its button
+(above it when there is room) and spans the screen width on phones.
+
+- Category tabs, then a **Recent** row (the last 24 picked, kept in `localStorage`; nothing breaks without storage),
+  then the categories, in an 8-column grid. Built on first open.
+- **Keyboard:** the grid is one tab stop (roving `tabindex`). Arrow keys move within and across categories, Home and
+  End go to the ends, and Enter or Space picks. **Escape** closes it and gives focus back (to the composer, or to the
+  message's React). Clicking or tabbing elsewhere closes it. A window resize moves it along rather than closing it. On
+  Android the page resizes when the keyboard goes away (`interactive-widget=resizes-content`), and opening the picker
+  takes the focus from the composer, which hides the keyboard.
+- The emoji are toggle buttons (`aria-pressed`) only for reactions, where picking can take one back. For the composer
+  they are plain buttons.
+- Each emoji button is named by the emoji itself, which screen readers read out by name.
+
+### 20.5 Tests
+
+- **Integration** (`reactions.test.ts`): adding and removing several emoji per user; idempotent; text and `edited_at`
+  untouched, `updated` bumped; concurrent reactions all count, also against concurrent edits; the answer is the whole
+  message, expanded; only the set's emoji and a boolean `on`; 404 for
+  invisible messages, 401 logged out; refused on deleted messages and in archived rooms; wiped by a soft delete, kept by
+  an edit; clients (and superusers) can't write the field; returned in `MSG_FIELDS` and live; the rate limit.
+- **Unit:** the client and server emoji sets match, with no duplicates and one grapheme each; recent emoji (order, cap,
+  storage failures); `setReaction` and `reactors`; picker arrow-key steps, opening, picking, Escape and outside clicks;
+  the controller's overlay over a stale copy, a superseded failure not reported, the answer bringing an edit that
+  realtime missed, and where you can't react. The picker stays open on a resize and isn't a toggle when inserting. Room view: React and pick; chips toggling;
+  live reactions from others, with their names looked up; taking one back from the picker; failure and Retry; a
+  reaction changed again before the answer; focus, also across redraws and failures; archived and deleted messages; the composer inserting at the caret.
+- **E2E** (`reactions.spec.ts`, light and dark): Ada inserts an emoji from the composer's picker. Bob reacts twice, once
+  by keyboard. Ada sees both live, with Bob's name, and adds hers. Reactions survive a reload, and axe finds no serious
+  violations in the open picker or the chips.

@@ -45,10 +45,19 @@ export interface Message {
   file_names?: Record<string, string>;
   /** The message this one replies to (§19); "" or absent when it isn't a reply. */
   reply_to?: string;
+  /** Emoji reactions (§20), in the order they were first added; empty or absent when there are none. */
+  reactions?: Reaction[];
   expand?: { author?: User; reply_to?: Quoted };
   status?: SendStatus;
   /** Client-only: attachments of a message not (yet) on the server, with local preview URLs (§17.4). */
   localFiles?: LocalFile[];
+}
+
+/** One emoji on a message and who reacted with it (§20.1). */
+export interface Reaction {
+  emoji: string;
+  /** User ids, in the order they reacted. Never empty. */
+  users: string[];
 }
 
 /** What a reply shows of the message it answers (§19). */

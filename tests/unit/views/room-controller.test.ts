@@ -3,7 +3,7 @@ import { type Api, ApiError } from "../../../web/src/api.ts";
 import { newId } from "../../../web/src/lib/id.ts";
 import type { Message, Room } from "../../../web/src/lib/types.ts";
 import { createScope, type Scope } from "../../../web/src/scope.ts";
-import { type AppState, createStore, initialState, type Store } from "../../../web/src/store.ts";
+import { type AppState, createStore, initialState, type Store, upsertRoom } from "../../../web/src/store.ts";
 import { type Change, createRoomController, type RoomController } from "../../../web/src/views/room/controller.ts";
 import { instrument, intercept, type SignedUp, seedMessages, signedUp, subscribed, uniq } from "../../support/api.ts";
 
@@ -514,6 +514,91 @@ describe("room controller (§7.5, no DOM)", () => {
       expect(ctl.lastEditable()?.id).toBe(newest.id);
       await ctl.remove(newest.id);
       expect(ctl.lastEditable()?.id).toBe(older.id);
+    });
+  });
+  describe("reactions (§20.3)", () => {
+    const shown = (id: string) => ctl.reactions(ctl.find(id)!).map((r) => [r.emoji, r.users.length]);
+
+    it("mine shows at once and stays while it is on its way, over copies of the message that don't have it yet", async () => {
+      const other = await signedUp("Other");
+      const room = await newRoom();
+      const m = await say(me, room);
+      // Hold my request before it reaches the server: copies from the server meanwhile don't have my reaction.
+      let send!: () => void;
+      const gate = new Promise<void>((r) => (send = r));
+      intercept(me.api, "react", (original) => async (...args) => {
+        await gate;
+        return original(...args);
+      });
+      await open(room);
+      const saving = ctl.react(m.id, "👍", true)!;
+      expect(shown(m.id)).toEqual([["👍", 1]]);
+      await other.api.react(m.id, "🎉", true);
+      await vi.waitFor(() => expect(ctl.find(m.id)!.reactions).toEqual([{ emoji: "🎉", users: [other.user.id] }]));
+      expect(shown(m.id)).toEqual([
+        ["🎉", 1],
+        ["👍", 1],
+      ]);
+      send();
+      expect(await saving).toBe(true);
+      expect(ctl.find(m.id)!.reactions).toEqual([
+        { emoji: "🎉", users: [other.user.id] },
+        { emoji: "👍", users: [me.user.id] },
+      ]);
+      expect(shown(m.id)).toEqual([
+        ["🎉", 1],
+        ["👍", 1],
+      ]);
+    });
+
+    it("not on messages that aren't saved, are deleted, or are in an archived room", async () => {
+      const room = await newRoom();
+      const m = await say(me, room);
+      const gone = await say(me, room);
+      await me.api.softDelete(gone.id);
+      await open(room);
+      expect(ctl.react(gone.id, "👍", true)).toBeNull();
+      expect(ctl.react("nosuchmessage00", "👍", true)).toBeNull();
+      await me.api.setArchived(room.id, true);
+      store.set(upsertRoom({ ...store.get().rooms.get(room.id)!, archived: true }));
+      expect(ctl.reactable(ctl.find(m.id)!)).toBe(false);
+      expect(ctl.react(m.id, "👍", true)).toBeNull();
+    });
+
+    it("a change that failed after I changed that reaction again isn't a failure: the later change says how it went", async () => {
+      const room = await newRoom();
+      const m = await say(me, room);
+      let fail!: () => void;
+      const failing = new Promise<never>((_, reject) => (fail = () => reject(new ApiError("offline", 0))));
+      let calls = 0;
+      intercept(
+        me.api,
+        "react",
+        (original) =>
+          (...args) =>
+            ++calls === 1 ? failing : original(...args),
+      );
+      await open(room);
+      const first = ctl.react(m.id, "👍", true)!;
+      await vi.waitFor(() => expect(calls).toBe(1)); // on its way
+      const second = ctl.react(m.id, "👍", false)!;
+      fail();
+      expect(await first).toBe(true);
+      expect(await second).toBe(true);
+      expect(shown(m.id)).toEqual([]);
+    });
+
+    it("the answer brings the whole message: an edit I missed (realtime down) isn't hidden behind it", async () => {
+      const other = await signedUp("Other");
+      const room = await newRoom();
+      const m = await say(other, room, "before");
+      const gate = gateRealtime(me.api);
+      await open(room);
+      gate.offline = true;
+      await other.api.edit(m.id, "after");
+      expect(await ctl.react(m.id, "👍", true)).toBe(true);
+      expect(ctl.find(m.id)).toMatchObject({ text: "after", reactions: [{ emoji: "👍", users: [me.user.id] }] });
+      expect(ctl.find(m.id)!.expand?.author?.name).toBe("Other");
     });
   });
 });

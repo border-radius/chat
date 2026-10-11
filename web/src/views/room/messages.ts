@@ -1,13 +1,14 @@
 // The message list DOM (§7.5, §7.6.1, §7.6.2): renders a MessageWindow with author groups and day dividers,
 // reusing each message's element until something it shows changes. Owns the per-message UI state (edit box,
-// delete confirm, inline errors); what those buttons *do* is up to the room view.
+// delete confirm, inline errors) and shows reactions (§20.3); what those buttons *do* is up to the room view.
 
 import { h, reconcile } from "../../dom.ts";
 import { attachmentName, isImage } from "../../lib/files.ts";
 import { type MessageWindow, quoteText, startsGroup } from "../../lib/messages.ts";
+import { reactors } from "../../lib/reactions.ts";
 import { captureAnchor, restoreAnchor } from "../../lib/scroll.ts";
 import { dayLabel, formatFull, formatTime, parsePb } from "../../lib/time.ts";
-import type { Message, Quoted, User } from "../../lib/types.ts";
+import type { Message, Quoted, Reaction, User } from "../../lib/types.ts";
 import { type AvatarUrl, avatar } from "../../ui/avatar.ts";
 import { createActionMenu } from "../../ui/menu.ts";
 import { editProblem, fitRows, rowsFor } from "./composer.ts";
@@ -41,7 +42,19 @@ export interface MessageList {
   stopEdit(): void;
   /** Show or clear an inline error under a message (no render). */
   setError(id: string, error: MsgError | null): void;
+  /**
+   * Focus the first of `selectors` found in message `id`: now, or after the next render (`later`), since a
+   * message's element is rebuilt when what it shows changes.
+   */
+  focusIn(id: string, selectors: readonly string[], later?: boolean): void;
 }
+
+/** Where focus goes in a message after its reactions change: the reaction, else the buttons that add one. */
+export const reactionFocus = (emoji: string): readonly string[] => [
+  `.reactions [data-emoji="${CSS.escape(emoji)}"]`,
+  ".reactions .add-reaction",
+  ".actions .react",
+];
 
 /** At most this many characters of a quote are in its accessible name. */
 const QUOTE_SPOKEN = 80;
@@ -56,6 +69,16 @@ export function createMessageList(opts: {
   repliable: (m: Message) => boolean;
   /** Reply on a message. */
   onReply: (id: string) => void;
+  /** Can I react to the message? (§20) */
+  reactable: (m: Message) => boolean;
+  /** The message's reactions as they should show (with my changes on their way). */
+  reactions: (m: Message) => readonly Reaction[];
+  /** A reaction chip was clicked: add (`on`) or take back my `emoji`. */
+  onReact: (id: string, emoji: string, on: boolean) => void;
+  /** React (or a reactions row's +) was clicked: offer the emoji picker next to `opener`. */
+  onPickReaction: (id: string, opener: HTMLElement) => void;
+  /** The name of someone not in the window (who reacted), if known yet. */
+  nameOf: (userId: string) => string | undefined;
   /** A reply's quote was clicked: show the message it answers. */
   onOpenQuote: (id: string) => void;
   onSaveEdit: (id: string, text: string) => void;
@@ -108,8 +131,10 @@ export function createMessageList(opts: {
   const errors = new Map<string, MsgError>();
   const cache = new Map<string, { sig: string; el: HTMLElement }>();
   const dividers = new Map<string, HTMLElement>();
-  /** Focus to apply after the next render: message elements are rebuilt when they change. */
-  let focusAfter: { id: string; selector: string; caretToEnd?: boolean } | null = null;
+  /** Focus to apply after the next render: message elements are rebuilt when they change. The first selector found wins. */
+  let focusAfter: { id: string; selector: string | readonly string[]; caretToEnd?: boolean } | null = null;
+  /** Names of the people in the window, for who reacted (rebuilt every render). */
+  let names = new Map<string, string>();
 
   const btn = (label: string, onClick: () => void, cls?: string) =>
     h("button", { type: "button", ...(cls ? { class: cls } : {}), on: { click: onClick }, signal }, label);
@@ -181,6 +206,11 @@ export function createMessageList(opts: {
     const err = errors.get(m.id);
     const editable = opts.editable(m);
     const repliable = opts.repliable(m);
+    const reactable = opts.reactable(m);
+    const me = opts.me();
+    const reactions = m.deleted
+      ? []
+      : opts.reactions(m).map((r) => ({ ...r, who: reactors(r.users, me?.id ?? "", (id) => names.get(id) ?? opts.nameOf(id)) }));
     const ms = parsePb(m.created);
     const sig = JSON.stringify([
       m.text,
@@ -192,6 +222,8 @@ export function createMessageList(opts: {
       groupStart,
       editable,
       repliable,
+      reactable,
+      reactions.map((r) => [r.emoji, r.users.length, r.users.includes(me?.id ?? ""), r.who]),
       quoted ? [quoted.expand?.author?.name ?? "", quoteText(quoted)] : null,
       editing === m.id,
       confirmDelete === m.id,
@@ -205,7 +237,6 @@ export function createMessageList(opts: {
     const hit = cache.get(m.id);
     if (hit && hit.sig === sig) return hit.el;
 
-    const me = opts.me();
     const author: User = m.expand?.author ?? (me && m.author === me.id ? me : { id: m.author, name: "Unknown" });
     const cls = ["msg", groupStart && "group-start", m.status, m.deleted && "deleted", targetId === m.id && "target"]
       .filter(Boolean)
@@ -230,6 +261,7 @@ export function createMessageList(opts: {
         parts.push(h("span", { class: "edited", title: `Edited ${formatFull(parsePb(m.edited_at))}` }, "(edited)"));
     }
     if (!m.deleted) parts.push(attachments(m));
+    if (reactions.length) parts.push(reactionsRow(m, reactions, reactable, me?.id ?? ""));
     if (m.status === "failed") {
       // The original went away while this reply was sending: Retry sends it without the quote (§19).
       const replyGone = !!quoted?.deleted;
@@ -272,9 +304,10 @@ export function createMessageList(opts: {
           ],
         ),
       );
-    } else if (editing !== m.id && (repliable || editable)) {
+    } else if (editing !== m.id && (reactable || repliable || editable)) {
       parts.push(
         h("div", { class: "actions" }, [
+          reactable ? pickerButton(m.id, "React", "Add reaction", "react") : null,
           repliable ? btn("Reply", () => opts.onReply(m.id), "reply") : null,
           editable ? btn("Edit", () => list.startEdit(m.id), "edit") : null,
           editable ? btn("Delete", () => askDelete(m.id), "delete") : null,
@@ -286,6 +319,55 @@ export function createMessageList(opts: {
     const li = h("li", { class: cls, dataset: { id: m.id } }, parts);
     cache.set(m.id, { sig, el: li });
     return li;
+  }
+
+  /** A button that opens the emoji picker for a reaction to message `id`. */
+  function pickerButton(id: string, text: string, label: string, cls: string): HTMLButtonElement {
+    const b: HTMLButtonElement = h(
+      "button",
+      {
+        type: "button",
+        class: cls,
+        title: label,
+        "aria-label": label,
+        "aria-haspopup": "dialog",
+        "aria-expanded": "false",
+        on: { click: () => opts.onPickReaction(id, b) },
+        signal,
+      },
+      text,
+    );
+    return b;
+  }
+
+  /**
+   * The emoji people reacted with, each with how many (§20.3). Where I can react, each one is a toggle for mine, and a
+   * last button adds another; otherwise (an archived room) they only show.
+   */
+  function reactionsRow(m: Message, reactions: (Reaction & { who: string })[], reactable: boolean, me: string): HTMLElement {
+    const chips = reactions.map((r) => {
+      const mine = r.users.includes(me);
+      const n = r.users.length;
+      const content = [h("span", { class: "reaction-emoji" }, r.emoji), h("span", { class: "reaction-count" }, String(n))];
+      const attrs = { class: `reaction${mine ? " mine" : ""}`, title: `${r.who} reacted with ${r.emoji}`, dataset: { emoji: r.emoji } };
+      if (!reactable) return h("span", attrs, content);
+      return h(
+        "button",
+        {
+          ...attrs,
+          type: "button",
+          "aria-pressed": String(mine),
+          "aria-label": `${r.emoji} ${n} ${n === 1 ? "reaction" : "reactions"}`,
+          on: { click: () => opts.onReact(m.id, r.emoji, !mine) },
+          signal,
+        },
+        content,
+      );
+    });
+    return h("div", { class: "reactions", role: "group", "aria-label": "Reactions" }, [
+      ...chips,
+      reactable ? pickerButton(m.id, "☺+", "Add reaction", "add-reaction") : null,
+    ]);
   }
 
   /**
@@ -425,6 +507,13 @@ export function createMessageList(opts: {
     }
     if (!canChange(confirmDelete)) confirmDelete = null;
     beginning.textContent = beginningText;
+    names = new Map();
+    const me = opts.me();
+    if (me) names.set(me.id, me.name);
+    for (const m of win.items) {
+      const a = m.expand?.author;
+      if (a) names.set(a.id, a.name);
+    }
     const nodes: Node[] = [];
     if (win.hasOlder) nodes.push(topSentinel);
     else if (ready) nodes.push(beginning);
@@ -446,6 +535,8 @@ export function createMessageList(opts: {
     const box = document.activeElement;
     const typing = box instanceof HTMLTextAreaElement && box.matches("textarea.edit-input") && el.contains(box) ? box : null;
     const caret = typing && ([typing.selectionStart, typing.selectionEnd, typing.selectionDirection] as const);
+    // Likewise a button in a redrawn message (it changes whenever someone reacts, §20.3): focus its replacement.
+    const held = !typing && box instanceof HTMLButtonElement && el.contains(box) ? sameButton(box) : null;
     reconcile(el, nodes);
     if (anchor) restoreAnchor(el, anchor);
     if (typing && caret && !typing.isConnected && editing && !focusAfter) {
@@ -453,18 +544,39 @@ export function createMessageList(opts: {
       next?.focus();
       next?.setSelectionRange(...caret);
     }
+    if (held && box instanceof HTMLElement && !box.isConnected && !focusAfter)
+      find(held.id, held.selectors)?.focus({ preventScroll: true });
 
     // forget elements for messages no longer in the window
     const live = new Set(win.items.map((m) => m.id));
     for (const id of cache.keys()) if (!live.has(id)) cache.delete(id);
 
     if (focusAfter) {
-      const target = el.querySelector<HTMLElement>(`${byId(focusAfter.id)} ${focusAfter.selector}`);
+      const target = find(focusAfter.id, focusAfter.selector);
       target?.focus();
       if (focusAfter.caretToEnd && target instanceof HTMLTextAreaElement)
         target.setSelectionRange(target.value.length, target.value.length);
       focusAfter = null;
     }
+  }
+
+  /** Where the focused button `b` will be once its message is redrawn: the same button, or the nearest one left. */
+  function sameButton(b: HTMLButtonElement): { id: string; selectors: readonly string[] } | null {
+    const id = b.closest<HTMLElement>("li.msg")?.dataset.id;
+    if (!id) return null;
+    const emoji = b.closest<HTMLElement>(".reactions [data-emoji]")?.dataset.emoji;
+    if (emoji) return { id, selectors: reactionFocus(emoji) };
+    const cls = b.classList[0];
+    const parent = b.parentElement?.classList[0];
+    return cls && parent ? { id, selectors: [`.${parent} > .${cls}`] } : null;
+  }
+
+  function find(id: string, selector: string | readonly string[]): HTMLElement | null {
+    for (const s of typeof selector === "string" ? [selector] : selector) {
+      const found = el.querySelector<HTMLElement>(`${byId(id)} ${s}`);
+      if (found) return found;
+    }
+    return null;
   }
 
   const list: MessageList = {
@@ -486,6 +598,10 @@ export function createMessageList(opts: {
     setError(id, error) {
       if (error) errors.set(id, error);
       else errors.delete(id);
+    },
+    focusIn(id, selectors, later) {
+      if (later) focusAfter = { id, selector: selectors };
+      else find(id, selectors)?.focus();
     },
   };
   return list;

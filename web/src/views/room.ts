@@ -1,5 +1,5 @@
-// Room view (§7.5, §7.6): windowed message history, optimistic send, edit, soft delete, replies (§19), archived mode,
-// read state (§18.3).
+// Room view (§7.5, §7.6): windowed message history, optimistic send, edit, soft delete, replies (§19), reactions and
+// the emoji picker (§20), archived mode, read state (§18.3).
 // The message window and everything that changes it live in room/controller.ts (no DOM). This module puts the
 // controller's changes on screen and wires the DOM parts in room/: header (title + actions menu), messages (the
 // list), composer.
@@ -13,11 +13,12 @@ import { isNearBottom } from "../lib/scroll.ts";
 import type { Message } from "../lib/types.ts";
 import type { View } from "../router.ts";
 import { createScope } from "../scope.ts";
+import { createEmojiPicker } from "../ui/emoji-picker.ts";
 import type { RoomReader } from "../unread.ts";
 import { createComposer, validEdit } from "./room/composer.ts";
 import { type Change, createRoomController, type Phase, type RoomController } from "./room/controller.ts";
 import { createRoomHeader } from "./room/header.ts";
-import { createMessageList } from "./room/messages.ts";
+import { createMessageList, reactionFocus } from "./room/messages.ts";
 
 export function createRoomView({ api, store, unread, actions, navigate, drafts }: Ctx): View {
   const vid = uniqueId("room");
@@ -39,6 +40,8 @@ export function createRoomView({ api, store, unread, actions, navigate, drafts }
 
   // ---------------------------------------------------------------- parts
 
+  /** One emoji picker for the composer and every message's reactions. */
+  const picker = createEmojiPicker({ signal });
   const header = createRoomHeader({
     titleId: `${vid}-title`,
     actions,
@@ -62,6 +65,11 @@ export function createRoomView({ api, store, unread, actions, navigate, drafts }
     editable: (m) => ctl.editable(m),
     repliable: (m) => ctl.repliable(m),
     onReply: (id) => startReply(id),
+    reactable: (m) => ctl.reactable(m),
+    reactions: (m) => ctl.reactions(m),
+    onReact: (id, emoji, on) => void react(id, emoji, on),
+    onPickReaction: (id, opener) => pickReaction(id, opener),
+    nameOf: (id) => nameOf(id),
     onOpenQuote: (id) => void ctl.goTo(id),
     onRetryLoad: () => ctl.retry(),
     onSaveEdit: (id, text) => void saveEdit(id, text),
@@ -88,6 +96,7 @@ export function createRoomView({ api, store, unread, actions, navigate, drafts }
       return !!mine;
     },
     onCancelReply: () => setReply(null),
+    onEmoji: (opener, insert) => picker.open(opener, { label: "Insert emoji", onPick: insert, restoreFocus: () => composer.focus() }),
     signal,
   });
   const list = messages.el;
@@ -100,6 +109,7 @@ export function createRoomView({ api, store, unread, actions, navigate, drafts }
     notice,
     h("div", { class: "room-body" }, [list, pill]),
     footer,
+    picker.el,
   ]);
 
   /** Render the list, then mark what it shows as read. */
@@ -198,8 +208,10 @@ export function createRoomView({ api, store, unread, actions, navigate, drafts }
     // No composer while the room failed to load: you'd be writing into history you can't see.
     // (The composer element, and anything typed into it, is kept for when the load succeeds.)
     if (!r || shown === "failed") return footer.replaceChildren();
-    if (r.archived) footer.replaceChildren(banner);
-    else if (footer.firstChild !== composer.el) footer.replaceChildren(composer.el);
+    if (r.archived) {
+      footer.replaceChildren(banner);
+      picker.close(); // nothing left to insert into or react to
+    } else if (footer.firstChild !== composer.el) footer.replaceChildren(composer.el);
     composer.setPlaceholder(`Message ${roomTitle(r, me())}`);
   }
 
@@ -228,6 +240,73 @@ export function createRoomView({ api, store, unread, actions, navigate, drafts }
     if ((await ctl.remove(id)) !== false || !scope.active) return;
     messages.setError(id, { text: "Couldn't delete this message.", retry: () => void doDelete(id) });
     render({ anchor: true });
+  }
+
+  // ---------------------------------------------------------------- reactions
+
+  /** Add or take back my reaction; focus stays on it (its message is redrawn). Failing, say so under the message. */
+  async function react(id: string, emoji: string, on: boolean) {
+    messages.setError(id, null);
+    messages.focusIn(id, reactionFocus(emoji), true);
+    const saving = ctl.react(id, emoji, on);
+    if (!saving) return render({ anchor: true });
+    if ((await saving) || !scope.active) return;
+    messages.setError(id, {
+      text: on ? `Couldn't add your ${emoji} reaction.` : `Couldn't remove your ${emoji} reaction.`,
+      retry: () => void react(id, emoji, on),
+    });
+    render({ anchor: true });
+  }
+
+  /** Names of people who reacted but aren't in the window, fetched in batches (§20.3). */
+  const people = new Map<string, string>();
+  /** Ids to look up, or being looked up. */
+  const asking = new Set<string>();
+  let lookingUp = false;
+
+  function nameOf(id: string): string | undefined {
+    const name = people.get(id);
+    if (name !== undefined || asking.has(id)) return name;
+    asking.add(id);
+    if (!lookingUp) {
+      lookingUp = true;
+      queueMicrotask(() => void lookUpNames()); // one request for every name this render asks for
+    }
+    return undefined;
+  }
+
+  async function lookUpNames() {
+    const ids = [...asking].filter((id) => !people.has(id)).slice(0, 50);
+    let ok = true;
+    try {
+      const found = await api.usersById(ids, signal);
+      for (const u of found) people.set(u.id, u.name);
+      for (const id of ids) if (!people.has(id)) people.set(id, "Unknown"); // e.g. a deleted account
+    } catch {
+      ok = false;
+      for (const id of ids) asking.delete(id); // asked again by the next render (not this one: no retry loop offline)
+    }
+    if (!scope.active || !ok) {
+      lookingUp = false;
+      return;
+    }
+    if ([...asking].some((id) => !people.has(id))) return void lookUpNames(); // more than 50
+    lookingUp = false;
+    render({ anchor: true });
+  }
+
+  /** The picker for a reaction to message `id`: picking an emoji I already reacted with takes it back. */
+  function pickReaction(id: string, opener: HTMLElement) {
+    const m = ctl.find(id);
+    const user = me();
+    if (!m || !user || !ctl.reactable(m)) return;
+    const mine = new Set(ctl.reactions(m).flatMap((r) => (r.users.includes(user.id) ? [r.emoji] : [])));
+    picker.open(opener, {
+      label: "Add reaction",
+      chosen: mine,
+      onPick: (emoji) => void react(id, emoji, !mine.has(emoji)),
+      restoreFocus: () => messages.focusIn(id, [".actions .react", ".reactions .add-reaction"]),
+    });
   }
 
   // ---------------------------------------------------------------- lifecycle

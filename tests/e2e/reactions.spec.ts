@@ -1,0 +1,64 @@
+import AxeBuilder from "@axe-core/playwright";
+import { expect, type Page, test } from "@playwright/test";
+import { apiRoom, apiUser, composer, message, openRoom, send } from "./fixtures.ts";
+
+async function seriousViolations(page: Page) {
+  const { violations } = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
+  return violations
+    .filter((v) => v.impact === "serious" || v.impact === "critical")
+    .map((v) => `${v.id}: ${v.help} (${v.nodes.map((n) => n.target.join(" ")).join(", ")})`);
+}
+
+for (const colorScheme of ["light", "dark"] as const) {
+  test(`reactions and emoji (§20), ${colorScheme}: emoji in a message; reactions show live and survive a reload`, async ({ browser }) => {
+    const ada = await apiUser("Ada");
+    const bob = await apiUser("Bob");
+    const room = await apiRoom(ada);
+    const a = await openRoom(browser, ada, room);
+    const b = await openRoom(browser, bob, room);
+    await a.emulateMedia({ colorScheme });
+
+    // The composer's emoji button inserts at the caret.
+    await composer(a).fill("ship it ");
+    await a.getByRole("button", { name: "Emoji" }).click();
+    const picker = a.getByRole("dialog", { name: "Insert emoji" });
+    await expect(picker).toBeVisible();
+    await expect(picker).toBeInViewport();
+    expect(await seriousViolations(a), "emoji picker").toEqual([]);
+    await picker.getByRole("button", { name: "🚀" }).click();
+    await expect(picker).toBeHidden();
+    await expect(composer(a)).toHaveValue("ship it 🚀");
+    await composer(a).press("Enter");
+
+    // Bob reacts twice from the picker; Ada sees both live, then adds hers to one.
+    const forBob = message(b, "ship it 🚀");
+    await forBob.hover();
+    await forBob.getByRole("button", { name: "Add reaction" }).click();
+    await b.getByRole("dialog", { name: "Add reaction" }).getByRole("button", { name: "🎉" }).click();
+    await forBob.getByRole("button", { name: "Add reaction" }).last().click();
+    // Keyboard: the picker opens on the first emoji (or the most recent one); arrows move, Enter picks.
+    await b.keyboard.press("ArrowRight");
+    await b.keyboard.press("Enter");
+    const bobs = forBob.locator(".reaction");
+    await expect(bobs).toHaveCount(2);
+
+    const forAda = message(a, "ship it 🚀");
+    await expect(forAda.locator(".reaction")).toHaveCount(2);
+    const party = forAda.getByRole("button", { name: "🎉 1 reaction" });
+    await expect(party).toHaveAttribute("aria-pressed", "false");
+    await expect(party).toHaveAttribute("title", "Bob reacted with 🎉");
+    await party.click();
+    await expect(forAda.getByRole("button", { name: "🎉 2 reactions" })).toHaveAttribute("aria-pressed", "true");
+    await expect(forBob.getByRole("button", { name: "🎉 2 reactions" })).toHaveAttribute("aria-pressed", "true");
+    expect(await seriousViolations(a), "reactions").toEqual([]);
+
+    await b.reload();
+    await expect(message(b, "ship it 🚀").getByRole("button", { name: "🎉 2 reactions" })).toBeVisible();
+    await expect(message(b, "ship it 🚀").locator(".reaction")).toHaveCount(2);
+
+    // Bob takes his 🎉 back.
+    await message(b, "ship it 🚀").getByRole("button", { name: "🎉 2 reactions" }).click();
+    await expect(forAda.getByRole("button", { name: "🎉 1 reaction" })).toHaveAttribute("title", "You reacted with 🎉");
+    await send(a, "done");
+  });
+}

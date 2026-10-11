@@ -33,6 +33,7 @@ describe("listOptions", () => {
       "deleted",
       "files",
       "file_names",
+      "reactions",
       "author",
       "expand.author.id",
       "expand.author.name",

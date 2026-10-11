@@ -78,6 +78,8 @@ export interface Api {
   openDm(userId: string): Promise<Room>;
   /** Up to 20 other users whose name contains `query`, by name. */
   searchUsers(query: string, signal?: AbortSignal): Promise<User[]>;
+  /** The users with these ids (at most 50), e.g. to name who reacted (§20.3). Unknown ids are left out. */
+  usersById(ids: readonly string[], signal?: AbortSignal): Promise<User[]>;
 
   // hidden rooms
   listHidden(signal?: AbortSignal): Promise<HiddenRow[]>;
@@ -98,6 +100,8 @@ export interface Api {
   send(m: NewMessage): Promise<Message>;
   edit(id: string, text: string): Promise<Message>;
   softDelete(id: string): Promise<Message>;
+  /** Add (`on`) or remove your `emoji` reaction on a message (§20). Idempotent. */
+  react(id: string, emoji: string, on: boolean): Promise<Message>;
 
   // attachments (§17.3)
   /** A fresh file token for protected attachments (cached; one request shared by concurrent callers). */
@@ -157,7 +161,7 @@ export function errorMessage(err: unknown): string {
 
 /** Only what the UI renders; never user emails (§6). */
 export const MSG_FIELDS =
-  "id,room,text,created,updated,edited_at,deleted,files,file_names,author,expand.author.id,expand.author.name,expand.author.avatar," +
+  "id,room,text,created,updated,edited_at,deleted,files,file_names,reactions,author,expand.author.id,expand.author.name,expand.author.avatar," +
   "reply_to,expand.reply_to.id,expand.reply_to.author,expand.reply_to.text,expand.reply_to.deleted,expand.reply_to.files," +
   "expand.reply_to.expand.author.id,expand.reply_to.expand.author.name";
 const MSG_OPTS = { expand: "author,reply_to.author", fields: MSG_FIELDS } as const;
@@ -330,6 +334,14 @@ export function createApi(pb: PbClient): Api {
       return (await wrap(users.list<AuthRecord>(1, 20, opts, signal))).items.map(toUser);
     },
 
+    async usersById(ids, signal) {
+      const some = ids.slice(0, 50);
+      if (!some.length) return [];
+      const params = Object.fromEntries(some.map((id, i) => [`u${i}`, id]));
+      const opts = { filter: pb.filter(some.map((_, i) => `id = {:u${i}}`).join(" || "), params), fields: USER_FIELDS, skipTotal: true };
+      return (await wrap(users.list<AuthRecord>(1, some.length, opts, signal))).items.map(toUser);
+    },
+
     listHidden: (signal) => wrap(hidden.fullList<HiddenRow>({ fields: HIDDEN_FIELDS }, signal)),
     hideRoom: async (room) => wrap(hidden.create<HiddenRow>({ user: me(), room }, { fields: HIDDEN_FIELDS })),
     unhideRoom: async (rowId) => {
@@ -362,6 +374,8 @@ export function createApi(pb: PbClient): Api {
       ),
     edit: (id, text) => wrap(messages.update<Message>(id, { text }, MSG_OPTS)),
     softDelete: (id) => wrap(messages.update<Message>(id, { deleted: true }, MSG_OPTS)),
+    react: (id, emoji, on) =>
+      wrap(pb.send<Message>("/api/chat/reactions", { method: "POST", body: { message: id, emoji, on }, query: MSG_OPTS })),
 
     fileToken: (force) => tokens.ensure(force),
     fileUrl(m, filename, thumb) {

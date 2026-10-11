@@ -24,6 +24,7 @@ describe("composer attachments (§17.4)", () => {
       },
       onEditLast: () => false,
       onCancelReply: () => {},
+      onEmoji: () => {},
       signal: ac.signal,
     });
     document.body.append(composer.el);

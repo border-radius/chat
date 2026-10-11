@@ -216,6 +216,7 @@ function beforeMessageCreate(e) {
   assertText(rec, fileNames(rec).length > 0);
   assertImagesFit(rec, "files");
   rec.set("file_names", originalNames(rec, "files")); // whatever the client sent is replaced
+  rec.set("reactions", []); // only POST /api/chat/reactions adds them (§20.2)
   const room = activeRoom(e.app, rec.getString("room"));
   // Defense in depth for the members-only create rule (§16.3).
   if (room && isDm(room) && !room.getStringSlice("members").includes(rec.getString("author"))) {
@@ -305,12 +306,18 @@ function beforeMessageUpdate(e) {
     rec.set("text", "");
     rec.set("files", []); // PocketBase deletes the stored files once the update commits (§17.1)
     rec.set("file_names", {});
+    rec.set("reactions", []);
     rec.set("deleted_at", new DateTime());
     rec.set("edited_at", orig.get("edited_at"));
     return;
   }
 
   rec.set("file_names", orig.get("file_names")); // never changed by an edit
+  // Reactions only change through POST /api/chat/reactions (§20.2). Any other save (an edit) keeps the ones stored
+  // now, not the ones loaded with the record: a reaction added meanwhile would be lost. (Edits save in a transaction.)
+  if (rec.getString("reactions") === orig.getString("reactions")) {
+    rec.set("reactions", e.app.findRecordById("messages", rec.id).get("reactions"));
+  }
   // Attachments are immutable after sending (backs up the update rule, which field modifiers could get around).
   const files = fileNames(rec);
   if (files.join("/") !== orig.getStringSlice("files").join("/")) throw fieldError("files", "Attachments can't be changed.");
@@ -318,6 +325,16 @@ function beforeMessageUpdate(e) {
   if (rec.getString("text") !== orig.getString("text")) {
     rec.set("edited_at", new DateTime());
   }
+}
+
+/**
+ * messages update through the API: reactions only change through POST /api/chat/reactions, whose own saves don't
+ * come through here (§20.2). Backs up the update rule.
+ * @param {core.RecordRequestEvent} e
+ */
+function beforeMessageUpdateRequest(e) {
+  const rec = recordOf(e);
+  if (rec.getString("reactions") !== rec.original().getString("reactions")) throw fieldError("reactions", "This field can't be changed.");
 }
 
 /**
@@ -459,5 +476,6 @@ module.exports = {
   beforeMessageCreate,
   afterMessageCreate,
   beforeMessageUpdate,
+  beforeMessageUpdateRequest,
   headers,
 };

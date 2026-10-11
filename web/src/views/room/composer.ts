@@ -1,6 +1,6 @@
 // Message composer (§7.6, §17.4): auto-growing textarea, character counter, Enter to send, Shift+Enter for a
 // newline, Up arrow in an empty composer to edit your last message, attachments (picker, paste, drop) shown
-// in a tray above the textarea, and the message being replied to (§19) above that.
+// in a tray above the textarea, the message being replied to (§19) above that, and an emoji button (§20.4).
 
 import { h } from "../../dom.ts";
 import { checkFiles, formatBytes } from "../../lib/files.ts";
@@ -87,6 +87,8 @@ export function createComposer(opts: {
   onEditLast: () => boolean;
   /** The reply bar's × (or Escape in the textarea while replying). */
   onCancelReply: () => void;
+  /** The emoji button: open the picker next to it; `insert` puts the chosen emoji at the caret. */
+  onEmoji: (opener: HTMLElement, insert: (emoji: string) => void) => void;
   signal: AbortSignal;
 }): Composer {
   const { signal } = opts;
@@ -102,6 +104,20 @@ export function createComposer(opts: {
     "aria-label": "Attach files",
   });
   const attach = h("button", { type: "button", class: "attach", title: "Attach files", "aria-label": "Attach files" }, "+");
+  const emojiBtn = h(
+    "button",
+    {
+      type: "button",
+      class: "emoji-button",
+      title: "Emoji",
+      "aria-label": "Emoji",
+      "aria-haspopup": "dialog",
+      "aria-expanded": "false",
+      on: { click: () => opts.onEmoji(emojiBtn, insertEmoji) },
+      signal,
+    },
+    "☺",
+  );
   const tray = h("ul", { class: "tray", "aria-label": "Attachments" });
   const trayError = h("p", { class: "tray-error", role: "alert" });
   const replyLabel = h("span", { class: "replying-label" });
@@ -113,6 +129,14 @@ export function createComposer(opts: {
       "×",
     ),
   ]);
+
+  /** Put `emoji` where the caret is (replacing any selection), and the caret after it. */
+  function insertEmoji(emoji: string) {
+    if (signal.aborted) return;
+    textarea.focus();
+    textarea.setRangeText(emoji, textarea.selectionStart, textarea.selectionEnd, "end");
+    onInput();
+  }
 
   function cancelReply() {
     opts.onCancelReply();
@@ -257,6 +281,7 @@ export function createComposer(opts: {
         h("label", { for: opts.id, class: "visually-hidden" }, "Message"),
         textarea,
         counter,
+        emojiBtn,
         sendBtn,
       ]),
     ],

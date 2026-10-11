@@ -1,5 +1,5 @@
 // Room controller (§7.5, §7.6): one room's message window and everything that changes it. That covers loading,
-// realtime, reconnects, sending, edits and deletes. No DOM: every change is reported to `onChange` with a hint
+// realtime, reconnects, sending, edits, deletes and reactions (§20). No DOM: every change is reported to `onChange` with a hint
 // (render, keep the anchor, scroll), and the room view (views/room.ts) applies it to the list.
 
 import { type Action, type Api, ApiError } from "../../api.ts";
@@ -17,8 +17,9 @@ import {
   remove,
   trim,
 } from "../../lib/messages.ts";
+import { setReaction } from "../../lib/reactions.ts";
 import { parsePb, toPb } from "../../lib/time.ts";
-import type { LocalFile, Message, Room } from "../../lib/types.ts";
+import type { LocalFile, Message, Reaction, Room } from "../../lib/types.ts";
 import type { Scope } from "../../scope.ts";
 import { type AppState, type Store, upsertRoom } from "../../store.ts";
 
@@ -78,6 +79,15 @@ export interface RoomController {
   edit(id: string, text: string): Promise<boolean> | null;
   /** Soft delete. null: not in the window. Resolves false if the delete failed. */
   remove(id: string): Promise<boolean> | null;
+  /** Can I react to this message right now? (§20) */
+  reactable(m: Message): boolean;
+  /** A message's reactions as they should show: the server's, with my changes still on their way applied. */
+  reactions(m: Message): readonly Reaction[];
+  /**
+   * Add (`on`) or remove my `emoji` reaction, shown at once. null: not possible (not in the window, not reactable).
+   * Resolves false if it failed (the reaction then shows as it was).
+   */
+  react(id: string, emoji: string, on: boolean): Promise<boolean> | null;
 }
 
 export function createRoomController(opts: {
@@ -122,6 +132,14 @@ export function createRoomController(opts: {
     const r = room();
     return !!r && !r.archived && !m.deleted && !m.status;
   };
+  /**
+   * My reaction changes still on their way, by message id and emoji: whether it should be there, and which change said
+   * so last. They show over every copy of the message until that change is answered (§20.3).
+   */
+  const reacting = new Map<string, Map<string, { on: boolean; seq: number }>>();
+  /** The requests for each message's reactions go one at a time, so the server applies them in the order they were made. */
+  const reactQueues = new Map<string, Promise<unknown>>();
+  let reactSeq = 0;
   const emit = (change: Change = {}) => {
     if (scope.active) opts.onChange(change);
   };
@@ -481,6 +499,46 @@ export function createRoomController(opts: {
     return optimistic(id, { text: "", deleted: true }, { text: m.text, deleted: false }, () => api.softDelete(id));
   }
 
+  // ---------------------------------------------------------------- reactions
+
+  function reactionsOf(m: Message): readonly Reaction[] {
+    let list: readonly Reaction[] = m.reactions ?? [];
+    const mine = reacting.get(m.id);
+    const user = me()?.id;
+    if (mine && user) for (const [emoji, p] of mine) list = setReaction(list, emoji, user, p.on);
+    return list;
+  }
+
+  async function react(id: string, emoji: string, on: boolean): Promise<boolean> {
+    const seq = ++reactSeq;
+    const mine = reacting.get(id) ?? new Map();
+    const latest = () => mine.get(emoji)?.seq === seq;
+    const request = async () => {
+      if (!latest()) return true; // changed again before it went out: the later change says what to send
+      try {
+        const saved = await api.react(id, emoji, on);
+        // The whole message comes back: kept like any other copy (the newest wins).
+        if (scope.active && find(id)) win = merge(win, [saved]);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const queue = (reactQueues.get(id) ?? Promise.resolve()).then(request);
+    reactQueues.set(id, queue);
+    reacting.set(id, mine.set(emoji, { on, seq }));
+    emit({ render: { anchor: true } });
+    const ok = await queue;
+    if (reactQueues.get(id) === queue) reactQueues.delete(id);
+    // Changed again meanwhile: the later change shows, and says whether it worked.
+    if (!latest()) return true;
+    if (!scope.active) return ok;
+    mine.delete(emoji);
+    if (!mine.size && reacting.get(id) === mine) reacting.delete(id);
+    emit({ render: { anchor: true } });
+    return ok;
+  }
+
   // ---------------------------------------------------------------- lifecycle
 
   return {
@@ -519,5 +577,11 @@ export function createRoomController(opts: {
     discard,
     edit,
     remove: removeMessage,
+    reactable: repliable,
+    reactions: reactionsOf,
+    react(id, emoji, on) {
+      const m = find(id);
+      return m && repliable(m) && me() ? react(id, emoji, on) : null;
+    },
   };
 }
