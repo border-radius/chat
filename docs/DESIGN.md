@@ -98,7 +98,9 @@ chat/
 │   ├── 1760000002_avatars.js           # §15.1
 │   ├── 1760000003_direct_messages.js   # §16.1, §16.3
 │   ├── 1760000004_attachments.js       # §17.1
-│   └── 1760000005_file_names.js        # §17.1 (QA BUG-28)
+│   ├── 1760000005_file_names.js        # §17.1 (QA BUG-28)
+│   ├── 1760000006_room_reads.js        # §18.1
+│   └── 1760000007_replies.js           # §19.1
 ├── pb_hooks/                   # server-side JS hooks (committed)
 │   ├── main.pb.js              # registrations only
 │   └── lib/
@@ -445,7 +447,7 @@ If the room's first load fails (other than "room not found"), the list shows an 
 
 | Asset | Budget (gzipped) |
 |---|---|
-| `app.js` (including the PB SDK) | **≤ 30 KB** (25 KB for the MVP; raised for §15–§17, see §13) |
+| `app.js` (including the PB SDK) | **≤ 32 KB** (25 KB for the MVP; raised for §15–§17 and §19, see §13) |
 | `app.css` | **≤ 5 KB** |
 | `index.html` | ≤ 1.5 KB |
 | Web fonts | **none** (system font stack) |
@@ -773,6 +775,7 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 | Attachment layout | Images render in fixed-size boxes, so loading them never moves the scroll position (§17.5). |
 | Metadata stripping | The client re-encodes JPEG/PNG/WebP images (PNG as PNG, the rest as JPEG) before upload, which drops EXIF (including GPS). Best effort, protecting honest users only (§15.3). |
 | Bundle budget | `app.js` budget raised from 25 KB to 30 KB gzipped (§7.7): avatars + DMs measured 25.9 KB. One bundle, no lazy chunks. |
+| Bundle budget (replies) | `app.js` budget raised from 30 KB to 32 KB gzipped (§7.7): replies (§19) took it to 30.8 KB. |
 
 ### Decided (2026-10-11, unread counts)
 
@@ -1206,3 +1209,65 @@ No row means "read up to your signup" (`users.created`): history from before you
   live).
 - **E2E:** Ada writes, Bob's badge counts live and survives a reload; opening the room clears it in Bob's other tab;
   new messages count again. Scrolled up, a new message stays unread until Bob scrolls down to it.
+
+## 19. Replies
+
+Any message in a room or DM can be answered with a reply that quotes it. Clicking the quote shows the original,
+wherever it is in the history.
+
+### 19.1 Data model
+
+`messages.reply_to`: an optional relation to another message (max 1, no cascade). Messages are only ever
+soft-deleted, so the relation never dangles: a reply to a deleted message quotes "Message deleted".
+
+- **Set on create only.** The update rule adds `@request.body.reply_to:isset = false`, and `beforeMessageUpdate`
+  refuses any change to it (backing up the rule against field modifiers).
+- **Same room, not deleted** (`assertReplyTarget` in `pb_hooks/lib/chat.js`). Without the room check, a reply could
+  point into a DM you aren't in, and its expanded quote would show you that message.
+- **Hard deletes still work.** When a superuser deletes a message (or a room) for good, PocketBase clears
+  `reply_to` on its replies once the original is gone. `beforeMessageUpdate` lets that one save through
+  (`replyTargetRemoved`); otherwise its guards would refuse it, and the delete with it.
+
+### 19.2 API
+
+Every message read (`page`, `getMessage`, `changes`, `send`, realtime) expands `author,reply_to.author` and asks for
+only what the quote shows: `reply_to`, and the original's `id, author, text, deleted, files` and author's
+`id, name` (`MSG_FIELDS` in `api.ts`). The expand follows the messages view rule, which the same-room check makes
+always true for someone who can see the reply. `NewMessage.replyTo` sends `reply_to`.
+
+### 19.3 Frontend
+
+- **Reply** joins Edit and Delete in a message's action pill, on any message that is saved, not deleted, in a room
+  that isn't archived (`ctl.repliable`). It shows "Replying to *name* *text*" above the composer (×, or Escape in the
+  textarea, cancels) and focuses the textarea. The next send is the reply; the optimistic message quotes the
+  original at once (`quoteOf` in `lib/messages.ts`).
+- The reply bar follows the original: edited, it shows the new text; deleted (or the room archived), it closes.
+- **The quote** is a one-line button above the reply's text: author name, then the text on one line (or
+  "Attachment", "Message deleted"). It uses the window's copy of the original when there is one, so edits and
+  deletes show live; otherwise the server's expanded copy.
+- **Going to the original** (`ctl.goTo`): if it is in the window, it is highlighted (`.target`) and centred. The
+  highlight (here and for `#/r/:id/m/:msgId`) holds briefly, fades out, and is dropped after `HIGHLIGHT_MS` (3 s). If not,
+  the window is replaced by the history around it (as for `#/r/:id/m/:msgId`, §7.5) once that has loaded; the old
+  window stays until then. The URL doesn't change, so the composer and anything typed into it stay. Unsent
+  (pending or failed) messages the new window drops are kept aside and come back at the live edge. A send
+  that completes meanwhile is not added to the history window.
+- **The original deleted unseen:** the send fails with a `reply_to` error. The message then says "Not sent: the
+  message you replied to was deleted", its quote shows as deleted, and **Send without quote** sends it as a plain
+  message.
+- The quote's accessible name is "Quoting *name*: *text*", capped at 80 characters, so that it doesn't read a whole
+  long message aloud and doesn't start with "Reply" like the Reply button. Escape doesn't cancel a reply while an
+  input method is composing.
+
+### 19.4 Tests
+
+- **Integration** (`replies.test.ts`): same-room replies; refused across rooms, into a DM you aren't in, to unknown
+  or deleted messages; `reply_to` never changes; a deleted original stays quoted as deleted; the quote comes back
+  through send, page, getMessage and realtime with only its fields; field modifiers can't touch `reply_to`; a
+  superuser can delete an original or a room holding replies.
+- **Unit** (room view): reply bar and send; cancel with × and Escape; quotes that go to an original on screen and
+  one far back in history; a quote and the reply bar following an edit and a delete; no Reply when archived, deleted
+  or still sending; archiving ends the reply, and unarchiving doesn't bring it back; Escape while composing; a send
+  or a failed message during a quote's history load; a reply to an original deleted unseen; the quote's name.
+- **E2E** (`replies.spec.ts`, light and dark): Bob replies to Ada and she sees the quote live; Ada replies to a message
+  far back in history, and Bob's click on the quote loads that history and highlights it; axe finds no serious
+  violations in the reply bar or the quotes.

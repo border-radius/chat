@@ -43,10 +43,22 @@ export interface Message {
   files?: string[];
   /** Original upload names by stored name, set by the server (QA BUG-28); absent for older messages. */
   file_names?: Record<string, string>;
-  expand?: { author?: User };
+  /** The message this one replies to (§19); "" or absent when it isn't a reply. */
+  reply_to?: string;
+  expand?: { author?: User; reply_to?: Quoted };
   status?: SendStatus;
   /** Client-only: attachments of a message not (yet) on the server, with local preview URLs (§17.4). */
   localFiles?: LocalFile[];
+}
+
+/** What a reply shows of the message it answers (§19). */
+export interface Quoted {
+  id: string;
+  author: string;
+  text: string;
+  deleted: boolean;
+  files?: string[];
+  expand?: { author?: User };
 }
 
 export interface LocalFile {

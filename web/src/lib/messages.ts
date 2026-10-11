@@ -3,7 +3,7 @@
 
 import { PAGE_SIZE } from "./cursor.ts";
 import { parsePb } from "./time.ts";
-import type { Message } from "./types.ts";
+import type { Message, Quoted } from "./types.ts";
 
 export const WINDOW_MAX = 300;
 const GROUP_GAP_MS = 5 * 60 * 1000;
@@ -113,4 +113,25 @@ export function lastOwnEditable(win: MessageWindow, me: string): Message | undef
     if (m.author === me && !m.deleted && !m.status) return m;
   }
   return undefined;
+}
+
+/** What a reply keeps of the message it answers (§19), e.g. for an optimistic reply before the server expands it. */
+export function quoteOf(m: Message): Quoted {
+  return {
+    id: m.id,
+    author: m.author,
+    text: m.text,
+    deleted: m.deleted,
+    ...(m.files?.length ? { files: m.files } : {}),
+    ...(m.expand?.author ? { expand: { author: m.expand.author } } : {}),
+  };
+}
+
+/** One line of a quoted message: its text on one line, or what it holds when it has none (§19). */
+export function quoteText(q: Pick<Quoted, "text" | "deleted" | "files">): string {
+  if (q.deleted) return "Message deleted";
+  const text = q.text.replace(/\s+/g, " ").trim();
+  if (text) return text;
+  const n = q.files?.length ?? 0;
+  return n === 1 ? "Attachment" : `${n} attachments`;
 }

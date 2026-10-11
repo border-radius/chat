@@ -13,6 +13,7 @@ import {
   type MessageWindow,
   merge,
   type PageKind,
+  quoteOf,
   remove,
   trim,
 } from "../../lib/messages.ts";
@@ -22,6 +23,9 @@ import type { Scope } from "../../scope.ts";
 import { type AppState, type Store, upsertRoom } from "../../store.ts";
 
 /** "loading" until the first page is in; "failed" offers Retry; "not-found": no such room (or not yours). */
+/** How long a message gone to (a quote, a link) stays highlighted; app.css fades it out over this time. */
+export const HIGHLIGHT_MS = 3000;
+
 export type Phase = "loading" | "ready" | "failed" | "not-found";
 /** "below": new messages under the viewport. "history": new messages, but the window isn't at the live edge. */
 export type Pill = "below" | "history" | null;
@@ -54,15 +58,19 @@ export interface RoomController {
   loadEdge(side: "top" | "bottom"): Promise<void>;
   /** Reset the window to the latest page or the first page. */
   jump(kind: "latest" | "first"): Promise<void>;
+  /** Highlight and centre message `id` (a reply's quote, §19), loading the history around it when needed. */
+  goTo(id: string): Promise<void>;
   /** The user is at the bottom now: hide a "new messages below" pill. */
   dismissPill(): void;
   find(id: string): Message | undefined;
   /** Can I edit or delete this message right now? */
   editable(m: Message): boolean;
+  /** Can I reply to this message right now? (§19) */
+  repliable(m: Message): boolean;
   /** My newest editable message (Up arrow in an empty composer). */
   lastEditable(): Message | undefined;
-  /** Send optimistically. False when sending isn't possible (no user, archived room). */
-  send(text: string, files?: LocalFile[]): boolean;
+  /** Send optimistically, as a reply to `replyTo` if given (§19). False when sending isn't possible (no user, archived room). */
+  send(text: string, files?: LocalFile[], replyTo?: Message): boolean;
   retrySend(id: string): Promise<void>;
   /** Drop a failed message (no request). */
   discard(id: string): void;
@@ -89,11 +97,17 @@ export function createRoomController(opts: {
   let win: MessageWindow = emptyWindow();
   let phase: Phase = "loading";
   let targetId: string | null = null;
+  let targetTimer: ReturnType<typeof setTimeout> | undefined;
   let pill: Pill = null;
   /** Bumped whenever the window is replaced (a jump): pages requested before that are stale. */
   let gen = 0;
   /** Realtime events that arrive before the first page; replayed once it is in. */
   let buffer: [Action, Message][] = [];
+  /**
+   * Unsent (pending or failed) messages the window dropped, e.g. when a reply's quote took it back in history (§19).
+   * They belong after the newest messages, so they come back once the window is at the live edge again.
+   */
+  const unsent = new Map<string, Message>();
   const loading = { top: false, bottom: false };
 
   const ready = () => phase === "ready";
@@ -104,12 +118,39 @@ export function createRoomController(opts: {
     const r = room();
     return !!r && !r.archived && m.author === me()?.id && !m.deleted && !m.status;
   };
+  const repliable = (m: Message) => {
+    const r = room();
+    return !!r && !r.archived && !m.deleted && !m.status;
+  };
   const emit = (change: Change = {}) => {
     if (scope.active) opts.onChange(change);
   };
   /** Local optimistic change that must win regardless of `updated` (edit/delete/revert). */
   const patchLocal = (id: string, patch: Partial<Message>) => {
     win = { ...win, items: win.items.map((m) => (m.id === id ? { ...m, ...patch } : m)) };
+  };
+  /**
+   * Replace the window by one that may have dropped messages (a jump, a page that trimmed the other end). Unsent
+   * messages it dropped are kept aside, and put back once the window is at the live edge.
+   */
+  const setWin = (next: MessageWindow) => {
+    const kept = new Set(next.items.map((m) => m.id));
+    for (const m of win.items) if (m.status && !kept.has(m.id)) unsent.set(m.id, m);
+    win = next;
+    if (win.hasNewer || !unsent.size) return;
+    win = merge(win, [...unsent.values()]);
+    unsent.clear();
+  };
+  /** Highlight message `id` (or nothing) for HIGHLIGHT_MS: long enough to spot it, then it fades (app.css). */
+  const setTarget = (id: string | null) => {
+    targetId = id;
+    clearTimeout(targetTimer);
+    if (!id) return;
+    targetTimer = setTimeout(() => {
+      if (targetId !== id) return;
+      targetId = null;
+      emit({ render: { anchor: true } });
+    }, HIGHLIGHT_MS);
   };
   /** Release a local message's preview URLs (sent, discarded, or the room is going away). */
   const revokeLocal = (m: Message | undefined) => {
@@ -121,7 +162,7 @@ export function createRoomController(opts: {
   /** Apply a page fetched under generation `g`, unless a jump (or the end of the scope) has made it stale. */
   function applyLoaded(kind: PageKind, page: Message[], g: number): boolean {
     if (g !== gen || !scope.active) return false;
-    win = applyPage(win, page, kind).win;
+    setWin(applyPage(win, page, kind).win);
     return true;
   }
 
@@ -148,8 +189,31 @@ export function createRoomController(opts: {
     emit();
     const page = await api.page(kind === "latest" ? latest(roomId) : first(roomId), signal).catch(() => null);
     if (!page || !applyLoaded(kind, page, g)) return;
-    targetId = null;
+    setTarget(null);
     emit({ render: {}, notice: "", scroll: kind === "latest" ? "bottom" : "top" });
+  }
+
+  async function goTo(id: string) {
+    const m = find(id);
+    if (m && !m.status) {
+      setTarget(id);
+      return emit({ render: {}, scroll: "target", notice: "" });
+    }
+    // The current window stays until the new one is in; a jump meanwhile wins.
+    const g = gen;
+    const around = await windowAround(id).catch(() => undefined);
+    if (g !== gen || !scope.active) return;
+    if (!around) {
+      return emit({
+        notice: around === null ? "That message isn't available any more." : "Couldn't load that message. Check your connection.",
+      });
+    }
+    gen++; // pages requested for the old window are stale now
+    loading.top = loading.bottom = false;
+    setWin(around.win);
+    setTarget(around.target);
+    pill = null;
+    emit({ render: {}, scroll: "target", notice: "" });
   }
 
   /** The window around message `id`, or null when it isn't in this room. Rejects if a page fails. */
@@ -199,7 +263,7 @@ export function createRoomController(opts: {
     const change: Change = { render: {} };
     if (current && loaded) {
       win = loaded.win;
-      targetId = loaded.target;
+      setTarget(loaded.target);
       change.notice = msgId && !loaded.target ? "That message isn't in this room. Showing the latest messages instead." : "";
       // Otherwise the jump has positioned the list.
       change.scroll = targetId ? "target" : "bottom";
@@ -248,10 +312,10 @@ export function createRoomController(opts: {
       const last = lastSaved(win);
       const page = await api.page(last ? newer(roomId, last) : latest(roomId), signal).catch(() => null);
       if (!page || g !== gen || !scope.active) return;
-      win = applyPage(win, page, last ? "newer" : "latest").win;
+      setWin(applyPage(win, page, last ? "newer" : "latest").win);
       if (page.length < PAGE_SIZE) break;
     }
-    win = { ...win, hasNewer: false };
+    setWin({ ...win, hasNewer: false });
     emit(wasNear ? { render: {}, scroll: "bottom" } : { render: { anchor: true } });
   }
 
@@ -297,10 +361,11 @@ export function createRoomController(opts: {
 
   // ---------------------------------------------------------------- sending
 
-  function send(text: string, files: LocalFile[] = []): boolean {
+  function send(text: string, files: LocalFile[] = [], replyTo?: Message): boolean {
     const user = me();
     const r = room();
     if (!user || !r || r.archived) return false;
+    const quoted = replyTo ? quoteOf(replyTo) : undefined;
     void (async () => {
       if (win.hasNewer) await jump("latest");
       const last = win.items.at(-1);
@@ -314,7 +379,8 @@ export function createRoomController(opts: {
         updated: created,
         edited_at: "",
         deleted: false,
-        expand: { author: { id: user.id, name: user.name, avatar: user.avatar ?? "" } },
+        expand: { author: { id: user.id, name: user.name, avatar: user.avatar ?? "" }, ...(quoted ? { reply_to: quoted } : {}) },
+        ...(quoted ? { reply_to: quoted.id } : {}),
         status: "pending",
         ...(files.length ? { localFiles: files } : {}),
       };
@@ -327,23 +393,45 @@ export function createRoomController(opts: {
   }
 
   async function deliver(msg: Message) {
+    // A reply whose original has been deleted meanwhile can only go without its quote (§19): Retry sends it so.
+    const quoted = msg.expand?.reply_to;
+    const replyTo = msg.reply_to && !(find(msg.reply_to) ?? quoted)?.deleted ? msg.reply_to : undefined;
+    let saved: Message | null = null;
+    let failed: Message | null = null;
     try {
       const files = msg.localFiles?.map((f) => f.file);
-      const saved = await api.send({ id: msg.id, room: msg.room, text: msg.text, ...(files?.length ? { files } : {}) });
-      if (!scope.active) return;
-      win = merge(win, [saved]);
-      emit({ render: {} });
-      revokeLocal(msg);
-      return;
+      saved = await api.send({
+        id: msg.id,
+        room: msg.room,
+        text: msg.text,
+        ...(files?.length ? { files } : {}),
+        ...(replyTo ? { replyTo } : {}),
+      });
     } catch (e) {
       if (!scope.active) return;
       // A retry of a send that already reached the server fails with a duplicate id: it was sent after all.
       const recovered = e instanceof ApiError && e.status === 400 ? await api.getMessage(msg.id, signal).catch(() => null) : null;
-      if (recovered && recovered.author === me()?.id) {
-        win = merge(win, [recovered]);
-        revokeLocal(msg);
-      } else if (find(msg.id)?.status) win = merge(win, [{ ...msg, status: "failed" }]);
+      if (recovered && recovered.author === me()?.id) saved = recovered;
+      else {
+        const replyGone = e instanceof ApiError && "reply_to" in e.fields && quoted;
+        failed = {
+          ...msg,
+          status: "failed",
+          ...(replyGone ? { expand: { ...msg.expand, reply_to: { ...quoted, text: "", deleted: true } } } : {}),
+        };
+        // The server says the original is deleted, though the window may not have heard yet.
+        if (replyGone && find(quoted.id)) patchLocal(quoted.id, { text: "", deleted: true });
+      }
     }
+    if (!scope.active) return;
+    // The window may have moved back in history meanwhile (a quote, a jump): then the message isn't in it, and
+    // must not be put after older messages. Sent, it shows once the window is back at the live edge.
+    if (saved) {
+      unsent.delete(msg.id);
+      if (find(msg.id)) win = merge(win, [saved]);
+      revokeLocal(msg);
+    } else if (failed && find(msg.id)?.status) win = merge(win, [failed]);
+    else if (failed && unsent.has(msg.id)) unsent.set(msg.id, failed);
     emit({ render: {} });
   }
 
@@ -399,11 +487,12 @@ export function createRoomController(opts: {
     state: () => ({ win, phase, targetId, pill }),
     start() {
       scope.defer(() => {
-        for (const m of win.items) revokeLocal(m);
+        for (const m of [...win.items, ...unsent.values()]) revokeLocal(m);
       });
       // Keep a fresh file token for attachment URLs (§17.3); it only fetches when the cached one is old.
       const keepToken = setInterval(() => void api.fileToken().catch(() => {}), 30_000);
       scope.defer(() => clearInterval(keepToken));
+      scope.defer(() => clearTimeout(targetTimer));
       // Room record changes (archive etc.) arrive through the store, kept live by sync.ts.
       scope.sub(api.subscribeMessages(roomId, onMessage));
       scope.defer(api.onConnect((reconnect) => reconnect && onReconnect()));
@@ -412,6 +501,7 @@ export function createRoomController(opts: {
     retry,
     loadEdge,
     jump,
+    goTo,
     dismissPill() {
       if (pill !== "below") return;
       pill = null;
@@ -419,6 +509,7 @@ export function createRoomController(opts: {
     },
     find,
     editable,
+    repliable,
     lastEditable() {
       const mine = lastOwnEditable(win, me()?.id ?? "");
       return mine && editable(mine) ? mine : undefined;

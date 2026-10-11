@@ -35,6 +35,8 @@ export interface NewMessage {
   text: string;
   /** Attachments (§17.4): sent as multipart. */
   files?: File[];
+  /** The message this one replies to (§19). */
+  replyTo?: string;
 }
 
 /**
@@ -154,8 +156,10 @@ export function errorMessage(err: unknown): string {
 
 /** Only what the UI renders; never user emails (§6). */
 export const MSG_FIELDS =
-  "id,room,text,created,updated,edited_at,deleted,files,file_names,author,expand.author.id,expand.author.name,expand.author.avatar";
-const MSG_OPTS = { expand: "author", fields: MSG_FIELDS } as const;
+  "id,room,text,created,updated,edited_at,deleted,files,file_names,author,expand.author.id,expand.author.name,expand.author.avatar," +
+  "reply_to,expand.reply_to.id,expand.reply_to.author,expand.reply_to.text,expand.reply_to.deleted,expand.reply_to.files," +
+  "expand.reply_to.expand.author.id,expand.reply_to.expand.author.name";
+const MSG_OPTS = { expand: "author,reply_to.author", fields: MSG_FIELDS } as const;
 /** Rooms with their members' public profile (DMs, §16.5); never emails. */
 export const ROOM_FIELDS =
   "id,name,archived,created_by,kind,members,last_message_at,created,expand.members.id,expand.members.name,expand.members.avatar";
@@ -301,7 +305,14 @@ export function createApi(pb: PocketBase): Api {
     send: async (m) =>
       wrap(
         messages().create<Message>(
-          { id: m.id, room: m.room, author: me(), text: m.text, ...(m.files?.length ? { files: m.files } : {}) },
+          {
+            id: m.id,
+            room: m.room,
+            author: me(),
+            text: m.text,
+            ...(m.files?.length ? { files: m.files } : {}),
+            ...(m.replyTo ? { reply_to: m.replyTo } : {}),
+          },
           MSG_OPTS,
         ),
       ),

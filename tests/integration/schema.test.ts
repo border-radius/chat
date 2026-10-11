@@ -90,6 +90,13 @@ describe("schema (§5)", () => {
     expect(f.deleted_at).toMatchObject({ type: "date" });
     expect(f.created).toMatchObject({ type: "autodate" });
     expect(f.updated).toMatchObject({ type: "autodate" });
+    expect(f.reply_to).toMatchObject({
+      type: "relation",
+      required: false,
+      maxSelect: 1,
+      cascadeDelete: false,
+      collectionId: cols.messages!.id,
+    });
     expect(cols.messages!.indexes.map(norm)).toContainEqual(
       expect.stringMatching(/create index idx_messages_room_created on messages \(room, created, id\)/),
     );

@@ -2,13 +2,14 @@
 
 A small, fast, real-time group chat. One [PocketBase](https://pocketbase.io) binary is the whole backend
 (auth, data, realtime, static files); the frontend is vanilla TypeScript bundled by esbuild — no framework,
-~28 KB of JS gzipped.
+~31 KB of JS gzipped.
 
 - Public rooms anyone can create; hide rooms you don't care about; creators archive rooms (read-only, history kept)
 - Live messages, edits and deletes (deleted messages leave a placeholder)
 - Full history: scroll back to the very first message of any room (windowed, ≤300 messages in the DOM)
 - Direct messages between any two users, private to them; close a conversation and it comes back on the next message
 - Avatars (or colored initials) and a profile page to change your picture and display name
+- Replies: answer any message with a quote of it; click the quote to jump to the original, however far back
 - Attachments: up to 4 files per message, images shown as thumbnails; files are private to whoever can read the message
 - Unread counts on every room and DM, live, and in sync across your tabs and devices
 - Optimistic sending with safe retries, reconnect gap-fill, light/dark themes, works on phones

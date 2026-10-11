@@ -12,7 +12,7 @@ describe("listOptions", () => {
       filter: `room = "r1"`,
       sort: "-created,-id",
       skipTotal: true,
-      expand: "author",
+      expand: "author,reply_to.author",
       fields: MSG_FIELDS,
     });
   });
@@ -37,6 +37,15 @@ describe("listOptions", () => {
       "expand.author.id",
       "expand.author.name",
       "expand.author.avatar",
+      // the message a reply quotes (§19)
+      "reply_to",
+      "expand.reply_to.id",
+      "expand.reply_to.author",
+      "expand.reply_to.text",
+      "expand.reply_to.deleted",
+      "expand.reply_to.files",
+      "expand.reply_to.expand.author.id",
+      "expand.reply_to.expand.author.name",
     ]);
     expect(MSG_FIELDS).not.toContain("email");
   });

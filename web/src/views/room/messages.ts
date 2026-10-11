@@ -4,10 +4,10 @@
 
 import { h, reconcile } from "../../dom.ts";
 import { attachmentName, isImage } from "../../lib/files.ts";
-import { type MessageWindow, startsGroup } from "../../lib/messages.ts";
+import { type MessageWindow, quoteText, startsGroup } from "../../lib/messages.ts";
 import { captureAnchor, restoreAnchor } from "../../lib/scroll.ts";
 import { dayLabel, formatFull, formatTime, parsePb } from "../../lib/time.ts";
-import type { Message, User } from "../../lib/types.ts";
+import type { Message, Quoted, User } from "../../lib/types.ts";
 import { type AvatarUrl, avatar } from "../../ui/avatar.ts";
 import { createActionMenu } from "../../ui/menu.ts";
 import { editProblem, fitRows, rowsFor } from "./composer.ts";
@@ -43,12 +43,21 @@ export interface MessageList {
   setError(id: string, error: MsgError | null): void;
 }
 
+/** At most this many characters of a quote are in its accessible name. */
+const QUOTE_SPOKEN = 80;
+
 const byId = (id: string) => `li.msg[data-id="${CSS.escape(id)}"]`;
 
 export function createMessageList(opts: {
   state: () => ListState;
   me: () => User | null;
   editable: (m: Message) => boolean;
+  /** Does the message get a Reply button? (§19) */
+  repliable: (m: Message) => boolean;
+  /** Reply on a message. */
+  onReply: (id: string) => void;
+  /** A reply's quote was clicked: show the message it answers. */
+  onOpenQuote: (id: string) => void;
   onSaveEdit: (id: string, text: string) => void;
   /** Escape in the edit box (after it has closed). */
   onCancelEdit: () => void;
@@ -151,9 +160,20 @@ export function createMessageList(opts: {
     return [box, hint];
   }
 
-  function messageNode(m: Message, groupStart: boolean, targetId: string | null): HTMLElement {
+  /**
+   * What a reply shows of the message it answers: the copy in the window when there is one (it follows edits and
+   * deletes live), else the one the server expanded. Null when it isn't a reply.
+   */
+  function quotedOf(m: Message, win: MessageWindow): Quoted | null {
+    if (!m.reply_to) return null;
+    const inWindow = win.items.find((x) => x.id === m.reply_to);
+    return inWindow ?? m.expand?.reply_to ?? { id: m.reply_to, author: "", text: "", deleted: true };
+  }
+
+  function messageNode(m: Message, groupStart: boolean, targetId: string | null, quoted: Quoted | null): HTMLElement {
     const err = errors.get(m.id);
     const editable = opts.editable(m);
+    const repliable = opts.repliable(m);
     const ms = parsePb(m.created);
     const sig = JSON.stringify([
       m.text,
@@ -164,6 +184,8 @@ export function createMessageList(opts: {
       formatTime(ms), // changes at midnight ("7:36 PM" → "Oct 10, 7:36 PM")
       groupStart,
       editable,
+      repliable,
+      quoted ? [quoted.expand?.author?.name ?? "", quoteText(quoted)] : null,
       editing === m.id,
       confirmDelete === m.id,
       err?.text ?? "",
@@ -192,6 +214,7 @@ export function createMessageList(opts: {
         ]),
       );
     }
+    if (quoted) parts.push(quote(quoted));
     if (editing === m.id) {
       parts.push(...editBox(m));
     } else {
@@ -201,10 +224,12 @@ export function createMessageList(opts: {
     }
     if (!m.deleted) parts.push(attachments(m));
     if (m.status === "failed") {
+      // The original went away while this reply was sending: Retry sends it without the quote (§19).
+      const replyGone = !!quoted?.deleted;
       parts.push(
         h("div", { class: "send-error" }, [
-          "Not sent. ",
-          btn("Retry", () => opts.onRetrySend(m.id)),
+          replyGone ? "Not sent: the message you replied to was deleted. " : "Not sent. ",
+          btn(replyGone ? "Send without quote" : "Retry", () => opts.onRetrySend(m.id)),
           btn("Discard", () => opts.onDiscard(m.id)),
         ]),
       );
@@ -240,9 +265,13 @@ export function createMessageList(opts: {
           ],
         ),
       );
-    } else if (editable && editing !== m.id) {
+    } else if (editing !== m.id && (repliable || editable)) {
       parts.push(
-        h("div", { class: "actions" }, [btn("Edit", () => list.startEdit(m.id), "edit"), btn("Delete", () => askDelete(m.id), "delete")]),
+        h("div", { class: "actions" }, [
+          repliable ? btn("Reply", () => opts.onReply(m.id), "reply") : null,
+          editable ? btn("Edit", () => list.startEdit(m.id), "edit") : null,
+          editable ? btn("Delete", () => askDelete(m.id), "delete") : null,
+        ]),
       );
     }
     if (err) parts.push(h("div", { class: "msg-error", role: "alert" }, [`${err.text} `, btn("Retry", err.retry)]));
@@ -331,6 +360,28 @@ export function createMessageList(opts: {
     return tile;
   }
 
+  /** A reply's quote of the message it answers (§19): clicking it shows that message. */
+  function quote(q: Quoted): HTMLElement {
+    const name = q.expand?.author?.name ?? "";
+    const text = quoteText(q);
+    // Spoken as one line, like it is shown: never the whole of a long message. Not "Reply …" either, which is
+    // what the Reply button next to it is called.
+    const chars = [...text];
+    const spoken = chars.length > QUOTE_SPOKEN ? `${chars.slice(0, QUOTE_SPOKEN).join("").trimEnd()}…` : text;
+    return h(
+      "button",
+      {
+        type: "button",
+        class: `reply-quote${q.deleted ? " deleted" : ""}`,
+        title: "Show the original message",
+        "aria-label": `Quoting ${name || "a message"}: ${spoken}. Show the original message.`,
+        on: { click: () => opts.onOpenQuote(q.id) },
+        signal,
+      },
+      [name ? h("span", { class: "reply-author" }, name) : null, h("span", { class: "reply-text" }, text)],
+    );
+  }
+
   /** The author's name: for other (known) users a menu offering "Message" (§16.5). */
   function authorEl(author: User, me: User | null, known: boolean): HTMLElement {
     if (author.id === me?.id || !known) return h("span", { class: "author" }, author.name);
@@ -374,7 +425,7 @@ export function createMessageList(opts: {
       const day = new Date(ms).toDateString();
       const newDay = day !== prevDay;
       if (newDay) nodes.push(divider(ms));
-      nodes.push(messageNode(m, newDay || startsGroup(prev, m), targetId));
+      nodes.push(messageNode(m, newDay || startsGroup(prev, m), targetId, quotedOf(m, win)));
       prev = m;
       prevDay = day;
     }

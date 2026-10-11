@@ -1,6 +1,6 @@
 // Message composer (§7.6, §17.4): auto-growing textarea, character counter, Enter to send, Shift+Enter for a
-// newline, Up arrow in an empty composer to edit your last message, and attachments (picker, paste, drop) shown
-// in a tray above the textarea.
+// newline, Up arrow in an empty composer to edit your last message, attachments (picker, paste, drop) shown
+// in a tray above the textarea, and the message being replied to (§19) above that.
 
 import { h } from "../../dom.ts";
 import { checkFiles, formatBytes } from "../../lib/files.ts";
@@ -69,6 +69,8 @@ export interface Composer {
   focus(): void;
   /** Add attachments (e.g. dropped on the room). Images are prepared first (§15.3). */
   addFiles(files: readonly File[]): Promise<void>;
+  /** Show who and what the next message replies to (§19), or nothing. */
+  setReply(reply: { name: string; text: string } | null): void;
 }
 
 export function createComposer(opts: {
@@ -80,6 +82,8 @@ export function createComposer(opts: {
   onSend: (text: string, files: LocalFile[]) => boolean;
   /** Up arrow in an empty composer. Return true if it was handled (an edit started). */
   onEditLast: () => boolean;
+  /** The reply bar's × (or Escape in the textarea while replying). */
+  onCancelReply: () => void;
   signal: AbortSignal;
 }): Composer {
   const { signal } = opts;
@@ -97,6 +101,20 @@ export function createComposer(opts: {
   const attach = h("button", { type: "button", class: "attach", title: "Attach files", "aria-label": "Attach files" }, "+");
   const tray = h("ul", { class: "tray", "aria-label": "Attachments" });
   const trayError = h("p", { class: "tray-error", role: "alert" });
+  const replyLabel = h("span", { class: "replying-label" });
+  const replyBar = h("div", { class: "replying", hidden: true }, [
+    replyLabel,
+    h(
+      "button",
+      { type: "button", class: "remove", "aria-label": "Cancel reply", title: "Cancel reply", on: { click: () => cancelReply() }, signal },
+      "×",
+    ),
+  ]);
+
+  function cancelReply() {
+    opts.onCancelReply();
+    textarea.focus();
+  }
 
   let files: LocalFile[] = [];
   /** Attachments still being prepared: Send waits for them. */
@@ -206,6 +224,10 @@ export function createComposer(opts: {
         submit();
       } else if (e.key === "ArrowUp" && textarea.value === "" && opts.onEditLast()) {
         e.preventDefault();
+      } else if (e.key === "Escape" && !e.isComposing && !replyBar.hidden) {
+        // (While composing, Escape belongs to the input method: it cancels the composition.)
+        e.preventDefault();
+        cancelReply();
       }
     },
     { signal },
@@ -224,6 +246,7 @@ export function createComposer(opts: {
       signal,
     },
     [
+      replyBar,
       h("div", { class: "tray-wrap" }, [tray, trayError]),
       h("div", { class: "composer-row" }, [
         fileInput,
@@ -245,6 +268,12 @@ export function createComposer(opts: {
     },
     focus() {
       textarea.focus();
+    },
+    setReply(reply) {
+      replyBar.hidden = !reply;
+      replyLabel.replaceChildren(
+        ...(reply ? ["Replying to ", h("strong", {}, reply.name), h("span", { class: "replying-text" }, reply.text)] : []),
+      );
     },
   };
 }

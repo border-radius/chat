@@ -213,6 +213,46 @@ function beforeMessageCreate(e) {
   if (room && isDm(room) && !room.getStringSlice("members").includes(rec.getString("author"))) {
     throw fieldError("room", "You are not a member of this conversation.");
   }
+  assertReplyTarget(e.app, rec);
+}
+
+/**
+ * A reply (§19) answers a message of the same room that is still there. Without this check a reply could
+ * point into a DM you're not in, and its expanded preview would show you that message.
+ * @param {core.App} app
+ * @param {core.Record} rec
+ */
+function assertReplyTarget(app, rec) {
+  const id = rec.getString("reply_to");
+  if (!id) return;
+  let parent = null;
+  try {
+    parent = app.findRecordById("messages", id);
+  } catch {
+    parent = null;
+  }
+  if (!parent || parent.getString("room") !== rec.getString("room")) {
+    throw fieldError("reply_to", "That message isn't in this room.");
+  }
+  if (parent.getBool("deleted")) throw fieldError("reply_to", "That message was deleted.");
+}
+
+/**
+ * Is this update PocketBase clearing `reply_to` because the message it pointed at no longer exists? Users can't
+ * remove messages (only soft-delete them), and the update rule refuses any `reply_to` in a request body.
+ * @param {core.App} app
+ * @param {core.Record} rec
+ * @param {core.Record} orig
+ */
+function replyTargetRemoved(app, rec, orig) {
+  const id = orig.getString("reply_to");
+  if (!id || rec.getString("reply_to") !== "") return false;
+  try {
+    app.findRecordById("messages", id);
+    return false;
+  } catch {
+    return true;
+  }
 }
 
 /**
@@ -241,12 +281,17 @@ function afterMessageCreate(e) {
 function beforeMessageUpdate(e) {
   const rec = recordOf(e);
   const orig = rec.original();
+  // A message deleted for good (by a superuser, or with its room) is already gone when PocketBase unsets the
+  // reply_to of its replies (§19.1). Let that save through: the guards below would refuse it, and with it the delete.
+  if (replyTargetRemoved(e.app, rec, orig)) return;
   activeRoom(e.app, orig.getString("room"));
 
   if (orig.getBool("deleted")) {
     // Deletion is final; API rules already refuse this, so this only guards superuser edits.
     throw fieldError("deleted", "Deleted messages cannot be changed.");
   }
+  // Backs up the update rule, which field modifiers could get around (§19).
+  if (rec.getString("reply_to") !== orig.getString("reply_to")) throw fieldError("reply_to", "This field can't be changed.");
 
   if (rec.getBool("deleted")) {
     rec.set("text", "");

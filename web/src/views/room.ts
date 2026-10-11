@@ -1,4 +1,5 @@
-// Room view (§7.5, §7.6): windowed message history, optimistic send, edit, soft delete, archived mode, read state (§18.3).
+// Room view (§7.5, §7.6): windowed message history, optimistic send, edit, soft delete, replies (§19), archived mode,
+// read state (§18.3).
 // The message window and everything that changes it live in room/controller.ts (no DOM). This module puts the
 // controller's changes on screen and wires the DOM parts in room/: header (title + actions menu), messages (the
 // list), composer.
@@ -6,9 +7,10 @@
 import { errorMessage } from "../api.ts";
 import type { Ctx } from "../context.ts";
 import { clear, h, uniqueId } from "../dom.ts";
-import { lastSaved } from "../lib/messages.ts";
+import { lastSaved, quoteText } from "../lib/messages.ts";
 import { isDm, otherMember, roomTitle } from "../lib/rooms.ts";
 import { isNearBottom } from "../lib/scroll.ts";
+import type { Message } from "../lib/types.ts";
 import type { View } from "../router.ts";
 import { createScope } from "../scope.ts";
 import type { RoomReader } from "../unread.ts";
@@ -29,6 +31,8 @@ export function createRoomView({ api, store, unread, actions, navigate }: Ctx): 
   let shown: Phase = "loading";
   /** Reports what is on screen as read (unread.ts), from mount on. */
   let reader: RoomReader | null = null;
+  /** The message the composer is replying to (§19). */
+  let replyTo: Message | null = null;
 
   const room = () => store.get().rooms.get(roomId);
   const me = () => store.get().user;
@@ -56,6 +60,9 @@ export function createRoomView({ api, store, unread, actions, navigate }: Ctx): 
     },
     me,
     editable: (m) => ctl.editable(m),
+    repliable: (m) => ctl.repliable(m),
+    onReply: (id) => startReply(id),
+    onOpenQuote: (id) => void ctl.goTo(id),
     onRetryLoad: () => ctl.retry(),
     onSaveEdit: (id, text) => void saveEdit(id, text),
     onCancelEdit: () => composer.focus(),
@@ -70,12 +77,17 @@ export function createRoomView({ api, store, unread, actions, navigate }: Ctx): 
   });
   const composer = createComposer({
     id: `${vid}-text`,
-    onSend: (text, files) => ctl.send(text, files),
+    onSend: (text, files) => {
+      if (!ctl.send(text, files, replyTo ?? undefined)) return false;
+      setReply(null);
+      return true;
+    },
     onEditLast: () => {
       const mine = ctl.lastEditable();
       if (mine) messages.startEdit(mine.id);
       return !!mine;
     },
+    onCancelReply: () => setReply(null),
     signal,
   });
   const list = messages.el;
@@ -96,6 +108,31 @@ export function createRoomView({ api, store, unread, actions, navigate }: Ctx): 
     markRead();
   }
 
+  // ---------------------------------------------------------------- replies
+
+  function setReply(m: Message | null) {
+    replyTo = m;
+    composer.setReply(m && { name: m.expand?.author?.name ?? "Unknown", text: quoteText(m) });
+  }
+
+  function startReply(id: string) {
+    const m = ctl.find(id);
+    if (!m || !ctl.repliable(m)) return;
+    setReply(m);
+    composer.focus();
+  }
+
+  /**
+   * Follow the message being replied to: edited, it shows the new text; deleted (or the room archived), there is
+   * nothing left to reply to. Out of the window, it is checked against the room alone.
+   */
+  function refreshReply() {
+    if (!replyTo) return;
+    const now = ctl.find(replyTo.id) ?? replyTo;
+    if (!ctl.repliable(now)) setReply(null);
+    else if (now !== replyTo) setReply(now);
+  }
+
   /** Put a controller change on screen. */
   function apply(c: Change) {
     const s = ctl.state();
@@ -109,7 +146,10 @@ export function createRoomView({ api, store, unread, actions, navigate }: Ctx): 
     if (c.notice !== undefined) notice.textContent = c.notice;
     pill.hidden = s.pill === null;
     pill.textContent = s.pill === "history" ? "New messages · Jump to latest" : "↓ New messages";
-    if (c.render) render(c.render);
+    if (c.render) {
+      render(c.render);
+      refreshReply();
+    }
     if (c.scroll === "bottom") scrollToBottom();
     else if (c.scroll === "top") list.scrollTop = 0;
     else if (c.scroll === "target" && s.targetId) {
@@ -287,7 +327,10 @@ export function createRoomView({ api, store, unread, actions, navigate }: Ctx): 
           if (roomChanged || s.hidden !== prev.hidden || s.user !== prev.user) {
             renderHeader();
             renderFooter();
-            if (roomChanged) render();
+            if (roomChanged) {
+              render();
+              refreshReply(); // archived: the reply bar closes
+            }
           }
         }),
       );

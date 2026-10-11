@@ -23,6 +23,7 @@ describe("composer attachments (§17.4)", () => {
         return true;
       },
       onEditLast: () => false,
+      onCancelReply: () => {},
       signal: ac.signal,
     });
     document.body.append(composer.el);
