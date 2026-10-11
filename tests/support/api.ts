@@ -5,6 +5,7 @@ import { inject, vi } from "vitest";
 import { createRoomActions } from "../../web/src/actions.ts";
 import { type Api, createApi } from "../../web/src/api.ts";
 import type { Ctx } from "../../web/src/context.ts";
+import { createDrafts } from "../../web/src/drafts.ts";
 import { newId } from "../../web/src/lib/id.ts";
 import { toPb } from "../../web/src/lib/time.ts";
 import type { Message, User } from "../../web/src/lib/types.ts";
@@ -13,6 +14,7 @@ import type { AppState, Store } from "../../web/src/store.ts";
 import { createSync } from "../../web/src/sync.ts";
 import { createUnread, type UnreadTiming } from "../../web/src/unread.ts";
 import { uniq } from "./ids.ts";
+import { withName } from "./names.ts";
 
 // The unit project runs in happy-dom, where Vite refuses static imports of Node built-ins.
 const { DatabaseSync } = process.getBuiltinModule("node:sqlite") as typeof import("node:sqlite");
@@ -75,7 +77,8 @@ export async function signedUp(name = `user-${uniq()}`): Promise<SignedUp> {
   const api = newApi();
   const email = `${uniq()}@test.local`;
   const password = "password-123";
-  const user = await api.signUp({ email, password, name });
+  const db = () => new DatabaseSync(join(inject("pbDataDir"), "data.db"));
+  const user = await withName(db, name, () => api.signUp({ email, password, name }));
   return { api, user, email, password };
 }
 
@@ -217,7 +220,8 @@ export function viewContext(api: Api, store: Store<AppState>, navigate: (hash: s
   unread.start();
   contexts.add(sync);
   contexts.add(unread);
-  return { api, store, sync, unread, actions: createRoomActions({ api, store }), navigate, drafts: new Map() };
+  const drafts = createDrafts(() => store.get().user?.id ?? "");
+  return { api, store, sync, unread, actions: createRoomActions({ api, store }), navigate, drafts, logOut: vi.fn() };
 }
 
 const contexts = new Set<{ stop(): void }>();

@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | Draft |
 | **Date** | 2026-10-10 |
-| **Scope** | MVP (§1–§14); post-MVP features: avatars §15, direct messages §16, attachments §17, unread counts §18, replies §19, reactions and emoji §20, selecting, forwarding and deleting several messages §21 |
+| **Scope** | MVP (§1–§14); post-MVP features: avatars §15, direct messages §16, attachments §17, unread counts §18, replies §19, reactions and emoji §20, selecting, forwarding and deleting several messages §21, accounts and quality of life §22 |
 
 Code and tests cite this document by section number (e.g. `§7.5`). **Don't renumber sections:** append new ones, and
 mark obsolete ones as such instead of deleting them.
@@ -104,7 +104,8 @@ chat/
 │   ├── 1760000008_lowercase_emails.js  # QA BUG-47
 │   ├── 1760000009_reactions.js         # §20.1
 │   ├── 1760000010_fit_thumbs.js        # §17.5
-│   └── 1760000011_forwarding.js        # §21.3
+│   ├── 1760000011_forwarding.js        # §21.3
+│   └── 1760000012_accounts.js          # §22.1, §22.2
 ├── pb_hooks/                   # server-side JS hooks (committed)
 │   ├── main.pb.js              # registrations only
 │   └── lib/
@@ -113,6 +114,7 @@ chat/
 │       ├── reads.js            # GET /api/chat/unread, POST /api/chat/reads (§18.2)
 │       ├── reactions.js        # POST /api/chat/reactions (§20.2)
 │       ├── bulk.js             # POST /api/chat/delete, POST /api/chat/forward (§21)
+│       ├── account.js          # POST /api/chat/password (§22.2)
 │       ├── emoji.js            # the emoji a reaction may be (§20.1)
 │       └── images.js           # upload image size limit (§15, QA BUG-24)
 ├── web/
@@ -458,7 +460,7 @@ If the room's first load fails (other than "room not found"), the list shows an 
 
 | Asset | Budget (gzipped) |
 |---|---|
-| `app.js` (including the PocketBase client) | **≤ 32 KB** (25 KB for the MVP; raised for §15–§17 and §19, see §13) |
+| `app.js` (including the PocketBase client) | **≤ 34 KB** (25 KB for the MVP; raised for §15–§17, §19 and §22, see §13) |
 | `app.css` | **≤ 5.5 KB** (5 KB until §21, see §13) |
 | `index.html` | ≤ 1.5 KB |
 | Web fonts | **none** (system font stack) |
@@ -824,6 +826,16 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 | What a forward is | A new message by the forwarder, with the text and copies of the attachments, saying who first wrote it (`forwarded_from`, kept through forwards of forwards). Not a link to the original: the recipient may not be able to see the original's room, and the original can be deleted. Replies, reactions and edit stamps are not copied. |
 | Where to | Any room or DM you can write in, or someone you have no DM with yet (found by name, which opens one). Afterwards the view goes to where the messages went. |
 | CSS budget | `app.css` raised from 5 KB to 5.5 KB gzipped (§7.7): §21 took it to 5.15 KB. |
+
+### Decided (2026-10-12, accounts and quality of life)
+
+| Topic | Decision |
+|---|---|
+| Unique display names | Compared like room names (case, width and invisible characters ignored), backed by a unique index. Accounts that already shared a name keep it; nobody else can take it (§22.1). |
+| Changing the password | Needs the current one; signs out every other session. The tab that changed it stays logged in (§22.2). |
+| Where Log out is | On the profile page, not in the app bar (§22.2). |
+| Drafts | Kept in `localStorage` per user and room, as you type; cleared when the session ends (§22.3). |
+| Bundle budget (§22) | `app.js` budget raised from 32 KB to 34 KB gzipped (§7.7): §22 took it to 32.9 KB. |
 
 ### Still open
 
@@ -1489,3 +1501,71 @@ The pill's Forward button has the class `forward` too, so the dialog's styles ar
 - **E2E** (`forward.spec.ts`, light and dark): Ada selects Bob's message and hers, forwards both to Bob (found by name),
   and Bob sees them live with "Forwarded from"; she then deletes two of her own at once and Bob sees the placeholders.
   axe finds no serious violations while selecting or in the dialog.
+
+## 22. Accounts and quality of life
+
+### 22.1 Unique display names
+
+`users.name_key` (hidden text, unique index where not empty) holds the name's key: `nameKey()` in
+`pb_hooks/lib/chat.js`, the same NFKC + case folding without invisible characters as room names (§5.2). `beforeUserSave`
+sets it after cleaning the name and refuses a key someone else has: 400, `name: validation_not_unique`, "This display
+name is taken. Choose another one." (shown next to the field by sign up and the profile). An update that keeps the name
+keeps its key without checking it. The migration (`1760000012_accounts.js`) backfills the keys; names that already
+clashed get a key made unique with the user id (`key#id`), so those accounts keep their name and can still change
+their picture or password, but nobody new can take it. Tests free a fixed name such as "Ada" the same way before
+signing it up again (`tests/support/names.ts`), since every test shares one server.
+
+### 22.2 Password and Log out on the profile page
+
+`POST /api/chat/password` (`pb_hooks/lib/account.js`, logged in only) takes `oldPassword` and `password`. It checks
+the current password (400 on `oldPassword` if wrong), refuses an unchanged one, sets the new one (the field's own
+rules, e.g. at least 8 characters, apply), refreshes the user's token key, so every token issued so far stops working
+(other devices are signed out), and answers like a login (`{ token, record }`). `api.changePassword` saves that
+answer, so this tab (and the others of this browser, which share the session) stays logged in. Rate limit: 5 per 60 s.
+
+The profile page has a "Password" form (current, new, confirm; checked in the page first, each error under its field)
+and a "Session" section with **Log out**, which moved there from the app bar.
+
+### 22.3 Drafts survive a reload
+
+`web/src/drafts.ts` keeps what is typed in the composer under `chat.draft.<user>.<room>` in `localStorage`, written
+on every change (blank text removes it). One key per room, so two tabs writing in different rooms don't overwrite
+each other. The room view restores it on mount. Ending the session (logging out, or another tab switching to someone
+else) removes that user's drafts. Storage that is full or disabled only means no drafts.
+
+### 22.4 Unread count in the favicon
+
+`web/src/favicon.ts` sums the room list's badges (§18.4: not the open room, hidden or archived ones) and draws an SVG
+favicon (a speech bubble in the app's gradient) with a red badge holding the count (`99+` past 99); the title becomes
+"(3) Chat". `index.html` carries the plain icon, so the tab has one before the script runs.
+
+### 22.5 Focus on entering a room
+
+When the composer is first shown in a room (on entering it or switching from another), the caret goes into it. Not on
+touch screens (`(hover:none)`), where it would open the keyboard over the messages.
+
+### 22.6 Confirmations go away
+
+"Message forwarded." / "*n* messages forwarded." clears itself after 4 s (`NOTICE_MS`), unless another notice replaced
+it meanwhile. Errors stay until something else is said.
+
+### 22.7 Jump to latest
+
+The pill over the bottom of the list (§7.5) also shows, as a quieter "↓ Jump to latest", whenever the newest messages
+aren't on screen with nothing new below: scrolled up by more than 80 px, or the window is back in history (after a
+quote or Jump to beginning). Clicking it scrolls to the bottom, or loads the latest page when the window doesn't have
+it. "↓ New messages" and "New messages · Jump to latest" take precedence as before.
+
+### 22.8 Tests
+
+- **Integration** (`accounts.test.ts`): names unique across case, invisible characters and whitespace; renaming onto
+  someone's name refused, keeping yours fine, a freed name can be taken; the key hidden and not settable; legacy
+  shared names still save; the password route needs a session, checks the current and new passwords, changes it,
+  answers with a working token, and signs out other sessions.
+- **Unit**: `passwordProblem`; the profile's password form (local checks, wrong current password, success) and Log
+  out; a taken name on sign up and on the profile; drafts across a reload, per user, cleared; focus on entering a
+  room (not on touch screens); Jump to latest scrolled up and back in history; the forward confirmation going away;
+  the favicon's label, count and title.
+- **E2E** (`accounts.spec.ts`): change the password and log in with it; a taken name at sign up; a draft survives a
+  reload and the composer has focus on entering rooms; the title and favicon count unread messages; Jump to latest;
+  the forward confirmation going away.

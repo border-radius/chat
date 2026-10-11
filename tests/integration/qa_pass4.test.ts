@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { client, expectRejected, newUser, rawDb, status, uniq } from "./helpers.ts";
 
 const PASSWORD = "password-123";
-const signUp = (email: string, name = "Casey") =>
+const signUp = (email: string, name = `Casey ${uniq()}`) =>
   client().collection("users").create({ email, password: PASSWORD, passwordConfirm: PASSWORD, name });
 
 describe("emails ignore capitalization (BUG-47)", () => {
@@ -29,7 +29,7 @@ describe("emails ignore capitalization (BUG-47)", () => {
     const u = await newUser();
     const legacy = `Legacy.${uniq()}@Test.Local`;
     rawDb({ write: true }).prepare("UPDATE users SET email = ? WHERE id = ?").run(legacy, u.user.id);
-    await u.pb.collection("users").update(u.user.id, { name: "renamed" });
+    await u.pb.collection("users").update(u.user.id, { name: `renamed-${uniq()}` });
     expect(rawDb().prepare("SELECT email FROM users WHERE id = ?").get(u.user.id)).toEqual({ email: legacy });
     // ...and logs in as typed.
     expect(await status(client().collection("users").authWithPassword(legacy, u.password))).toBe(200);

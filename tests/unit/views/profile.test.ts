@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../../web/src/api.ts";
 import type { View } from "../../../web/src/router.ts";
 import { type AppState, createStore, initialState, type Store } from "../../../web/src/store.ts";
-import { avatarProblem, createProfileView } from "../../../web/src/views/profile.ts";
-import { instrument, type SignedUp, signedUp, viewContext } from "../../support/api.ts";
+import { avatarProblem, createProfileView, passwordProblem } from "../../../web/src/views/profile.ts";
+import { instrument, newApi, type SignedUp, signedUp, viewContext } from "../../support/api.ts";
 import { pngFile } from "../../support/files.ts";
 
 describe("avatarProblem (§15.5)", () => {
@@ -11,6 +11,16 @@ describe("avatarProblem (§15.5)", () => {
     expect(avatarProblem(pngFile())).toBe("");
     expect(avatarProblem(new File(["x"], "a.svg", { type: "image/svg+xml" }))).toMatch(/JPEG, PNG/);
     expect(avatarProblem(new File([new Uint8Array(2 * 1024 * 1024 + 1)], "a.png", { type: "image/png" }))).toMatch(/too large/);
+  });
+});
+
+describe("passwordProblem (§22.2)", () => {
+  it("needs the current password, 8+ characters, a change, and the same text twice", () => {
+    expect(passwordProblem("", "new-password", "new-password")).toEqual({ current: "Enter your current password." });
+    expect(passwordProblem("old-password", "short", "short")).toEqual({ next: "Must be at least 8 characters." });
+    expect(passwordProblem("same-password", "same-password", "same-password").next).toMatch(/current password/);
+    expect(passwordProblem("old-password", "new-password", "new-passw0rd")).toEqual({ confirm: "The passwords don't match." });
+    expect(passwordProblem("old-password", "new-password", "new-password")).toEqual({});
   });
 });
 
@@ -34,8 +44,11 @@ describe("profile view (§15.5)", () => {
     await me.api.unsubscribeAll();
   });
 
+  let logOut: ReturnType<typeof vi.fn<() => void>>;
   function mount() {
-    view = createProfileView(viewContext(me.api, store, vi.fn()));
+    const ctx = viewContext(me.api, store, vi.fn());
+    logOut = vi.fn<() => void>();
+    view = createProfileView({ ...ctx, logOut });
     view.mount(root, {});
   }
 
@@ -122,5 +135,68 @@ describe("profile view (§15.5)", () => {
     await vi.waitFor(() => expect(store.get().user?.name).toBe("Ada King"));
     expect(status().textContent).toBe("Saved.");
     expect(nameInput().getAttribute("aria-invalid")).toBeNull();
+  });
+
+  it("a display name someone else has is refused (§22.1)", async () => {
+    const other = await signedUp();
+    mount();
+    nameInput().value = other.user.name.toUpperCase();
+    root.querySelector("form.profile-name")!.dispatchEvent(new Event("submit", { cancelable: true }));
+    await vi.waitFor(() => expect(status().textContent).toBe("This display name is taken. Choose another one."));
+    expect(nameInput().getAttribute("aria-invalid")).toBe("true");
+    expect(store.get().user?.name).toBe("Ada Lovelace");
+    await other.api.unsubscribeAll();
+  });
+
+  describe("changing the password (§22.2)", () => {
+    const pw = (name: string) => root.querySelector<HTMLInputElement>(`form.profile-password input[name="${name}"]`)!;
+    const errorOf = (name: string) => document.getElementById(pw(name).getAttribute("aria-describedby")!)!.textContent;
+    const pwStatus = () => root.querySelector("form.profile-password .field-status")!.textContent;
+    function fill(current: string, next: string, confirm = next) {
+      pw("current").value = current;
+      pw("next").value = next;
+      pw("confirm").value = confirm;
+      root.querySelector("form.profile-password")!.dispatchEvent(new Event("submit", { cancelable: true }));
+    }
+
+    it("checks the fields locally first, next to each one", () => {
+      const ctl = instrument(me.api);
+      mount();
+      fill(me.password, "new-password-1", "something else");
+      expect(errorOf("confirm")).toBe("The passwords don't match.");
+      expect(pw("confirm").getAttribute("aria-invalid")).toBe("true");
+      expect(document.activeElement).toBe(pw("confirm"));
+      fill(me.password, "short");
+      expect(errorOf("next")).toBe("Must be at least 8 characters.");
+      expect(errorOf("confirm")).toBe("");
+      expect(ctl.calls("changePassword")).toBe(0);
+    });
+
+    it("a wrong current password is said next to it, and nothing changes", async () => {
+      mount();
+      fill("not-my-password", "new-password-1");
+      await vi.waitFor(() => expect(errorOf("current")).toBe("That isn't your current password."));
+      expect(pw("current").getAttribute("aria-invalid")).toBe("true");
+      await newApi().logIn(me.email, me.password); // still the old one
+    });
+
+    it("changes it: the fields empty, this tab stays logged in, and the new password logs in", async () => {
+      mount();
+      fill(me.password, "new-password-1");
+      await vi.waitFor(() => expect(pwStatus()).toBe("Password changed. You were logged out everywhere else."));
+      expect([pw("current").value, pw("next").value, pw("confirm").value]).toEqual(["", "", ""]);
+      expect(store.get().user?.id).toBe(me.user.id);
+      expect((await me.api.refreshAuth()).id).toBe(me.user.id); // the fresh token works
+      const again = newApi();
+      await expect(again.logIn(me.email, me.password)).rejects.toThrow();
+      expect((await again.logIn(me.email, "new-password-1")).id).toBe(me.user.id);
+    });
+  });
+
+  it("Log out is here (§22.2)", () => {
+    mount();
+    const btn = [...root.querySelectorAll("button")].find((b) => b.textContent === "Log out")!;
+    btn.click();
+    expect(logOut).toHaveBeenCalledOnce();
   });
 });

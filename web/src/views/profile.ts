@@ -1,4 +1,5 @@
-// Profile (§15.5): change or remove your avatar, change your display name.
+// Profile (§15.5, §22.2): change or remove your avatar, change your display name (unique, §22.1), change your
+// password, log out.
 
 import { ApiError, errorMessage } from "../api.ts";
 import type { Ctx } from "../context.ts";
@@ -22,7 +23,16 @@ export function avatarProblem(file: File): string {
 
 const fieldMessage = (e: unknown, field: string) => (e instanceof ApiError && e.fields[field]) || errorMessage(e);
 
-export function createProfileView({ api, store }: Ctx): View {
+/** Why a new password can't be used, or "" (the server checks again). */
+export function passwordProblem(current: string, next: string, confirm: string): Partial<Record<"current" | "next" | "confirm", string>> {
+  if (!current) return { current: "Enter your current password." };
+  if (next.length < LIMITS.passwordMin) return { next: `Must be at least ${LIMITS.passwordMin} characters.` };
+  if (next === current) return { next: "That is your current password. Choose a new one." };
+  if (confirm !== next) return { confirm: "The passwords don't match." };
+  return {};
+}
+
+export function createProfileView({ api, store, logOut }: Ctx): View {
   const vid = uniqueId("profile");
   const scope = createScope();
   const { signal } = scope;
@@ -46,6 +56,30 @@ export function createProfileView({ api, store }: Ctx): View {
   const nameInput = h("input", { id: `${vid}-name`, name: "name", autocomplete: "nickname", "aria-describedby": `${vid}-name-status` });
   const saveBtn = h("button", { type: "submit", class: "primary" }, "Save");
   const nameStatus = h("p", { id: `${vid}-name-status`, class: "field-status", role: "status" });
+
+  // Password (§22.2): each field with its own error under it.
+  const pwField = (key: "current" | "next" | "confirm", label: string, autocomplete: string) => {
+    const id = `${vid}-pw-${key}`;
+    const input = h("input", {
+      id,
+      type: "password",
+      name: key,
+      autocomplete,
+      required: true,
+      ...(key === "current" ? {} : { minlength: LIMITS.passwordMin }),
+      "aria-describedby": `${id}-error`,
+    });
+    const error = h("p", { id: `${id}-error`, class: "field-error" });
+    const el = h("div", { class: "field" }, [h("label", { for: id }, label), input, error]);
+    return { input, error, el };
+  };
+  const pw = {
+    current: pwField("current", "Current password", "current-password"),
+    next: pwField("next", "New password", "new-password"),
+    confirm: pwField("confirm", "Confirm new password", "new-password"),
+  };
+  const pwBtn = h("button", { type: "submit", class: "primary" }, "Change password");
+  const pwStatus = h("p", { class: "field-status", role: "status" });
 
   function dropPreview() {
     if (preview) URL.revokeObjectURL(preview);
@@ -142,6 +176,50 @@ export function createProfileView({ api, store }: Ctx): View {
     }
   }
 
+  function showPasswordErrors(errors: Partial<Record<keyof typeof pw, string>>) {
+    for (const [key, f] of Object.entries(pw) as [keyof typeof pw, (typeof pw)[keyof typeof pw]][]) {
+      const msg = errors[key] ?? "";
+      f.error.textContent = msg;
+      if (msg) f.input.setAttribute("aria-invalid", "true");
+      else f.input.removeAttribute("aria-invalid");
+    }
+    const first = (Object.keys(pw) as (keyof typeof pw)[]).find((k) => errors[k]);
+    if (first) pw[first].input.focus();
+  }
+
+  async function changePassword(e: Event) {
+    e.preventDefault();
+    const current = pw.current.input.value;
+    const next = pw.next.input.value;
+    pwStatus.textContent = "";
+    pwStatus.classList.remove("error");
+    const problem = passwordProblem(current, next, pw.confirm.input.value);
+    showPasswordErrors(problem);
+    if (Object.keys(problem).length) return;
+    pwBtn.disabled = true;
+    try {
+      const user = await api.changePassword(current, next);
+      if (!scope.active) return;
+      store.set({ user });
+      for (const f of Object.values(pw)) f.input.value = "";
+      pwStatus.textContent = "Password changed. You were logged out everywhere else.";
+    } catch (err) {
+      if (!scope.active) return;
+      const fields = err instanceof ApiError ? err.fields : {};
+      if (fields.oldPassword || fields.password) {
+        showPasswordErrors({
+          ...(fields.oldPassword ? { current: fields.oldPassword } : {}),
+          ...(fields.password ? { next: fields.password } : {}),
+        });
+      } else {
+        pwStatus.textContent = errorMessage(err);
+        pwStatus.classList.add("error");
+      }
+    } finally {
+      if (scope.active) pwBtn.disabled = false;
+    }
+  }
+
   return {
     mount(el) {
       root = el;
@@ -183,6 +261,21 @@ export function createProfileView({ api, store }: Ctx): View {
             h("label", { for: `${vid}-name` }, "Display name"),
             h("div", { class: "row" }, [nameInput, saveBtn]),
             nameStatus,
+          ]),
+          h(
+            "form",
+            {
+              class: "profile-password",
+              "aria-labelledby": `${vid}-pw-title`,
+              novalidate: true, // the errors are ours, next to each field
+              on: { submit: (e) => void changePassword(e) },
+              signal,
+            },
+            [h("h2", { id: `${vid}-pw-title` }, "Password"), pw.current.el, pw.next.el, pw.confirm.el, pwBtn, pwStatus],
+          ),
+          h("section", { class: "profile-session", "aria-labelledby": `${vid}-session-title` }, [
+            h("h2", { id: `${vid}-session-title` }, "Session"),
+            h("button", { type: "button", class: "danger", on: { click: () => logOut() }, signal }, "Log out"),
           ]),
         ]),
       ]);

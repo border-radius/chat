@@ -89,6 +89,8 @@ export function createComposer(opts: {
   onCancelReply: () => void;
   /** The emoji button: open the picker next to it; `insert` puts the chosen emoji at the caret. */
   onEmoji: (opener: HTMLElement, insert: (emoji: string) => void) => void;
+  /** The text changed (typed, inserted, sent or replaced): e.g. to keep it as a draft. */
+  onChange?: (text: string) => void;
   signal: AbortSignal;
 }): Composer {
   const { signal } = opts;
@@ -158,6 +160,7 @@ export function createComposer(opts: {
     counter.textContent = len <= COUNTER_FROM ? "" : len <= MAX_LEN ? `${MAX_LEN - len} left` : `${len - MAX_LEN} over`;
     fitRows(textarea);
     sendBtn.disabled = preparing > 0 || sendable() === null;
+    opts.onChange?.(textarea.value);
   }
 
   function renderTray() {

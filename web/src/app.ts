@@ -1,10 +1,12 @@
-// App shell and boot (§7.1): restores the session, starts the room sync and unread counts, wires the router, header
-// and logout.
+// App shell and boot (§7.1): restores the session, starts the room sync and unread counts and the tab's unread badge
+// (§22.4), wires the router, header and logout (offered on the profile page, §22.2).
 
 import { createRoomActions } from "./actions.ts";
 import { type Api, ApiError } from "./api.ts";
 import type { Ctx } from "./context.ts";
 import { clear, h } from "./dom.ts";
+import { createDrafts } from "./drafts.ts";
+import { startFavicon } from "./favicon.ts";
 import { createRouter, type Router, type View } from "./router.ts";
 import { type AppState, createStore, initialState, type Store } from "./store.ts";
 import { createSync } from "./sync.ts";
@@ -19,6 +21,8 @@ import { createRoomsView } from "./views/rooms.ts";
 export interface App {
   store: Store<AppState>;
   router: Router;
+  /** End the session and go to the login screen (what the profile page's Log out does). */
+  logOut(): void;
   stop(): void;
 }
 
@@ -66,7 +70,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
   const store = createStore<AppState>({ ...initialState(), user: api.currentUser() });
   const sync = createSync({ api, store });
   const unread = createUnread({ api, store });
-  const drafts = new Map<string, string>();
+  const drafts = createDrafts(() => store.get().user?.id ?? "");
   const startSession = () => {
     sync.start();
     unread.start();
@@ -85,7 +89,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     unread.stop();
     sync.stop();
     void api.unsubscribeAll().catch(() => {});
-    drafts.clear();
+    drafts.clear(store.get().user?.id ?? "");
     store.set({ ...initialState() });
   }
 
@@ -156,7 +160,6 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
         avatar(user, 24, api.avatarUrl),
         h("span", { class: "who" }, user.name),
       ]),
-      h("button", { type: "button", class: "link", on: { click: logOut } }, "Log out"),
     );
   }
 
@@ -168,6 +171,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     actions: createRoomActions({ api, store }),
     navigate: (hash) => router.navigate(hash),
     drafts,
+    logOut,
   };
   const rooms = () => createRoomsView(ctx);
   const roomPage = withSidebar(rooms, () => createRoomView(ctx));
@@ -213,6 +217,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
   window.addEventListener("dragover", swallowFileDrag);
   window.addEventListener("drop", swallowFileDrag);
   document.addEventListener("visibilitychange", onVisible);
+  const stopFavicon = startFavicon(store);
   renderHeader();
   if (store.get().user) startSession();
   router.start();
@@ -223,12 +228,14 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
   return {
     store,
     router,
+    logOut,
     stop() {
       offAuth();
       window.removeEventListener("dragover", swallowFileDrag);
       window.removeEventListener("drop", swallowFileDrag);
       document.removeEventListener("visibilitychange", onVisible);
       clearTimeout(renewTimer);
+      stopFavicon();
       offStore();
       router.stop();
       unread.stop();

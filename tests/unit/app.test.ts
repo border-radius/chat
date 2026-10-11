@@ -23,6 +23,8 @@ describe("app boot (§7.1)", () => {
     vi.restoreAllMocks();
   });
 
+  /** The app bar's link to your profile: shown only while logged in. */
+  const meLink = () => root.querySelector("header.app-bar a.me-link");
   const logoutButton = () => [...root.querySelectorAll("button")].find((b) => b.textContent === "Log out");
 
   it("without a session it shows the login screen", async () => {
@@ -30,7 +32,7 @@ describe("app boot (§7.1)", () => {
     await tick();
     expect(location.hash).toBe("#/login");
     expect(root.querySelector("form")).not.toBeNull();
-    expect(logoutButton()).toBeUndefined();
+    expect(meLink()).toBeNull();
   });
 
   it("with a stored session it goes straight to the route and refreshes auth in the background", async () => {
@@ -42,7 +44,7 @@ describe("app boot (§7.1)", () => {
     expect(app.store.get().user).toEqual(user);
     expect(ctl.calls("refreshAuth")).toBe(1);
     expect(root.textContent).toContain("Ada");
-    expect(logoutButton()).toBeDefined();
+    expect(meLink()).not.toBeNull();
   });
 
   it("the app bar shows your avatar and name, linking to #/me, and follows profile changes (§15.4)", async () => {
@@ -56,8 +58,9 @@ describe("app boot (§7.1)", () => {
     location.hash = "#/me";
     await vi.waitFor(() => expect(root.querySelector("section.profile")).not.toBeNull());
     expect(root.querySelector("aside.sidebar")).not.toBeNull();
-    app.store.set({ user: await api.rename("Grace") });
-    expect(root.querySelector("header.app-bar .who")!.textContent).toBe("Grace");
+    const grace = `Grace ${newId()}`; // display names are unique (§22.1)
+    app.store.set({ user: await api.rename(grace) });
+    expect(root.querySelector("header.app-bar .who")!.textContent).toBe(grace);
     await api.unsubscribeAll();
   });
 
@@ -120,7 +123,7 @@ describe("app boot (§7.1)", () => {
     app = startApp({ api: me.api, root });
     await vi.waitFor(() => expect(root.querySelector("li.msg")).not.toBeNull());
     expect(calls).toEqual([]); // batched: not sent yet
-    logoutButton()!.click();
+    app.logOut(); // (from the room: going to the profile first would close the room, which sends it too)
     expect(calls).toEqual([`${room.id}@${m.created}`]);
     const again = newApi();
     await again.logIn(me.email, me.password);
@@ -202,21 +205,35 @@ describe("app boot (§7.1)", () => {
     root.querySelector("form")!.requestSubmit();
     await vi.waitFor(() => expect(location.hash).toBe("#/"));
     expect(app.store.get().user).toEqual(ada.user);
-    expect(logoutButton()).toBeDefined();
+    expect(meLink()).not.toBeNull();
     await vi.waitFor(() => expect(root.querySelector('nav[aria-label="Rooms"]')).not.toBeNull()); // mounted on hashchange
     expect(root.querySelector("button.new-room-toggle")).not.toBeNull();
   });
 
-  it("log out clears auth, drops realtime subscriptions and returns to login", async () => {
+  it("Log out is on the profile page, not in the app bar (§22.2)", async () => {
+    const { api } = await signedUp();
+    app = startApp({ api, root });
+    await vi.waitFor(() => expect(root.querySelector("aside.sidebar nav[aria-label='Rooms']")).not.toBeNull());
+    expect(root.querySelector("header.app-bar button")).toBeNull();
+    expect(logoutButton()).toBeUndefined();
+    location.hash = "#/me";
+    await vi.waitFor(() => expect(logoutButton()).toBeDefined());
+    await api.unsubscribeAll();
+  });
+
+  it("log out (on the profile page) clears auth, drops realtime subscriptions and returns to login", async () => {
     const { api } = await signedUp("Ada");
     const ctl = instrument(api);
+    history.replaceState(null, "", "#/me");
     app = startApp({ api, root });
+    await vi.waitFor(() => expect(logoutButton()).toBeDefined());
     logoutButton()!.click();
     await tick();
     expect(api.currentUser()).toBeNull();
     expect(ctl.calls("unsubscribeAll")).toBe(1);
     expect(app.store.get().user).toBeNull();
     expect(location.hash).toBe("#/login");
+    expect(meLink()).toBeNull();
     expect(logoutButton()).toBeUndefined();
     expect(app.store.get().rooms.size).toBe(0);
   });
@@ -225,7 +242,7 @@ describe("app boot (§7.1)", () => {
     const { api } = await signedUp("Ada");
     history.replaceState(null, "", "#/r/abc");
     app = startApp({ api, root });
-    logoutButton()!.click();
+    app.logOut();
     await tick();
     location.hash = "#/r/abc";
     await tick();
@@ -266,12 +283,12 @@ describe("app boot (§7.1)", () => {
       const ada = await signedUp("Ada");
       const { pb, api } = await sharedSession(ada.email, ada.password);
       app = startApp({ api, root });
-      expect(logoutButton()).toBeDefined();
+      expect(meLink()).not.toBeNull();
       pb.authStore.clear();
       await tick();
       expect(app.store.get().user).toBeNull();
       expect(location.hash).toBe("#/login");
-      expect(logoutButton()).toBeUndefined();
+      expect(meLink()).toBeNull();
     });
 
     it("a login as someone else in another tab switches this tab to that user", async () => {
@@ -301,7 +318,7 @@ describe("app boot (§7.1)", () => {
       await vi.waitFor(() => expect(ctl.calls("refreshAuth")).toBe(1));
       await tick();
       expect(ctl.calls("unsubscribeAll")).toBe(0);
-      logoutButton()!.click();
+      app.logOut();
       await tick();
       expect(ctl.calls("unsubscribeAll")).toBe(1);
     });

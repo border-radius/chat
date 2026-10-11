@@ -77,13 +77,26 @@ describe("login view (§7.1)", () => {
     mount(api);
     tab(root, "Sign up").click();
     const email = `${uniq()}@test.local`;
-    fill(root, { name: "Grace", email, password: "password-123" });
+    const name = `Grace ${uniq()}`;
+    fill(root, { name, email, password: "password-123" });
     submit(root);
     await vi.waitFor(() => expect(alertText(root)).toContain("Your account was created"));
     expect(tab(root, "Log in").getAttribute("aria-selected")).toBe("true");
     expect(root.querySelector<HTMLInputElement>('input[name="email"]')!.value).toBe(email);
     submit(root);
-    await vi.waitFor(() => expect(onLogin).toHaveBeenCalledWith({ id: expect.any(String), name: "Grace", avatar: "" }));
+    await vi.waitFor(() => expect(onLogin).toHaveBeenCalledWith({ id: expect.any(String), name, avatar: "" }));
+  });
+
+  it("a display name someone else has is refused next to the name field (§22.1)", async () => {
+    const taken = await signedUp();
+    mount();
+    tab(root, "Sign up").click();
+    fill(root, { name: taken.user.name.toUpperCase(), email: `${uniq()}@test.local`, password: "password-123" });
+    submit(root);
+    await vi.waitFor(() => expect(root.querySelector(".field-error")!.textContent).toBe("This display name is taken. Choose another one."));
+    expect(root.querySelector('input[name="name"]')!.getAttribute("aria-invalid")).toBe("true");
+    expect(onLogin).not.toHaveBeenCalled();
+    await taken.api.unsubscribeAll();
   });
 
   it("checks the display name length in characters (an emoji is one), before asking the server", async () => {

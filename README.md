@@ -2,18 +2,19 @@
 
 A small, fast, real-time group chat. One [PocketBase](https://pocketbase.io) binary is the whole backend
 (auth, data, realtime, static files); the frontend is vanilla TypeScript bundled by esbuild — no framework,
-~31 KB of JS gzipped.
+~33 KB of JS gzipped.
 
 - Public rooms anyone can create; hide rooms you don't care about; creators archive rooms (read-only, history kept)
 - Live messages, edits and deletes (deleted messages leave a placeholder)
 - Full history: scroll back to the very first message of any room (windowed, ≤300 messages in the DOM)
 - Direct messages between any two users, private to them; close a conversation and it comes back on the next message
-- Avatars (or colored initials) and a profile page to change your picture and display name
+- Avatars (or colored initials) and a profile page to change your picture, display name (unique) and password, and to log out
 - Replies: answer any message with a quote of it; click the quote to jump to the original, however far back
 - Emoji: a picker in the composer, and reactions on any message (as many different ones as you like), live for everyone
 - Attachments: up to 4 files per message, images shown as thumbnails; files are private to whoever can read the message
 - Select messages (up to 50): forward them to any room or DM, with "Forwarded from" and their attachments, or delete them together when they are yours
-- Unread counts on every room and DM, live, and in sync across your tabs and devices
+- Unread counts on every room and DM, live, and in sync across your tabs and devices; the total shows in the tab's favicon and title
+- What you were typing is kept per room, even across a reload; "Jump to latest" whenever you are scrolled up
 - Optimistic sending with safe retries, reconnect gap-fill, light/dark themes, works on phones
 
 Design: [`docs/DESIGN.md`](docs/DESIGN.md) · QA: [`docs/QA.md`](docs/QA.md) · Refactoring plan: [`docs/REFACTOR.md`](docs/REFACTOR.md) · Archived plans: [MVP build](docs/history/BUILD_PLAN.md), [avatars, DMs, attachments](docs/history/NEXT_FEATURES_PLAN.md)
@@ -105,5 +106,5 @@ Behind an existing reverse proxy instead, use `serve --http=127.0.0.1:8090` and 
 **Backups:** in the admin UI, *Settings → Backups* — schedule automatic backups (optionally to S3-compatible
 storage). Uploaded files (avatars, attachments) live in `pb_data/storage` (or S3, under *Settings → Files storage*) and
 are part of the backups, so plan disk space for them. **Rate limits** (per IP: messages 10 per 5 s, edits/deletes 20
-per 10 s, reactions 30 per 10 s, forwarding and deleting several messages 20 requests per minute each, new rooms 5 per minute, opening DMs 10 per minute, signups 20 per minute; PocketBase defaults for the rest)
+per 10 s, reactions 30 per 10 s, forwarding and deleting several messages 20 requests per minute each, password changes 5 per minute, new rooms 5 per minute, opening DMs 10 per minute, signups 20 per minute; PocketBase defaults for the rest)
 are set by the migrations and adjustable under *Settings → Rate limits*.

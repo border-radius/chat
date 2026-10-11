@@ -8,6 +8,8 @@ import type { Message } from "../../web/src/lib/types.ts";
 import { createClient } from "../../web/src/pb.ts";
 import { pngFile } from "../support/files.ts";
 import { uniq } from "../support/ids.ts";
+import { withName } from "../support/names.ts";
+import { rawDb } from "./helpers.ts";
 
 async function eventually(fn: () => void, ms = 2_000) {
   const deadline = Date.now() + ms;
@@ -34,12 +36,20 @@ async function rejection(p: Promise<unknown>): Promise<ApiError> {
 /** A real client with its own in-memory auth store (no shared localStorage). */
 const realClient = (): Api => createApi(createClient(inject("pbUrl")));
 
+/** signUp, freeing `name` first if an earlier test took it (display names are unique, §22.1). */
+const signUpAs = (api: Api, input: { email: string; password: string; name: string }) =>
+  withName(
+    () => rawDb({ write: true }),
+    input.name,
+    () => api.signUp(input),
+  );
+
 /** Two fresh logged-in clients and one logged-out client. */
 async function setup(): Promise<{ a: Api; b: Api; anon: Api }> {
   const a = realClient();
   const b = realClient();
-  await a.signUp({ email: `a-${uniq()}@test.local`, password: "password-123", name: "Alice" });
-  await b.signUp({ email: `b-${uniq()}@test.local`, password: "password-123", name: "Bob" });
+  await signUpAs(a, { email: `a-${uniq()}@test.local`, password: "password-123", name: "Alice" });
+  await signUpAs(b, { email: `b-${uniq()}@test.local`, password: "password-123", name: "Bob" });
   return { a, b, anon: realClient() };
 }
 
@@ -48,7 +58,7 @@ describe("createApi", () => {
     it("signUp logs the user in; logOut clears; logIn restores", async () => {
       const { anon } = await setup();
       const email = `c-${uniq()}@test.local`;
-      const user = await anon.signUp({ email, password: "password-123", name: "  Ada  " });
+      const user = await signUpAs(anon, { email, password: "password-123", name: "  Ada  " });
       expect(user).toEqual({ id: expect.any(String), name: "Ada", avatar: "" });
       expect(anon.currentUser()).toEqual(user);
       expect(await anon.refreshAuth()).toEqual(user);
@@ -109,8 +119,9 @@ describe("createApi", () => {
 
     it("rename trims and validates", async () => {
       const { a } = await setup();
-      expect((await a.rename("  New Name ")).name).toBe("New Name");
-      expect(a.currentUser()?.name).toBe("New Name");
+      const name = `New Name ${uniq()}`;
+      expect((await a.rename(`  ${name} `)).name).toBe(name);
+      expect(a.currentUser()?.name).toBe(name);
       const err = await rejection(a.rename("   "));
       expect(err.fields.name).toBeTruthy();
     });
@@ -120,7 +131,7 @@ describe("createApi", () => {
     it("openDm returns the DM with both members' public profiles; listRooms and getRoom include it for members only", async () => {
       const { a, b } = await setup();
       const c = realClient();
-      await c.signUp({ email: `c-${uniq()}@test.local`, password: "password-123", name: "Carol" });
+      await signUpAs(c, { email: `c-${uniq()}@test.local`, password: "password-123", name: "Carol" });
       const bob = b.currentUser()!;
       const dm = await a.openDm(bob.id);
       expect(dm).toMatchObject({ kind: "dm", name: "", archived: false });
@@ -461,7 +472,7 @@ describe("createApi", () => {
       };
       const pb = createClient(inject("pbUrl"));
       const api = createApi(pb);
-      await api.signUp({ email: `r-${uniq()}@test.local`, password: "password-123", name: "R" });
+      await signUpAs(api, { email: `r-${uniq()}@test.local`, password: "password-123", name: "R" });
       const unsub = await api.subscribeRooms(() => {});
       await eventually(() => expect(pb.realtime.isConnected).toBe(true));
       const calls: boolean[] = [];

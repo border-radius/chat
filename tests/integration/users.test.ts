@@ -58,7 +58,8 @@ describe("users rules (§5.5)", () => {
   it("a user can update their own name but not someone else's", async () => {
     const a = await newUser();
     const b = await newUser();
-    expect((await a.pb.collection("users").update(a.user.id, { name: "renamed" })).name).toBe("renamed");
+    const name = `renamed-${uniq()}`;
+    expect((await a.pb.collection("users").update(a.user.id, { name })).name).toBe(name);
     await expectRejected(a.pb.collection("users").update(b.user.id, { name: "hacked" }));
   });
 

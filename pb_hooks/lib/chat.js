@@ -108,11 +108,12 @@ function cleanName(record) {
 }
 
 /**
- * Uniqueness key for room names: NFKC + full case folding (via upper→lower, so "ß" matches "SS" and "Ü" "ü"),
- * without invisible characters. Keep in sync with pb_migrations/1760000001_qa_fixes.js.
+ * Uniqueness key for room and display names: NFKC + full case folding (via upper→lower, so "ß" matches "SS" and "Ü"
+ * "ü"), without invisible characters. Keep in sync with pb_migrations/1760000001_qa_fixes.js and
+ * 1760000012_accounts.js.
  * @param {string} name
  */
-function roomKey(name) {
+function nameKey(name) {
   const s = name.replace(INVISIBLE, "");
   return (typeof s.normalize === "function" ? s.normalize("NFKC") : s).toUpperCase().toLowerCase();
 }
@@ -125,24 +126,35 @@ function roomKey(name) {
 const stripHashes = (name) => name.replace(/^[#\s]+/, "");
 
 /**
- * rooms create/update: clean the name and enforce case-insensitive (Unicode) uniqueness via `name_key`.
+ * Set `name_key` from the (cleaned) name and enforce case-insensitive (Unicode) uniqueness within `collection`.
  * The unique index on name_key backs this up against races.
+ * @param {core.App} app
+ * @param {string} collection
+ * @param {core.Record} rec
+ * @param {string} taken the error message when another record has the name
+ */
+function setNameKey(app, collection, rec, taken) {
+  const key = nameKey(rec.getString("name"));
+  rec.set("name_key", key);
+  if (key === "") return; // `required` on name reports it
+  let clash = null;
+  try {
+    clash = app.findFirstRecordByFilter(collection, "name_key = {:key} && id != {:id}", { key, id: rec.id });
+  } catch {
+    clash = null; // no such record
+  }
+  if (clash) throw fieldError("name", taken, "validation_not_unique");
+}
+
+/**
+ * rooms create/update: clean the name and check it is unique.
  * @param {core.App} app
  * @param {core.Record} rec
  */
 function setRoomKey(app, rec) {
   cleanName(rec);
   rec.set("name", stripHashes(rec.getString("name")));
-  const key = roomKey(rec.getString("name"));
-  rec.set("name_key", key);
-  if (key === "") return; // `required` on name reports it
-  let clash = null;
-  try {
-    clash = app.findFirstRecordByFilter("rooms", "name_key = {:key} && id != {:id}", { key, id: rec.id });
-  } catch {
-    clash = null; // no such record
-  }
-  if (clash) throw fieldError("name", "Value must be unique.", "validation_not_unique");
+  setNameKey(app, "rooms", rec, "Value must be unique.");
 }
 
 /**
@@ -431,7 +443,7 @@ function beforeRoomUpdateRequest(e) {
 }
 
 /**
- * users create/update: clean the display name (§5.1). A new email is stored in lower case, so the same address can't
+ * users create/update: clean the display name (§5.1), which must be unique (§22.1). A new email is stored in lower case, so the same address can't
  * make two accounts and logging in doesn't depend on how it was capitalized (QA BUG-47). Existing ones are left as they
  * are on other updates (the migration lowered every one it could).
  * @param {core.RecordEvent} e
@@ -441,6 +453,13 @@ function beforeUserSave(e) {
   const email = rec.getString("email");
   if (rec.isNew() || email !== rec.original().getString("email")) rec.set("email", email.trim().toLowerCase());
   cleanName(rec);
+  if (!rec.isNew() && rec.getString("name") === rec.original().getString("name")) {
+    // Name unchanged: keep its key. Accounts named before name_key existed may share a name (the migration made
+    // their keys unique), and must still be able to change their picture or password.
+    rec.set("name_key", rec.original().getString("name_key"));
+  } else {
+    setNameKey(e.app, "users", rec, "This display name is taken. Choose another one.");
+  }
   assertImagesFit(rec, "avatar");
   originalNames(rec, "avatar"); // only for the upload's own name (QA BUG-35)
 }

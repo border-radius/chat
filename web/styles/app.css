@@ -451,8 +451,24 @@ label.button.disabled {
   pointer-events: none;
 }
 
-.profile-name {
+.profile-name,
+.profile-password,
+.profile-session {
   margin-top: 1.5rem;
+}
+
+.profile-password {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.profile-password h2,
+.profile-session h2 {
+  margin-bottom: 0;
+}
+
+.profile-password button {
+  justify-self: start;
 }
 
 .profile-name label,
@@ -484,6 +500,11 @@ label.button.disabled {
 
 .field-status.error {
   color: var(--danger);
+}
+
+.profile-password .field-status,
+.profile-password .field-error {
+  margin: 0;
 }
 
 /* ---- Login: a card floating on colorful blobs ---- */
@@ -1217,6 +1238,8 @@ span.att-file::before {
   background: var(--raised);
   box-shadow: var(--shadow);
   opacity: 0; /* not visibility:hidden — the buttons must stay in the tab order */
+  /* Hidden, it must not catch the pointer: it overlaps the message above, which would light up this one's instead. */
+  pointer-events: none;
 }
 
 .actions button {
@@ -1232,6 +1255,7 @@ span.att-file::before {
 .msg:hover .actions,
 .msg:focus-within .actions {
   opacity: 1;
+  pointer-events: auto;
 }
 
 @media (hover: none) {
@@ -1240,6 +1264,7 @@ span.att-file::before {
     justify-content: flex-start;
     width: fit-content;
     opacity: 1;
+    pointer-events: auto;
     margin-top: 0.15rem;
     box-shadow: none;
   }
@@ -1333,6 +1358,21 @@ span.att-file::before {
 
 .new-messages:active:not(:disabled) {
   transform: translateX(-50%) scale(0.95);
+}
+
+/* Scrolled away from the newest messages, with nothing new below (§22.7): quieter than "New messages". */
+.new-messages.jump {
+  background: var(--raised);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+
+@media (hover: hover) {
+  .new-messages.jump:hover:not(:disabled) {
+    background: var(--hover);
+    filter: none;
+  }
 }
 
 .composer {

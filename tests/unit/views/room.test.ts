@@ -1,13 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type Action, type Api, ApiError } from "../../../web/src/api.ts";
 import { h } from "../../../web/src/dom.ts";
+import { createDrafts } from "../../../web/src/drafts.ts";
 import { newId } from "../../../web/src/lib/id.ts";
 import { dayLabel, parsePb } from "../../../web/src/lib/time.ts";
 import type { Message, Room } from "../../../web/src/lib/types.ts";
 import type { View } from "../../../web/src/router.ts";
 import { type AppState, bumpUnread, createStore, initialState, type Store } from "../../../web/src/store.ts";
 import { HIGHLIGHT_MS } from "../../../web/src/views/room/controller.ts";
-import { createRoomView } from "../../../web/src/views/room.ts";
+import { createRoomView, NOTICE_MS } from "../../../web/src/views/room.ts";
 import {
   instrument,
   intercept,
@@ -2120,6 +2121,8 @@ describe("room view (§7.5–7.6)", () => {
       expect(navigate).not.toHaveBeenCalled();
       expect(root.querySelector(".room-notice")!.textContent).toBe("Message forwarded.");
       await vi.waitFor(() => expect(msgEls().at(-1)!.querySelector(".forwarded")?.textContent).toBe("Forwarded from Me"));
+      // A confirmation, not a state: it goes away by itself (§22.6).
+      await vi.waitFor(() => expect(root.querySelector(".room-notice")!.textContent).toBe(""), { timeout: NOTICE_MS + 2000 });
     });
 
     it("archived rooms: forwarding still works, deleting doesn't", async () => {
@@ -2134,6 +2137,78 @@ describe("room view (§7.5–7.6)", () => {
       expect(root.querySelector(".archived-banner")).toBeNull();
       button(bar(), "Cancel")!.click();
       expect(root.querySelector(".archived-banner")).not.toBeNull();
+    });
+  });
+
+  describe("§22: drafts across reloads, focus, Jump to latest", () => {
+    it("what you typed survives a reload (a new app with the same storage), and is gone once sent (§22.3)", async () => {
+      const room = await newRoom();
+      await mount(room);
+      type("unsent thought");
+      view!.unmount();
+      // A reload: nothing in memory survives, only localStorage.
+      view = createRoomView({ ...viewContext(me.api, store, navigate), drafts: createDrafts(() => me.user.id) });
+      view.mount(root, { id: room.id });
+      fakeLayout(list(), { rowHeight: ROW, clientHeight: VIEWPORT });
+      await loaded();
+      expect(composer()!.value).toBe("unsent thought");
+      send("unsent thought");
+      expect(createDrafts(() => me.user.id).get(room.id)).toBe("");
+    });
+
+    it("drafts are per user, and the session's end clears them", () => {
+      const drafts = createDrafts(() => me.user.id);
+      drafts.set("room1", "mine");
+      expect(createDrafts(() => "someone-else").get("room1")).toBe("");
+      expect(createDrafts(() => "").get("room1")).toBe(""); // logged out: nothing
+      drafts.set("room2", "   ");
+      expect(drafts.get("room2")).toBe(""); // blank is no draft
+      drafts.clear(me.user.id);
+      expect(drafts.get("room1")).toBe("");
+    });
+
+    it("entering a room puts the caret in the composer (§22.5)", async () => {
+      const room = await newRoom();
+      (document.activeElement as HTMLElement | null)?.blur();
+      await mount(room);
+      expect(document.activeElement).toBe(composer());
+    });
+
+    it("not on a touch screen, where it would pop up the keyboard", async () => {
+      const room = await newRoom();
+      vi.spyOn(window, "matchMedia").mockImplementation((q) => ({ matches: q === "(hover:none)" }) as MediaQueryList);
+      (document.activeElement as HTMLElement | null)?.blur();
+      await mount(room);
+      expect(document.activeElement).not.toBe(composer());
+    });
+
+    it("scrolled up with nothing new, 'Jump to latest' takes you back to the bottom (§22.7)", async () => {
+      const room = await newRoom();
+      await seedMessages(room.id, me.user.id, 30);
+      await mount(room);
+      expect(pill().hidden).toBe(true);
+      layout.scrollTo(0);
+      expect(pill().hidden).toBe(false);
+      expect(pill().textContent).toBe("↓ Jump to latest");
+      expect(pill().classList.contains("jump")).toBe(true);
+      pill().click();
+      expect(atBottom()).toBe(true);
+      expect(pill().hidden).toBe(true);
+      layout.scrollTo(0);
+      layout.scrollToBottom(); // scrolling down yourself hides it too
+      expect(pill().hidden).toBe(true);
+    });
+
+    it("back in history (e.g. after following a quote), it loads the latest page", async () => {
+      const room = await newRoom();
+      const all = await seedMessages(room.id, me.user.id, 200);
+      await mount(room, { msgId: all[20]!.id });
+      expect(pill().hidden).toBe(false);
+      expect(pill().textContent).toBe("↓ Jump to latest");
+      pill().click();
+      await vi.waitFor(() => expect(ids().at(-1)).toBe(all.at(-1)!.id));
+      expect(atBottom()).toBe(true);
+      expect(pill().hidden).toBe(true);
     });
   });
 });

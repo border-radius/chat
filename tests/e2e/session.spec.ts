@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { apiRoom, apiUser, login } from "./fixtures.ts";
+import { apiRoom, apiUser, login, logOut } from "./fixtures.ts";
 
 test("a reload keeps the session; logging out guards rooms even via the back button", async ({ page }) => {
   const ada = await apiUser("Ada");
@@ -13,7 +13,7 @@ test("a reload keeps the session; logging out guards rooms even via the back but
   await expect(page.locator("header.room-header h1")).toHaveText(`#${room.name}`);
   await expect(page.locator("header.app-bar")).toContainText("Ada");
 
-  await page.getByRole("button", { name: "Log out" }).click();
+  await logOut(page);
   await expect(page).toHaveURL(/#\/login$/);
   expect(await page.evaluate(() => localStorage.getItem("pocketbase_auth"))).toBeNull();
 
@@ -32,7 +32,7 @@ test("tabs share the session: a logout or a login as someone else in one tab is 
   await other.goto(`/#/r/${room.id}`);
   await expect(other.locator("header.app-bar")).toContainText("Ada");
 
-  await page.getByRole("button", { name: "Log out" }).click();
+  await logOut(page);
   await expect(other).toHaveURL(/#\/login$/);
   await expect(other.locator("ol.messages")).toHaveCount(0);
 

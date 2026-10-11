@@ -6,6 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import { type Browser, expect, type Locator, type Page } from "@playwright/test";
 import { newId } from "../../web/src/lib/id.ts";
 import { uniq } from "../support/ids.ts";
+import { withName } from "../support/names.ts";
 import { E2E_BASE, E2E_DATA_DIR } from "./paths.ts";
 
 export { uniq } from "../support/ids.ts";
@@ -31,13 +32,19 @@ async function call<T>(path: string, init: RequestInit & { token?: string } = {}
   return (await res.json()) as T;
 }
 
-export async function apiUser(name = "User", base = E2E_BASE): Promise<User> {
+/** `dataDir`: the server's, to free the name if an earlier test took it (support/names.ts). */
+export async function apiUser(name = "User", base = E2E_BASE, dataDir = E2E_DATA_DIR): Promise<User> {
   const email = `user-${uniq()}@test.local`; // not derived from the name, which may contain markup
   const password = "password-123";
-  await call(
-    "/api/collections/users/records",
-    { method: "POST", body: JSON.stringify({ email, password, passwordConfirm: password, name }) },
-    base,
+  await withName(
+    () => new DatabaseSync(join(dataDir, "data.db")),
+    name,
+    () =>
+      call(
+        "/api/collections/users/records",
+        { method: "POST", body: JSON.stringify({ email, password, passwordConfirm: password, name }) },
+        base,
+      ),
   );
   const auth = await call<{ token: string; record: { id: string } }>(
     "/api/collections/users/auth-with-password",
@@ -101,6 +108,12 @@ export async function login(page: Page, user: User, base = ""): Promise<void> {
   await page.getByLabel("Password").fill(user.password);
   await page.getByRole("button", { name: "Log in" }).click();
   await expect(page).toHaveURL(/#\/$/);
+}
+
+/** Log out the way a user does: Log out is on the profile page (§22.2). */
+export async function logOut(page: Page): Promise<void> {
+  await page.locator("header.app-bar a.me-link").click();
+  await page.getByRole("button", { name: "Log out" }).click();
 }
 
 /** A new browser context logged in as `user`, opened on `room`. */

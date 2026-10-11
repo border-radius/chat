@@ -64,6 +64,11 @@ export interface Api {
   setAvatar(file: File): Promise<User>;
   removeAvatar(): Promise<User>;
   rename(name: string): Promise<User>;
+  /**
+   * Change your password (§22.2). The server checks the current one and signs out every other session; this one gets
+   * a fresh token. Rejects with field errors on `oldPassword` or `password`.
+   */
+  changePassword(oldPassword: string, password: string): Promise<User>;
   /** Thumbnail URL of a user's avatar at `size` px (48 or 96), or "" when they have none. */
   avatarUrl(user: User, size: AvatarSize): string;
 
@@ -245,6 +250,8 @@ function records(pb: PbClient, collection: string) {
     authWithPassword: (identity: string, password: string) =>
       auth(pb.send(`${path}/auth-with-password`, { method: "POST", body: { identity, password } })),
     authRefresh: () => auth(pb.send(`${path}/auth-refresh`, { method: "POST" })),
+    /** A custom route that answers like a login. */
+    authAt: (url: string, body: Record<string, unknown>) => auth(pb.send(url, { method: "POST", body })),
   };
 }
 
@@ -317,6 +324,10 @@ export function createApi(pb: PbClient): Api {
     setAvatar: async (file) => toUser(await wrap(users.update(me(), { avatar: file }, { fields: USER_FIELDS }))),
     removeAvatar: async () => toUser(await wrap(users.update(me(), { avatar: null }, { fields: USER_FIELDS }))),
     rename: async (name) => toUser(await wrap(users.update(me(), { name }, { fields: USER_FIELDS }))),
+    async changePassword(oldPassword, password) {
+      me();
+      return toUser(await wrap(users.authAt("/api/chat/password", { oldPassword, password })));
+    },
     avatarUrl(user, size) {
       if (!user.avatar) return "";
       return pb.fileUrl("users", user.id, user.avatar, { thumb: `${size}x${size}` });

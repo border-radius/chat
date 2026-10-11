@@ -23,6 +23,9 @@ import { createForwardDialog } from "./room/forward.ts";
 import { createRoomHeader } from "./room/header.ts";
 import { createMessageList, reactionFocus } from "./room/messages.ts";
 
+/** How long a confirmation such as "Message forwarded." stays on screen (§22.6). */
+export const NOTICE_MS = 4000;
+
 export function createRoomView({ api, store, unread, actions, navigate, drafts }: Ctx): View {
   const vid = uniqueId("room");
   const scope = createScope();
@@ -43,6 +46,8 @@ export function createRoomView({ api, store, unread, actions, navigate, drafts }
   let confirmingDelete = false;
   /** The messages the forward dialog is open for. */
   let forwarding: string[] = [];
+  /** Put the caret in the composer as soon as it is shown: on entering the room (§22.5). */
+  let focusComposer = true;
 
   const room = () => store.get().rooms.get(roomId);
   const me = () => store.get().user;
@@ -117,6 +122,10 @@ export function createRoomView({ api, store, unread, actions, navigate, drafts }
     },
     onCancelReply: () => setReply(null),
     onEmoji: (opener, insert) => picker.open(opener, { label: "Insert emoji", onPick: insert, restoreFocus: () => composer.focus() }),
+    // Kept as you type, so a reload doesn't lose it (§22.3).
+    onChange: (text) => {
+      if (roomId) drafts.set(roomId, text);
+    },
     signal,
   });
   const forwardDialog = createForwardDialog({
@@ -134,7 +143,7 @@ export function createRoomView({ api, store, unread, actions, navigate, drafts }
         if (!scope.active) return null;
         endSelect();
         if (target.id !== roomId) navigate(`#/r/${target.id}`);
-        else notice.textContent = n === 1 ? "Message forwarded." : `${n} messages forwarded.`;
+        else flash(n === 1 ? "Message forwarded." : `${n} messages forwarded.`);
         return null;
       } catch (e) {
         return `Couldn't forward. ${errorMessage(e)}`;
@@ -147,6 +156,15 @@ export function createRoomView({ api, store, unread, actions, navigate, drafts }
   const footer = h("footer", { class: "room-footer" });
   const banner = h("p", { class: "archived-banner" }, "This room is archived. History is read-only.");
   const notice = h("p", { class: "room-notice", role: "status" });
+  let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Show a confirmation that goes away by itself (§22.6), unless something else is said meanwhile. */
+  function flash(text: string) {
+    notice.textContent = text;
+    clearTimeout(noticeTimer);
+    noticeTimer = setTimeout(() => {
+      if (notice.textContent === text) notice.textContent = "";
+    }, NOTICE_MS);
+  }
   const shell = h("section", { class: "room", "aria-labelledby": `${vid}-title` }, [
     header.el,
     notice,
@@ -296,8 +314,6 @@ export function createRoomView({ api, store, unread, actions, navigate, drafts }
       renderFooter();
     }
     if (c.notice !== undefined) notice.textContent = c.notice;
-    pill.hidden = s.pill === null;
-    pill.textContent = s.pill === "history" ? "New messages · Jump to latest" : "↓ New messages";
     if (c.render) {
       render(c.render);
       refreshReply();
@@ -308,6 +324,19 @@ export function createRoomView({ api, store, unread, actions, navigate, drafts }
       const el = list.querySelector<HTMLElement>(`li.msg[data-id="${CSS.escape(s.targetId)}"]`);
       if (el) list.scrollTop = el.offsetTop - list.clientHeight / 2;
     }
+    renderPill();
+  }
+
+  /**
+   * The button over the bottom of the list: "New messages" when some arrived out of sight (§7.5), else "Jump to
+   * latest" whenever the newest messages aren't on screen: scrolled up, or the window is back in history (§22.7).
+   */
+  function renderPill() {
+    const s = ctl.state();
+    const away = s.phase === "ready" && (s.win.hasNewer || !isNearBottom(list));
+    pill.hidden = s.pill === null && !away;
+    pill.classList.toggle("jump", s.pill === null);
+    pill.textContent = s.pill === "history" ? "New messages · Jump to latest" : s.pill === "below" ? "↓ New messages" : "↓ Jump to latest";
   }
 
   /**
@@ -360,6 +389,12 @@ export function createRoomView({ api, store, unread, actions, navigate, drafts }
       picker.close(); // nothing left to insert into or react to
     } else if (footer.firstChild !== composer.el) footer.replaceChildren(composer.el);
     composer.setPlaceholder(`Message ${roomTitle(r, me())}`);
+    // Entering a room (or switching to another one), you can just type. Not on touch screens: it would pop up the
+    // keyboard over the messages you came to read.
+    if (focusComposer && footer.contains(composer.el)) {
+      focusComposer = false;
+      if (!matchMedia("(hover:none)").matches) composer.focus();
+    }
   }
 
   function renderNotFound() {
@@ -476,13 +511,17 @@ export function createRoomView({ api, store, unread, actions, navigate, drafts }
       pill.addEventListener(
         "click",
         () => {
-          if (ctl.state().pill === "history") return void ctl.jump("latest");
+          const s = ctl.state();
+          if (s.pill === "history" || s.win.hasNewer) return void ctl.jump("latest");
           scrollToBottom();
           ctl.dismissPill();
+          renderPill();
         },
         { signal },
       );
       list.addEventListener("scroll", () => isNearBottom(list) && ctl.dismissPill(), { signal });
+      list.addEventListener("scroll", renderPill, { signal });
+      scope.defer(() => clearTimeout(noticeTimer));
       // Escape stops selecting (the forward dialog handles its own Escape).
       shell.addEventListener(
         "keydown",
@@ -552,13 +591,8 @@ export function createRoomView({ api, store, unread, actions, navigate, drafts }
       root.append(shell);
       renderHeader();
       renderFooter();
-      // What you were writing here before visiting another room (QA BUG-50).
-      composer.setText(drafts.get(roomId) ?? "");
-      scope.defer(() => {
-        const draft = composer.text();
-        if (draft.trim()) drafts.set(roomId, draft);
-        else drafts.delete(roomId);
-      });
+      // What you were writing here before visiting another room (QA BUG-50) or reloading the page (§22.3).
+      composer.setText(drafts.get(roomId));
 
       store.set({ activeRoomId: roomId });
       scope.defer(() => store.set({ activeRoomId: null }));
