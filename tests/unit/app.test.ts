@@ -61,6 +61,14 @@ describe("app boot (§7.1)", () => {
     await api.unsubscribeAll();
   });
 
+  it("#/ shows the room list as a sidebar and a greeting where the room would be", async () => {
+    const { api } = await signedUp("Ada Lovelace");
+    app = startApp({ api, root });
+    await vi.waitFor(() => expect(root.querySelector("aside.sidebar nav[aria-label='Rooms']")).not.toBeNull());
+    expect(root.querySelector(".layout.home .pane section.welcome h1")!.textContent).toBe("Welcome, Ada!");
+    await api.unsubscribeAll();
+  });
+
   it("BUG-27: a file dragged over or dropped anywhere doesn't make the browser open it; other drags are left alone", async () => {
     const { api } = await signedUp("Ada");
     app = startApp({ api, root });

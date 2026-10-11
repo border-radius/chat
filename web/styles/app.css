@@ -227,6 +227,25 @@ body,
   min-width: 0;
 }
 
+/* Home: a greeting where the room would be. */
+.welcome {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  height: 100%;
+  padding: 2rem 1rem;
+  text-align: center;
+}
+
+.welcome h1 {
+  margin: 0 0 0.5rem;
+}
+
+.welcome p {
+  margin: 0;
+  color: var(--muted);
+}
+
 /* ---- Avatars (§15.4) ---- */
 
 .avatar {
@@ -1097,6 +1116,17 @@ span.att-file::before {
 
 @media (max-width: 720px) {
   .sidebar {
+    display: none;
+  }
+
+  /* At #/ the room list is the page. */
+  .layout.home .sidebar {
+    display: block;
+    flex: 1;
+    border-right: 0;
+  }
+
+  .layout.home .pane {
     display: none;
   }
 }

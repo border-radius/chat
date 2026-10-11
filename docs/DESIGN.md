@@ -127,7 +127,7 @@ chat/
 │       ├── ui/                 # small reusable components
 │       │   ├── menu.ts, avatar.ts, user-search.ts
 │       └── views/
-│           ├── login.ts, rooms.ts, profile.ts
+│           ├── login.ts, rooms.ts, home.ts, profile.ts
 │           ├── room.ts         # message window, loading, realtime, sending
 │           └── room/           # header.ts, messages.ts (the list), composer.ts
 ├── tests/
@@ -303,7 +303,7 @@ Filters are always built with `pb.filter()` and never by string concatenation, w
 | Route | View | Notes |
 |---|---|---|
 | `#/login` | login / signup (tabbed form) | redirected here if not authenticated |
-| `#/` | room list + "new room" form | |
+| `#/` | room list + "new room" form, with a greeting where a room would be | on narrow screens only the room list shows |
 | `#/r/:roomId` | room: message list + composer | on wide screens the room list stays visible as a sidebar |
 | `#/r/:roomId/m/:msgId` | room, opened at a specific message (window centered on it) | used by "jump to beginning" and shareable later |
 

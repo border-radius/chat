@@ -16,6 +16,13 @@ test("sign up, create a room, send the first message", async ({ page }) => {
   await expect(page).toHaveURL(/#\/$/);
   await expect(page.locator("header.app-bar")).toContainText("Grace");
   await expect(page.getByRole("navigation", { name: "Rooms" })).toBeVisible();
+  // With no room open: the room list is a sidebar on the left, a greeting beside it.
+  const welcome = page.getByRole("heading", { name: "Welcome, Grace!" });
+  await expect(welcome).toBeVisible();
+  const side = (await page.locator("aside.sidebar").boundingBox())!;
+  const greet = (await welcome.boundingBox())!;
+  expect(side.x).toBe(0);
+  expect(greet.x).toBeGreaterThan(side.x + side.width);
 
   const name = `general-${uniq()}`;
   await page.getByLabel("New room").fill(name);

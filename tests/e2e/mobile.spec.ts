@@ -41,4 +41,5 @@ test("on a phone: list → room → send → back to the list", async ({ page })
   await page.getByRole("link", { name: "Back to rooms" }).tap();
   await expect(page).toHaveURL(/#\/$/);
   await expect(page.getByRole("navigation", { name: "Rooms" })).toBeVisible();
+  await expect(page.locator("section.welcome")).toBeHidden(); // a phone shows only the list
 });

@@ -8,6 +8,7 @@ import { createRouter, type Router, type View } from "./router.ts";
 import { type AppState, createStore, initialState, type Store } from "./store.ts";
 import { createSync } from "./sync.ts";
 import { avatar } from "./ui/avatar.ts";
+import { createHomeView } from "./views/home.ts";
 import { createLoginView } from "./views/login.ts";
 import { createProfileView } from "./views/profile.ts";
 import { createRoomView } from "./views/room.ts";
@@ -23,10 +24,10 @@ export interface App {
 const AUTH_REJECTED = new Set([401, 403, 404]);
 
 /**
- * Room page layout (§7.1): the room list as a sidebar next to the main view. New params remount only the
+ * Page layout (§7.1): the room list as a sidebar next to the main view. New params remount only the
  * main view, so switching rooms keeps the sidebar (and anything typed into it).
  */
-function withSidebar(sidebar: () => View, main: () => View): () => View {
+function withSidebar(sidebar: () => View, main: () => View, layoutClass = ""): () => View {
   return () => {
     const side = sidebar();
     let pane = main();
@@ -36,7 +37,7 @@ function withSidebar(sidebar: () => View, main: () => View): () => View {
       mount(el, params) {
         root = el;
         const aside = h("aside", { class: "sidebar" });
-        el.replaceChildren(h("div", { class: "layout" }, [aside, content]));
+        el.replaceChildren(h("div", { class: `layout ${layoutClass}`.trim() }, [aside, content]));
         side.mount(aside, {});
         pane.mount(content, params);
       },
@@ -139,7 +140,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
             },
           }),
       },
-      { pattern: "#/", view: rooms },
+      { pattern: "#/", view: withSidebar(rooms, () => createHomeView(ctx), "home") },
       { pattern: "#/r/:id", view: roomPage },
       { pattern: "#/r/:id/m/:msgId", view: roomPage },
       { pattern: "#/me", view: withSidebar(rooms, () => createProfileView(ctx)) },
