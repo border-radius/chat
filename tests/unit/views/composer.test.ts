@@ -108,4 +108,17 @@ describe("composer attachments (§17.4)", () => {
     expect(editProblem("  ")).toMatch(/can't be empty/);
     expect(editProblem("  ", true)).toBe("");
   });
+
+  it("QA BUG-42: text made only of zero-width characters is empty (the server would refuse it)", () => {
+    textarea().value = "\u200b\u2060 \ufeff";
+    textarea().dispatchEvent(new Event("input"));
+    expect(sendButton().disabled).toBe(true);
+    enter();
+    expect(sent).toEqual([]);
+    expect(editProblem("\u200b")).toMatch(/can't be empty/);
+    // Joiners inside real text are text.
+    textarea().value = "👨\u200d👩";
+    textarea().dispatchEvent(new Event("input"));
+    expect(sendButton().disabled).toBe(false);
+  });
 });

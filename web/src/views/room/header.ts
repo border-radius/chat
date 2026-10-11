@@ -2,6 +2,7 @@
 // beginning). A DM shows the other member's avatar and name, and can be closed but never archived.
 
 import type { RoomActions } from "../../actions.ts";
+import { errorMessage } from "../../api.ts";
 import { h } from "../../dom.ts";
 import { otherMember, roomTitle } from "../../lib/rooms.ts";
 import type { Room, User } from "../../lib/types.ts";
@@ -40,8 +41,9 @@ export function createRoomHeader(opts: {
       await fn();
       error.textContent = "";
       return true;
-    } catch {
-      if (!signal.aborted) error.textContent = "That didn't work. Check your connection and try again.";
+    } catch (e) {
+      // Say why: network trouble, rate limiting or the server's reason (QA BUG-39).
+      if (!signal.aborted) error.textContent = `That didn't work. ${errorMessage(e)}`;
       return false;
     }
   }

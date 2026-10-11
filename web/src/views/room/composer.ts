@@ -12,10 +12,23 @@ const MAX_LEN = LIMITS.messageText;
 const COUNTER_FROM = 1800;
 const MAX_ROWS = 6;
 
+/** Zero-width and bidi format characters: text made only of these is blank to the server (INVISIBLE in pb_hooks/lib/chat.js). */
+const INVISIBLE = /[­᠎​-‏‪-‮⁠-⁤⁦-⁩﻿]/g;
+
+/** Does trimmed `t` show anything? The server refuses text that doesn't (QA BUG-42). */
+const isBlank = (t: string) => t.replace(INVISIBLE, "").trim() === "";
+
 /** Trimmed text that may be sent or saved, or null. Length in code points, as the server counts it. */
 export function validText(raw: string): string | null {
   const t = raw.trim();
-  return t.length > 0 && textLength(t) <= MAX_LEN ? t : null;
+  return !isBlank(t) && textLength(t) <= MAX_LEN ? t : null;
+}
+
+/** Like validText, but next to attachments the text may be empty (§17.1). */
+export function validEdit(raw: string, hasFiles: boolean): string | null {
+  if (!hasFiles) return validText(raw);
+  const t = raw.trim();
+  return textLength(t) <= MAX_LEN ? t : null;
 }
 
 /** Longest edge of an attached image after preparation (§15.3). */
@@ -30,7 +43,7 @@ const previewable = (f: File) => f.type.startsWith("image/") && f.type !== "imag
  */
 export function editProblem(raw: string, hasFiles = false): string {
   const len = textLength(raw.trim());
-  if (len === 0 && !hasFiles) return "A message can't be empty. Use Delete to remove it.";
+  if (isBlank(raw) && !hasFiles) return "A message can't be empty. Use Delete to remove it.";
   return len > MAX_LEN ? `Too long: ${len - MAX_LEN} characters over the ${MAX_LEN} limit.` : "";
 }
 
@@ -91,10 +104,7 @@ export function createComposer(opts: {
 
   /** What Send would send: valid text, or attachments with text that isn't too long. */
   function sendable(): string | null {
-    const text = validText(textarea.value);
-    if (text !== null) return text;
-    const t = textarea.value.trim();
-    return files.length && textLength(t) <= MAX_LEN ? t : null;
+    return validEdit(textarea.value, files.length > 0);
   }
 
   function onInput() {

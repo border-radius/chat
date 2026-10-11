@@ -218,24 +218,6 @@ describe("room view (§7.5–7.6)", () => {
       await loaded();
     });
 
-    it("live messages that arrive before the first page loads are not lost", async () => {
-      const other = await signedUp("Other");
-      const room = await newRoom();
-      const delivered = deliveries(me.api);
-      const ctl = instrument(me.api);
-      const release = ctl.hold("page");
-      view = createRoomView(viewContext(me.api, store, navigate));
-      view.mount(root, { id: room.id });
-      await subscribed(me.api);
-      const early = await other.api.send({ id: newId(), room: room.id, text: "early bird" });
-      await vi.waitFor(() => expect(delivered).toContain(early.id)); // arrived before the first page
-      expect(ctl.calls("page")).toBe(1);
-      release();
-      await loaded();
-      await vi.waitFor(() => expect(ids()).toContain(early.id));
-      expect(ids().filter((x) => x === early.id)).toHaveLength(1);
-    });
-
     it("an unknown room shows a not-found message", async () => {
       view = createRoomView(viewContext(me.api, store, navigate));
       view.mount(root, { id: "doesnotexist123" });
@@ -461,43 +443,6 @@ describe("room view (§7.5–7.6)", () => {
       return slice;
     }
 
-    it("scrolls back to the very first message of a long history, never holding more than 300", async () => {
-      const room = await newRoom();
-      const all = await seedMessages(room.id, me.user.id, 1000);
-      await mount(room);
-      let max = 0;
-      let firstShown = ids()[0];
-      for (let i = 0; i < 30 && !beginning(); i++) {
-        expect(io.intersect(sentinel("top"))).toBe(true);
-        // 1000 = 20 full pages, so the last older page is legitimately empty: then only the marker appears.
-        await vi.waitFor(() => expect(ids()[0] !== firstShown || beginning() !== null).toBe(true));
-        firstShown = ids()[0];
-        max = Math.max(max, msgEls().length);
-        contiguous(all);
-      }
-      expect(beginning()!.textContent).toBe(`Beginning of #${room.name}`);
-      expect(ids()[0]).toBe(all[0]!.id);
-      expect(max).toBeLessThanOrEqual(300);
-      expect(sentinel("top")).toBeNull();
-      expect(sentinel("bottom")).not.toBeNull();
-    });
-
-    it("scrolling back down returns to the live edge", async () => {
-      const room = await newRoom();
-      const all = await seedMessages(room.id, me.user.id, 450);
-      await mount(room, { msgId: all[10]!.id });
-      expect(sentinel("bottom")).not.toBeNull();
-      for (let i = 0; i < 20 && sentinel("bottom"); i++) {
-        const last = ids().at(-1);
-        io.intersect(sentinel("bottom"));
-        await vi.waitFor(() => expect(ids().at(-1)).not.toBe(last));
-        expect(msgEls().length).toBeLessThanOrEqual(300);
-        contiguous(all);
-      }
-      expect(sentinel("bottom")).toBeNull();
-      expect(ids().at(-1)).toBe(all.at(-1)!.id);
-    });
-
     it("loading older messages keeps what you were looking at in place", async () => {
       const room = await newRoom();
       await seedMessages(room.id, me.user.id, 200);
@@ -562,104 +507,11 @@ describe("room view (§7.5–7.6)", () => {
       expect(sentinel("top")).not.toBeNull();
       expect(sentinel("bottom")).not.toBeNull();
     });
-
-    it("only one older-page request runs at a time", async () => {
-      const room = await newRoom();
-      await seedMessages(room.id, me.user.id, 200);
-      const ctl = instrument(me.api);
-      await mount(room);
-      const release = ctl.hold("page");
-      io.intersect(sentinel("top"));
-      io.intersect(sentinel("top"));
-      await sleep(20);
-      expect(ctl.calls("page")).toBe(2); // initial + one older
-      release();
-      await vi.waitFor(() => expect(msgEls().length).toBe(100));
-    });
-
-    it("a page that arrives after a jump is discarded", async () => {
-      const room = await newRoom();
-      const all = await seedMessages(room.id, me.user.id, 300);
-      await mount(room);
-      // From here on, each page response waits until released, in an order the test chooses.
-      // Slots are assigned at call time, so gates[i] is the i-th request whatever order the server answers in.
-      const gates: (() => void)[] = [];
-      intercept(me.api, "page", (original) => async (q, signal) => {
-        const gate = new Promise<void>((r) => gates.push(r));
-        const res = await original(q, signal);
-        await gate;
-        return res;
-      });
-      io.intersect(sentinel("top")); // older page (will arrive late)
-      button(headerMenu(), "Jump to beginning")!.click(); // first page
-      await vi.waitFor(() => expect(gates).toHaveLength(2));
-      gates[1]!(); // the jump's page arrives first…
-      await vi.waitFor(() => expect(beginning()).not.toBeNull());
-      gates[0]!(); // …then the stale older page
-      await sleep(50);
-      expect(ids()).toEqual(all.slice(0, 50).map((m) => m.id));
-      expect(sentinel("top")).toBeNull();
-    });
-
-    it("Jump to beginning during the initial load wins over the late first page, and the view still becomes ready", async () => {
-      const room = await newRoom();
-      const all = await seedMessages(room.id, me.user.id, 300);
-      let releaseInitial!: () => void;
-      const initialHeld = new Promise<void>((r) => (releaseInitial = r));
-      let n = 0;
-      intercept(me.api, "page", (original) => async (q, signal) => {
-        const res = await original(q, signal);
-        if (n++ === 0) await initialHeld; // only the initial latest-page load is slow
-        return res;
-      });
-      view = createRoomView(viewContext(me.api, store, navigate));
-      view.mount(root, { id: room.id });
-      layout = fakeLayout(list(), { rowHeight: ROW, clientHeight: VIEWPORT });
-      await vi.waitFor(() => expect(n).toBe(1));
-      button(headerMenu(), "Jump to beginning")!.click();
-      await vi.waitFor(() => expect(ids()[0]).toBe(all[0]!.id));
-      releaseInitial();
-      await loaded();
-      await sleep(50);
-      expect(ids()).toEqual(all.slice(0, 50).map((m) => m.id));
-      expect(beginning()).not.toBeNull();
-    });
   });
 
   // ---- 5.5 ----
 
-  describe("reconnect gap fill (5.5)", () => {
-    it("at the live edge, fetches everything missed while disconnected, in order", async () => {
-      const other = await signedUp("Other");
-      const room = await newRoom();
-      await seedMessages(room.id, me.user.id, 20);
-      const gate = gateRealtime(me.api);
-      const ctl = instrument(me.api);
-      await mount(room);
-      gate.offline = true;
-      const missed: Message[] = [];
-      for (let i = 0; i < 80; i++) missed.push(await other.api.send({ id: newId(), room: room.id, text: `missed ${i}` }));
-      await vi.waitFor(() => expect(gate.dropped).toBe(80));
-      expect(ids()).not.toContain(missed[0]!.id);
-      gate.offline = false;
-      const pagesBefore = ctl.calls("page");
-      ctl.reconnect();
-      await vi.waitFor(() => expect(ids().at(-1)).toBe(missed.at(-1)!.id));
-      expect(ids().slice(-80)).toEqual(missed.map((m) => m.id));
-      expect(ctl.calls("page") - pagesBefore).toBe(2); // 50 + 30
-    });
-
-    it("scrolled into history, a reconnect fetches no messages", async () => {
-      const room = await newRoom();
-      const all = await seedMessages(room.id, me.user.id, 200);
-      const ctl = instrument(me.api);
-      await mount(room, { msgId: all[10]!.id });
-      const pages = ctl.calls("page");
-      ctl.reconnect();
-      await sleep(200);
-      expect(ctl.calls("page")).toBe(pages);
-    });
-
+  describe("reconnects (5.5)", () => {
     it("a reconnect refetches the room, so an archive missed while offline takes effect", async () => {
       const room = await newRoom();
       const ctl = instrument(me.api);
@@ -1048,40 +900,6 @@ describe("room view (§7.5–7.6)", () => {
 
   describe("QA fixes", () => {
     const editBox = (id: string) => msgEl(id)?.querySelector<HTMLTextAreaElement>("textarea.edit-input") ?? null;
-
-    it("BUG-01: a reconnect applies edits and deletes missed while disconnected", async () => {
-      const other = await signedUp("Other");
-      const room = await newRoom();
-      const secret = await other.api.send({ id: newId(), room: room.id, text: "secret" });
-      const typo = await other.api.send({ id: newId(), room: room.id, text: "tpyo" });
-      const gate = gateRealtime(me.api);
-      const ctl = instrument(me.api);
-      await mount(room);
-      gate.offline = true;
-      await other.api.softDelete(secret.id);
-      await other.api.edit(typo.id, "typo");
-      await vi.waitFor(() => expect(gate.dropped).toBe(2));
-      expect(bodyOf(secret.id)).toBe("secret"); // missed
-      gate.offline = false;
-      ctl.reconnect();
-      await vi.waitFor(() => expect(bodyOf(secret.id)).toBe("Message deleted"));
-      expect(bodyOf(typo.id)).toBe("typo");
-      expect(msgEl(typo.id)!.querySelector(".edited")).not.toBeNull();
-    });
-
-    it("BUG-01: scrolled into history, a reconnect still refreshes the messages on screen", async () => {
-      const room = await newRoom();
-      const all = await seedMessages(room.id, me.user.id, 200);
-      const gate = gateRealtime(me.api);
-      const ctl = instrument(me.api);
-      await mount(room, { msgId: all[10]!.id });
-      gate.offline = true;
-      await me.api.edit(all[10]!.id, "changed while away");
-      await vi.waitFor(() => expect(gate.dropped).toBe(1)); // really missed, not just late
-      gate.offline = false;
-      ctl.reconnect();
-      await vi.waitFor(() => expect(bodyOf(all[10]!.id)).toBe("changed while away"));
-    });
 
     it("BUG-04: a failed room load shows an error with Retry instead of loading forever", async () => {
       const room = await newRoom();

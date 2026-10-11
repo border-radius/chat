@@ -6,8 +6,7 @@ state and lifecycle live**. Today every view repeats its own copy of them.
 
 Ordered by value ÷ effort. Each item should keep `npm run check` and e2e green, and should land on its own.
 
-**Progress:** all done except the optional DOM-free room controller in 4 and `findLast` in 11 (needs es2023).
-New modules: `sync.ts`, `actions.ts`, `context.ts`, `scope.ts`, `ui/menu.ts`, `views/room/{header,messages,composer}.ts`,
+**Progress:** all done. New modules: `sync.ts`, `actions.ts`, `context.ts`, `scope.ts`, `ui/menu.ts`, `views/room/{controller,header,messages,composer}.ts`,
 `lib/limits.ts`. Writes stay unabortable on purpose (a send in flight should still land after navigating away).
 
 ---
@@ -39,17 +38,20 @@ New modules: `sync.ts`, `actions.ts`, `context.ts`, `scope.ts`, `ui/menu.ts`, `v
 - [x] Put store mutators next to the store, for example `upsertRoom`, `removeRoom`, `setHidden` and
       `clearHidden` in `store.ts`, so the immutable `new Map(...)` copying lives in one place.
 
-### 4. Split `views/room.ts` (804 lines) — mostly done
+### 4. Split `views/room.ts` (804 lines) ✅
 It currently holds the window state machine, loading, realtime, the composer, edit/delete, the header menu and
 rendering. Suggested split:
-- [ ] *(optional, remaining)* `room/controller.ts`: window, `gen`, buffer, `open` / `jump` / `loadEdge` / `gapFill` / `onMessage` / send /
+- [x] `room/controller.ts`: window, `gen`, buffer, `open` / `jump` / `loadEdge` / `gapFill` / `onMessage` / send /
       edit / delete. No DOM. It emits "changed" with a hint (`anchor`, `scrollToBottom`, `pill`). Most of
       `tests/unit/views/room.test.ts` (867 lines) can then become fast controller tests.
+      Done (2026-10-11): the controller owns the window, the phase (`loading` / `ready` / `failed` / `not-found`) and the pill,
+      and asks the view only `nearBottom()`. `tests/unit/views/room-controller.test.ts` has the window, race, reconnect,
+      send and edit tests with no DOM or fake layout. The 10 view tests that only checked window logic moved there.
 - [x] `room/messages.ts`: the list element, sentinels, `messageNode` + signature cache, day dividers, and the
       edit/delete-confirm/error UI state, plus its focus handling.
 - [x] `room/composer.ts`: textarea, counter, Enter/Up-arrow handling, `validText` (shared with edit).
 - [x] `room/header.ts`: title + actions menu, built on the shared menu component (item 5).
-- [x] `views/room.ts` (412 lines): the window state machine, loading, realtime, send/edit/delete, and wiring.
+- [x] `views/room.ts`: puts controller changes on screen; scroll, pill, read state, drag and drop, and wiring.
 
 ### 5. Extract the "actions menu with confirm step" component ✅
 - [x] `rooms.ts:116-194` and `room.ts:278-379` both build a `<details>` menu with Escape-to-close, an inline
@@ -100,10 +102,11 @@ Every view has the same fields: `ac`, `active`, `subs: Promise<Unsubscribe>[]`, 
 - [x] ~~Have `applyPage` take `pageSize` explicitly~~: not needed. `PAGE_SIZE` stays in `lib/cursor.ts`, shared by the
       queries and the "page is full" checks, and the tests build full pages from it.
 
-### 11. Small cleanups in `room.ts` / `messages.ts`
+### 11. Small cleanups in `room.ts` / `messages.ts` ✅
 - [x] `loadOlder` / `loadNewer` are near-identical. Use one `loadEdge("top" | "bottom")`.
 - [x] `applyLoaded` is `async` but never awaits. Make it sync.
-- [ ] ~~`[...win.items].reverse().find(...)` → `findLast`~~: needs `lib: es2023`; the target is es2022, so skip unless the browser floor is raised.
+- [x] ~~`[...win.items].reverse().find(...)` → `findLast`~~: needs `lib: es2023`. Replaced by `lastSaved(win)` in
+      `lib/messages.ts` instead, shared by gap fill and read state.
 - [x] Selectors are built with raw ids (`msgSel`, `room.ts:267, 497`) while `scroll.ts` uses `CSS.escape`. Pick
       one helper (`byDataId(id)`).
 - [x] `editable()` is computed twice per message per render (signature + actions). Compute it once in

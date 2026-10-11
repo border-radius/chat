@@ -140,7 +140,10 @@ export function createLoginView(deps: { api: Api; onLogin: (user: User) => void 
       // Errors for fields on screen go next to them; anything else (network, rate limit, …) above the button.
       const all = e instanceof ApiError ? e.fields : {};
       const fields = Object.fromEntries(Object.entries(all).filter(([k]) => FIELDS[mode].some((f) => f.name === k)));
-      render({ form: Object.keys(fields).length ? "" : errorMessage(e), fields });
+      // A refused login is a 400 without field errors; PocketBase's "Failed to authenticate." doesn't say why (QA BUG-40).
+      const badLogin = mode === "login" && e instanceof ApiError && e.status === 400;
+      const form = Object.keys(fields).length ? "" : badLogin ? "Wrong email or password." : errorMessage(e);
+      render({ form, fields });
     }
   }
 

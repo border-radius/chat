@@ -306,7 +306,17 @@ describe("rooms view (§7.1)", () => {
       await mount();
       action(r, "Hide")!.click();
       await vi.waitFor(() => expect(root.querySelector('[role="alert"]')!.textContent).toContain("Couldn't hide"));
+      expect(root.querySelector('[role="alert"]')!.textContent).toContain("Check your connection");
       expect(sectionOf(r)).toBe("rooms");
+    });
+
+    it("QA BUG-39: a failed action says why, e.g. rate limiting, not always the connection", async () => {
+      const r = await room();
+      instrument(me.api).failNext("hideRoom", new ApiError("Too Many Requests.", 429));
+      await mount();
+      action(r, "Hide")!.click();
+      await vi.waitFor(() => expect(root.querySelector('[role="alert"]')!.textContent).toContain("Too many attempts"));
+      expect(root.querySelector('[role="alert"]')!.textContent).not.toContain("connection");
     });
   });
 

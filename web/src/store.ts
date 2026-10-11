@@ -125,7 +125,8 @@ const byActivity = (a: Room, b: Room) => {
 /**
  * Room list sections (§7.1, §16.5). Archived wins over hidden. Open DMs are listed by activity; closed
  * (hidden) DMs are left out entirely, and a DM is never archived. A DM nobody has written in yet is listed only for
- * the member who opened it, so just opening one doesn't show up for the other person (QA BUG-29).
+ * the member who opened it, so just opening one doesn't show up for the other person (QA BUG-29), and while it is
+ * open: the other member may have opened it too, and their DM must not be missing from their own list (QA BUG-37).
  */
 export function roomSections(s: AppState): { rooms: Room[]; dms: Room[]; hidden: Room[]; archived: Room[] } {
   const rooms: Room[] = [];
@@ -134,7 +135,7 @@ export function roomSections(s: AppState): { rooms: Room[]; dms: Room[]; hidden:
   const archived: Room[] = [];
   for (const r of s.rooms.values()) {
     if (r.kind === "dm") {
-      const started = !!r.last_message_at || r.created_by === s.user?.id;
+      const started = !!r.last_message_at || r.created_by === s.user?.id || r.id === s.activeRoomId;
       if (started && !s.hidden.has(r.id)) dms.push(r);
     } else if (r.archived) archived.push(r);
     else if (s.hidden.has(r.id)) hidden.push(r);

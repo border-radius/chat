@@ -100,6 +100,12 @@ export function group(items: readonly Message[]): Message[][] {
   return groups;
 }
 
+/** The newest message the server has (not pending or failed): what read state and gap fill go by. */
+export function lastSaved(win: MessageWindow): Message | undefined {
+  for (let i = win.items.length - 1; i >= 0; i--) if (!win.items[i]!.status) return win.items[i];
+  return undefined;
+}
+
 /** My newest message that can be edited (Up arrow in an empty composer). */
 export function lastOwnEditable(win: MessageWindow, me: string): Message | undefined {
   for (let i = win.items.length - 1; i >= 0; i--) {

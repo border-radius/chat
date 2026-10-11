@@ -76,8 +76,9 @@ export function createRoomsView({ api, store, sync, unread, actions, navigate }:
     try {
       await fn();
       actionError = "";
-    } catch {
-      actionError = `Couldn't ${label} “${room.kind === "dm" ? title(room) : room.name}”. Check your connection and try again.`;
+    } catch (e) {
+      // Say why: network trouble, rate limiting or the server's reason (QA BUG-39).
+      actionError = `Couldn't ${label} “${room.kind === "dm" ? title(room) : room.name}”. ${errorMessage(e)}`;
     }
     if (scope.active) renderAlert();
   }

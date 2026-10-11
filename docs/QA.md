@@ -147,3 +147,92 @@ in the value as a wildcard (and then stops adding its own), while `_` is already
 
 Known, not fixed here: an emoji-less system (this test container) shows the file chip's "📄" as a box; a browser that
 already loaded an attachment can keep it in its cache after the message is deleted (DESIGN §17.1).
+
+---
+
+# QA pass 3 — whole app
+
+Exploratory QA of the whole app, 2026-10-11, on PocketBase 0.40.4: REST and hook probes (rules, hooks, DMs, unread
+counts, uploads) and Chromium at desktop and phone sizes, light and dark. Beforehand, the whole suite passed: typecheck,
+lint, html-sink check, 401 unit, 192 integration, build and 23 e2e tests. Each fix comes with a test that fails without it.
+
+| # | Severity | Area | Summary | Status |
+|---|---|---|---|---|
+| BUG-35 | Medium | Attachments | A file whose non-Latin name is over 255 bytes can never be sent | Fixed |
+| BUG-36 | Low | Attachments | Names cut at the 200-character limit lose their extension | Fixed |
+| BUG-37 | Low | DMs | An empty DM the other member opened first is missing from your list, even while you are in it | Fixed |
+| BUG-38 | Low | Names | Line breaks, tabs, control characters and runs of spaces are kept in room and display names | Fixed |
+| BUG-39 | Low | Rooms | Every failed room action says "Check your connection", whatever the reason | Fixed |
+| BUG-40 | Low | Login | A wrong password says "Failed to authenticate." | Fixed |
+| BUG-41 | Low | Rooms | Rooms whose names clashed before `name_key` existed can't be archived or unarchived | Fixed |
+| BUG-42 | Low | Composer | Text made only of zero-width characters enables Send; the server refuses it and Retry never works | Fixed |
+
+## BUG-35 — Long non-Latin file names can't be sent (Medium)
+
+**Steps:** attach "Протокол совещания Протокол совещания … .pdf" (152 characters, 291 bytes) and send it.
+**Actual:** "Not sent", and Retry fails every time. The same happens with an emoji or accented name over about 250 bytes,
+and with avatars.
+**Cause:** PocketBase stores the original name as file metadata, cut at 255 bytes. The cut can split a multi-byte
+character, and the storage layer then refuses the invalid UTF-8 (`WriterOptions.Metadata values must be valid UTF-8`).
+**Fix:** the create hooks (messages and users) clean each upload's original name and cut it to 200 UTF-8 bytes, on a
+character boundary, before PocketBase stores it.
+
+## BUG-36 — Cut names lose their extension (Low)
+
+**Steps:** attach a file named with 70 × "報告書" + ".xlsx".
+**Actual:** it shows and downloads as "報告書…報告書報.t". The 200-character cap was a plain `slice`.
+**Fix:** the cut keeps the extension (up to 16 characters) and shortens the rest of the name.
+
+## BUG-37 — An empty DM is missing from the second opener's list (Low)
+
+**Steps:** Bob opens a DM with Ada and sends nothing. Later, Ada clicks Bob → Message.
+**Actual:** the DM opens for Ada, but it isn't listed under Direct messages, so there's no highlighted row. The BUG-29
+fix lists an empty DM only for its creator.
+**Fix:** an empty DM is also listed while it is the open room.
+
+## BUG-38 — Control characters and repeated spaces in names (Low)
+
+**Steps:** create a room named "two\nlines" (through the API), then "two lines" and "two  lines".
+**Actual:** three separate rooms that look identical on screen, because HTML shows a line break or a run of spaces as one
+space. That is the kind of look-alike name the QA fixes in BUG-12 meant to prevent. Display names have the same problem.
+**Fix:** names (and attachment names) turn control characters into spaces and every run of whitespace into one space.
+
+## BUG-39 — "Check your connection" for every failed room action (Low)
+
+**Steps:** hide, archive or close rooms quickly until the server rate-limits you (or it refuses for another reason).
+**Actual:** the sidebar says "Couldn't hide … Check your connection and try again.", and the room header says "That
+didn't work. Check your connection…", even on a 429. BUG-30 fixed this for "Message" only.
+**Fix:** both use `errorMessage()`, which explains network trouble, rate limits and the server's reason.
+
+## BUG-40 — "Failed to authenticate." on a wrong password (Low)
+
+**Fix:** a refused login says "Wrong email or password."
+
+## BUG-41 — Legacy look-alike rooms can't be archived (Low)
+
+**Steps:** have two rooms whose names clashed before the `name_key` migration (e.g. "Über" and "über"). The migration
+kept both, giving the second a key made unique with its id. As that room's creator, archive it.
+**Actual:** "Value must be unique." Every room update re-checked the name, even when it didn't change.
+**Fix:** the name is checked only when it changes. Otherwise the stored key is kept, and a client still can't set it.
+
+## BUG-42 — Zero-width-only messages (Low)
+
+**Steps:** paste only a zero-width space into the composer and press Enter.
+**Actual:** it sends, the server refuses blank text, and the message shows "Not sent" with a Retry that can never work.
+**Fix:** the composer treats such text as empty, as the server does. Joiners inside real text still count as text.
+
+## Checked and fine
+
+- Rules: other users' messages, rooms, hidden rows and read positions can't be read or changed. Nobody can un-delete,
+  move or hard-delete a message, or post as someone else. Nobody can create DMs, archived rooms or room_reads rows
+  through the API, or set `created`/`file_names`. Changing email or `verified` directly is refused.
+- DMs: nothing reaches a non-member: view, list, expand, post, hide, mark read.
+- Unread: counts skip your own and deleted messages, and anything from before you signed up. A read can't be moved back
+  or into the future, and bad dates are refused.
+- User search: `%`, `_`, `\`, quotes and `{:x}` are matched literally.
+- Live archive/unarchive while someone is typing keeps the draft. Deep links to a message in another room, or to a
+  missing room, fall back cleanly. Offline sends fail and then retry without duplicates.
+
+Known, not fixed here: a renamed user's old name stays in other people's open DMs and already-loaded messages until
+they reload (nothing pushes user changes). The per-IP limit of 120 reads a minute may be tight for a large office
+behind a single NAT.

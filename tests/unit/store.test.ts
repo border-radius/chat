@@ -129,6 +129,12 @@ describe("roomSections (§7.1)", () => {
       ).toEqual(["mine", "talked"]);
     });
 
+    it("QA BUG-37: an empty DM the other member started is listed while you have it open", () => {
+      const s = mine(state([dm("theirs", "", undefined, { created_by: "ua" })]));
+      expect(roomSections(s).dms).toEqual([]);
+      expect(roomSections({ ...s, activeRoomId: "theirs" }).dms.map((r) => r.id)).toEqual(["theirs"]);
+    });
+
     it("lists DMs by latest activity (last message, else creation), newest first", () => {
       const s = mine(
         state([

@@ -101,12 +101,12 @@ describe("login view (§7.1)", () => {
     await vi.waitFor(() => expect(onLogin).toHaveBeenCalled());
   });
 
-  it("shows the server's error message on failed login and keeps the input", async () => {
+  it("QA BUG-40: says the email or password is wrong on a refused login, and keeps the input", async () => {
     mount();
     const email = `${uniq()}@test.local`;
     fill(root, { email, password: "wrong-pass" });
     submit(root);
-    await vi.waitFor(() => expect(alertText(root)).toBe("Failed to authenticate."));
+    await vi.waitFor(() => expect(alertText(root)).toBe("Wrong email or password."));
     expect(root.querySelector<HTMLInputElement>('input[name="email"]')!.value).toBe(email);
     expect(onLogin).not.toHaveBeenCalled();
   });

@@ -128,8 +128,9 @@ chat/
 │       │   ├── menu.ts, avatar.ts, user-search.ts
 │       └── views/
 │           ├── login.ts, rooms.ts, home.ts, profile.ts
-│           ├── room.ts         # message window, loading, realtime, sending
-│           └── room/           # header.ts, messages.ts (the list), composer.ts
+│           ├── room.ts         # puts the controller's changes on screen, wires the parts
+│           └── room/           # controller.ts (message window, loading, realtime, sending; no DOM),
+│                               # header.ts, messages.ts (the list), composer.ts
 ├── tests/
 │   ├── unit/                   # Vitest + happy-dom, against a real throwaway PocketBase
 │   ├── integration/            # Vitest against a real PocketBase process
@@ -388,7 +389,9 @@ interface MessageWindow {
 
 Each message the user sees is loaded once per visit. Moving the window costs one indexed query of 50 rows, and the DOM never holds more than about 300 messages.
 
-**DOM rendering (`views/room.ts`):**
+The window state machine above lives in `views/room/controller.ts`, which has no DOM. It reports each change with a hint (render, keep the anchor, scroll to the bottom/top/target), and `views/room.ts` applies that hint to the list.
+
+**DOM rendering (`views/room.ts`, `views/room/messages.ts`):**
 
 - `Map<id, HTMLElement>` gives O(1) update and removal.
 - Pages are prepended or appended inside a `DocumentFragment`, and trimmed nodes are removed in one pass. The list is never fully re-rendered.

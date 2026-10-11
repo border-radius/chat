@@ -25,10 +25,56 @@ const INVISIBLE = /[­᠎​-‏‪-‮⁠-⁤⁦-⁩﻿]/g;
  */
 const NAME_JUNK = /[­᠎​‎‏‪-‮⁠-⁤⁦-⁩﻿]/g;
 
+/** Control characters (tabs, line breaks, C1) and line/paragraph separators: shown as spaces, if at all (QA BUG-38). */
+// biome-ignore lint/suspicious/noControlCharactersInRegex: finding control characters is the point
+const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g;
+
+/**
+ * Longest original file name kept, in UTF-8 bytes. PocketBase stores the original name as file metadata cut at
+ * 255 bytes, which can split a character and then fails the whole upload (QA BUG-35).
+ */
+const MAX_FILE_NAME_BYTES = 200;
+
 const { assertImagesFit } = require(`${__hooks}/lib/images.js`);
 
 /** @param {string} s */
 const isBlank = (s) => s.replace(INVISIBLE, "").trim() === "";
+
+/**
+ * A name as it should be shown: no invisible/bidi characters, control characters as spaces, every run of
+ * whitespace as one space, trimmed. Names that look the same are then the same (QA BUG-38).
+ * @param {string} s
+ */
+const tidy = (s) => s.replace(NAME_JUNK, "").replace(CONTROL, " ").replace(/\s+/g, " ").trim();
+
+/** @param {string} s */
+const utf8Length = (s) => {
+  let n = 0;
+  for (const c of s) {
+    const cp = c.codePointAt(0) ?? 0;
+    n += cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4;
+  }
+  return n;
+};
+
+/**
+ * `name` cut to at most `max` UTF-8 bytes on a character boundary, keeping its extension (QA BUG-36).
+ * @param {string} name
+ * @param {number} [max]
+ */
+function clipFileName(name, max = MAX_FILE_NAME_BYTES) {
+  if (utf8Length(name) <= max) return name;
+  const dot = name.lastIndexOf(".");
+  const ext = dot > 0 && name.length - dot <= 16 ? name.slice(dot) : "";
+  let stem = "";
+  let n = utf8Length(ext);
+  for (const c of name.slice(0, name.length - ext.length)) {
+    n += utf8Length(c);
+    if (n > max) break;
+    stem += c;
+  }
+  return stem.trimEnd() + ext;
+}
 
 /**
  * @param {string} field
@@ -55,7 +101,7 @@ function trim(record, field) {
  * @param {core.Record} record
  */
 function cleanName(record) {
-  const name = record.getString("name").replace(NAME_JUNK, "").trim();
+  const name = tidy(record.getString("name"));
   record.set("name", name);
   // Empty is left to the field's `required` rule (same message as before); only-invisible is caught here.
   if (name !== "" && isBlank(name)) throw fieldError("name", "Cannot be blank.");
@@ -120,16 +166,19 @@ function assertText(record, blankOk = false) {
 }
 
 /**
- * Original names of this request's uploads, keyed by stored name (QA BUG-28). Cleaned like display names, so
- * bidi overrides can't disguise a file ("invoice‮fdp.exe"), and capped in length.
+ * Original names of this request's uploads in `field`, keyed by stored name (QA BUG-28). Cleaned like display
+ * names, so bidi overrides can't disguise a file ("invoice‮fdp.exe"), and capped in length with the extension
+ * kept. The upload itself gets the same name, so PocketBase never has to cut it (QA BUG-35).
  * @param {core.Record} record
+ * @param {string} field
  */
-function originalNames(record) {
+function originalNames(record, field) {
   /** @type {Record<string, string>} */
   const names = {};
-  for (const f of record.getUnsavedFiles("files")) {
+  for (const f of record.getUnsavedFiles(field)) {
     if (!f) continue;
-    const original = f.originalName.replace(NAME_JUNK, "").trim().slice(0, 200);
+    const original = clipFileName(tidy(f.originalName));
+    f.originalName = original || f.name;
     if (original) names[f.name] = original;
   }
   return names;
@@ -158,7 +207,7 @@ function beforeMessageCreate(e) {
   const rec = recordOf(e);
   assertText(rec, fileNames(rec).length > 0);
   assertImagesFit(rec, "files");
-  rec.set("file_names", originalNames(rec)); // whatever the client sent is replaced
+  rec.set("file_names", originalNames(rec, "files")); // whatever the client sent is replaced
   const room = activeRoom(e.app, rec.getString("room"));
   // Defense in depth for the members-only create rule (§16.3).
   if (room && isDm(room) && !room.getStringSlice("members").includes(rec.getString("author"))) {
@@ -287,6 +336,7 @@ function beforeUserSave(e) {
   const rec = recordOf(e);
   cleanName(rec);
   assertImagesFit(rec, "avatar");
+  originalNames(rec, "avatar"); // only for the upload's own name (QA BUG-35)
 }
 
 /**
@@ -295,9 +345,16 @@ function beforeUserSave(e) {
  */
 function beforeRoomUpdate(e) {
   const rec = recordOf(e);
-  setRoomName(e.app, rec);
+  const orig = rec.original();
+  if (!isDm(rec) && rec.getString("name") === orig.getString("name")) {
+    // Name unchanged: keep its key and don't check it again. Rooms named before name_key existed may share a key
+    // (the migration made those unique), and must still be archivable (QA BUG-41).
+    rec.set("name_key", orig.getString("name_key"));
+  } else {
+    setRoomName(e.app, rec);
+  }
   if (isDm(rec)) return;
-  const was = rec.original().getBool("archived");
+  const was = orig.getBool("archived");
   const now = rec.getBool("archived");
   if (!was && now) rec.set("archived_at", new DateTime());
   if (was && !now) rec.set("archived_at", "");
