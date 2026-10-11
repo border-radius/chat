@@ -17,7 +17,8 @@ describe("long upload names (BUG-35, BUG-36)", () => {
     const room = await newRoom(a);
     const long = `${"Протокол совещания ".repeat(8)}.pdf`; // 152 characters, 291 bytes: PocketBase used to fail it
     const m = await withFiles(a, room.id, [textFile(long), textFile(`${"😀".repeat(70)}.txt`)]);
-    const names = Object.values(m.file_names as Record<string, string>);
+    // In upload order: file_names is keyed by the stored (randomly suffixed) name, so its own order is arbitrary.
+    const names = (m.files as string[]).map((f) => (m.file_names as Record<string, string>)[f] ?? "");
     expect(names).toHaveLength(2);
     for (const n of names) expect(utf8(n)).toBeLessThanOrEqual(200);
     expect(names[0]).toMatch(/^Протокол совещания .+\.pdf$/);

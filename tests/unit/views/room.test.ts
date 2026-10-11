@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type Action, type Api, ApiError } from "../../../web/src/api.ts";
+import { h } from "../../../web/src/dom.ts";
 import { newId } from "../../../web/src/lib/id.ts";
 import { dayLabel, parsePb } from "../../../web/src/lib/time.ts";
 import type { Message, Room } from "../../../web/src/lib/types.ts";
@@ -773,6 +774,73 @@ describe("room view (§7.5–7.6)", () => {
       expect(active()!.getAttribute("aria-label")).toBe("Edit message");
       key(active()!, "Escape");
       expect(active()).toBe(composer());
+    });
+
+    describe("focusing the window", () => {
+      const refocus = () => window.dispatchEvent(new Event("focus"));
+      const blur = () => (document.activeElement as HTMLElement | null)?.blur();
+      afterEach(() => getSelection()?.removeAllRanges());
+
+      it("focuses the composer when nothing (or a link) has focus", async () => {
+        const room = await newRoom();
+        await mount(room);
+        blur();
+        refocus();
+        expect(active()).toBe(composer());
+        const link = h("a", { href: "#/" }, "a link");
+        root.append(link);
+        link.focus();
+        refocus();
+        expect(active()).toBe(composer());
+      });
+
+      it("leaves focus on an edit box, a confirm or a menu", async () => {
+        const room = await newRoom();
+        const m = await me.api.send({ id: newId(), room: room.id, text: "edit me" });
+        await mount(room);
+        button(msgEl(m.id), "Edit")!.click();
+        const edit = active();
+        refocus();
+        expect(active()).toBe(edit);
+        key(edit!, "Escape");
+        button(msgEl(m.id), "Delete")!.click();
+        refocus();
+        expect(active()).toBe(button(msgEl(m.id), "Cancel"));
+        key(active()!, "Escape");
+        const toggle = headerMenu().querySelector("summary")!;
+        toggle.focus();
+        refocus();
+        expect(active()).toBe(toggle);
+      });
+
+      it("keeps a text selection (you may be copying it)", async () => {
+        const room = await newRoom();
+        const m = await me.api.send({ id: newId(), room: room.id, text: "copy me" });
+        await mount(room);
+        blur();
+        getSelection()!.selectAllChildren(msgEl(m.id)!.querySelector(".body")!);
+        refocus();
+        expect(active()).not.toBe(composer());
+        expect(String(getSelection())).toContain("copy me");
+      });
+
+      it("does nothing in an archived room", async () => {
+        const room = await newRoom();
+        await me.api.setArchived(room.id, true);
+        await mount(room);
+        blur();
+        refocus();
+        expect(composer()).toBeNull();
+        expect(active()).toBe(document.body);
+      });
+
+      it("stops when the room is left", async () => {
+        await mount(await newRoom());
+        const focus = vi.spyOn(composer()!, "focus");
+        view!.unmount();
+        refocus();
+        expect(focus).not.toHaveBeenCalled();
+      });
     });
   });
 

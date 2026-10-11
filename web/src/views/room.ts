@@ -218,6 +218,19 @@ export function createRoomView({ api, store, unread, actions, navigate }: Ctx): 
       );
       list.addEventListener("scroll", () => isNearBottom(list) && ctl.dismissPill(), { signal });
       document.addEventListener("visibilitychange", markRead, { signal });
+      // Coming back to the window: put the caret in the composer so you can just type. Only when nothing else has
+      // focus (or a link does, e.g. an attachment opened in a new tab): never away from a field, menu or confirm you
+      // were on. Not with text selected (you may be copying it), and not on touch screens (it pops up the keyboard).
+      window.addEventListener(
+        "focus",
+        () =>
+          footer.contains(composer.el) &&
+          document.activeElement!.matches("body,a") &&
+          getSelection()!.isCollapsed &&
+          !matchMedia("(hover:none)").matches &&
+          composer.focus(),
+        { signal },
+      );
       list.addEventListener("scroll", markRead, { signal });
       // When the list gets shorter (the attachment tray opens, the textarea grows, the keyboard opens) while it is
       // at the live bottom, keep it there instead of letting the newest messages slide under the composer (BUG-31).
