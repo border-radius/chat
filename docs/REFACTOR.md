@@ -162,3 +162,14 @@ Every view has the same fields: `ac`, `active`, `subs: Promise<Unsubscribe>[]`, 
   rule. The friction comes from duplicated lifecycle and menu code (items 5 and 7), not from missing reactivity.
 - **Merging the API rules and the hooks.** The overlap, such as the archived checks in both, is deliberate
   defense in depth for superuser writes.
+
+---
+
+## Round 2 (2026-10-11), after unread counts (§18)
+
+### 18. Unread counts in one service ✅
+- [x] Unread logic was spread over `sync.ts` (counts, live +1s), `views/room.ts` (batching, retries, whose session a
+      read belongs to) and a store-listener trick for logout that depended on listener order.
+- [x] Now `web/src/unread.ts`: counts + `open(roomId) → RoomReader { seen, close }` + `flush()`. `sync.ts` is back to
+      rooms and hidden rows. The room view only reports what is on screen. `app.ts` `endSession()` flushes pending
+      reads explicitly before the session ends. Tests: `tests/unit/unread.test.ts` (service and reader, no DOM).

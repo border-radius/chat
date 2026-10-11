@@ -105,6 +105,29 @@ describe("app boot (§7.1)", () => {
     await api.unsubscribeAll();
   });
 
+  it("QA: logging out sends a read still waiting to go out (§18.3)", async () => {
+    const me = await signedUp("Me");
+    const other = await signedUp("Other");
+    const room = await other.api.createRoom(`room-${newId()}`);
+    const m = await other.api.send({ id: newId(), room: room.id, text: "hello" });
+    const calls: string[] = [];
+    const markRead = me.api.markRead.bind(me.api);
+    me.api.markRead = (r, at) => {
+      calls.push(`${r}@${at}`);
+      return markRead(r, at);
+    };
+    history.replaceState(null, "", `#/r/${room.id}`);
+    app = startApp({ api: me.api, root });
+    await vi.waitFor(() => expect(root.querySelector("li.msg")).not.toBeNull());
+    expect(calls).toEqual([]); // batched: not sent yet
+    logoutButton()!.click();
+    expect(calls).toEqual([`${room.id}@${m.created}`]);
+    const again = newApi();
+    await again.logIn(me.email, me.password);
+    await vi.waitFor(async () => expect((await again.unreadCounts()).rooms[room.id]).toBeUndefined());
+    await again.unsubscribeAll();
+  });
+
   it("switching rooms keeps the sidebar mounted: no refetch, and a half-typed room name survives", async () => {
     const { api } = await signedUp("Ada");
     const ctl = instrument(api);

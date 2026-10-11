@@ -23,7 +23,7 @@ function nameError(err: unknown): string {
   return errorMessage(err);
 }
 
-export function createRoomsView({ api, store, sync, actions, navigate }: Ctx): View {
+export function createRoomsView({ api, store, sync, unread, actions, navigate }: Ctx): View {
   const id = uniqueId("rooms");
   let root: HTMLElement;
   let scope: Scope;
@@ -49,7 +49,21 @@ export function createRoomsView({ api, store, sync, actions, navigate }: Ctx): V
     if (store.get().roomsStatus === "error") {
       alert.append(
         "Couldn't load rooms. Check your connection. ",
-        h("button", { type: "button", class: "link", on: { click: () => void sync.reload() }, signal: scope.signal }, "Retry"),
+        h(
+          "button",
+          {
+            type: "button",
+            class: "link",
+            on: {
+              click: () => {
+                void sync.reload();
+                unread.refresh();
+              },
+            },
+            signal: scope.signal,
+          },
+          "Retry",
+        ),
       );
     } else {
       alert.append(actionError);

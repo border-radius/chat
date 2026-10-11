@@ -1158,9 +1158,11 @@ No row means "read up to your signup" (`users.created`): history from before you
 
 ### 18.3 Client
 
-- **State:** `AppState.unread` (room id → count), kept by `sync.ts` alongside the room list. It is loaded with the
-  rooms and on every reconnect; a failed count leaves the room list alone.
-- **Live +1:** `sync.ts` subscribes to **all** message events (`fields: id,room,author,created,deleted`, never the
+- **One service, `unread.ts`,** started and stopped with the session next to `sync.ts` (`app.ts`). It owns the counts
+  and everything about telling the server what was read. Views only read the store and report what they show.
+- **State:** `AppState.unread` (room id → count). Loaded at login and on every reconnect; `refresh()` refetches,
+  debounced. A failed count never affects the room list.
+- **Live +1:** the service subscribes to **all** message events (`fields: id,room,author,created,deleted`, never the
   text), which the messages list rule already limits to rooms you can see. A create from someone else in a room
   other than the active one is +1. A soft delete in a room with unread messages refetches the counts (was the
   deleted message unread?). A count request in flight may or may not include a +1 that arrives meanwhile: the +1s
@@ -1168,15 +1170,17 @@ No row means "read up to your signup" (`users.created`): history from before you
   top. (Refetching instead starved the counts in a busy room: QA.) An answer older than the counts in the store is
   dropped.
 - **Other tabs and devices:** `room_reads` events (your own rows only) refetch the counts, debounced (250 ms).
-- **Marking read:** the room view, after every render, scroll and visibility change: if the newest messages are on
-  screen (the window reaches the live edge, §7.5, the list is scrolled to the bottom, and the tab is visible), it
-  clears the room's count in the store and, at most once a second, sends the newest confirmed message's `created`
-  to `POST /api/chat/reads`. A failed send is retried on the next render (a reconnect's gap fill renders). Leaving
-  sends a pending read immediately; leaving when not at the bottom refetches the counts, because messages that
-  arrived meanwhile weren't counted (it was the active room).
-- **Whose read:** the session is shared by every tab, and another tab can switch it to another user. The view
-  remembers who it was mounted for and never sends a read as anyone else; logging out sends the pending read
-  first, while the session still exists.
+- **Marking read:** the room view opens a `RoomReader` (`unread.open(roomId)`) on mount. After every render, scroll
+  and visibility change, if the newest messages are on screen (the window reaches the live edge, §7.5, the list is
+  scrolled to the bottom, and the tab is visible), it calls `reader.seen(newest confirmed message's created)`. The
+  reader clears the room's count in the store at once and, at most once a second, sends the position to
+  `POST /api/chat/reads`. A failed send is retried with the next `seen()` (a reconnect's gap fill renders). On
+  unmount the view calls `reader.close(caughtUp)`: a pending read goes out immediately, and when not caught up the
+  counts are refetched, because messages that arrived meanwhile weren't counted (it was the active room).
+- **Whose read:** the session is shared by every tab, and another tab can switch it to another user. A reader
+  remembers who it was opened for and never sends a read as anyone else. Ending the session (`endSession()` in
+  `app.ts`) calls `unread.flush()` first, so logging out still sends the pending read while the session exists;
+  after a switch from another tab, the same flush sends nothing.
 
 ### 18.4 Rendering
 
@@ -1191,10 +1195,11 @@ No row means "read up to your signup" (`users.created`): history from before you
   members); reads (clears up to `at`, default now, never back, never past now, one row under concurrent calls; 404
   for invisible rooms, 400 for bad and empty dates, 401 anonymous); `at`; the cap at 100; `room_reads` rules (private,
   no API writes, live only to its owner); the rate limit; the query plan.
-- **Unit:** store updates and `unreadCount`; sync (initial load, live +1 except own and active room, delete
-  refetch, reads from another tab, failed counts, a +1 during a request, a room that never stops); room view (marks
-  on open and live, batches, flushes on leave, not from history, scrolled up or in a hidden tab, retries a failed read,
-  sends before logout, never as another user); sidebar badges (count, `99+`, label, none where silent,
+- **Unit:** store updates and `unreadCount`; `unread.ts` (initial load, live +1 except own and active room, delete
+  refetch, reads from another tab, failed counts, a +1 during a request, a room that never stops, debounced refresh;
+  the reader: batching, close, flush, never as another user, retry, nothing after stop); room view (marks on open and
+  live, flushes on leave, not from history, scrolled up or in a hidden tab, retries a failed read); app (logout sends a
+  pending read); sidebar badges (count, `99+`, label, none where silent,
   live).
 - **E2E:** Ada writes, Bob's badge counts live and survives a reload; opening the room clears it in Bob's other tab;
   new messages count again. Scrolled up, a new message stays unread until Bob scrolls down to it.

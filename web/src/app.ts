@@ -1,4 +1,5 @@
-// App shell and boot (§7.1): restores the session, starts the room sync, wires the router, header and logout.
+// App shell and boot (§7.1): restores the session, starts the room sync and unread counts, wires the router, header
+// and logout.
 
 import { createRoomActions } from "./actions.ts";
 import { type Api, ApiError } from "./api.ts";
@@ -8,6 +9,7 @@ import { createRouter, type Router, type View } from "./router.ts";
 import { type AppState, createStore, initialState, type Store } from "./store.ts";
 import { createSync } from "./sync.ts";
 import { avatar } from "./ui/avatar.ts";
+import { createUnread } from "./unread.ts";
 import { createHomeView } from "./views/home.ts";
 import { createLoginView } from "./views/login.ts";
 import { createProfileView } from "./views/profile.ts";
@@ -60,6 +62,11 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
   const { api, root } = deps;
   const store = createStore<AppState>({ ...initialState(), user: api.currentUser() });
   const sync = createSync({ api, store });
+  const unread = createUnread({ api, store });
+  const startSession = () => {
+    sync.start();
+    unread.start();
+  };
 
   const header = h("header", { class: "app-bar" });
   const main = h("main", { class: "app-main" });
@@ -68,6 +75,10 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
 
   /** Drop everything that belonged to the logged-in user. The session itself is left as it is. */
   function endSession() {
+    // Reads still waiting go out now, while the session is there. After another tab switched it to someone else,
+    // this sends nothing: a reader only sends as the user it was opened for.
+    unread.flush();
+    unread.stop();
     sync.stop();
     void api.unsubscribeAll().catch(() => {});
     store.set({ ...initialState() });
@@ -118,6 +129,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     api,
     store,
     sync,
+    unread,
     actions: createRoomActions({ api, store }),
     navigate: (hash) => router.navigate(hash),
   };
@@ -150,7 +162,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
   const offStore = store.subscribe((s, prev) => {
     if (s.user === prev.user) return;
     renderHeader();
-    if (s.user && !prev.user) sync.start();
+    if (s.user && !prev.user) startSession();
   });
   const offAuth = api.onAuthChange(onAuthChange);
   // A file dropped where nothing takes it must not make the browser open it and leave the app (QA BUG-27).
@@ -161,7 +173,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
   window.addEventListener("dragover", swallowFileDrag);
   window.addEventListener("drop", swallowFileDrag);
   renderHeader();
-  if (store.get().user) sync.start();
+  if (store.get().user) startSession();
   router.start();
 
   const restored = store.get().user;
@@ -185,6 +197,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
       window.removeEventListener("drop", swallowFileDrag);
       offStore();
       router.stop();
+      unread.stop();
       sync.stop();
       clear(root);
     },

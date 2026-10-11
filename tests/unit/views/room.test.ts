@@ -6,7 +6,7 @@ import type { Message, Room } from "../../../web/src/lib/types.ts";
 import type { View } from "../../../web/src/router.ts";
 import { type AppState, bumpUnread, createStore, initialState, type Store } from "../../../web/src/store.ts";
 import { createRoomView } from "../../../web/src/views/room.ts";
-import { instrument, intercept, newApi, type SignedUp, seedMessages, signedUp, uniq, viewContext } from "../../support/api.ts";
+import { instrument, intercept, type SignedUp, seedMessages, signedUp, uniq, viewContext } from "../../support/api.ts";
 import { fakeLayout, installIntersectionObserver } from "../../support/dom.ts";
 import { pngFile } from "../../support/files.ts";
 
@@ -1012,36 +1012,6 @@ describe("room view (§7.5–7.6)", () => {
           ]),
         { timeout: 3000 },
       );
-    });
-
-    it("QA: a read pending at logout is sent before the session goes", async () => {
-      const other = await signedUp("Other");
-      const room = await newRoom(other);
-      await sleep(20);
-      const [m] = await seedMessages(room.id, other.user.id, 1, { stepMs: 1, startAt: Date.now() - 5 });
-      const calls = reads(me.api);
-      await mount(room);
-      // app.ts logOut(): the store is reset first, then the session is cleared, then the view unmounts.
-      store.set({ ...initialState() });
-      me.api.logOut();
-      view!.unmount();
-      view = undefined;
-      expect(calls).toEqual([[room.id, m!.created]]);
-      const again = newApi();
-      await again.logIn(me.email, me.password);
-      await vi.waitFor(async () => expect((await again.unreadCounts()).rooms[room.id]).toBeUndefined());
-    });
-
-    it("QA: a pending read is dropped when another tab switched the session to someone else", async () => {
-      const room = await newRoom();
-      await seedMessages(room.id, me.user.id, 1);
-      const third = await signedUp("Third");
-      const calls = reads(me.api);
-      await mount(room);
-      await me.api.logIn(third.email, third.password); // another tab: the shared session is now Third's
-      view!.unmount();
-      view = undefined;
-      expect(calls).toEqual([]);
     });
   });
 

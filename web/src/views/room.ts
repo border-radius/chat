@@ -15,15 +15,13 @@ import { parsePb, toPb } from "../lib/time.ts";
 import type { LocalFile, Message, Room, User } from "../lib/types.ts";
 import type { View } from "../router.ts";
 import { createScope } from "../scope.ts";
-import { clearUnread, upsertRoom } from "../store.ts";
+import { upsertRoom } from "../store.ts";
+import type { RoomReader } from "../unread.ts";
 import { createComposer, validText } from "./room/composer.ts";
 import { createRoomHeader } from "./room/header.ts";
 import { createMessageList } from "./room/messages.ts";
 
-/** How long the room view batches read positions before telling the server (§18.3). */
-const READ_DELAY_MS = 1000;
-
-export function createRoomView({ api, store, sync, actions, navigate }: Ctx): View {
+export function createRoomView({ api, store, unread, actions, navigate }: Ctx): View {
   const vid = uniqueId("room");
   const scope = createScope();
   const { signal } = scope;
@@ -44,11 +42,8 @@ export function createRoomView({ api, store, sync, actions, navigate }: Ctx): Vi
   let buffer: [Action, Message][] = [];
   const loading = { top: false, bottom: false };
   let pillMode: "below" | "history" | null = null;
-  /** Read up to here (a message's `created`): sent, or about to be when `readTimer` fires. */
-  let readAt = "";
-  let readTimer: ReturnType<typeof setTimeout> | undefined;
-  /** Whose reads these are: the session is shared with other tabs, which may switch it to someone else. */
-  let reader = "";
+  /** Reports what is on screen as read (unread.ts), from mount on. */
+  let reader: RoomReader | null = null;
 
   const room = (): Room | undefined => store.get().rooms.get(roomId);
   const me = () => store.get().user;
@@ -139,25 +134,10 @@ export function createRoomView({ api, store, sync, actions, navigate }: Ctx): Vi
    */
   const atLiveEdge = () => ready && !failed && !win.hasNewer && isNearBottom(list) && document.visibilityState !== "hidden";
 
+  /** The newest message the server has, if it is on screen. */
   function markRead() {
-    if (!atLiveEdge()) return;
-    let newest: Message | undefined;
-    for (let i = win.items.length - 1; i >= 0 && !newest; i--) if (!win.items[i]!.status) newest = win.items[i];
-    if (!newest || newest.created <= readAt) return;
-    readAt = newest.created;
-    store.set(clearUnread(roomId));
-    readTimer ??= setTimeout(sendRead, READ_DELAY_MS);
-  }
-
-  function sendRead() {
-    clearTimeout(readTimer);
-    readTimer = undefined;
-    if (api.currentUser()?.id !== reader) return; // never as someone else
-    const at = readAt;
-    api.markRead(roomId, at).catch(() => {
-      // Try again on the next render or scroll (a reconnect's gap fill renders).
-      if (readAt === at && scope.active) readAt = "";
-    });
+    if (!reader || !atLiveEdge()) return;
+    for (let i = win.items.length - 1; i >= 0; i--) if (!win.items[i]!.status) return reader.seen(win.items[i]!.created);
   }
 
   /** Release a local message's preview URLs (sent, discarded, or the view is going away). */
@@ -577,20 +557,13 @@ export function createRoomView({ api, store, sync, actions, navigate }: Ctx): Vi
       renderHeader();
       renderFooter();
 
-      reader = me()?.id ?? "";
       store.set({ activeRoomId: roomId });
       scope.defer(() => store.set({ activeRoomId: null }));
-      // Leaving: send a pending read now. Messages that came in while you weren't at the live edge weren't counted
-      // (this was the active room), so ask the server for the real number.
-      scope.defer(() => {
-        if (readTimer) sendRead();
-        if (atLiveEdge()) store.set(clearUnread(roomId));
-        else sync.refreshUnread();
-      });
+      const r = unread.open(roomId);
+      reader = r;
+      scope.defer(() => r.close(atLiveEdge()));
       scope.defer(
         store.subscribe((s, prev) => {
-          // Logging out: send a pending read while the session is still there (sendRead checks it is still ours).
-          if (s.user?.id !== reader && readTimer) sendRead();
           const roomChanged = s.rooms.get(roomId) !== prev.rooms.get(roomId);
           if (roomChanged || s.hidden !== prev.hidden || s.user !== prev.user) {
             renderHeader();

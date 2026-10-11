@@ -11,6 +11,7 @@ import { toPb } from "../../web/src/lib/time.ts";
 import type { Message, User } from "../../web/src/lib/types.ts";
 import type { AppState, Store } from "../../web/src/store.ts";
 import { createSync } from "../../web/src/sync.ts";
+import { createUnread } from "../../web/src/unread.ts";
 import { uniq } from "./ids.ts";
 
 // The unit project runs in happy-dom, where Vite refuses static imports of Node built-ins.
@@ -173,19 +174,22 @@ export function instrument(api: Api): Controls {
 }
 
 /**
- * What the app shell hands a view, around a real client, with the room sync already running (as it is
- * whenever someone is logged in). Build it after `instrument()`/`intercept()` so the sync sees those.
+ * What the app shell hands a view, around a real client, with the room sync and the unread counts already running
+ * (as they are whenever someone is logged in). Build it after `instrument()`/`intercept()` so they see those.
  */
 export function viewContext(api: Api, store: Store<AppState>, navigate: (hash: string) => void): Ctx {
   const sync = createSync({ api, store });
+  const unread = createUnread({ api, store });
   sync.start();
+  unread.start();
   contexts.add(sync);
-  return { api, store, sync, actions: createRoomActions({ api, store }), navigate };
+  contexts.add(unread);
+  return { api, store, sync, unread, actions: createRoomActions({ api, store }), navigate };
 }
 
 const contexts = new Set<{ stop(): void }>();
 
-/** Stop every sync started by viewContext (run after each test). */
+/** Stop every sync and unread service started by viewContext (run after each test). */
 export function stopContexts(): void {
   for (const s of contexts) s.stop();
   contexts.clear();
