@@ -20,8 +20,9 @@
   --radius: 12px;
   --pill: 999px;
   --ease: cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* 16px also keeps iOS Safari from zooming in on a focused text field (it does under 16px) — don't size fields below it. */
   font:
-    15px / 1.45 ui-rounded,
+    16px / 1.45 ui-rounded,
     "SF Pro Rounded",
     Nunito,
     system-ui,
@@ -217,6 +218,12 @@ html,
 body,
 #app {
   height: 100%;
+}
+
+/* No double-tap zoom on phones (a tap is a tap, without the delay). Pinch zoom stays: people who need larger text
+   rely on it (WCAG 1.4.4), and iOS ignores attempts to disable it anyway. */
+html {
+  touch-action: manipulation;
 }
 
 #app {

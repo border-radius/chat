@@ -43,3 +43,23 @@ test("on a phone: list → room → send → back to the list", async ({ page })
   await expect(page.getByRole("navigation", { name: "Rooms" })).toBeVisible();
   await expect(page.locator("section.welcome")).toBeHidden(); // a phone shows only the list
 });
+
+test("on a phone, focusing a text field can't zoom the page in: fields are 16px, double-tap zoom is off", async ({ page }) => {
+  // iOS Safari zooms in on focus when a field's text is under 16px (and stays zoomed). Chromium doesn't, so check the
+  // cause: every field's computed size. Pinch zoom deliberately stays available (WCAG 1.4.4).
+  const ada = await apiUser("Ada");
+  const room = await apiRoom(ada);
+  await page.goto("/#/login");
+  const sizes = () => page.locator("input:not([type=file]), textarea").evaluateAll((els) => els.map((e) => getComputedStyle(e).fontSize));
+  for (const size of await sizes()) expect(parseFloat(size)).toBeGreaterThanOrEqual(16);
+
+  await login(page, ada);
+  await page.getByRole("link", { name: room.name }).tap();
+  await expect(page.locator("form.composer textarea")).toHaveCSS("font-size", "16px");
+  await page.getByRole("link", { name: "Back to rooms" }).tap();
+  await page.locator("button.new-room-toggle").tap();
+  for (const size of await sizes()) expect(parseFloat(size)).toBeGreaterThanOrEqual(16);
+  await expect(page.locator("html")).toHaveCSS("touch-action", "manipulation");
+  const viewport = await page.locator('meta[name="viewport"]').getAttribute("content");
+  expect(viewport).not.toMatch(/user-scalable\s*=\s*no|maximum-scale/);
+});
