@@ -619,7 +619,10 @@ label.button.disabled {
 }
 
 .room-section li a {
+  display: flex;
   flex: 1;
+  gap: 0.3rem;
+  align-items: center;
   min-width: 0;
   padding: 0.45rem 0.6rem;
   overflow: hidden;
@@ -631,25 +634,43 @@ label.button.disabled {
 }
 
 .room-section li a::before {
-  content: "# ";
+  content: "#";
   color: var(--muted);
   font-weight: 800;
 }
 
 /* DM rows (§16.5): avatar + name, no "#". */
 .room-section li.dm a {
-  display: flex;
   gap: 0.5rem;
-  align-items: center;
 }
 
 .room-section li.dm a::before {
   content: none;
 }
 
-.room-section li.dm a span:not(.avatar) {
+/* The name; the "#" and the badge stay visible however long it is. */
+.room-section li a > span:not(.avatar, .badge) {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Unread (§18.4): bold name plus a count. */
+.room-section li a.unread {
+  font-weight: 700;
+}
+
+.badge {
+  flex: none;
+  min-width: 1.4rem;
+  margin-left: auto;
+  padding: 0 0.4rem;
+  border-radius: var(--pill);
+  background: var(--grad);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 800;
+  line-height: 1.4rem;
+  text-align: center;
 }
 
 .section-head {

@@ -10,6 +10,7 @@ A small, fast, real-time group chat. One [PocketBase](https://pocketbase.io) bin
 - Direct messages between any two users, private to them; close a conversation and it comes back on the next message
 - Avatars (or colored initials) and a profile page to change your picture and display name
 - Attachments: up to 4 files per message, images shown as thumbnails; files are private to whoever can read the message
+- Unread counts on every room and DM, live, and in sync across your tabs and devices
 - Optimistic sending with safe retries, reconnect gap-fill, light/dark themes, works on phones
 
 Design: [`docs/DESIGN.md`](docs/DESIGN.md) · QA: [`docs/QA.md`](docs/QA.md) · Refactoring plan: [`docs/REFACTOR.md`](docs/REFACTOR.md) · Archived plans: [MVP build](docs/history/BUILD_PLAN.md), [avatars, DMs, attachments](docs/history/NEXT_FEATURES_PLAN.md)
@@ -53,7 +54,7 @@ clean up. CI (`.github/workflows/ci.yml`) runs `check`, then e2e on Chromium, Fi
 
 ```
 pb_migrations/   schema + API rules (the source of truth for access control)
-pb_hooks/        server-side hooks: trimming, soft delete, edit/archive stamps, DM route + guards, security headers
+pb_hooks/        server-side hooks: trimming, soft delete, edit/archive stamps, DM + unread routes, guards, security headers
 web/src/         frontend: api.ts (only SDK user), router, store, views/, lib/ (pure logic)
 web/styles/      the one stylesheet
 scripts/         build, dev, fetch-pocketbase, html-sink check

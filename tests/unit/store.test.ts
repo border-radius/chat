@@ -1,6 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Room } from "../../web/src/lib/types.ts";
-import { type AppState, createStore, initialState, roomSections, unmarkHiddenRoom } from "../../web/src/store.ts";
+import {
+  type AppState,
+  bumpUnread,
+  clearUnread,
+  createStore,
+  initialState,
+  roomSections,
+  unmarkHiddenRoom,
+  unreadCount,
+} from "../../web/src/store.ts";
 
 const room = (id: string, name: string, p: Partial<Room> = {}): Room => ({ id, name, archived: false, created_by: "u1", ...p });
 
@@ -47,7 +56,14 @@ describe("createStore", () => {
 
 describe("initialState", () => {
   it("starts logged out with no rooms", () => {
-    expect(initialState()).toEqual({ user: null, rooms: new Map(), hidden: new Map(), roomsStatus: "idle", activeRoomId: null });
+    expect(initialState()).toEqual({
+      user: null,
+      rooms: new Map(),
+      hidden: new Map(),
+      unread: new Map(),
+      roomsStatus: "idle",
+      activeRoomId: null,
+    });
   });
 });
 
@@ -142,5 +158,40 @@ describe("unmarkHiddenRoom", () => {
     const s = { ...initialState(), hidden: new Map([["r1", "h1"]]) };
     expect(unmarkHiddenRoom("r1")(s).hidden?.size).toBe(0);
     expect(unmarkHiddenRoom("r2")(s)).toEqual({});
+  });
+});
+
+describe("unread counts (§18)", () => {
+  it("bumpUnread adds one; clearUnread drops the room (and is a no-op when there is nothing to clear)", () => {
+    const store = createStore(initialState());
+    store.set(bumpUnread("r1"));
+    store.set(bumpUnread("r1"));
+    store.set(bumpUnread("r2"));
+    expect([...store.get().unread]).toEqual([
+      ["r1", 2],
+      ["r2", 1],
+    ]);
+    const before = store.get().unread;
+    store.set(clearUnread("r1"));
+    expect([...store.get().unread]).toEqual([["r2", 1]]);
+    expect(before.get("r1")).toBe(2); // replaced, never mutated
+    expect(clearUnread("nope")(store.get())).toEqual({});
+  });
+
+  it("unreadCount: none for the active room, hidden rooms and archived rooms (§13: hidden stays silent)", () => {
+    const rooms = [room("a", "a"), room("b", "b"), room("h", "h"), room("x", "x", { archived: true }), room("z", "z")];
+    const s: AppState = {
+      ...initialState(),
+      rooms: new Map(rooms.map((r) => [r.id, r])),
+      hidden: new Map([["h", "row"]]),
+      unread: new Map([
+        ["a", 3],
+        ["b", 5],
+        ["h", 1],
+        ["x", 2],
+      ]),
+      activeRoomId: "b",
+    };
+    expect(rooms.map((r) => unreadCount(s, r))).toEqual([3, 0, 0, 0, 0]);
   });
 });

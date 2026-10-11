@@ -335,6 +335,53 @@ describe("rooms view (§7.1)", () => {
     });
   });
 
+  describe("unread badges (§18.4)", () => {
+    const badge = (r: Room) => row(r)?.querySelector(".badge") ?? null;
+
+    it("shows the count (99+ past 99) with a screen-reader label, and makes the name bold", async () => {
+      const a = await room();
+      const b = await room();
+      const quiet = await room();
+      await mount();
+      store.set({
+        unread: new Map([
+          [a.id, 3],
+          [b.id, 250],
+        ]),
+      });
+      expect(badge(a)!.textContent).toBe("3 unread");
+      expect(badge(a)!.querySelector(".visually-hidden")!.textContent).toBe(" unread");
+      expect(badge(b)!.textContent).toBe("99+ unread");
+      expect(row(a)!.querySelector("a")!.classList.contains("unread")).toBe(true);
+      expect(badge(quiet)).toBeNull();
+      expect(row(quiet)!.querySelector("a")!.classList.contains("unread")).toBe(false);
+    });
+
+    it("no badge for the room you are in, or for hidden and archived rooms", async () => {
+      const active = await room();
+      const hidden = await room();
+      const archived = await room();
+      await me.api.hideRoom(hidden.id);
+      await me.api.setArchived(archived.id, true);
+      store.set({ activeRoomId: active.id });
+      await mount();
+      store.set({ unread: new Map([active, hidden, archived].map((r) => [r.id, 2])) });
+      expect([active, hidden, archived].map(badge)).toEqual([null, null, null]);
+    });
+
+    it("a message from someone else shows up live; DMs get a badge too", async () => {
+      const other = await signedUp("Other");
+      const r = await other.api.createRoom(`room-${uniq()}`);
+      const dm = await other.api.openDm(me.user.id);
+      await mount();
+      await new Promise((done) => setTimeout(done, 300)); // let the subscriptions settle
+      await other.api.send({ id: newId(), room: r.id, text: "hello" });
+      await other.api.send({ id: newId(), room: dm.id, text: "psst" });
+      await vi.waitFor(() => expect(badge(r)?.textContent).toBe("1 unread"));
+      await vi.waitFor(() => expect(badge(dm)?.textContent).toBe("1 unread"));
+    });
+  });
+
   describe("realtime room list", () => {
     it("a room created elsewhere appears", async () => {
       await mount();

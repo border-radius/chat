@@ -4,9 +4,9 @@ import { newId } from "../../../web/src/lib/id.ts";
 import { dayLabel, parsePb } from "../../../web/src/lib/time.ts";
 import type { Message, Room } from "../../../web/src/lib/types.ts";
 import type { View } from "../../../web/src/router.ts";
-import { type AppState, createStore, initialState, type Store } from "../../../web/src/store.ts";
+import { type AppState, bumpUnread, createStore, initialState, type Store } from "../../../web/src/store.ts";
 import { createRoomView } from "../../../web/src/views/room.ts";
-import { instrument, intercept, type SignedUp, seedMessages, signedUp, uniq, viewContext } from "../../support/api.ts";
+import { instrument, intercept, newApi, type SignedUp, seedMessages, signedUp, uniq, viewContext } from "../../support/api.ts";
 import { fakeLayout, installIntersectionObserver } from "../../support/dom.ts";
 import { pngFile } from "../../support/files.ts";
 
@@ -889,6 +889,159 @@ describe("room view (§7.5–7.6)", () => {
       expect(active()!.getAttribute("aria-label")).toBe("Edit message");
       key(active()!, "Escape");
       expect(active()).toBe(composer());
+    });
+  });
+
+  describe("read state (§18.3)", () => {
+    /** Calls to api.markRead, as [room, at]. */
+    function reads(api: Api) {
+      const calls: [string, string][] = [];
+      intercept(api, "markRead", (original) => (room, at) => {
+        calls.push([room, at]);
+        return original(room, at);
+      });
+      return calls;
+    }
+    function setVisibility(state: "visible" | "hidden") {
+      Object.defineProperty(document, "visibilityState", { configurable: true, get: () => state });
+      document.dispatchEvent(new Event("visibilitychange"));
+    }
+    afterEach(() => {
+      Reflect.deleteProperty(document, "visibilityState");
+    });
+
+    it("opening a room marks it read up to its newest message, on the server and in the store", async () => {
+      const other = await signedUp("Other");
+      const room = await newRoom(other);
+      await sleep(20);
+      // After my signup (older messages never count) and before now (a read is never later than now).
+      const all = await seedMessages(room.id, other.user.id, 3, { stepMs: 1, startAt: Date.now() - 5 });
+      expect((await me.api.unreadCounts()).rooms[room.id]).toBe(3);
+      store.set(bumpUnread(room.id));
+      const calls = reads(me.api);
+      await mount(room);
+      expect(store.get().unread.has(room.id)).toBe(false);
+      await vi.waitFor(() => expect(calls).toEqual([[room.id, all[2]!.created]]), { timeout: 3000 });
+      await vi.waitFor(async () => expect((await me.api.unreadCounts()).rooms[room.id]).toBeUndefined());
+    });
+
+    it("live messages are read as they arrive, batched into one request", async () => {
+      const other = await signedUp("Other");
+      const room = await newRoom(other);
+      const calls = reads(me.api);
+      const handlers = captureHandler(me.api);
+      await mount(room);
+      expect(calls).toEqual([]); // nothing to read in an empty room
+      const sent: Message[] = [];
+      for (const text of ["one", "two"]) {
+        const m = await other.api.send({ id: newId(), room: room.id, text });
+        handlers[0]!("create", m);
+        sent.push(m);
+      }
+      await vi.waitFor(() => expect(calls).toEqual([[room.id, sent[1]!.created]]), { timeout: 3000 });
+    });
+
+    it("leaving sends a pending read right away", async () => {
+      const room = await newRoom();
+      const [m] = await seedMessages(room.id, me.user.id, 1);
+      const calls = reads(me.api);
+      await mount(room);
+      view!.unmount();
+      view = undefined;
+      expect(calls).toEqual([[room.id, m!.created]]);
+    });
+
+    it("away from the live edge nothing is marked; leaving asks the server for the real count", async () => {
+      const room = await newRoom();
+      const all = await seedMessages(room.id, me.user.id, 300);
+      const calls = reads(me.api);
+      const ctl = instrument(me.api);
+      await mount(room, { msgId: all[150]!.id });
+      await sleep(1200);
+      expect(calls).toEqual([]);
+      const before = ctl.calls("unreadCounts");
+      view!.unmount();
+      view = undefined;
+      await vi.waitFor(() => expect(ctl.calls("unreadCounts")).toBe(before + 1));
+    });
+
+    it("a hidden tab doesn't mark anything until it is shown again", async () => {
+      const room = await newRoom();
+      const [m] = await seedMessages(room.id, me.user.id, 1);
+      const calls = reads(me.api);
+      setVisibility("hidden");
+      await mount(room);
+      await sleep(1200);
+      expect(calls).toEqual([]);
+      setVisibility("visible");
+      await vi.waitFor(() => expect(calls).toEqual([[room.id, m!.created]]), { timeout: 3000 });
+    });
+
+    it("QA: scrolled up, a new message stays unread until you scroll down to it", async () => {
+      const other = await signedUp("Other");
+      const room = await newRoom(other);
+      const old = await seedMessages(room.id, other.user.id, 30);
+      const calls = reads(me.api);
+      const handlers = captureHandler(me.api);
+      await mount(room);
+      await vi.waitFor(() => expect(calls).toEqual([[room.id, old[29]!.created]]), { timeout: 3000 });
+      layout.scrollTo(0);
+      const m = await other.api.send({ id: newId(), room: room.id, text: "unseen" });
+      handlers[0]!("create", m);
+      expect(pill().hidden).toBe(false);
+      await sleep(1200);
+      expect(calls).toHaveLength(1);
+      layout.scrollToBottom();
+      await vi.waitFor(() => expect(calls.at(-1)).toEqual([room.id, m.created]), { timeout: 3000 });
+    });
+
+    it("QA: a failed read is sent again on the next render", async () => {
+      const room = await newRoom();
+      const [m] = await seedMessages(room.id, me.user.id, 1);
+      const ctl = instrument(me.api);
+      ctl.failNext("markRead", new ApiError("Failed to fetch", 0));
+      const calls = reads(me.api); // outside the failure, so the failed call is recorded too
+      await mount(room);
+      await vi.waitFor(() => expect(calls).toHaveLength(1), { timeout: 3000 });
+      ctl.reconnect(); // the gap fill renders
+      await vi.waitFor(
+        () =>
+          expect(calls).toEqual([
+            [room.id, m!.created],
+            [room.id, m!.created],
+          ]),
+        { timeout: 3000 },
+      );
+    });
+
+    it("QA: a read pending at logout is sent before the session goes", async () => {
+      const other = await signedUp("Other");
+      const room = await newRoom(other);
+      await sleep(20);
+      const [m] = await seedMessages(room.id, other.user.id, 1, { stepMs: 1, startAt: Date.now() - 5 });
+      const calls = reads(me.api);
+      await mount(room);
+      // app.ts logOut(): the store is reset first, then the session is cleared, then the view unmounts.
+      store.set({ ...initialState() });
+      me.api.logOut();
+      view!.unmount();
+      view = undefined;
+      expect(calls).toEqual([[room.id, m!.created]]);
+      const again = newApi();
+      await again.logIn(me.email, me.password);
+      await vi.waitFor(async () => expect((await again.unreadCounts()).rooms[room.id]).toBeUndefined());
+    });
+
+    it("QA: a pending read is dropped when another tab switched the session to someone else", async () => {
+      const room = await newRoom();
+      await seedMessages(room.id, me.user.id, 1);
+      const third = await signedUp("Third");
+      const calls = reads(me.api);
+      await mount(room);
+      await me.api.logIn(third.email, third.password); // another tab: the shared session is now Third's
+      view!.unmount();
+      view = undefined;
+      expect(calls).toEqual([]);
     });
   });
 

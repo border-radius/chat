@@ -37,6 +37,8 @@ export interface AppState {
   rooms: Map<string, Room>;
   /** roomId → hidden_rooms row id (needed to unhide). */
   hidden: Map<string, string>;
+  /** roomId → unread messages (§18); rooms without any are absent. */
+  unread: Map<string, number>;
   roomsStatus: LoadStatus;
   activeRoomId: string | null;
 }
@@ -45,6 +47,7 @@ export const initialState = (): AppState => ({
   user: null,
   rooms: new Map(),
   hidden: new Map(),
+  unread: new Map(),
   roomsStatus: "idle",
   activeRoomId: null,
 });
@@ -84,7 +87,31 @@ export function unmarkHidden(rowId: string): Update {
   return (s) => ({ hidden: new Map([...s.hidden].filter(([, row]) => row !== rowId)) });
 }
 
+/** One more unread message in the room (a live event, §18.3). */
+export function bumpUnread(roomId: string): Update {
+  return (s) => ({ unread: new Map(s.unread).set(roomId, (s.unread.get(roomId) ?? 0) + 1) });
+}
+
+/** The room has been read (§18.3). */
+export function clearUnread(roomId: string): Update {
+  return (s) => {
+    if (!s.unread.has(roomId)) return {};
+    const unread = new Map(s.unread);
+    unread.delete(roomId);
+    return { unread };
+  };
+}
+
 // ---- selectors
+
+/**
+ * The badge for a room (§18.4): none for the room you are in, and none for hidden or archived rooms, which stay
+ * silent (§13).
+ */
+export function unreadCount(s: AppState, room: Room): number {
+  if (room.id === s.activeRoomId || room.archived || s.hidden.has(room.id)) return 0;
+  return s.unread.get(room.id) ?? 0;
+}
 
 const byName = (a: Room, b: Room) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
 

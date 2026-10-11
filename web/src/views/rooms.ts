@@ -1,5 +1,5 @@
 // Room list (§7.1, §16.5): Rooms / Direct messages / Hidden / Archived sections, new-room form, user search,
-// per-room actions.
+// per-room actions, unread badges (§18.4).
 // The data comes from the store, kept live by sync.ts; this view only renders it and issues commands.
 
 import { ApiError, errorMessage } from "../api.ts";
@@ -10,7 +10,7 @@ import { otherMember, roomTitle } from "../lib/rooms.ts";
 import type { Room, User } from "../lib/types.ts";
 import type { View } from "../router.ts";
 import { createScope, type Scope } from "../scope.ts";
-import { roomSections } from "../store.ts";
+import { roomSections, unreadCount } from "../store.ts";
 import { avatar } from "../ui/avatar.ts";
 import { type ActionMenu, createActionMenu, type MenuItem } from "../ui/menu.ts";
 import { createUserSearch, type UserSearch } from "../ui/user-search.ts";
@@ -148,11 +148,17 @@ export function createRoomsView({ api, store, sync, actions, navigate }: Ctx): V
   }
 
   function roomRow(r: Room, section: Section, live: Set<string>): HTMLElement {
-    const current = store.get().activeRoomId === r.id;
-    const other = r.kind === "dm" ? otherMember(r, store.get().user) : undefined;
-    const label = other ? [avatar(other, 24, api.avatarUrl), h("span", {}, other.name)] : r.kind === "dm" ? title(r) : r.name;
+    const s = store.get();
+    const current = s.activeRoomId === r.id;
+    const other = r.kind === "dm" ? otherMember(r, s.user) : undefined;
+    const n = unreadCount(s, r);
+    const label = [
+      other ? avatar(other, 24, api.avatarUrl) : null,
+      h("span", {}, other ? other.name : r.kind === "dm" ? title(r) : r.name),
+      n ? h("span", { class: "badge" }, [n > 99 ? "99+" : n, h("span", { class: "visually-hidden" }, " unread")]) : null,
+    ];
     return h("li", { class: r.kind === "dm" ? "dm" : "", dataset: { roomId: r.id } }, [
-      h("a", { href: `#/r/${r.id}`, "aria-current": current ? "page" : null }, label),
+      h("a", { href: `#/r/${r.id}`, class: n ? "unread" : "", "aria-current": current ? "page" : null }, label),
       rowMenu(r, menuItems(r, section), live),
     ]);
   }
@@ -320,6 +326,7 @@ export function createRoomsView({ api, store, sync, actions, navigate }: Ctx): V
           if (
             s.rooms !== prev.rooms ||
             s.hidden !== prev.hidden ||
+            s.unread !== prev.unread ||
             s.activeRoomId !== prev.activeRoomId ||
             s.user !== prev.user ||
             s.roomsStatus !== prev.roomsStatus

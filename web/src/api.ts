@@ -16,6 +16,18 @@ export interface HiddenRow {
   room: string;
 }
 
+/** A room_reads row (§18.1): only which room it is about matters to the client. */
+export type ReadRow = HiddenRow;
+
+/** Unread messages per room id (rooms without any are left out), as of `at` (server time, §18.2). */
+export interface UnreadCounts {
+  at: string;
+  rooms: Record<string, number>;
+}
+
+/** What the unread counter needs to know about a message event in any room (§18.3). */
+export type MessageActivity = Pick<Message, "id" | "room" | "author" | "created" | "deleted">;
+
 export interface NewMessage {
   /** Client-generated (lib/id.ts) so retries can't duplicate (§7.5). */
   id: string;
@@ -69,6 +81,12 @@ export interface Api {
   hideRoom(room: string): Promise<HiddenRow>;
   unhideRoom(rowId: string): Promise<void>;
 
+  // unread counts (§18)
+  /** Unread messages per room, at most 100 each. */
+  unreadCounts(signal?: AbortSignal): Promise<UnreadCounts>;
+  /** You have read `room` up to `at` (a message's `created`). The server never moves it back. */
+  markRead(room: string, at: string): Promise<void>;
+
   // messages
   page(q: PageQuery, signal?: AbortSignal): Promise<Message[]>;
   getMessage(id: string, signal?: AbortSignal): Promise<Message>;
@@ -91,6 +109,10 @@ export interface Api {
   subscribeMessages(room: string, fn: RealtimeHandler<Message>): Promise<Unsubscribe>;
   subscribeRooms(fn: RealtimeHandler<Room>): Promise<Unsubscribe>;
   subscribeHidden(fn: RealtimeHandler<HiddenRow>): Promise<Unsubscribe>;
+  /** Every message event in every room you can see, without text or files (§18.3). */
+  subscribeAllMessages(fn: RealtimeHandler<MessageActivity>): Promise<Unsubscribe>;
+  /** Your own room_reads rows, e.g. written by another tab or device. */
+  subscribeReads(fn: RealtimeHandler<ReadRow>): Promise<Unsubscribe>;
   /** Called on every realtime (re)connect; `reconnect` is false for the first one. */
   onConnect(fn: (reconnect: boolean) => void): () => void;
   unsubscribeAll(): Promise<void>;
@@ -139,6 +161,7 @@ export const ROOM_FIELDS =
   "id,name,archived,created_by,kind,members,last_message_at,created,expand.members.id,expand.members.name,expand.members.avatar";
 const ROOM_OPTS = { expand: "members", fields: ROOM_FIELDS } as const;
 const HIDDEN_FIELDS = "id,room";
+const ACTIVITY_FIELDS = "id,room,author,created,deleted";
 
 function toApiError(e: unknown): ApiError {
   if (e instanceof ApiError) return e;
@@ -263,6 +286,11 @@ export function createApi(pb: PocketBase): Api {
       await wrap(hidden().delete(rowId));
     },
 
+    unreadCounts: (signal) => wrap(pb.send<UnreadCounts>("/api/chat/unread", { method: "GET", ...abortable(signal) })),
+    markRead: async (room, at) => {
+      await wrap(pb.send("/api/chat/reads", { method: "POST", body: { room, at } }));
+    },
+
     async page(q, signal) {
       const opts = { ...listOptions(q, pb.filter.bind(pb)), ...abortable(signal) };
       return (await wrap(messages().getList<Message>(1, PAGE_SIZE, opts))).items;
@@ -293,6 +321,8 @@ export function createApi(pb: PocketBase): Api {
     subscribeMessages: (room, fn) => subscribe("messages", fn, { ...MSG_OPTS, filter: pb.filter("room = {:room}", { room }) }),
     subscribeRooms: (fn) => subscribe("rooms", fn, ROOM_OPTS),
     subscribeHidden: (fn) => subscribe("hidden_rooms", fn, { fields: HIDDEN_FIELDS }),
+    subscribeAllMessages: (fn) => subscribe("messages", fn, { fields: ACTIVITY_FIELDS }),
+    subscribeReads: (fn) => subscribe("room_reads", fn, { fields: HIDDEN_FIELDS }),
 
     onConnect(fn) {
       // PB_CONNECT only reaches listeners for connections made after they subscribe. If we are already

@@ -1,4 +1,4 @@
-// Room view (§7.5, §7.6): windowed message history, optimistic send, edit, soft delete, archived mode.
+// Room view (§7.5, §7.6): windowed message history, optimistic send, edit, soft delete, archived mode, read state (§18.3).
 // This module owns the message window and everything that changes it (loading, realtime, sending, edits).
 // The DOM parts live in room/: header (title + actions menu), messages (the list), composer.
 
@@ -15,12 +15,15 @@ import { parsePb, toPb } from "../lib/time.ts";
 import type { LocalFile, Message, Room, User } from "../lib/types.ts";
 import type { View } from "../router.ts";
 import { createScope } from "../scope.ts";
-import { upsertRoom } from "../store.ts";
+import { clearUnread, upsertRoom } from "../store.ts";
 import { createComposer, validText } from "./room/composer.ts";
 import { createRoomHeader } from "./room/header.ts";
 import { createMessageList } from "./room/messages.ts";
 
-export function createRoomView({ api, store, actions, navigate }: Ctx): View {
+/** How long the room view batches read positions before telling the server (§18.3). */
+const READ_DELAY_MS = 1000;
+
+export function createRoomView({ api, store, sync, actions, navigate }: Ctx): View {
   const vid = uniqueId("room");
   const scope = createScope();
   const { signal } = scope;
@@ -41,6 +44,11 @@ export function createRoomView({ api, store, actions, navigate }: Ctx): View {
   let buffer: [Action, Message][] = [];
   const loading = { top: false, bottom: false };
   let pillMode: "below" | "history" | null = null;
+  /** Read up to here (a message's `created`): sent, or about to be when `readTimer` fires. */
+  let readAt = "";
+  let readTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Whose reads these are: the session is shared with other tabs, which may switch it to someone else. */
+  let reader = "";
 
   const room = (): Room | undefined => store.get().rooms.get(roomId);
   const me = () => store.get().user;
@@ -119,13 +127,47 @@ export function createRoomView({ api, store, actions, navigate }: Ctx): View {
     footer,
   ]);
 
-  const render = messages.render;
+  /** Render the list, then mark what it shows as read. */
+  function render(o?: { anchor?: boolean }) {
+    messages.render(o);
+    markRead();
+  }
+
+  /**
+   * The newest messages are on screen (§18.3): loaded, scrolled to the bottom, in a visible tab. Scrolled up, a new
+   * message only shows the pill, and stays unread until you scroll down to it.
+   */
+  const atLiveEdge = () => ready && !failed && !win.hasNewer && isNearBottom(list) && document.visibilityState !== "hidden";
+
+  function markRead() {
+    if (!atLiveEdge()) return;
+    let newest: Message | undefined;
+    for (let i = win.items.length - 1; i >= 0 && !newest; i--) if (!win.items[i]!.status) newest = win.items[i];
+    if (!newest || newest.created <= readAt) return;
+    readAt = newest.created;
+    store.set(clearUnread(roomId));
+    readTimer ??= setTimeout(sendRead, READ_DELAY_MS);
+  }
+
+  function sendRead() {
+    clearTimeout(readTimer);
+    readTimer = undefined;
+    if (api.currentUser()?.id !== reader) return; // never as someone else
+    const at = readAt;
+    api.markRead(roomId, at).catch(() => {
+      // Try again on the next render or scroll (a reconnect's gap fill renders).
+      if (readAt === at && scope.active) readAt = "";
+    });
+  }
 
   /** Release a local message's preview URLs (sent, discarded, or the view is going away). */
   function revokeLocal(m: Message | undefined) {
     for (const f of m?.localFiles ?? []) if (f.url) URL.revokeObjectURL(f.url);
   }
-  const scrollToBottom = () => (list.scrollTop = list.scrollHeight);
+  function scrollToBottom() {
+    list.scrollTop = list.scrollHeight;
+    markRead();
+  }
 
   function setPill(mode: typeof pillMode) {
     pillMode = mode;
@@ -483,6 +525,8 @@ export function createRoomView({ api, store, actions, navigate }: Ctx): View {
         { signal },
       );
       list.addEventListener("scroll", () => pillMode === "below" && isNearBottom(list) && setPill(null), { signal });
+      document.addEventListener("visibilitychange", markRead, { signal });
+      list.addEventListener("scroll", markRead, { signal });
       // When the list gets shorter (the attachment tray opens, the textarea grows, the keyboard opens) while it is
       // at the live bottom, keep it there instead of letting the newest messages slide under the composer (BUG-31).
       let pinned = true;
@@ -533,10 +577,20 @@ export function createRoomView({ api, store, actions, navigate }: Ctx): View {
       renderHeader();
       renderFooter();
 
+      reader = me()?.id ?? "";
       store.set({ activeRoomId: roomId });
       scope.defer(() => store.set({ activeRoomId: null }));
+      // Leaving: send a pending read now. Messages that came in while you weren't at the live edge weren't counted
+      // (this was the active room), so ask the server for the real number.
+      scope.defer(() => {
+        if (readTimer) sendRead();
+        if (atLiveEdge()) store.set(clearUnread(roomId));
+        else sync.refreshUnread();
+      });
       scope.defer(
         store.subscribe((s, prev) => {
+          // Logging out: send a pending read while the session is still there (sendRead checks it is still ours).
+          if (s.user?.id !== reader && readTimer) sendRead();
           const roomChanged = s.rooms.get(roomId) !== prev.rooms.get(roomId);
           if (roomChanged || s.hidden !== prev.hidden || s.user !== prev.user) {
             renderHeader();

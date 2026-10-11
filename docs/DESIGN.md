@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | Draft |
 | **Date** | 2026-10-10 |
-| **Scope** | MVP (§1–§14); post-MVP features: avatars §15, direct messages §16, attachments §17 |
+| **Scope** | MVP (§1–§14); post-MVP features: avatars §15, direct messages §16, attachments §17, unread counts §18 |
 
 Code and tests cite this document by section number (e.g. `§7.5`). **Don't renumber sections:** append new ones, and
 mark obsolete ones as such instead of deleting them.
@@ -771,14 +771,24 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 | Metadata stripping | The client re-encodes JPEG/PNG/WebP images (PNG as PNG, the rest as JPEG) before upload, which drops EXIF (including GPS). Best effort, protecting honest users only (§15.3). |
 | Bundle budget | `app.js` budget raised from 25 KB to 30 KB gzipped (§7.7): avatars + DMs measured 25.9 KB. One bundle, no lazy chunks. |
 
+### Decided (2026-10-11, unread counts)
+
+| Topic | Decision |
+|---|---|
+| Which rooms | Every room in the Rooms and Direct messages sections. Hidden and archived rooms still show nothing (§13 above), and neither does the room you are in. |
+| What the badge shows | A count, shown as `99+` past 99. Your own messages and deleted messages never count. |
+| Where read state lives | On the server (`room_reads`, §18.1), so it follows you across tabs and devices. |
+| When a room is read | When the room view shows its latest messages, scrolled to the bottom, in a visible tab (§18.3). Scrolled up, new messages stay unread until you scroll down to them. |
+| Before you joined | Messages older than your account never count, so a new user doesn't start with 99+ everywhere. |
+
 ### Still open
 
-1. **Unread state for DMs.** Without unread markers, a new DM is noticeable only because it jumps to the top of the list (§16.5). A `room_reads` collection (user, room, last_read_at) would add badges; it is left out of this round.
+1. ~~**Unread state for DMs.**~~ Done for every room: §18.
 2. **Upload quotas.** Rate limits cap the request rate, not stored bytes. A per-user storage cap (a hook summing file sizes) is deferred until real usage shows the need.
 
 ## 14. Future work (post-MVP)
 
-Private rooms (§16's `kind` + `members`, allowing more than two members), unread markers, blocking users, link previews, reactions, typing and presence (custom realtime channels via `$app.subscriptionsBroker()`), OAuth2 providers, message search (SQLite FTS5 through a custom route), a service worker for an offline shell, and HttpOnly cookie auth.
+Private rooms (§16's `kind` + `members`, allowing more than two members), blocking users, link previews, reactions, typing and presence (custom realtime channels via `$app.subscriptionsBroker()`), OAuth2 providers, message search (SQLite FTS5 through a custom route), a service worker for an offline shell, and HttpOnly cookie auth.
 
 ---
 
@@ -1113,3 +1123,78 @@ other files as chips with name and size, each with a remove (×) button.
 - **E2E:** A attaches an image and a PDF and sends; B sees the thumbnail and the file chip live and can open both;
   in a DM, C can't load the file URL even when given it; deleting the message removes the attachments for B; the
   XSS smoke test (§9.3) also uploads an `.html` file and checks that opening it runs no script.
+
+## 18. Unread counts
+
+Every room and DM in the sidebar shows how many messages you haven't read yet, live. Decisions: §13 (2026-10-11).
+
+### 18.1 Data model: `room_reads`
+
+| Field | Type | Notes |
+|---|---|---|
+| `user` | relation → users | required, cascade delete |
+| `room` | relation → rooms | required, cascade delete |
+| `last_read_at` | date | required: you have read every message created up to and including this time |
+
+Unique index on `(user, room)`. Rules: list and view `user = @request.auth.id` (so each user gets their own rows
+live); create, update and delete `null`. Only the route below writes rows, so a client can't move its read position
+back, set it in the future or write someone else's.
+
+No row means "read up to your signup" (`users.created`): history from before you joined never counts.
+
+### 18.2 Routes (`pb_hooks/lib/reads.js`)
+
+- **`GET /api/chat/unread`** → `{ at, rooms: { "<roomId>": count } }` for the rooms with anything unread, where `at`
+  is the server time the counts were taken (§18.3 uses it). One SQL query: for each room you can see (public, or a DM
+  you are in), count the messages that are not yours, not deleted, and newer than `max(last_read_at, your signup)`,
+  **stopping at 100** (the badge shows `99+`; without the cap a 50k backlog took ~200 ms per request). Each count is
+  a correlated subquery, so it is a range scan on `idx_messages_room_created` (an integration test pins the query
+  plan). Hidden and archived rooms are counted
+  too; the client decides what to show (§18.4), and a room you unhide shows its real backlog.
+- **`POST /api/chat/reads`** `{ room, at? }`: you have read `room` up to `at` (a message's `created`; default now).
+  The position only moves forward and never past now; `at` must be a date (`""` is a 400, not "now"). A room you can't see (someone else's DM, no such room) is a
+  404. Two tabs racing to create the row end up with one (the unique index, then an update). Rate limit: 120 per
+  60 s per IP; the client sends at most about one per second per open room.
+
+### 18.3 Client
+
+- **State:** `AppState.unread` (room id → count), kept by `sync.ts` alongside the room list. It is loaded with the
+  rooms and on every reconnect; a failed count leaves the room list alone.
+- **Live +1:** `sync.ts` subscribes to **all** message events (`fields: id,room,author,created,deleted`, never the
+  text), which the messages list rule already limits to rooms you can see. A create from someone else in a room
+  other than the active one is +1. A soft delete in a room with unread messages refetches the counts (was the
+  deleted message unread?). A count request in flight may or may not include a +1 that arrives meanwhile: the +1s
+  received during it are kept with their message's `created`, and those newer than the answer's `at` are added on
+  top. (Refetching instead starved the counts in a busy room: QA.) An answer older than the counts in the store is
+  dropped.
+- **Other tabs and devices:** `room_reads` events (your own rows only) refetch the counts, debounced (250 ms).
+- **Marking read:** the room view, after every render, scroll and visibility change: if the newest messages are on
+  screen (the window reaches the live edge, §7.5, the list is scrolled to the bottom, and the tab is visible), it
+  clears the room's count in the store and, at most once a second, sends the newest confirmed message's `created`
+  to `POST /api/chat/reads`. A failed send is retried on the next render (a reconnect's gap fill renders). Leaving
+  sends a pending read immediately; leaving when not at the bottom refetches the counts, because messages that
+  arrived meanwhile weren't counted (it was the active room).
+- **Whose read:** the session is shared by every tab, and another tab can switch it to another user. The view
+  remembers who it was mounted for and never sends a read as anyone else; logging out sends the pending read
+  first, while the session still exists.
+
+### 18.4 Rendering
+
+- A pill after the room name (`.badge`, the accent gradient, `99+` past 99) and a bold name. The badge holds a
+  visually hidden " unread", so a screen reader reads "general, 3 unread".
+- **No badge** for the active room, hidden rooms or archived rooms (`unreadCount()` in `store.ts`).
+- Room rows are now flex rows: the name ellipsizes, and the `#`, the avatar and the badge always stay visible.
+
+### 18.5 Tests
+
+- **Integration:** counts (others' messages only; deleted, own and pre-signup ones excluded; DMs only for
+  members); reads (clears up to `at`, default now, never back, never past now, one row under concurrent calls; 404
+  for invisible rooms, 400 for bad and empty dates, 401 anonymous); `at`; the cap at 100; `room_reads` rules (private,
+  no API writes, live only to its owner); the rate limit; the query plan.
+- **Unit:** store updates and `unreadCount`; sync (initial load, live +1 except own and active room, delete
+  refetch, reads from another tab, failed counts, a +1 during a request, a room that never stops); room view (marks
+  on open and live, batches, flushes on leave, not from history, scrolled up or in a hidden tab, retries a failed read,
+  sends before logout, never as another user); sidebar badges (count, `99+`, label, none where silent,
+  live).
+- **E2E:** Ada writes, Bob's badge counts live and survives a reload; opening the room clears it in Bob's other tab;
+  new messages count again. Scrolled up, a new message stays unread until Bob scrolls down to it.

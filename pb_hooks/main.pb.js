@@ -1,5 +1,5 @@
 /// <reference path="../types/pocketbase.d.ts" />
-// Server-side hooks (DESIGN.md §5.6, §16). Logic lives in lib/; handlers can't share top-level scope.
+// Server-side hooks (DESIGN.md §5.6, §16, §18). Logic lives in lib/; handlers can't share top-level scope.
 
 routerUse((e) => {
   require(`${__hooks}/lib/chat.js`).headers(e);
@@ -7,6 +7,8 @@ routerUse((e) => {
 });
 
 routerAdd("POST", "/api/chat/dms", (e) => require(`${__hooks}/lib/dms.js`).openDm(e), $apis.requireAuth("users"));
+routerAdd("GET", "/api/chat/unread", (e) => require(`${__hooks}/lib/reads.js`).unread(e), $apis.requireAuth("users"));
+routerAdd("POST", "/api/chat/reads", (e) => require(`${__hooks}/lib/reads.js`).markRead(e), $apis.requireAuth("users"));
 
 onRecordCreate((e) => {
   require(`${__hooks}/lib/chat.js`).beforeUserSave(e);
