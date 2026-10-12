@@ -1252,10 +1252,11 @@ span.att-file::before {
   color: var(--danger);
 }
 
-/* Touch screens have no hover: a tapped message gets .touched instead (and the background hover gives). */
+/* Touch screens have no hover: a tapped message gets .touched instead (and the background hover gives).
+   Not :focus-within: focus stays on a clicked button (React, a reaction…), which would keep this message's buttons up
+   next to those of the one the mouse moved on to; keyboard focus shows them below (:focus-visible). */
 @media (hover: hover) {
-  .msg:hover .actions,
-  .msg:focus-within .actions {
+  .msg:hover .actions {
     opacity: 1;
     pointer-events: auto;
   }
@@ -1265,8 +1266,8 @@ span.att-file::before {
   background: var(--hover);
 }
 
-/* On a touch screen, only focus from the keyboard: any focus would keep the buttons up once you are done with one,
-   as it goes back to the button you tapped (React, Forward…). */
+/* Only focus from the keyboard: any focus would keep the buttons up once you are done with one, as it goes back to
+   the button you clicked or tapped (React, Forward…). */
 .msg.touched .actions,
 .msg:has(:focus-visible) .actions {
   opacity: 1;
