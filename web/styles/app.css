@@ -1252,19 +1252,45 @@ span.att-file::before {
   color: var(--danger);
 }
 
-.msg:hover .actions,
-.msg:focus-within .actions {
+/* Touch screens have no hover: a tapped message gets .touched instead (and the background hover gives). */
+@media (hover: hover) {
+  .msg:hover .actions,
+  .msg:focus-within .actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+.msg.touched {
+  background: var(--hover);
+}
+
+/* On a touch screen, only focus from the keyboard: any focus would keep the buttons up once you are done with one,
+   as it goes back to the button you tapped (React, Forward…). */
+.msg.touched .actions,
+.msg:has(:focus-visible) .actions {
   opacity: 1;
   pointer-events: auto;
 }
 
+/* A phone is too narrow for the floating toolbar (it wraps over the message): there it shows below the message.
+   Hidden, it shrinks to nothing rather than going away, so screen readers still reach the buttons. */
 @media (hover: none) {
   .actions {
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .msg.touched .actions,
+  .msg:has(:focus-visible) .actions {
     position: static;
     justify-content: flex-start;
     width: fit-content;
-    opacity: 1;
-    pointer-events: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
     margin-top: 0.15rem;
     box-shadow: none;
   }

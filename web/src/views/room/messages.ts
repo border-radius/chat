@@ -147,6 +147,33 @@ export function createMessageList(opts: {
     { capture: true, signal },
   );
 
+  // Touch screens have no hover: tapping a message shows its actions (like hovering it does), tapping it again or
+  // anywhere else hides them. Taps on its links and buttons don't count, but pressing an action hides them. A message
+  // without actions (deleted, read-only room…) doesn't light up.
+  let touched: string | null = null;
+  const touch = (li: HTMLElement | null) => {
+    if (touched) el.querySelector(`li.msg[data-id="${CSS.escape(touched)}"]`)?.classList.remove("touched");
+    touched = li?.dataset.id ?? null;
+    if (!li) return;
+    li.classList.add("touched");
+    // The buttons show below it: on the last message they would be under the composer.
+    li.scrollIntoView({ block: "nearest" });
+  };
+  document.addEventListener(
+    "click",
+    (e) => {
+      if ((!touched && !matchMedia("(hover:none)").matches) || opts.state().selected) return;
+      const t = e.target as Element;
+      const li = t.closest<HTMLElement>("li.msg");
+      if (!li || !el.contains(li) || t.closest(".actions button")) return touch(null);
+      const open = li.dataset.id === touched;
+      if (t.closest("a, button, input, textarea, summary, label, [contenteditable]")) return open || touch(null);
+      touch(open || !li.querySelector(".actions") ? null : li);
+    },
+    // Before the tapped button's own handler, which may redraw the message (a reaction chip) and take it off the page.
+    { capture: true, signal },
+  );
+
   let editing: string | null = null;
   /**
    * What is typed in the open edit box, once it differs from the message (null: not yet). The box is rebuilt whenever
@@ -385,6 +412,7 @@ export function createMessageList(opts: {
     if (err) parts.push(h("div", { class: "msg-error", role: "alert" }, [`${err.text} `, btn("Retry", err.retry)]));
 
     const li = h("li", { class: cls, dataset: { id: m.id } }, parts);
+    if (touched === m.id) li.classList.add("touched");
     cache.set(m.id, { sig, el: li });
     return li;
   }

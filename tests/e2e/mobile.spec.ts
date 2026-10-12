@@ -20,10 +20,19 @@ test("on a phone: list → room → send → back to the list", async ({ page })
 
   await send(page, "sent from my phone");
   await expect(message(page, "sent from my phone")).toBeVisible();
-  // touch screens show message actions without hover
+  // touch screens have no hover: tapping a message shows its actions, tapping it again or elsewhere hides them
   // (toBeVisible() treats opacity:0 as visible, so check the computed opacity of the actions bar)
-  const actions = message(page, "sent from my phone").locator(".actions");
+  const mine = message(page, "sent from my phone");
+  const actions = mine.locator(".actions");
+  await expect(actions).toHaveCSS("opacity", "0");
+  await mine.locator(".body").tap();
   await expect(actions).toHaveCSS("opacity", "1");
+  await mine.locator(".body").tap();
+  await expect(actions).toHaveCSS("opacity", "0");
+  await mine.locator(".body").tap();
+  await expect(actions).toHaveCSS("opacity", "1");
+  await page.locator("header.room-header h1").tap();
+  await expect(actions).toHaveCSS("opacity", "0");
 
   // BUG-32: another user's long name truncates; their message time stays on screen
   const long = await apiUser("Bartholomew Longname-Smithson");
@@ -42,6 +51,48 @@ test("on a phone: list → room → send → back to the list", async ({ page })
   await expect(page).toHaveURL(/#\/$/);
   await expect(page.getByRole("navigation", { name: "Rooms" })).toBeVisible();
   await expect(page.locator("section.welcome")).toBeHidden(); // a phone shows only the list
+});
+
+test("on a phone, a tapped message's buttons: on screen, gone when you're done, only on messages that have some", async ({ page }) => {
+  const ada = await apiUser("Ada");
+  const room = await apiRoom(ada);
+  for (let i = 1; i <= 30; i++) await apiSend(ada, room, `msg ${i}`);
+  await login(page, ada);
+  await page.getByRole("link", { name: room.name }).tap();
+  const shown = (m: ReturnType<typeof message>) =>
+    m.locator(".actions").evaluate((a) => getComputedStyle(a).opacity === "1" && a.getBoundingClientRect().height > 2);
+
+  // The last message's buttons show below it: scrolled into view, not left under the composer.
+  const last = message(page, "msg 30");
+  await last.locator(".body").tap();
+  const bar = await last.locator(".actions").boundingBox();
+  const form = await page.locator("form.composer").boundingBox();
+  expect(bar!.y + bar!.height).toBeLessThanOrEqual(form!.y);
+
+  // Done with React: focus goes back to its button, which must not keep the buttons up.
+  await last.getByRole("button", { name: "Add reaction" }).tap();
+  await page.getByRole("dialog", { name: "Add reaction" }).getByRole("button", { name: "🎉" }).first().tap();
+  await expect(last.locator(".reactions .reaction")).toHaveCount(1);
+  expect(await shown(last)).toBe(false);
+
+  // A reaction chip redraws its message: tapping one keeps that message's buttons, one on another message hides them.
+  const other = message(page, "msg 29");
+  await other.locator(".body").tap();
+  await other.getByRole("button", { name: "Add reaction" }).tap();
+  await page.getByRole("dialog", { name: "Add reaction" }).getByRole("button", { name: "🎉" }).first().tap();
+  await last.locator(".body").tap();
+  await last.locator(".reactions .reaction").tap();
+  expect(await shown(last)).toBe(true);
+  await other.locator(".reactions .reaction").tap();
+  expect(await shown(last)).toBe(false);
+
+  // A deleted message has no buttons, so it doesn't light up.
+  await other.locator(".body").tap();
+  await other.getByRole("button", { name: "Delete", exact: true }).tap();
+  await other.getByRole("button", { name: "Delete message" }).tap();
+  const deleted = page.locator("li.msg", { hasText: "Message deleted" });
+  await deleted.locator(".body").tap();
+  await expect(deleted).not.toHaveClass(/touched/);
 });
 
 test("on a phone, focusing a text field can't zoom the page in: fields are 16px, double-tap zoom is off", async ({ page }) => {
