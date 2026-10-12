@@ -77,7 +77,7 @@ describe("rooms view (§7.1)", () => {
       store.set({ activeRoomId: r.id });
       await mount();
       const link = row(r)!.querySelector("a")!;
-      expect(link.getAttribute("href")).toBe(`#/r/${r.id}`);
+      expect(link.getAttribute("href")).toBe(`/r/${r.id}`);
       expect(link.getAttribute("aria-current")).toBe("page");
     });
 
@@ -162,8 +162,8 @@ describe("rooms view (§7.1)", () => {
       const input = openForm();
       input.value = name;
       root.querySelector<HTMLFormElement>("form")!.requestSubmit();
-      await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith(expect.stringMatching(/^#\/r\/[a-z0-9]{15}$/)));
-      const id = navigate.mock.calls[0]![0].slice(4);
+      await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith(expect.stringMatching(/^\/r\/[a-z0-9]{15}$/)));
+      const id = navigate.mock.calls[0]![0].slice(3);
       expect(store.get().rooms.get(id)?.name).toBe(name);
       expect(root.querySelector(`[data-room-id="${id}"]`)).not.toBeNull();
       expect(input.value).toBe("");
@@ -494,7 +494,7 @@ describe("rooms view (§7.1)", () => {
       searchFor(`Bobby ${tag}`);
       await vi.waitFor(() => expect(results()).toHaveLength(1));
       results()[0]!.click();
-      await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith(`#/r/${dm.id}`));
+      await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith(`/r/${dm.id}`));
       expect(ctl.calls("openDm")).toBe(0);
     });
 
@@ -526,8 +526,8 @@ describe("rooms view (§7.1)", () => {
       await vi.waitFor(() => expect(results().map((b) => b.querySelector("span:not(.avatar)")!.textContent)).toEqual([bob.user.name]));
       expect(ctl.calls("searchUsers")).toBe(1); // the first keystroke was debounced away
       results()[0]!.click();
-      await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith(expect.stringMatching(/^#\/r\//)));
-      const roomId = navigate.mock.calls[0]![0].slice(4);
+      await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith(expect.stringMatching(/^\/r\//)));
+      const roomId = navigate.mock.calls[0]![0].slice(3);
       expect(store.get().rooms.get(roomId)?.kind).toBe("dm");
       expect(searchInput()).toBeNull();
     });

@@ -120,7 +120,7 @@ chat/
 │       └── images.js           # upload image size limit (§15, QA BUG-24)
 ├── web/
 │   ├── index.html              # template; build injects hashed asset names
-│   ├── styles/app.css
+│   ├── styles/app.css, viewer.css (the image viewer's, loaded on first use: §17.7)
 │   └── src/
 │       ├── main.ts             # boot
 │       ├── app.ts              # app shell: session, routes, app bar
@@ -146,7 +146,8 @@ chat/
 │           ├── login.ts, rooms.ts, home.ts, profile.ts
 │           ├── room.ts         # puts the controller's changes on screen, wires the parts
 │           └── room/           # controller.ts (message window, loading, realtime, sending; no DOM),
-│                               # header.ts, messages.ts (the list), composer.ts, forward.ts (§21.3)
+│                               # header.ts, messages.ts (the list), composer.ts, forward.ts (§21.3),
+│                               # viewer.ts (image viewer, a lazy chunk: §17.7)
 ├── tests/
 │   ├── unit/                   # Vitest + happy-dom, against a real throwaway PocketBase
 │   ├── integration/            # Vitest against a real PocketBase process
@@ -226,7 +227,7 @@ A hidden room:
 
 - disappears from the user's main room list;
 - appears under a collapsed **"Hidden rooms"** section, where it can be unhidden;
-- stays reachable by direct link `#/r/:id`, and posting still works there.
+- stays reachable by direct link `/r/:id`, and posting still works there.
 
 A separate collection was chosen over a multi-relation field on `users` for three reasons. The access rules stay trivial. The `users` record doesn't grow without bound. Hide and unhide are single insert or delete operations, so two tabs can't overwrite each other's changes.
 
@@ -271,6 +272,7 @@ The hooks are kept small. They only do things the rules can't express:
 - **Archived-room guard (defense in depth):** reject a message create, update or delete when the target room is archived. This repeats the API rule in case rule traversal through `@request.body.room.archived` behaves differently in the pinned PocketBase version. Integration tests cover both layers.
 - **Security headers** via `routerUse`: every response gets `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`. Static app paths also get `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data: blob:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`. The CSP is *not* applied to `/api/*` or to the admin UI `/_/`, which sends its own CSP.
 - **Cache headers:** `/assets/*` (content-hashed) gets `Cache-Control: public, max-age=31536000, immutable`. Every other static path, including `/` and `index.html`, gets `no-cache`.
+- **No `index.html` for a missing asset or API:** PocketBase serves `index.html` for any path that isn't a file (§7.1). Under `/assets/` (a route of ours, `GET /assets/{path...}`) a missing file is a 404 with `Cache-Control: no-store` instead: an old build's lazy chunk, asked for by a tab left open across a deploy, would otherwise get HTML (useless as a script) cached for a year under its hashed name. An unknown `/api/` path is a JSON 404 too, not the app's page.
 - **Rate limiting:** PocketBase's built-in limiter, enabled from the init migration. The limits are per client IP:
   - `messages:create`: 10 requests per 5 s.
   - `users:create` (guests): 20 requests per 60 s.
@@ -299,7 +301,7 @@ The frontend talks to PocketBase through `pb.ts`, a minimal client (about 2 KB g
 | Latest page | `messages.getList(1, 50, {filter: pb.filter("room = {:r}", {r}), sort: "-created,-id", skipTotal: true, expand: "author", fields: MSG_FIELDS})` |
 | Older page (scroll up) | same, filter `room = {:r} && (created < {:c} \|\| (created = {:c} && id < {:i}))` using the oldest loaded message as the cursor |
 | Newer page (scroll down after jumping back) | filter `room = {:r} && (created > {:c} \|\| (created = {:c} && id > {:i}))`, sort `created,id` |
-| One message (open `#/r/:id/m/:msgId`) | `messages.getOne(id, {expand: "author", fields: MSG_FIELDS})`, then an older and a newer page around it |
+| One message (open `/r/:id/m/:msgId`) | `messages.getOne(id, {expand: "author", fields: MSG_FIELDS})`, then an older and a newer page around it |
 | First page ("jump to beginning") | filter `room = {:r}`, sort `created,id` |
 | Send | `messages.create({id, room, author: me, text}, {expand: "author"})` |
 | Edit | `messages.update(id, {text}, {expand: "author"})` |
@@ -315,14 +317,14 @@ Filters are always built with `pb.filter()` and never by string concatenation, w
 
 ## 7. Frontend design
 
-### 7.1 Screens and routes (hash router)
+### 7.1 Screens and routes (paths)
 
 | Route | View | Notes |
 |---|---|---|
-| `#/login`, `#/signup` | login / signup (tabbed form) | guests only (§23.3); `#/me` redirects here without a session. Until §23 every route did. |
-| `#/` | room list + "new room" form, with a greeting where a room would be | on narrow screens only the room list shows |
-| `#/r/:roomId` | room: message list + composer | on wide screens the room list stays visible as a sidebar |
-| `#/r/:roomId/m/:msgId` | room, opened at a specific message (window centered on it) | used by "jump to beginning" and shareable later |
+| `/login`, `/signup` | login / signup (tabbed form) | guests only (§23.3); `/me` redirects here without a session. Until §23 every route did. |
+| `/` | room list + "new room" form, with a greeting where a room would be | on narrow screens only the room list shows |
+| `/r/:roomId` | room: message list + composer | on wide screens the room list stays visible as a sidebar |
+| `/r/:roomId/m/:msgId` | room, opened at a specific message (window centered on it) | used by "jump to beginning" and shareable later |
 
 **The room list has three sections:**
 
@@ -340,7 +342,7 @@ A room hidden by the user that is also archived appears only under Archived.
 
 An archived room shows a banner, "This room is archived. History is read-only.", and replaces the composer with that banner.
 
-A hash router means PocketBase serves `index.html` for `/` with no server-side catch-all needed. The router is about 40 lines. It parses `location.hash`, matches against a small route table, calls the current view's `unmount()`, then calls the next view's `mount(el, params)`. When the next route uses the same view factory and the mounted view has `update(params)`, the router calls that instead. The room page uses this to swap only the room pane, so the sidebar stays mounted while switching rooms.
+Pages are paths (`/r/abc`), not hashes. PocketBase serves `index.html` for any path that isn't a file (`serve --indexFallback`, on by default), with the same headers as `/` (§5.6), so a page opened directly or reloaded works with no server-side routes. The router (`router.ts`) changes pages with the History API: `navigate()` pushes an entry, `popstate` (Back, Forward) is followed, and a plain left click on a link to one of the routes is taken over (no page load); a click asking for a new tab or window, a link with `target` or `download`, and links elsewhere (files under `/api/`, other sites) are left to the browser. Old-style links (`/#/r/abc`, from when the app used hashes) still work: on start, or when one is opened in a running tab (`hashchange`), the URL is replaced by its path. A trailing slash (`/r/abc/`) is the same page. The app learns where the user went (to return there after logging in) from the router's `onNavigate`, called before any redirect. It matches the path against a small route table, calls the current view's `unmount()`, then calls the next view's `mount(el, params)`. When the next route uses the same view factory and the mounted view has `update(params)`, the router calls that instead. The room page uses this to swap only the room pane, so the sidebar stays mounted while switching rooms.
 
 ### 7.2 View contract
 
@@ -457,6 +459,21 @@ If the room's first load fails (other than "room not found"), the list shows an 
 - **Pending or failed sends** (never stored on the server) are simply removed from the list. They don't leave a placeholder.
 - **Deletes by others** arrive as realtime `update` events and swap in the placeholder in place. The scroll position stays anchored.
 
+### 7.6.3 Links in messages
+
+- **What becomes a link:** `http://` and `https://` URLs, and `www.` addresses (opened over https), found in the text by
+  `linkify()` (`lib/links.ts`). Nothing else: `javascript:`, `data:` and the like stay text, and each link is checked
+  with `new URL`. The link shows the text as written.
+- **Where it ends:** at whitespace or `<`, `>`, `"`. Punctuation that ends a sentence (`. , : ; ! ? ' " * _ … 。`) is left
+  out, as are typographic quotes (`“ ” ‘ ’ « »`, as phones type them: Unicode Pi/Pf), and so is a closing `)` or `]` the link didn't open: in "(see https://en.wikipedia.org/wiki/Rust_(language))" the link
+  keeps its own pair.
+- **Opening:** in a new tab (`target="_blank" rel="noopener noreferrer nofollow"`), even a link to a page of the app
+  (the router leaves `target` links alone, §7.1). Text still only ever reaches the page as text nodes (§7.3): a link
+  is an `<a>` made with `h()` around a text node.
+- **Not inside other words:** a `www.` right after `@`, `.` or `-` (`bob@www.example.com`, `my.www.example.com`) isn't
+  linked.
+- Only message bodies: reply quotes are buttons (a link can't go in one), and the edit box shows the raw text.
+
 ### 7.7 Performance budget (enforced in CI, §9.4)
 
 | Asset | Budget (gzipped) |
@@ -464,6 +481,7 @@ If the room's first load fails (other than "room not found"), the list shows an 
 | `app.js` (including the PocketBase client) | **≤ 37 KB** (25 KB for the MVP; raised for §15–§17, §19, §22 and §23, see §13) |
 | `app.css` | **≤ 6 KB** (5 KB until §21, 5.5 KB until §23, see §13) |
 | `index.html` | ≤ 1.5 KB |
+| Image viewer (§17.7), loaded on first use | ≤ 4 KB script, ≤ 1.5 KB stylesheet |
 | Web fonts | **none** (system font stack) |
 | Requests on first load | 3 (html, js, css) + API |
 
@@ -473,6 +491,10 @@ Other rules:
 - An inline app shell in `index.html` paints before the JS runs.
 - The latest-messages fetch and the SSE subscribe start in parallel.
 - `Intl.DateTimeFormat` instances are created once and cached.
+- A feature most visits never use can be a lazy chunk (`import()`, esbuild code splitting) with its own budget, like
+  the image viewer (§17.7). A lazy module must not import a module `app.js` uses: esbuild would move it into a shared
+  chunk that `app.js` loads on every visit (a fourth request). The build fails if `app.js` imports any chunk; such a
+  module gets what it needs from `app.js` as arguments.
 
 ### 7.8 Styling
 
@@ -509,7 +531,10 @@ await esbuild.build({
   entryNames: "assets/[name]-[hash]", outdir: "pb_public",
   metafile: true, legalComments: "none",
 });
+// (plus code splitting for lazy chunks, and web/styles/viewer.css built first: its hashed name is defined
+//  into the app's build as VIEWER_CSS, §17.7 — see scripts/lib/build-utils.mjs)
 // then: read metafile → rewrite web/index.html with hashed names → pb_public/index.html
+// then: exit 1 if app.js imports a shared chunk (§7.7)
 // then: print gzipped sizes; exit 1 if over budget (§7.7)
 ```
 
@@ -566,9 +591,11 @@ View tests run against a real, throwaway PocketBase (temp data dir) using the re
 
 **`router.test.ts`**
 - Matches routes and extracts params.
-- Unknown hash redirects to `#/`.
-- Unauthenticated access redirects to `#/login`.
+- Unknown paths redirect to `/`.
+- Unauthenticated access redirects to `/login`.
 - `unmount` of the previous view is called before the next view's `mount`.
+- A trailing slash is the same page.
+- An image viewer history entry with no viewer open (§17.7) is passed over with `history.back()`, on start and on `popstate`.
 
 **`views/room.test.ts`** (real PocketBase)
 - Initial render shows 50 messages, oldest at the top.
@@ -607,7 +634,7 @@ View tests run against a real, throwaway PocketBase (temp data dir) using the re
 
 **`views/login.test.ts`**
 - Validation errors from the server are shown.
-- Successful login navigates to `#/`.
+- Successful login navigates to `/`.
 
 ### 9.2 Integration tests (`tests/integration/`)
 
@@ -674,6 +701,7 @@ Each test file creates fresh users through a helper, so tests don't depend on ea
 **Hooks and headers**
 - `GET /` returns the CSP and `nosniff` headers.
 - `/assets/app-*.js` returns `immutable` cache headers, and `index.html` returns `no-cache`.
+- A missing `/assets/` file is a 404 with `no-store`, an unknown `/api/` path a JSON 404; app pages still get `index.html`.
 - Rate limit: the 11th message within 5 seconds returns 429.
 
 ### 9.3 End-to-end tests (`tests/e2e/`)
@@ -695,7 +723,7 @@ Playwright's `webServer` starts the built app on a fresh PocketBase with a temp 
    - History can still be scrolled to the beginning.
    - A user who is not the creator sees no Archive action.
    - Unarchive brings the composer back.
-7. **Session persistence:** reloading the page keeps the user logged in. Logging out redirects to `#/login`, and going back does not show room content.
+7. **Session persistence:** reloading the page keeps the user logged in. Logging out redirects to `/login`, and going back does not show room content.
 8. **Reconnect gap fill:** take B offline with `context.setOffline(true)`, have A send 80 messages (more than one page), bring B back online, and all 80 appear in order.
 9. **XSS smoke test:** sending `<img src=x onerror=window.__pwned=1>` renders as literal text and `window.__pwned` stays undefined. The same holds after editing.
 10. **Mobile viewport (390×844):** the room list collapses, the composer is visible above the keyboard area, and sending works.
@@ -704,7 +732,7 @@ Playwright's `webServer` starts the built app on a fresh PocketBase with a temp 
 
 - **Bundle budget:** the build fails if the limits in §7.7 are exceeded.
 - **Accessibility:** run `@axe-core/playwright` on the login, rooms and room screens, with zero serious or critical violations (this adds a dev dependency only).
-- **Performance smoke test (optional in CI):** Playwright with 4× CPU throttling. The time from navigating to `#/r/:id` until the first message is visible should be under 1.5 s on a local server.
+- **Performance smoke test (optional in CI):** Playwright with 4× CPU throttling. The time from navigating to `/r/:id` until the first message is visible should be under 1.5 s on a local server.
 
 ### 9.5 Static checks
 
@@ -850,6 +878,19 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 | Private room names | Still unique among all rooms, as before: creating a room under a private room's name says it is taken. Accepted (the name is all it gives away), like most chat apps. |
 | Bundle budget (§23) | `app.js` raised from 34 KB to 37 KB and `app.css` from 5.5 KB to 6 KB gzipped (§7.7): §23 took them to 35.7 KB and 5.7 KB. |
 
+### Decided (2026-10-12, image viewer)
+
+| Topic | Decision |
+|---|---|
+| Viewer loading | A lazy chunk plus its own stylesheet (§17.7), not an iframe: same savings for `app.js`, without a second document, cross-frame focus handling or relaxing `frame-ancestors`. `app.js` stays within its 37 KB budget (+0.2 KB). |
+| Which images | Every image in the room's message window, oldest first, taken when the viewer opens. |
+
+### Decided (2026-10-12, URLs)
+
+| Topic | Decision |
+|---|---|
+| Paths, not hashes | Pages are paths (`/r/abc`) (§7.1). PocketBase already serves `index.html` for any path that isn't a file, so no server change for pages (a missing asset or an unknown `/api/` path gets a 404 instead, §5.6); anything put in front of it (a proxy or CDN serving `pb_public/` itself) must do the same. Old `#/` links are rewritten to their path, so bookmarks and shared links keep working. `app.js` +0.2 KB. |
+
 ### Still open
 
 1. ~~**Unread state for DMs.**~~ Done for every room: §18.
@@ -943,11 +984,11 @@ transparency) and everything else as JPEG, through `OffscreenCanvas.convertToBlo
 - **Message list:** the avatar (32 px, `48x48` thumb, or `96x96` on high-DPI screens via `srcset`) sits next to
   the author header of each group (§7.5 `group`). Continuation messages get none. The image has `alt=""` because the
   author name is right next to it.
-- **App bar:** the user's own avatar (24 px) next to their name. Both open `#/me`.
+- **App bar:** the user's own avatar (24 px) next to their name. Both open `/me`.
 - A failing avatar image (`error` event) swaps itself for the initials circle.
 - `messageNode`'s signature cache (§7.5 DOM rendering) includes the avatar filename, so a changed avatar re-renders.
 
-### 15.5 Profile view (`#/me`)
+### 15.5 Profile view (`/me`)
 
 A new route and view (`views/profile.ts`): the avatar with **Change** (file picker, also accepts drag-and-drop)
 and **Remove**, plus the display name with **Save**.
@@ -966,7 +1007,7 @@ and **Remove**, plus the display name with **Save**.
 - **Unit:** initials (one word, emoji, combining marks, empty name); color is stable for an id and differs across
   ids; `prepareImage` scaling math and GIF passthrough; profile view upload success, failure rollback and remove;
   the message group header shows the image, and initials on `error`.
-- **E2E:** A uploads an avatar on `#/me`; B sees it next to A's next message. Axe check on `#/me`.
+- **E2E:** A uploads an avatar on `/me`; B sees it next to A's next message. Axe check on `/me`.
 
 ## 16. Direct messages
 
@@ -1064,14 +1105,14 @@ reaches both members through their `rooms` subscription.
   `pb_hooks/lib/users.js`: up to 20 other users by name, `id,name,avatar` only; debounced 200 ms, at least 1
   character). It matches the query's name key against `users.name_key` (§22.1), so case is ignored beyond ASCII
   ("иван" finds "Иван"), which SQLite's `LIKE` on `name` didn't do (QA BUG-55).
-  Choosing a user calls `actions.openDm(userId)` → `POST /api/chat/dms` → `upsertRoom` → navigate to `#/r/:id`.
+  Choosing a user calls `actions.openDm(userId)` → `POST /api/chat/dms` → `upsertRoom` → navigate to `/r/:id`.
 - **From a message:** clicking an author's name or avatar opens a small menu with **Message** (hidden for yourself),
   which does the same.
 - **Room view:** unchanged apart from the header, the composer placeholder ("Message Bob") and the beginning marker
   ("Beginning of your conversation with Bob"). A DM shows the other member's avatar and name, and its menu has
-  **Close conversation** (then back to `#/`) and **Jump to beginning**, never Archive. A closed DM opened by URL
+  **Close conversation** (then back to `/`) and **Jump to beginning**, never Archive. A closed DM opened by URL
   offers **Reopen conversation** instead.
-- **Not a member:** opening `#/r/:id` of someone else's DM gets a 404 from `getRoom`, which already shows "room not
+- **Not a member:** opening `/r/:id` of someone else's DM gets a 404 from `getRoom`, which already shows "room not
   found".
 
 ### 16.6 Tests
@@ -1173,7 +1214,8 @@ other files as chips with name and size, each with a remove (×) button.
   tile at least half as wide as it is high, and a small one is never enlarged (`object-fit: scale-down`). While a
   message sends it shows the local previews, at the size its thumbnails will take: the thumbnails get the previews'
   aspect ratio before they load. Only files the server will show as images (by extension) show as previews. Clicking
-  opens the full file in a new tab (`target="_blank" rel="noopener"`), served under the sandbox CSP.
+  opens the image viewer (§17.7); a click asking for a new tab or window (Ctrl/Cmd/Shift/middle click) opens the full
+  file there instead (`target="_blank" rel="noopener"`), served under the sandbox CSP.
 - **Other files:** a chip with an icon, the display name and a download link (`download` attribute).
 - **Display name:** PocketBase stores `quarterly_report_final_k3j2h1g0f9.pdf` for "Quarterly Report (final).pdf". The
   create hook records each upload's original name in `file_names` (§17.1), and the list shows and downloads files
@@ -1198,6 +1240,56 @@ other files as chips with name and size, each with a remove (×) button.
 - **E2E:** A attaches an image and a PDF and sends; B sees the thumbnail and the file chip live and can open both;
   in a DM, C can't load the file URL even when given it; deleting the message removes the attachments for B; the
   XSS smoke test (§9.3) also uploads an `.html` file and checks that opening it runs no script.
+
+### 17.7 Image viewer
+
+Clicking a thumbnail shows the image full size in a full-window viewer, and you can step through every image in the
+room's window (§7.5), oldest first, with no round trip to the server except for the images themselves.
+
+- **What it shows:** the full file (not a thumbnail; uploads are at most 2048 px, §15.3), fitted to the window; a bar
+  with the file name, who sent it and when, "*n* / *total*", **Download** (`download` attribute, re-signed before use
+  like every file link, §17.3) and **Close**. Images of deleted messages and of messages still sending are left out.
+  The list is taken when it opens; it doesn't follow new messages.
+- **Moving:** Previous/Next buttons on the sides (hidden at the first and last image), ←/→, Home/End, or a one-finger
+  horizontal swipe (≥ 50 px, mostly horizontal; pinch-zoom still works). The neighbours are preloaded, so stepping is
+  instant.
+- **Closing:** Close, Escape, a click on the dark space around the image, or the browser's **Back** (Android's back
+  gesture too). Focus goes back to the thumbnail, or to the one drawn in its place if its message was redrawn while
+  the viewer was open (a reaction, an edit). Leaving the room closes it. Keys pressed before it shows (its stylesheet
+  is still loading) are still the page's.
+- **Back:** opening the viewer pushes a history entry with the same URL (`history.state.viewer`, a token new on each
+  page load, so an entry left from before a reload isn't taken for one). Back leaves it: `popstate` closes the viewer,
+  and since the path doesn't change, the router's `popstate` handler finds the page already shown and does nothing. Closing it any other way
+  goes back over the entry (`history.back()`), so Back then works as before; a viewer opened again before that Back has
+  landed waits for it, or the Back would close it. Leaving the room doesn't go back (it would undo the navigation).
+  An entry with no viewer open on it (Forward after Back closed the viewer, a reload while it was open, one left by
+  leaving the room) would take a Back that seems to do nothing, so the router passes over it with `history.back()`
+  whenever it lands on one, on start or on `popstate`.
+- **Failures:** an image that doesn't load gets one retry with a new file token (an expired token is the usual cause),
+  then "Couldn't load image" with Retry, like thumbnails (§17.3).
+- **Accessibility:** a modal `<dialog>` (focus stays inside, the room behind is inert), named after the image shown;
+  the caption is a polite live region, so stepping announces the new image; the image's alt text is its file name.
+- **Look:** dark in both themes, so the image stands out.
+
+**Loading (the main bundle stays as it was).** `views/room/viewer.ts` is a lazy chunk: the room view `import()`s it on
+the first click (`app.js` grew by 0.2 KB gzipped for the click handler and the import), and it links its own
+stylesheet, `viewer.css`, before it shows. Both have hashed names and a budget of their own (§7.7). It imports only
+types (§7.7: a lazy module mustn't share modules with `app.js`); the DOM helper, names, dates and signed URLs come
+from the room view as options. If the chunk can't be loaded (offline, or a new version was deployed and the old chunk
+is gone), the image opens in a new tab as before.
+
+An iframe with the viewer inside was considered and rejected: it is a heavier way to load code lazily (its own HTML
+document, and its own copy of the session and file-token code), keyboard focus and Escape don't cross into an iframe
+by themselves, and `frame-ancestors 'none'` (§5.6) would have to be relaxed.
+
+**Not done yet:** zooming in beyond fit-to-window is the browser's pinch-zoom only.
+
+**Tests (e2e):** the chunk and stylesheet aren't loaded before the first click; the viewer covers the window, shows the
+full image, steps with the keys, the buttons and a swipe (which isn't taken for a click that closes it), the Download
+link works, Escape and a click beside the image close it and focus goes back to the thumbnail; Back closes it and
+stays in the room, and after Escape its history entry is gone; closing and opening again at once leaves it open;
+Forward after Back and a reload while open leave no entry behind; focus finds the thumbnail after its message was
+redrawn; keys pressed while its stylesheet is still loading don't step; Ctrl/Cmd-click still opens a tab. **Unit:** the build helpers (no shared chunk, the stylesheet define, budgets).
 
 ## 18. Unread counts
 
@@ -1315,8 +1407,8 @@ always true for someone who can see the reply. `NewMessage.replyTo` sends `reply
   "Attachment", "Message deleted"). It uses the window's copy of the original when there is one, so edits and
   deletes show live; otherwise the server's expanded copy.
 - **Going to the original** (`ctl.goTo`): if it is in the window, it is highlighted (`.target`) and centred. The
-  highlight (here and for `#/r/:id/m/:msgId`) holds briefly, fades out, and is dropped after `HIGHLIGHT_MS` (3 s). If not,
-  the window is replaced by the history around it (as for `#/r/:id/m/:msgId`, §7.5) once that has loaded; the old
+  highlight (here and for `/r/:id/m/:msgId`) holds briefly, fades out, and is dropped after `HIGHLIGHT_MS` (3 s). If not,
+  the window is replaced by the history around it (as for `/r/:id/m/:msgId`, §7.5) once that has loaded; the old
   window stays until then. The URL doesn't change, so the composer and anything typed into it stay. Unsent
   (pending or failed) messages the new window drops are kept aside and come back at the live edge. A send
   that completes meanwhile is not added to the history window.
@@ -1386,16 +1478,16 @@ older copies in `merge` (§7.5), and is picked up by the reconnect refetch of ch
 - **Showing them:** under a message's text and attachments, a chip per emoji with its count; yours are tinted and
   `aria-pressed`. The tooltip says who: "You, Ada and 2 others reacted with 🎉". Names come from the window's
   authors. Anyone else is looked up (`api.usersById`), with one request for all the unknown names a render needs.
-- **Changing them:** clicking a chip adds yours or takes it back. **React** in a message's action pill and **☺+**
-  after the chips open the picker; picking an emoji you already used takes it back. In archived rooms the chips show
-  but are not buttons, and there is no React.
+- **Changing them:** clicking a chip adds yours or takes it back. **☺+** ("Add reaction") in a message's action pill, and the same
+  after the chips, open the picker; picking an emoji you already used takes it back. In archived rooms the chips show
+  but are not buttons, and there is no ☺+.
 - **Optimistic:** a change shows at once, as an overlay over every copy of the message (the controller's `reactions(m)`)
   until the server answers. A realtime update made before yours therefore doesn't flicker it away. The requests for one
   message go one at a time, in order, and a change superseded before its request went out is skipped. The server ends
   up with the last choice, in the order the changes were made. A failure shows the reaction as it was, with an inline
   error and Retry. A request that fails after a later change to the same reaction isn't reported, since the later one
   decides what shows.
-- **Focus** stays on the chip that changed, or moves to React when the chip is gone (a failure, the last one taken
+- **Focus** stays on the chip that changed, or moves to the action pill's ☺+ when the chip is gone (a failure, the last one taken
   back). A message is redrawn whenever it changes, for instance when someone else reacts. When that replaces the
   focused button, focus moves to the new one.
 
@@ -1409,7 +1501,7 @@ reactions. It is a `role="dialog"` named for what it does ("Insert emoji", "Add 
   then the categories, in an 8-column grid. Built on first open.
 - **Keyboard:** the grid is one tab stop (roving `tabindex`). Arrow keys move within and across categories, Home and
   End go to the ends, and Enter or Space picks. **Escape** closes it and gives focus back (to the composer, or to the
-  message's React). Clicking or tabbing elsewhere closes it. A window resize moves it along rather than closing it. On
+  message's ☺+). Clicking or tabbing elsewhere closes it. A window resize moves it along rather than closing it. On
   Android the page resizes when the keyboard goes away (`interactive-widget=resizes-content`), and opening the picker
   takes the focus from the composer, which hides the keyboard.
 - The emoji are toggle buttons (`aria-pressed`) only for reactions, where picking can take one back. For the composer
@@ -1644,8 +1736,8 @@ form has a "Who can see it" select, Public by default.
 
 ### 23.3 Guests
 
-Without a session the app no longer starts on the login screen. Every route but `#/me` is public; `#/login` and
-`#/signup` are only for guests (`guestOnly`). A guest gets:
+Without a session the app no longer starts on the login screen. Every route but `/me` is public; `/login` and
+`/signup` are only for guests (`guestOnly`). A guest gets:
 
 - the app bar with **Log in** and **Sign up**;
 - the room list with only the Open Air rooms (the server lists nothing else to them), without menus, the new-room form,
@@ -1681,7 +1773,7 @@ refreshes the unread counts.
   rooms with authors, attachments and live messages, and nothing else; archived Open Air rooms hidden from guests;
   delete events for losing access, update events for gaining it, nothing for anyone else; filters, expands and
   subscriptions by id don't reach into a private room.
-- **Unit**: the guest app (Open Air list, header links, no session calls, `#/me` asks to log in), a guest reading a
+- **Unit**: the guest app (Open Air list, header links, no session calls, `/me` asks to log in), a guest reading a
   room, logging in from a room goes back to it; the header's items; the dialog (making a room private, adding and
   removing people, warnings, a failed save, read-only members); losing and regaining access; markers and the visibility
   select in the room list; a guest's room list; QA BUG-61.

@@ -9,7 +9,7 @@ import { clear, h } from "./dom.ts";
 import { createDrafts } from "./drafts.ts";
 import { startFavicon } from "./favicon.ts";
 import type { User } from "./lib/types.ts";
-import { createRouter, type Router, type View } from "./router.ts";
+import { createRouter, here, type Router, type View } from "./router.ts";
 import { type AppState, createStore, initialState, type Store } from "./store.ts";
 import { createSync } from "./sync.ts";
 import { avatar } from "./ui/avatar.ts";
@@ -41,7 +41,7 @@ const CHECK_MIN_MS = 30 * 1000;
 const CHECK_STALE_MS = 5 * 60 * 1000;
 
 /** The pages for logging in and signing up: only for guests, and never where to go back to after logging in. */
-const AUTH_PAGES = new Set(["#/login", "#/signup"]);
+const AUTH_PAGES = new Set(["/login", "/signup"]);
 
 /** Starts the main view of the mounted layout over (a room that came back, §23.4). */
 const panes = { reload: () => {} };
@@ -101,9 +101,9 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     if (store.get().user) unread.start();
   };
   /** The page a guest was on before going to log in or sign up: where logging in takes them back to (§23.3). */
-  let lastPage = AUTH_PAGES.has(location.hash) ? "#/" : location.hash || "#/";
-  const onHash = () => {
-    if (!AUTH_PAGES.has(location.hash)) lastPage = location.hash || "#/";
+  let lastPage = AUTH_PAGES.has(here()) ? "/" : here();
+  const onNavigate = (path: string) => {
+    if (!AUTH_PAGES.has(path)) lastPage = path;
   };
 
   const header = h("header", { class: "app-bar" });
@@ -129,8 +129,8 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
    * Someone else is logged in now (or nobody): everything that belonged to the previous one goes, the rooms are
    * followed again as the new one (or as a guest), and the views start over.
    */
-  function switchTo(next: User | null, after = "#/") {
-    const fromAuthPage = AUTH_PAGES.has(location.hash);
+  function switchTo(next: User | null, after = "/") {
+    const fromAuthPage = AUTH_PAGES.has(here());
     endSession();
     if (next) store.set({ user: next });
     startSession();
@@ -140,20 +140,20 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
       history.replaceState(null, "", after);
       // After a logout, whoever logs in next starts from home, not from the page the previous user was on (their
       // profile, a room; QA BUG-59). An expired session is logged back into where it was.
-      if (!AUTH_PAGES.has(after)) lastPage = "#/";
+      if (!AUTH_PAGES.has(after)) lastPage = "/";
     }
     router.remount();
   }
 
   /** `after`: where to go, as a guest. */
-  function logOut(after = "#/") {
+  function logOut(after = "/") {
     // End the session before clearing it, so the auth-change listener below sees nothing left to do.
     endSession();
     api.logOut();
     switchTo(null, after);
   }
   /** The session ran out or was revoked: the login page, and back to this page once logged in again. */
-  const expire = () => logOut("#/login");
+  const expire = () => logOut("/login");
 
   /**
    * Renew the session halfway through its lifetime, for as long as the tab stays open. A tab left open longer than a
@@ -219,17 +219,17 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     if (!user) {
       // A guest (§23.3): reading the Open Air rooms, with the way in.
       header.append(
-        h("a", { href: "#/", class: "brand" }, "Chat"),
+        h("a", { href: "/", class: "brand" }, "Chat"),
         h("nav", { class: "guest-links", "aria-label": "Account" }, [
-          h("a", { href: "#/login", class: "guest-link" }, "Log in"),
-          h("a", { href: "#/signup", class: "guest-link primary" }, "Sign up"),
+          h("a", { href: "/login", class: "guest-link" }, "Log in"),
+          h("a", { href: "/signup", class: "guest-link primary" }, "Sign up"),
         ]),
       );
       return;
     }
     header.append(
-      h("a", { href: "#/", class: "brand" }, "Chat"),
-      h("a", { href: "#/me", class: "me-link", title: "Your profile" }, [
+      h("a", { href: "/", class: "brand" }, "Chat"),
+      h("a", { href: "/me", class: "me-link", title: "Your profile" }, [
         avatar(user, 24, api.avatarUrl),
         h("span", { class: "who" }, user.name),
       ]),
@@ -261,16 +261,17 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
       },
     });
   const router = createRouter({
+    onNavigate,
     root: main,
     isAuthed: () => store.get().user !== null,
     routes: [
-      { pattern: "#/login", public: true, guestOnly: true, view: authPage("login") },
-      { pattern: "#/signup", public: true, guestOnly: true, view: authPage("signup") },
+      { pattern: "/login", public: true, guestOnly: true, view: authPage("login") },
+      { pattern: "/signup", public: true, guestOnly: true, view: authPage("signup") },
       // Guests see the Open Air rooms (§23.3); a room they can't see says it doesn't exist.
-      { pattern: "#/", public: true, view: withSidebar(rooms, () => createHomeView(ctx), "home") },
-      { pattern: "#/r/:id", public: true, view: roomPage },
-      { pattern: "#/r/:id/m/:msgId", public: true, view: roomPage },
-      { pattern: "#/me", view: withSidebar(rooms, () => createProfileView(ctx)) },
+      { pattern: "/", public: true, view: withSidebar(rooms, () => createHomeView(ctx), "home") },
+      { pattern: "/r/:id", public: true, view: roomPage },
+      { pattern: "/r/:id/m/:msgId", public: true, view: roomPage },
+      { pattern: "/me", view: withSidebar(rooms, () => createProfileView(ctx)) },
     ],
   });
 
@@ -290,7 +291,6 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
   window.addEventListener("dragover", swallowFileDrag);
   window.addEventListener("drop", swallowFileDrag);
   document.addEventListener("visibilitychange", onVisible);
-  window.addEventListener("hashchange", onHash);
   const stopFavicon = startFavicon(store);
   renderHeader();
   startSession();
@@ -309,7 +309,6 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
       window.removeEventListener("dragover", swallowFileDrag);
       window.removeEventListener("drop", swallowFileDrag);
       document.removeEventListener("visibilitychange", onVisible);
-      window.removeEventListener("hashchange", onHash);
       clearTimeout(renewTimer);
       stopFavicon();
       offStore();

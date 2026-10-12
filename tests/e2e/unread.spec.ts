@@ -21,7 +21,7 @@ test("unread badges (§18): live count, cleared by opening the room, kept across
 
   // A second tab of Bob's, still in the lobby, sees the badge go when the first tab opens the room.
   const b2 = await b.context().newPage();
-  await b2.goto(`/#/r/${lobby.id}`);
+  await b2.goto(`/r/${lobby.id}`);
   const row2 = b2.locator(`li[data-room-id="${room.id}"]`);
   await expect(row2.locator(".badge")).toHaveText("2 unread");
 
@@ -30,7 +30,7 @@ test("unread badges (§18): live count, cleared by opening the room, kept across
   await expect(row2.locator(".badge")).toHaveCount(0, { timeout: 3_000 });
 
   // Back in the lobby: nothing unread, and new messages count again.
-  await b.goto(`/#/r/${lobby.id}`);
+  await b.goto(`/r/${lobby.id}`);
   await expect(row.locator(".badge")).toHaveCount(0);
   await apiSend(ada, room, "three");
   await expect(row.locator(".badge")).toHaveText("1 unread", { timeout: 2_000 });
@@ -44,16 +44,18 @@ test("QA: scrolled up in history, a new message stays unread until you scroll do
   seed(room, ada, 60, { startAt: Date.now() - 60_000, stepMs: 900 });
   const b = await openRoom(browser, bob, room);
   const row = b.locator(`li[data-room-id="${room.id}"]`);
+  // Leaving the room inside the app (not a page load, which would drop a read still being batched).
+  const toLobby = () => b.locator(`li[data-room-id="${lobby.id}"]`).getByRole("link").click();
   await b.locator("ol.messages").evaluate((el) => (el.scrollTop = 0));
   await apiSend(ada, room, "unseen");
   await expect(b.locator("button.new-messages")).toBeVisible();
   await b.waitForTimeout(1_500); // longer than the read batching
-  await b.goto(`/#/r/${lobby.id}`);
+  await toLobby();
   await expect(row.locator(".badge")).toHaveText("1 unread", { timeout: 2_000 });
 
   // Back in the room and down to the bottom: read.
   await row.getByRole("link").click();
   await expect(b.locator("ol.messages")).toContainText("unseen");
-  await b.goto(`/#/r/${lobby.id}`);
+  await toLobby();
   await expect(row.locator(".badge")).toHaveCount(0);
 });

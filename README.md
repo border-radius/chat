@@ -11,8 +11,11 @@ A small, fast, real-time group chat. One [PocketBase](https://pocketbase.io) bin
 - Direct messages between any two users, private to them; close a conversation and it comes back on the next message
 - Avatars (or colored initials) and a profile page to change your picture, display name (unique) and password, and to log out
 - Replies: answer any message with a quote of it; click the quote to jump to the original, however far back
+- Links in messages are clickable and open in a new tab (http, https and www. addresses only)
 - Emoji: a picker in the composer, and reactions on any message (as many different ones as you like), live for everyone
 - Attachments: up to 4 files per message, images shown as thumbnails; files are private to whoever can read the message
+- Image viewer: click a thumbnail to see it full size and step through the room's images (buttons, arrow keys, swipe);
+  loaded only when first used, so it adds nothing to the page's first load
 - Select messages (up to 50): forward them to any room or DM, with "Forwarded from" and their attachments, or delete them together when they are yours
 - Unread counts on every room and DM, live, and in sync across your tabs and devices; the total shows in the tab's favicon and title
 - What you were typing is kept per room, even across a reload; "Jump to latest" whenever you are scrolled up

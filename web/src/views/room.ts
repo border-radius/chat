@@ -7,10 +7,12 @@
 import { errorMessage } from "../api.ts";
 import type { Ctx } from "../context.ts";
 import { clear, h, uniqueId } from "../dom.ts";
+import { attachmentName, isImage } from "../lib/files.ts";
 import { MAX_SELECTED } from "../lib/limits.ts";
 import { lastSaved, quoteText } from "../lib/messages.ts";
 import { isDm, otherMember, roomTitle } from "../lib/rooms.ts";
 import { isNearBottom } from "../lib/scroll.ts";
+import { formatFull, parsePb } from "../lib/time.ts";
 import type { Message } from "../lib/types.ts";
 import type { View } from "../router.ts";
 import { createScope } from "../scope.ts";
@@ -66,7 +68,7 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
       const r = room();
       if (r) accessDialog.open(r, r.created_by === me()?.id, me());
     },
-    onClosed: () => navigate("#/"),
+    onClosed: () => navigate("/"),
     signal,
   });
   const accessDialog = createAccessDialog({
@@ -122,6 +124,7 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
     onDiscard: (id) => ctl.discard(id),
     fileUrl: api.fileUrl,
     refreshFileToken: () => api.fileToken(true),
+    onOpenImage: (m, file, opener) => void viewImage(m, file, opener),
     avatarUrl: api.avatarUrl,
     onMessageUser: (userId) => void messageUser(userId),
     signal,
@@ -160,7 +163,7 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
         const n = (await api.forward(forwarding, target.id)).length;
         if (!scope.active) return null;
         endSelect();
-        if (target.id !== roomId) navigate(`#/r/${target.id}`);
+        if (target.id !== roomId) navigate(`/r/${target.id}`);
         else flash(n === 1 ? "Message forwarded." : `${n} messages forwarded.`);
         return null;
       } catch (e) {
@@ -175,9 +178,9 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
   const banner = h("p", { class: "archived-banner" }, "This room is archived. History is read-only.");
   const guestBanner = h("p", { class: "guest-banner" }, [
     "You're reading as a guest. ",
-    h("a", { href: "#/login" }, "Log in"),
+    h("a", { href: "/login" }, "Log in"),
     " or ",
-    h("a", { href: "#/signup" }, "sign up"),
+    h("a", { href: "/signup" }, "sign up"),
     " to join the conversation.",
   ]);
   const notice = h("p", { class: "room-notice", role: "status" });
@@ -395,9 +398,40 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
   async function messageUser(userId: string) {
     try {
       const dm = await actions.openDm(userId);
-      if (scope.active) navigate(`#/r/${dm.id}`);
+      if (scope.active) navigate(`/r/${dm.id}`);
     } catch (e) {
       if (scope.active) notice.textContent = `Couldn't open that conversation. ${errorMessage(e)}`;
+    }
+  }
+
+  /**
+   * A thumbnail was clicked: show it in the image viewer (§17.7) with the other images in the window, oldest first.
+   * The viewer is a lazy chunk, loaded on the first click. If it can't be (offline, or a new version was deployed),
+   * the image opens in a new tab, as a thumbnail did before the viewer.
+   */
+  async function viewImage(m: Message, file: string, opener: HTMLElement) {
+    const images = ctl
+      .state()
+      .win.items.flatMap((x) =>
+        x.deleted || x.localFiles?.length ? [] : (x.files ?? []).filter(isImage).map((f) => ({ message: x, file: f })),
+      );
+    const start = images.findIndex((i) => i.message.id === m.id && i.file === file);
+    try {
+      const { openViewer } = await import("./room/viewer.ts");
+      if (!scope.active) return;
+      await openViewer({
+        images,
+        start,
+        h,
+        name: attachmentName,
+        when: (x) => formatFull(parsePb(x.created)),
+        fileUrl: api.fileUrl,
+        refreshFileToken: () => api.fileToken(true),
+        opener,
+        signal,
+      });
+    } catch {
+      if (scope.active) window.open(api.fileUrl(m, file), "_blank", "noopener");
     }
   }
 
@@ -440,8 +474,8 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
   function renderNotFound() {
     awaitReturn();
     // A guest may have followed a link to a room that needs an account (§23.3).
-    const why = me() ? [] : [h("a", { href: "#/login" }, "Log in"), " to see more rooms, or "];
-    const back = h("a", { href: "#/" }, me() ? "Back to rooms" : "go back to the Open Air rooms");
+    const why = me() ? [] : [h("a", { href: "/login" }, "Log in"), " to see more rooms, or "];
+    const back = h("a", { href: "/" }, me() ? "Back to rooms" : "go back to the Open Air rooms");
     shell.replaceChildren(h("p", { class: "not-found" }, ["This room doesn't exist. ", ...why, back]));
   }
 
@@ -455,7 +489,7 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
     picker.close();
     forwardDialog.close();
     accessDialog.close();
-    const back = h("a", { href: "#/" }, "Back to rooms");
+    const back = h("a", { href: "/" }, "Back to rooms");
     shell.replaceChildren(h("p", { class: "not-found" }, ["You can't see this room any more. ", back]));
     scope.dispose();
   }

@@ -21,9 +21,9 @@ export function createHomeView({ store }: Pick<Ctx, "store">): View {
     else
       text.replaceChildren(
         "Read any of the Open Air rooms in the list, no account needed. ",
-        h("a", { href: "#/login" }, "Log in"),
+        h("a", { href: "/login" }, "Log in"),
         " or ",
-        h("a", { href: "#/signup" }, "sign up"),
+        h("a", { href: "/signup" }, "sign up"),
         " to join the conversation.",
       );
   };

@@ -4,6 +4,7 @@ import { type App, startApp } from "../../web/src/app.ts";
 import { newId } from "../../web/src/lib/id.ts";
 import { createClient } from "../../web/src/pb.ts";
 import { instrument, newApi, signedUp, subscribed } from "../support/api.ts";
+import { visit } from "../support/dom.ts";
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
@@ -14,7 +15,7 @@ describe("app boot (§7.1)", () => {
   beforeEach(() => {
     root = document.createElement("div");
     document.body.append(root);
-    history.replaceState(null, "", "#/");
+    history.replaceState(null, "", "/");
   });
   afterEach(() => {
     app?.stop();
@@ -35,26 +36,26 @@ describe("app boot (§7.1)", () => {
     const ctl = instrument(api);
     app = startApp({ api, root });
     await tick();
-    expect(location.hash).toBe("#/");
+    expect(location.pathname).toBe("/");
     expect(meLink()).toBeNull();
     const links = [...root.querySelectorAll<HTMLAnchorElement>("header.app-bar .guest-links a")];
     expect(links.map((a) => [a.textContent, a.getAttribute("href")])).toEqual([
-      ["Log in", "#/login"],
-      ["Sign up", "#/signup"],
+      ["Log in", "/login"],
+      ["Sign up", "/signup"],
     ]);
     const sidebar = root.querySelector("aside.sidebar")!;
-    await vi.waitFor(() => expect(sidebar.querySelector(`a[href="#/r/${open.id}"]`)).not.toBeNull());
-    expect(sidebar.querySelector(`a[href="#/r/${pub.id}"]`)).toBeNull();
+    await vi.waitFor(() => expect(sidebar.querySelector(`a[href="/r/${open.id}"]`)).not.toBeNull());
+    expect(sidebar.querySelector(`a[href="/r/${pub.id}"]`)).toBeNull();
     expect(sidebar.querySelector("h2")!.textContent).toBe("Open Air rooms");
     expect(sidebar.querySelector("button.new-room-toggle, button.new-dm, details, summary")).toBeNull();
-    expect(root.querySelector(".welcome p a[href='#/login']")).not.toBeNull();
+    expect(root.querySelector(".welcome p a[href='/login']")).not.toBeNull();
     // Nothing that needs an account is asked for.
     expect(ctl.calls("unreadCounts")).toBe(0);
     expect(ctl.calls("listHidden")).toBe(0);
     expect(ctl.calls("subscribeHidden")).toBe(0);
-    location.hash = "#/me";
+    visit("/me");
     await tick();
-    expect(location.hash).toBe("#/login");
+    expect(location.pathname).toBe("/login");
     expect(root.querySelector("form.auth-form")).not.toBeNull();
     await api.unsubscribeAll();
   });
@@ -66,7 +67,7 @@ describe("app boot (§7.1)", () => {
     await ada.api.react(m.id, "👍", true);
     const api = newApi();
     const ctl = instrument(api);
-    history.replaceState(null, "", `#/r/${open.id}`);
+    history.replaceState(null, "", `/r/${open.id}`);
     app = startApp({ api, root });
     await vi.waitFor(() => expect(root.querySelector("li.msg .body")?.textContent).toBe("hello world"));
     const msg = root.querySelector("li.msg")!;
@@ -76,7 +77,7 @@ describe("app boot (§7.1)", () => {
     expect(msg.querySelector(".reactions button")).toBeNull(); // shown, not clickable
     expect(msg.querySelector(".reactions .reaction")!.getAttribute("title")).toBe("Ada reacted with 👍"); // in the window: no lookup needed
     expect(root.querySelector("form.composer")).toBeNull();
-    expect(root.querySelector("footer .guest-banner a[href='#/login']")).not.toBeNull();
+    expect(root.querySelector("footer .guest-banner a[href='/login']")).not.toBeNull();
     expect(root.querySelector("header.room-header h1")!.textContent).toContain("Open Air");
     root.querySelector<HTMLElement>("header.room-header summary")!.click();
     const items = [...root.querySelectorAll("header.room-header .menu-items button")].map((b) => b.textContent);
@@ -91,16 +92,16 @@ describe("app boot (§7.1)", () => {
     const ada = await signedUp("Ada");
     const pub = await ada.api.createRoom(`pub-${newId()}`);
     const api = newApi();
-    history.replaceState(null, "", `#/r/${pub.id}`);
+    history.replaceState(null, "", `/r/${pub.id}`);
     app = startApp({ api, root });
     await vi.waitFor(() => expect(root.querySelector(".not-found")?.textContent).toContain("doesn't exist"));
-    root.querySelector<HTMLAnchorElement>(".not-found a[href='#/login']")!.click();
-    location.hash = "#/login";
+    root.querySelector<HTMLAnchorElement>(".not-found a[href='/login']")!.click();
+    visit("/login");
     await vi.waitFor(() => expect(root.querySelector("form.auth-form")).not.toBeNull());
     root.querySelector<HTMLInputElement>('input[name="email"]')!.value = ada.email;
     root.querySelector<HTMLInputElement>('input[name="password"]')!.value = ada.password;
     root.querySelector("form")!.requestSubmit();
-    await vi.waitFor(() => expect(location.hash).toBe(`#/r/${pub.id}`));
+    await vi.waitFor(() => expect(location.pathname).toBe(`/r/${pub.id}`));
     await vi.waitFor(() => expect(root.querySelector("header.room-header h1")?.textContent).toBe(`#${pub.name}`));
     expect(root.querySelector("form.composer")).not.toBeNull();
     await api.unsubscribeAll();
@@ -109,24 +110,24 @@ describe("app boot (§7.1)", () => {
   it("with a stored session it goes straight to the route and refreshes auth in the background", async () => {
     const { api, user } = await signedUp("Ada");
     const ctl = instrument(api);
-    history.replaceState(null, "", "#/r/abc");
+    history.replaceState(null, "", "/r/abc");
     app = startApp({ api, root });
-    expect(location.hash).toBe("#/r/abc");
+    expect(location.pathname).toBe("/r/abc");
     expect(app.store.get().user).toEqual(user);
     expect(ctl.calls("refreshAuth")).toBe(1);
     expect(root.textContent).toContain("Ada");
     expect(meLink()).not.toBeNull();
   });
 
-  it("the app bar shows your avatar and name, linking to #/me, and follows profile changes (§15.4)", async () => {
+  it("the app bar shows your avatar and name, linking to /me, and follows profile changes (§15.4)", async () => {
     const { api } = await signedUp("Ada Lovelace");
     app = startApp({ api, root });
     const link = root.querySelector<HTMLAnchorElement>("header.app-bar a.me-link")!;
-    expect(link.getAttribute("href")).toBe("#/me");
+    expect(link.getAttribute("href")).toBe("/me");
     expect(link.querySelector(".avatar")!.textContent).toBe("AL");
     expect(link.querySelector(".who")!.textContent).toBe("Ada Lovelace");
 
-    location.hash = "#/me";
+    visit("/me");
     await vi.waitFor(() => expect(root.querySelector("section.profile")).not.toBeNull());
     expect(root.querySelector("aside.sidebar")).not.toBeNull();
     const grace = `Grace ${newId()}`; // display names are unique (§22.1)
@@ -135,7 +136,7 @@ describe("app boot (§7.1)", () => {
     await api.unsubscribeAll();
   });
 
-  it("#/ shows the room list as a sidebar and a greeting where the room would be", async () => {
+  it("/ shows the room list as a sidebar and a greeting where the room would be", async () => {
     const { api } = await signedUp("Ada Lovelace");
     app = startApp({ api, root });
     await vi.waitFor(() => expect(root.querySelector("aside.sidebar nav[aria-label='Rooms']")).not.toBeNull());
@@ -161,19 +162,19 @@ describe("app boot (§7.1)", () => {
     await api.unsubscribeAll();
   });
 
-  it("#/r/:id shows the room with the room list as a sidebar; navigating between rooms switches the room", async () => {
+  it("/r/:id shows the room with the room list as a sidebar; navigating between rooms switches the room", async () => {
     const { api } = await signedUp("Ada");
     const r1 = await api.createRoom(`one-${newId()}`);
     const r2 = await api.createRoom(`two-${newId()}`);
-    history.replaceState(null, "", `#/r/${r1.id}`);
+    history.replaceState(null, "", `/r/${r1.id}`);
     app = startApp({ api, root });
     await vi.waitFor(() => expect(root.querySelector("header.room-header h1")?.textContent).toBe(`#${r1.name}`));
     const sidebar = root.querySelector("aside.sidebar")!;
     expect(sidebar.querySelector('nav[aria-label="Rooms"]')).not.toBeNull();
-    await vi.waitFor(() => expect(sidebar.querySelector(`a[href="#/r/${r1.id}"]`)?.getAttribute("aria-current")).toBe("page"));
+    await vi.waitFor(() => expect(sidebar.querySelector(`a[href="/r/${r1.id}"]`)?.getAttribute("aria-current")).toBe("page"));
     expect(root.querySelector("form.composer")).not.toBeNull();
 
-    location.hash = `#/r/${r2.id}`;
+    visit(`/r/${r2.id}`);
     await vi.waitFor(() => expect(root.querySelector("header.room-header h1")?.textContent).toBe(`#${r2.name}`));
     expect(app.store.get().activeRoomId).toBe(r2.id);
     await api.unsubscribeAll();
@@ -190,7 +191,7 @@ describe("app boot (§7.1)", () => {
       calls.push(`${r}@${at}`);
       return markRead(r, at);
     };
-    history.replaceState(null, "", `#/r/${room.id}`);
+    history.replaceState(null, "", `/r/${room.id}`);
     app = startApp({ api: me.api, root });
     await vi.waitFor(() => expect(root.querySelector("li.msg")).not.toBeNull());
     expect(calls).toEqual([]); // batched: not sent yet
@@ -207,7 +208,7 @@ describe("app boot (§7.1)", () => {
     const ctl = instrument(api);
     const r1 = await api.createRoom(`one-${newId()}`);
     const r2 = await api.createRoom(`two-${newId()}`);
-    history.replaceState(null, "", `#/r/${r1.id}`);
+    history.replaceState(null, "", `/r/${r1.id}`);
     app = startApp({ api, root });
     await vi.waitFor(() => expect(root.querySelector("header.room-header h1")?.textContent).toBe(`#${r1.name}`));
     const sidebar = root.querySelector("aside.sidebar")!;
@@ -216,14 +217,14 @@ describe("app boot (§7.1)", () => {
     input.value = "half-typ";
     const fetches = ctl.calls("listRooms");
 
-    location.hash = `#/r/${r2.id}`;
+    visit(`/r/${r2.id}`);
     await vi.waitFor(() => expect(root.querySelector("header.room-header h1")?.textContent).toBe(`#${r2.name}`));
     expect(root.querySelector("aside.sidebar")).toBe(sidebar);
     expect(input.isConnected).toBe(true);
     expect(input.value).toBe("half-typ");
     expect(ctl.calls("listRooms")).toBe(fetches);
     expect(ctl.calls("subscribeRooms")).toBe(1); // one app-wide subscription, not one per view
-    await vi.waitFor(() => expect(sidebar.querySelector(`a[href="#/r/${r2.id}"]`)?.getAttribute("aria-current")).toBe("page"));
+    await vi.waitFor(() => expect(sidebar.querySelector(`a[href="/r/${r2.id}"]`)?.getAttribute("aria-current")).toBe("page"));
   });
 
   it("a network failure during the background refresh keeps the session (offline ≠ logged out)", async () => {
@@ -234,14 +235,14 @@ describe("app boot (§7.1)", () => {
     await vi.waitFor(() => expect(ctl.calls("refreshAuth")).toBe(1));
     await tick();
     expect(app.store.get().user?.name).toBe("Ada");
-    expect(location.hash).toBe("#/");
+    expect(location.pathname).toBe("/");
   });
 
   it("a session rejected by the server logs out to the login screen", async () => {
     const { api } = await signedUp("Ada");
     instrument(api).failNext("refreshAuth", new ApiError("The request requires valid record authorization token.", 401));
     app = startApp({ api, root });
-    await vi.waitFor(() => expect(location.hash).toBe("#/login"));
+    await vi.waitFor(() => expect(location.pathname).toBe("/login"));
     expect(app.store.get().user).toBeNull();
     expect(api.currentUser()).toBeNull();
   });
@@ -250,13 +251,13 @@ describe("app boot (§7.1)", () => {
     const ada = await signedUp("Ada");
     const room = await ada.api.createRoom(`r-${newId()}`);
     instrument(ada.api).failNext("refreshAuth", new ApiError("The request requires valid record authorization token.", 401));
-    history.replaceState(null, "", `#/r/${room.id}`);
+    history.replaceState(null, "", `/r/${room.id}`);
     app = startApp({ api: ada.api, root });
-    await vi.waitFor(() => expect(location.hash).toBe("#/login"));
+    await vi.waitFor(() => expect(location.pathname).toBe("/login"));
     root.querySelector<HTMLInputElement>('input[name="email"]')!.value = ada.email;
     root.querySelector<HTMLInputElement>('input[name="password"]')!.value = ada.password;
     root.querySelector("form")!.requestSubmit();
-    await vi.waitFor(() => expect(location.hash).toBe(`#/r/${room.id}`));
+    await vi.waitFor(() => expect(location.pathname).toBe(`/r/${room.id}`));
     await ada.api.unsubscribeAll();
   });
 
@@ -277,7 +278,7 @@ describe("app boot (§7.1)", () => {
     await tick();
     vi.spyOn(api, "sessionExpiry").mockReturnValue(Date.now() - 1);
     document.dispatchEvent(new Event("visibilitychange"));
-    await vi.waitFor(() => expect(location.hash).toBe("#/login"));
+    await vi.waitFor(() => expect(location.pathname).toBe("/login"));
     expect(app.store.get().user).toBeNull();
   });
 
@@ -305,7 +306,7 @@ describe("app boot (§7.1)", () => {
       const { api, ctl, room } = await revoked();
       later(60_000);
       await expect(api.send({ id: newId(), room: room.id, text: "lost" })).rejects.toThrow();
-      await vi.waitFor(() => expect(location.hash).toBe("#/login"));
+      await vi.waitFor(() => expect(location.pathname).toBe("/login"));
       expect(ctl.calls("refreshAuth")).toBe(2);
       expect(app!.store.get().user).toBeNull();
     });
@@ -314,7 +315,7 @@ describe("app boot (§7.1)", () => {
       await revoked();
       later(6 * 60_000);
       document.dispatchEvent(new Event("visibilitychange"));
-      await vi.waitFor(() => expect(location.hash).toBe("#/login"));
+      await vi.waitFor(() => expect(location.pathname).toBe("/login"));
     });
 
     it("a refused change with a good session keeps you logged in, and checks at most every 30 s", async () => {
@@ -331,22 +332,22 @@ describe("app boot (§7.1)", () => {
       await tick();
       expect(ctl.calls("refreshAuth")).toBe(2);
       expect(app.store.get().user?.name).toBe("Ada");
-      expect(location.hash).toBe("#/");
+      expect(location.pathname).toBe("/");
     });
   });
 
   it("logging in through the form goes to the room list", async () => {
     const ada = await signedUp("Ada");
-    history.replaceState(null, "", "#/login");
+    history.replaceState(null, "", "/login");
     app = startApp({ api: newApi(), root });
     await tick();
     root.querySelector<HTMLInputElement>('input[name="email"]')!.value = ada.email;
     root.querySelector<HTMLInputElement>('input[name="password"]')!.value = ada.password;
     root.querySelector("form")!.requestSubmit();
-    await vi.waitFor(() => expect(location.hash).toBe("#/"));
+    await vi.waitFor(() => expect(location.pathname).toBe("/"));
     expect(app.store.get().user).toEqual(ada.user);
     expect(meLink()).not.toBeNull();
-    await vi.waitFor(() => expect(root.querySelector('nav[aria-label="Rooms"]')).not.toBeNull()); // mounted on hashchange
+    await vi.waitFor(() => expect(root.querySelector('nav[aria-label="Rooms"]')).not.toBeNull()); // mounted on navigation
     expect(root.querySelector("button.new-room-toggle")).not.toBeNull();
   });
 
@@ -356,7 +357,7 @@ describe("app boot (§7.1)", () => {
     await vi.waitFor(() => expect(root.querySelector("aside.sidebar nav[aria-label='Rooms']")).not.toBeNull());
     expect(root.querySelector("header.app-bar button")).toBeNull();
     expect(logoutButton()).toBeUndefined();
-    location.hash = "#/me";
+    visit("/me");
     await vi.waitFor(() => expect(logoutButton()).toBeDefined());
     await api.unsubscribeAll();
   });
@@ -364,7 +365,7 @@ describe("app boot (§7.1)", () => {
   it("log out (on the profile page) clears auth, drops realtime subscriptions and goes home as a guest", async () => {
     const { api } = await signedUp("Ada");
     const ctl = instrument(api);
-    history.replaceState(null, "", "#/me");
+    history.replaceState(null, "", "/me");
     app = startApp({ api, root });
     await vi.waitFor(() => expect(logoutButton()).toBeDefined());
     logoutButton()!.click();
@@ -372,7 +373,7 @@ describe("app boot (§7.1)", () => {
     expect(api.currentUser()).toBeNull();
     expect(ctl.calls("unsubscribeAll")).toBe(1);
     expect(app.store.get().user).toBeNull();
-    expect(location.hash).toBe("#/");
+    expect(location.pathname).toBe("/");
     expect(meLink()).toBeNull();
     expect(logoutButton()).toBeUndefined();
     await tick();
@@ -383,12 +384,12 @@ describe("app boot (§7.1)", () => {
   it("QA BUG-59: whoever logs in after a logout starts from home, not from the previous user's page", async () => {
     const ada = await signedUp("Ada");
     const bob = await signedUp("Bob");
-    history.replaceState(null, "", "#/me");
+    history.replaceState(null, "", "/me");
     app = startApp({ api: ada.api, root });
     await vi.waitFor(() => expect(logoutButton()).toBeDefined());
     logoutButton()!.click();
     await tick();
-    location.hash = "#/login";
+    visit("/login");
     await tick();
     await vi.waitFor(() => expect(root.querySelector("form.auth-form")).not.toBeNull());
     root.querySelector<HTMLInputElement>('input[name="email"]')!.value = bob.email;
@@ -396,7 +397,7 @@ describe("app boot (§7.1)", () => {
     root.querySelector("form")!.requestSubmit();
     await vi.waitFor(() => expect(app!.store.get().user?.id).toBe(bob.user.id));
     await tick();
-    expect(location.hash).toBe("#/");
+    expect(location.pathname).toBe("/");
     await Promise.all([ada.api.unsubscribeAll(), bob.api.unsubscribeAll()]);
   });
 
@@ -425,7 +426,7 @@ describe("app boot (§7.1)", () => {
     const ada = await signedUp("Ada");
     const bob = await signedUp("Bob");
     const api = newApi();
-    history.replaceState(null, "", "#/login");
+    history.replaceState(null, "", "/login");
     app = startApp({ api, root });
     await vi.waitFor(() => expect(app!.store.get().roomsStatus).toBe("ready"));
     await subscribed(api);
@@ -443,12 +444,12 @@ describe("app boot (§7.1)", () => {
     const { api } = await signedUp("Ada");
     const room = await api.createRoom(`r-${newId()}`);
     await api.send({ id: newId(), room: room.id, text: "members only" });
-    history.replaceState(null, "", `#/r/${room.id}`);
+    history.replaceState(null, "", `/r/${room.id}`);
     app = startApp({ api, root });
     await vi.waitFor(() => expect(root.querySelector("li.msg")).not.toBeNull());
     app.logOut();
     await tick();
-    location.hash = `#/r/${room.id}`;
+    visit(`/r/${room.id}`);
     await vi.waitFor(() => expect(root.querySelector(".not-found")).not.toBeNull());
     expect(root.querySelector("li.msg")).toBeNull();
     expect(root.textContent).not.toContain("members only");
@@ -492,7 +493,7 @@ describe("app boot (§7.1)", () => {
       pb.authStore.clear();
       await tick();
       expect(app.store.get().user).toBeNull();
-      expect(location.hash).toBe("#/");
+      expect(location.pathname).toBe("/");
       expect(meLink()).toBeNull();
     });
 
@@ -501,7 +502,7 @@ describe("app boot (§7.1)", () => {
       const bob = await signedUp("Bob");
       const { pb, api } = await sharedSession(ada.email, ada.password);
       const room = await api.createRoom(`r-${newId()}`);
-      history.replaceState(null, "", `#/r/${room.id}`);
+      history.replaceState(null, "", `/r/${room.id}`);
       app = startApp({ api, root });
       await vi.waitFor(() => expect(root.querySelector(".who")?.textContent).toBe("Ada"));
       const other = createClient(inject("pbUrl"));

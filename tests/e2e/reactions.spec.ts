@@ -35,7 +35,8 @@ for (const colorScheme of ["light", "dark"] as const) {
     await forBob.hover();
     await forBob.getByRole("button", { name: "Add reaction" }).click();
     await b.getByRole("dialog", { name: "Add reaction" }).getByRole("button", { name: "🎉" }).click();
-    await forBob.getByRole("button", { name: "Add reaction" }).last().click();
+    // Now also the ☺+ after the reactions. (Not the toolbar one: the pointer left the message, so that is hidden.)
+    await forBob.getByRole("group", { name: "Reactions" }).getByRole("button", { name: "Add reaction" }).click();
     // Keyboard: the picker opens on the first emoji (or the most recent one); arrows move, Enter picks.
     await b.keyboard.press("ArrowRight");
     await b.keyboard.press("Enter");

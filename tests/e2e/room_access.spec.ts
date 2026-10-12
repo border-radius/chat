@@ -2,7 +2,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { type Browser, expect, type Page, test } from "@playwright/test";
 import { PNG } from "../support/files.ts";
-import { apiRoom, apiSend, apiUser, attach, composer, headerAction, login, message, send, uniq } from "./fixtures.ts";
+import { apiRoom, apiSend, apiUser, atPath, attach, composer, headerAction, login, message, send, uniq } from "./fixtures.ts";
 
 const newPage = async (browser: Browser): Promise<Page> => (await browser.newContext({ viewport: { width: 1100, height: 720 } })).newPage();
 
@@ -60,7 +60,7 @@ test("a private room: only the people its creator adds see it; someone taken out
   await send(b, "hi Ada");
   await expect(message(a, "hi Ada")).toBeVisible();
   await expect(row(c, name)).toHaveCount(0);
-  await c.goto(a.url().replace(/^.*#/, "/#"));
+  await c.goto(a.url());
   await expect(c.getByText("This room doesn't exist.")).toBeVisible();
 
   // Bob can see who is in it, not change it.
@@ -98,7 +98,7 @@ test("Open Air: a guest reads a room live, attachments included, then logs in an
   // Ada opens the room to everyone.
   const a = await newPage(browser);
   await login(a, ada);
-  await a.goto(`/#/r/${room.id}`);
+  await a.goto(`/r/${room.id}`);
   await headerAction(a, "Room access…");
   const dialog = a.locator("dialog.access");
   await dialog.getByRole("radio", { name: /Open Air/ }).check();
@@ -127,18 +127,18 @@ test("Open Air: a guest reads a room live, attachments included, then logs in an
   await expect(message(guest, "live for guests too")).toBeVisible();
 
   // A link to a room that needs an account says so.
-  await guest.goto(`/#/r/${hidden.id}`);
+  await guest.goto(`/r/${hidden.id}`);
   await expect(guest.getByText("This room doesn't exist.")).toBeVisible();
   await expect(guest.getByText("not for guests")).toHaveCount(0);
 
   // Logging in from the room takes the guest back to it, ready to write.
   const cat = await apiUser(`Cat ${tag}`);
-  await guest.goto(`/#/r/${room.id}`);
+  await guest.goto(`/r/${room.id}`);
   await guest.locator(".guest-banner").getByRole("link", { name: "Log in" }).click();
   await guest.getByLabel("Email").fill(cat.email);
   await guest.getByLabel("Password").fill(cat.password);
   await guest.getByRole("button", { name: "Log in" }).click();
-  await expect(guest).toHaveURL(new RegExp(`#/r/${room.id}$`));
+  await expect(guest).toHaveURL(atPath(`/r/${room.id}`));
   await send(guest, "hello from Cat");
   await expect(message(a, "hello from Cat")).toBeVisible();
   expect(errors).toEqual([]);
@@ -150,7 +150,7 @@ test("Open Air rooms leave a guest's view as soon as they close to guests (§23.
   const room = await apiRoom(ada, `open-${tag}`);
   const a = await newPage(browser);
   await login(a, ada);
-  await a.goto(`/#/r/${room.id}`);
+  await a.goto(`/r/${room.id}`);
   await headerAction(a, "Room access…");
   await a
     .locator("dialog.access")
@@ -163,7 +163,7 @@ test("Open Air rooms leave a guest's view as soon as they close to guests (§23.
   await expect(message(a, "open for now")).not.toHaveClass(/pending/);
 
   const guest = await newPage(browser);
-  await guest.goto(`/#/r/${room.id}`);
+  await guest.goto(`/r/${room.id}`);
   await expect(message(guest, "open for now")).toBeVisible();
 
   // Archived: gone for guests.

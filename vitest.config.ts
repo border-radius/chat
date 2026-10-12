@@ -12,6 +12,8 @@ export default defineConfig({
     },
     projects: [
       {
+        // What the build defines (scripts/lib/build-utils.mjs).
+        define: { VIEWER_CSS: JSON.stringify("/assets/viewer.css") },
         test: {
           name: "unit",
           include: ["tests/unit/**/*.test.ts"],

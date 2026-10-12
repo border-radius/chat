@@ -7,7 +7,7 @@ test("hiding a room is personal; a hidden room still opens by URL; unhide restor
   const room = await apiRoom(ada);
   const a = await openRoom(browser, ada, room);
   const b = await openRoom(browser, bob, room);
-  const inSection = (page: typeof a, section: string) => page.locator(`aside.sidebar [data-section="${section}"] a[href="#/r/${room.id}"]`);
+  const inSection = (page: typeof a, section: string) => page.locator(`aside.sidebar [data-section="${section}"] a[href="/r/${room.id}"]`);
 
   await expect(inSection(a, "rooms")).toBeVisible();
   await headerAction(a, "Hide room");
@@ -19,8 +19,8 @@ test("hiding a room is personal; a hidden room still opens by URL; unhide restor
   await expect(inSection(b, "rooms")).toBeVisible();
 
   // Still reachable by URL, and posting works
-  await a.goto("/#/");
-  await a.goto(`/#/r/${room.id}`);
+  await a.goto("/");
+  await a.goto(`/r/${room.id}`);
   await expect(a.locator("header.room-header h1")).toHaveText(`#${room.name}`);
   await expect(a.locator("form.composer textarea")).toBeVisible();
 

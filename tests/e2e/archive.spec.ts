@@ -21,7 +21,7 @@ test("the creator archives a room: read-only for everyone, history still scrolls
   for (const page of [a, b]) {
     await expect(page.locator(".archived-banner")).toHaveText("This room is archived. History is read-only.");
     await expect(page.locator("form.composer")).toHaveCount(0);
-    await expect(page.locator(`aside.sidebar [data-section="archived"] a[href="#/r/${room.id}"]`)).toHaveCount(1);
+    await expect(page.locator(`aside.sidebar [data-section="archived"] a[href="/r/${room.id}"]`)).toHaveCount(1);
   }
   await expect(b.getByRole("button", { name: "Edit" })).toHaveCount(0);
 

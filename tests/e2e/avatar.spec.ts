@@ -17,13 +17,13 @@ test("an avatar set on the profile page shows next to your messages for others (
   await expect(page.getByRole("button", { name: "Remove" })).toBeVisible();
 
   const b = await openRoom(browser, bob, room);
-  await page.goto(`/#/r/${room.id}`);
+  await page.goto(`/r/${room.id}`);
   await send(page, "hello with a face");
   const mine = message(b, "hello with a face");
   await expect(mine.locator("img.avatar")).toHaveAttribute("src", /thumb=48x48/);
   await expect.poll(() => mine.locator("img.avatar").evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
 
-  await page.goto("/#/me");
+  await page.goto("/me");
   await page.getByRole("button", { name: "Remove" }).click();
   await expect(page.locator(".profile-picture .avatar")).toHaveText("AL");
   await b.reload();

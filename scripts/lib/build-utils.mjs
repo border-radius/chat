@@ -1,12 +1,21 @@
 // Pure helpers for scripts/build.mjs. Kept side-effect free so they can be unit-tested.
 
-/** @typedef {{ js: number, css: number, html: number }} Sizes gzipped byte sizes */
+/** @typedef {{ js: number, css: number, html: number, viewerJs: number, viewerCss: number }} Sizes gzipped byte sizes */
 
 /** Where builds go: PocketBase serves this directory. */
 export const OUTDIR = "pb_public";
 
 /** Source entry points; both are bundled to assets/app.* (hashed in production). */
 export const ENTRIES = Object.freeze({ js: "web/src/main.ts", css: "web/styles/app.css" });
+
+/**
+ * The image viewer (§17.7), kept out of the main bundle: its script is a lazy chunk (`import()`) and its stylesheet a
+ * file of its own, which the script links when it first opens. It finds that file through the `VIEWER_CSS` define.
+ */
+export const VIEWER = Object.freeze({ js: "web/src/views/room/viewer.ts", css: "web/styles/viewer.css" });
+
+/** @param {string} cssPath the viewer stylesheet's path relative to the public dir */
+export const viewerDefine = (cssPath) => ({ VIEWER_CSS: JSON.stringify(`/${cssPath}`) });
 
 /**
  * esbuild options shared by `build` and `dev`; each adds its own minify/sourcemap/naming.
@@ -21,10 +30,14 @@ export const BASE_OPTIONS = {
   format: /** @type {const} */ ("esm"),
   target: "es2022",
   outdir: OUTDIR,
+  // Lazy chunks (`import()`). Code they share with app.js would become a chunk app.js imports — one more request on
+  // every page load — so build.mjs fails if app.js imports any (`staticImports`).
+  splitting: true,
+  chunkNames: "assets/[name]-[hash]",
 };
 
 /** Gzipped size budget in bytes (DESIGN.md §7.7). */
-export const BUDGET = Object.freeze({ js: 37 * 1024, css: 6 * 1024, html: 1536 });
+export const BUDGET = Object.freeze({ js: 37 * 1024, css: 6 * 1024, html: 1536, viewerJs: 4 * 1024, viewerCss: 1.5 * 1024 });
 
 /**
  * @param {Sizes} sizes
@@ -39,7 +52,7 @@ export function formatSizes(sizes) {
   const kb = (/** @type {number} */ n) => `${(n / 1024).toFixed(2)} KB`;
   const over = new Set(checkBudget(sizes));
   return /** @type {(keyof Sizes)[]} */ (Object.keys(BUDGET))
-    .map((k) => `${k.padEnd(4)}${kb(sizes[k]).padStart(9)} / ${kb(BUDGET[k])}${over.has(k) ? "  OVER" : ""}`)
+    .map((k) => `${k.padEnd(10)}${kb(sizes[k]).padStart(9)} / ${kb(BUDGET[k])}${over.has(k) ? "  OVER" : ""}`)
     .join("\n");
 }
 
@@ -65,11 +78,31 @@ export function injectAssets(template, assets) {
  * @returns {{ js: string, css: string }} paths relative to outdir
  */
 export function entryOutputs(metafile, outdir, entries) {
+  return { js: outputOf(metafile, outdir, entries.js), css: outputOf(metafile, outdir, entries.css) };
+}
+
+/**
+ * The output file esbuild produced for an entry point (or a lazy chunk's module, which esbuild records the same way).
+ * @param {{ outputs: Record<string, { entryPoint?: string }> }} metafile
+ * @param {string} outdir
+ * @param {string} entry
+ * @returns {string} path relative to outdir
+ */
+export function outputOf(metafile, outdir, entry) {
   const prefix = `${outdir.replace(/\/$/, "")}/`;
-  const find = (/** @type {string} */ entry) => {
-    const out = Object.entries(metafile.outputs).find(([, o]) => o.entryPoint === entry)?.[0];
-    if (!out) throw new Error(`no esbuild output for entry ${entry}`);
-    return out.startsWith(prefix) ? out.slice(prefix.length) : out;
-  };
-  return { js: find(entries.js), css: find(entries.css) };
+  const out = Object.entries(metafile.outputs).find(([, o]) => o.entryPoint === entry)?.[0];
+  if (!out) throw new Error(`no esbuild output for entry ${entry}`);
+  return out.startsWith(prefix) ? out.slice(prefix.length) : out;
+}
+
+/**
+ * The files an output loads up front (static `import`s), as opposed to the lazy chunks it may `import()` later.
+ * @param {{ outputs: Record<string, { imports?: { path: string, kind: string }[] }> }} metafile
+ * @param {string} outdir
+ * @param {string} output path relative to outdir
+ * @returns {string[]}
+ */
+export function staticImports(metafile, outdir, output) {
+  const imports = metafile.outputs[`${outdir.replace(/\/$/, "")}/${output}`]?.imports ?? [];
+  return imports.filter((i) => i.kind === "import-statement").map((i) => i.path);
 }

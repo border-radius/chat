@@ -36,20 +36,20 @@ export const faviconUrl = (label: string): string => `data:image/svg+xml,${encod
 /** Keep the favicon and the title in step with the unread counts. Returns a function that stops it. */
 export function startFavicon(store: Store<AppState>, doc: Document = document): () => void {
   const title = doc.title;
-  let link = doc.querySelector<HTMLLinkElement>('link[rel="icon"]');
-  if (!link) {
-    link = doc.createElement("link");
+  // Firefox ignores a new href on the icon's <link>, so each change puts in a fresh one.
+  const setIcon = (label: string) => {
+    const link = doc.createElement("link");
     link.rel = "icon";
-    doc.head.append(link);
-  }
-  const icon = link;
-  icon.type = "image/svg+xml";
+    link.href = faviconUrl(label);
+    const old = doc.querySelector('link[rel="icon"]');
+    old ? old.replaceWith(link) : doc.head.append(link);
+  };
   let shown: string | null = null;
   const render = (s: AppState) => {
     const label = badgeLabel(totalUnread(s));
     if (label === shown) return;
     shown = label;
-    icon.href = faviconUrl(label);
+    setIcon(label);
     doc.title = label ? `(${label}) ${title}` : title;
   };
   render(store.get());
@@ -59,6 +59,6 @@ export function startFavicon(store: Store<AppState>, doc: Document = document): 
   return () => {
     off();
     doc.title = title;
-    icon.href = faviconUrl("");
+    setIcon("");
   };
 }

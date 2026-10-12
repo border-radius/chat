@@ -62,6 +62,13 @@ describe("favicon unread badge (§22.4)", () => {
     store.set(bumpUnread("b"));
     expect(icon().href).toBe(faviconUrl("3"));
     expect(document.title).toBe("(3) Chat");
+    // A fresh <link> each time, not a new href on the old one, which Firefox doesn't pick up.
+    const before = icon();
+    store.set(bumpUnread("a"));
+    expect(icon()).not.toBe(before);
+    expect(document.head.querySelectorAll('link[rel="icon"]')).toHaveLength(1);
+    store.set(clearUnread("a"));
+    store.set(bumpUnread("a"));
     store.set({ activeRoomId: "b" }); // opening a room: its messages are being read
     expect(document.title).toBe("(1) Chat");
     store.set(clearUnread("a"));

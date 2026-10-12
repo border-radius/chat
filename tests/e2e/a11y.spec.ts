@@ -18,7 +18,7 @@ for (const colorScheme of ["light", "dark"] as const) {
       await page.goto("/");
       await expect(page.getByRole("heading", { name: "Welcome!" })).toBeVisible();
       expect(await seriousViolations(page), "guest home").toEqual([]);
-      await page.goto("/#/login");
+      await page.goto("/login");
       await expect(page.getByLabel("Email")).toBeVisible();
       expect(await seriousViolations(page), "login").toEqual([]);
 
@@ -31,7 +31,7 @@ for (const colorScheme of ["light", "dark"] as const) {
       await login(page, ada);
       expect(await seriousViolations(page), "rooms").toEqual([]);
 
-      await page.goto(`/#/r/${room.id}`);
+      await page.goto(`/r/${room.id}`);
       await expect(page.locator("li.msg")).toHaveCount(2);
       expect(await seriousViolations(page), "room").toEqual([]);
 
@@ -46,7 +46,7 @@ for (const colorScheme of ["light", "dark"] as const) {
       await attach(page, files);
       expect(await seriousViolations(page), "attachments").toEqual([]);
 
-      await page.goto(`/#/r/${archived.id}`);
+      await page.goto(`/r/${archived.id}`);
       await page.locator("header.room-header summary").click();
       await page.locator(".menu-items").getByRole("button", { name: "Archive room" }).click();
       await page.locator(".menu-items").getByRole("button", { name: "Archive", exact: true }).click();
@@ -54,7 +54,7 @@ for (const colorScheme of ["light", "dark"] as const) {
       expect(await seriousViolations(page), "archived room").toEqual([]);
 
       // A DM, with the user search open in the sidebar.
-      await page.goto("/#/");
+      await page.goto("/");
       await page.getByRole("button", { name: "New message" }).click();
       await page.getByLabel("Find someone to message").fill("Bob");
       await expect(page.locator(".user-search button.person").first()).toBeVisible();
@@ -63,7 +63,7 @@ for (const colorScheme of ["light", "dark"] as const) {
       await expect(page.locator("header.room-header h1")).toContainText("Bob");
       expect(await seriousViolations(page), "dm").toEqual([]);
 
-      await page.goto("/#/me");
+      await page.goto("/me");
       await expect(page.getByRole("heading", { name: "Your profile" })).toBeVisible();
       expect(await seriousViolations(page), "profile").toEqual([]);
     });

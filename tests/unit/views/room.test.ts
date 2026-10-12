@@ -177,6 +177,19 @@ describe("room view (§7.5–7.6)", () => {
       expect(msgEls()[1]!.querySelector(".author")).toBeNull();
     });
 
+    it("links in a message open in a new tab; anything else in it stays text (§7.6.3)", async () => {
+      const room = await newRoom();
+      await seedMessages(room.id, me.user.id, 1, { text: () => "docs at https://example.com/a. not javascript:alert(1) or <b>x</b>" });
+      await mount(room);
+      const body = msgEls()[0]!.querySelector(".body")!;
+      const links = [...body.querySelectorAll("a")];
+      expect(links.map((a) => [a.getAttribute("href"), a.getAttribute("target"), a.getAttribute("rel"), a.textContent])).toEqual([
+        ["https://example.com/a", "_blank", "noopener noreferrer nofollow", "https://example.com/a"],
+      ]);
+      expect(body.textContent).toBe("docs at https://example.com/a. not javascript:alert(1) or <b>x</b>");
+      expect(body.querySelector("b")).toBeNull();
+    });
+
     it("inserts a date divider between days", async () => {
       const room = await newRoom();
       const seeded = await seedMessages(room.id, me.user.id, 4, { stepMs: 20 * 3_600_000 });
@@ -518,7 +531,7 @@ describe("room view (§7.5–7.6)", () => {
       expect(list().scrollTop).toBe(0);
     });
 
-    it("#/r/:id/m/:msgId opens a window around that message and highlights it", async () => {
+    it("/r/:id/m/:msgId opens a window around that message and highlights it", async () => {
       const room = await newRoom();
       const all = await seedMessages(room.id, me.user.id, 300);
       const target = all[150]!;
@@ -746,7 +759,7 @@ describe("room view (§7.5–7.6)", () => {
       const h1 = region.querySelector("h1")!;
       expect(region.getAttribute("aria-labelledby")).toBe(h1.id);
       const back = root.querySelector<HTMLAnchorElement>("header.room-header a.back")!;
-      expect(back.getAttribute("href")).toBe("#/");
+      expect(back.getAttribute("href")).toBe("/");
       expect(back.textContent).toContain("Rooms");
     });
 
@@ -822,7 +835,7 @@ describe("room view (§7.5–7.6)", () => {
         blur();
         refocus();
         expect(active()).toBe(composer());
-        const link = h("a", { href: "#/" }, "a link");
+        const link = h("a", { href: "/" }, "a link");
         root.append(link);
         link.focus();
         refocus();
@@ -1637,7 +1650,7 @@ describe("room view (§7.5–7.6)", () => {
       await mount(dm);
       expect(menuLabels()).toEqual(["Close conversation", "Jump to beginning"]);
       button(headerMenu(), "Close conversation")!.click();
-      await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith("#/"));
+      await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith("/"));
       expect(store.get().hidden.has(dm.id)).toBe(true);
     });
 
@@ -1672,8 +1685,8 @@ describe("room view (§7.5–7.6)", () => {
       expect(authorMenu.querySelector("summary.author")!.textContent).toBe("Bob");
       authorMenu.open = true;
       button(authorMenu, "Message")!.click();
-      await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith(expect.stringMatching(/^#\/r\//)));
-      const dmId = navigate.mock.calls.at(-1)![0].slice(4);
+      await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith(expect.stringMatching(/^\/r\//)));
+      const dmId = navigate.mock.calls.at(-1)![0].slice(3);
       expect(store.get().rooms.get(dmId)?.members).toContain(bob.user.id);
     });
   });
@@ -1727,7 +1740,7 @@ describe("room view (§7.5–7.6)", () => {
       const room = await newRoom();
       const m = await me.api.send({ id: newId(), room: room.id, text: "ship it" });
       await mount(room);
-      const react = button(msgEl(m.id), "React")!;
+      const react = button(msgEl(m.id), "☺+")!;
       expect(react.getAttribute("aria-label")).toBe("Add reaction");
       expect(pickerOpen()).toBe(false);
       react.click();
@@ -1805,7 +1818,7 @@ describe("room view (§7.5–7.6)", () => {
       const m = await me.api.send({ id: newId(), room: room.id, text: "hi" });
       await me.api.react(m.id, "👍", true);
       await mount(room);
-      button(msgEl(m.id), "React")!.click();
+      button(msgEl(m.id), "☺+")!.click();
       expect(picker().querySelector(`button.emoji[data-emoji="👍"]`)!.getAttribute("aria-pressed")).toBe("true");
       pick("👍");
       expect(chips(m.id)).toEqual([]);
@@ -1818,7 +1831,7 @@ describe("room view (§7.5–7.6)", () => {
       const ctl = instrument(me.api);
       ctl.failNext("react", new ApiError("Failed to fetch", 0));
       await mount(room);
-      button(msgEl(m.id), "React")!.click();
+      button(msgEl(m.id), "☺+")!.click();
       pick("🔥");
       expect(chips(m.id)).toEqual(["🔥1 (mine)"]);
       await vi.waitFor(() => expect(msgEl(m.id)!.textContent).toContain("Couldn't add your 🔥 reaction."));
@@ -1838,12 +1851,12 @@ describe("room view (§7.5–7.6)", () => {
       const ctl = instrument(me.api);
       await mount(room);
       const release = ctl.hold("react");
-      button(msgEl(m.id), "React")!.click();
+      button(msgEl(m.id), "☺+")!.click();
       pick("👍");
       await vi.waitFor(() => expect(ctl.calls("react")).toBe(1)); // on its way, unanswered
       chip(m.id, "👍").click(); // off
       expect(chips(m.id)).toEqual([]);
-      button(msgEl(m.id), "React")!.click();
+      button(msgEl(m.id), "☺+")!.click();
       pick("👍"); // on again
       chip(m.id, "👍").click(); // and off
       expect(chips(m.id)).toEqual([]);
@@ -1858,15 +1871,15 @@ describe("room view (§7.5–7.6)", () => {
       const room = await newRoom();
       const m = await me.api.send({ id: newId(), room: room.id, text: "hi" });
       await mount(room);
-      button(msgEl(m.id), "React")!.click();
+      button(msgEl(m.id), "☺+")!.click();
       key(document.activeElement!, "Escape");
       expect(pickerOpen()).toBe(false);
-      expect(document.activeElement).toBe(button(msgEl(m.id), "React"));
-      button(msgEl(m.id), "React")!.click();
+      expect(document.activeElement).toBe(button(msgEl(m.id), "☺+"));
+      button(msgEl(m.id), "☺+")!.click();
       pick("👀");
       expect(document.activeElement).toBe(chip(m.id, "👀"));
       chip(m.id, "👀").click();
-      expect(document.activeElement).toBe(button(msgEl(m.id), "React"));
+      expect(document.activeElement).toBe(button(msgEl(m.id), "☺+"));
     });
 
     it("no React on a message still sending, deleted, or in an archived room, where reactions only show", async () => {
@@ -1880,15 +1893,15 @@ describe("room view (§7.5–7.6)", () => {
       expect(chips(gone.id)).toEqual(["👍1 (mine)"]);
       await me.api.softDelete(gone.id);
       await vi.waitFor(() => expect(msgEl(gone.id)!.querySelector(".reactions")).toBeNull());
-      expect(button(msgEl(gone.id), "React")).toBeNull();
+      expect(button(msgEl(gone.id), "☺+")).toBeNull();
 
       const release = ctl.hold("send");
       send("on its way");
-      expect(button(msgEls().at(-1)!, "React")).toBeNull();
+      expect(button(msgEls().at(-1)!, "☺+")).toBeNull();
       release();
 
       await me.api.setArchived(room.id, true);
-      await vi.waitFor(() => expect(button(msgEl(m.id), "React")).toBeNull());
+      await vi.waitFor(() => expect(button(msgEl(m.id), "☺+")).toBeNull());
       expect(chip(m.id, "👍").tagName).toBe("SPAN");
       expect(chips(m.id)).toEqual(["👍1"]);
       expect(button(msgEl(m.id), "☺+")).toBeNull();
@@ -2103,7 +2116,7 @@ describe("room view (§7.5–7.6)", () => {
       search.dispatchEvent(new Event("input"));
       expect(targets()).toEqual([`#${elsewhere.name}`]);
       target(`#${elsewhere.name}`).click();
-      await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith(`#/r/${elsewhere.id}`));
+      await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith(`/r/${elsewhere.id}`));
       expect(dialog().open).toBe(false);
       const page = await me.api.page({ filter: "room = {:r}", params: { r: elsewhere.id }, sort: "created,id" });
       expect(page.map((m) => [m.text, m.author, m.expand?.forwarded_from?.name])).toEqual([
@@ -2126,8 +2139,8 @@ describe("room view (§7.5–7.6)", () => {
       search.dispatchEvent(new Event("input"));
       await vi.waitFor(() => expect(targets()).toEqual([name]));
       target(name).click();
-      await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith(expect.stringMatching(/^#\/r\//)));
-      const dmId = navigate.mock.calls.at(-1)![0].slice(4);
+      await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith(expect.stringMatching(/^\/r\//)));
+      const dmId = navigate.mock.calls.at(-1)![0].slice(3);
       expect(store.get().rooms.get(dmId)?.members).toContain(zed.user.id);
       const [copy] = await zed.api.page({ filter: "room = {:r}", params: { r: dmId }, sort: "created,id" });
       expect(copy).toMatchObject({ text: "psst", forwarded_from: me.user.id });

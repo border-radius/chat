@@ -1,7 +1,7 @@
 // §22: unique display names, changing your password, drafts across reloads, the unread favicon, focus on entering a
 // room, "Jump to latest", and the forward confirmation going away.
 import { expect, test } from "@playwright/test";
-import { apiRoom, apiSend, apiUser, composer, login, logOut, message, messages, openRoom, seed, send, uniq } from "./fixtures.ts";
+import { apiRoom, apiSend, apiUser, atPath, composer, login, logOut, message, messages, openRoom, seed, send, uniq } from "./fixtures.ts";
 
 test("change your password on the profile page, then log in with the new one", async ({ page }) => {
   const ada = await apiUser(`Ada ${uniq()}`);
@@ -22,20 +22,20 @@ test("change your password on the profile page, then log in with the new one", a
   await expect(page.getByRole("heading", { name: "Your profile" })).toBeVisible();
 
   await logOut(page);
-  await expect(page).toHaveURL(/#\/$/);
+  await expect(page).toHaveURL(atPath("/"));
   await login(page, { ...ada, password: "brand-new-pass" });
 });
 
 test("a display name that is taken is refused at sign up", async ({ page }) => {
   const ada = await apiUser(`Ada ${uniq()}`);
-  await page.goto("/#/login");
+  await page.goto("/login");
   await page.getByRole("tab", { name: "Sign up" }).click();
   await page.getByLabel("Display name").fill(ada.name.toLowerCase());
   await page.getByLabel("Email").fill(`${uniq()}@test.local`);
   await page.getByLabel("Password").fill("password-123");
   await page.getByRole("button", { name: "Sign up" }).click();
   await expect(page.getByText("This display name is taken. Choose another one.")).toBeVisible();
-  await expect(page).toHaveURL(/#\/login$/);
+  await expect(page).toHaveURL(atPath("/login"));
 });
 
 test("an unsent message survives a reload; entering a room puts the caret in the composer", async ({ browser }) => {

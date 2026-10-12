@@ -35,7 +35,7 @@ test("direct messages: start one from the user search, reply live, private to th
 
   // Cat never sees it, and its URL is "not found" for her.
   await expect(c.locator('[data-section="dms"] li')).toHaveCount(0);
-  await c.goto(dmUrl.replace(/^.*#/, "/#"));
+  await c.goto(dmUrl);
   await expect(c.getByText("This room doesn't exist.")).toBeVisible();
 
   // Bob closes it; Ada writes again and it comes back for Bob.
@@ -52,7 +52,7 @@ test("Message from an author's name opens the DM (§16.5)", async ({ browser }) 
   const room = await apiRoom(ada);
   const page = await (await browser.newContext({ viewport: { width: 1100, height: 720 } })).newPage();
   await login(page, ada);
-  await page.goto(`/#/r/${room.id}`);
+  await page.goto(`/r/${room.id}`);
   await apiSend(bob, room, "ping");
   const theirs = message(page, "ping");
   await theirs.locator("summary.author").click();

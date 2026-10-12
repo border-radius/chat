@@ -1,4 +1,4 @@
-// Login / signup screen (§7.1): #/login and #/signup, reached from the header (§23.3).
+// Login / signup screen (§7.1): /login and /signup, reached from the header (§23.3).
 
 import { type Api, ApiError, errorMessage, SIGNUP_LOGIN_FAILED } from "../api.ts";
 import { clear, h, uniqueId } from "../dom.ts";
@@ -114,7 +114,7 @@ export function createLoginView(deps: { api: Api; onLogin: (user: User) => void;
         h("h1", {}, "Chat"),
         h("div", { role: "tablist", class: "tabs" }, tabs),
         form,
-        h("p", { class: "auth-skip" }, h("a", { href: "#/" }, "Just looking? Read the Open Air rooms")),
+        h("p", { class: "auth-skip" }, h("a", { href: "/" }, "Just looking? Read the Open Air rooms")),
       ]),
     );
   }

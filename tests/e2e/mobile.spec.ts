@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { PNG } from "../support/files.ts";
-import { apiRoom, apiSend, apiUser, attach, login, message, send } from "./fixtures.ts";
+import { apiRoom, apiSend, apiUser, atPath, attach, login, message, send } from "./fixtures.ts";
 
 // No isMobile: Firefox does not support it, and CI runs all three engines. Viewport + touch is what matters here.
 test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
@@ -48,7 +48,7 @@ test("on a phone: list → room → send → back to the list", async ({ page })
   await expect(message(page, "with a picture").locator(".att-tile img")).toBeVisible();
 
   await page.getByRole("link", { name: "Back to rooms" }).tap();
-  await expect(page).toHaveURL(/#\/$/);
+  await expect(page).toHaveURL(atPath("/"));
   await expect(page.getByRole("navigation", { name: "Rooms" })).toBeVisible();
   await expect(page.locator("section.welcome")).toBeHidden(); // a phone shows only the list
 });
@@ -100,7 +100,7 @@ test("on a phone, focusing a text field can't zoom the page in: fields are 16px,
   // cause: every field's computed size. Pinch zoom deliberately stays available (WCAG 1.4.4).
   const ada = await apiUser("Ada");
   const room = await apiRoom(ada);
-  await page.goto("/#/login");
+  await page.goto("/login");
   const sizes = () => page.locator("input:not([type=file]), textarea").evaluateAll((els) => els.map((e) => getComputedStyle(e).fontSize));
   for (const size of await sizes()) expect(parseFloat(size)).toBeGreaterThanOrEqual(16);
 

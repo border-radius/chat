@@ -49,6 +49,26 @@ describe("security and cache headers (§5.6)", () => {
     expect(res.headers.get("cache-control")).toBe("no-cache");
   });
 
+  it("a missing asset is a 404 that isn't cached, not the app's index.html cached for a year (an old build's chunk)", async () => {
+    for (const path of ["/assets/viewer-GONE1234.js", "/assets/app-GONE1234.css", "/assets/nope.js", "/assets/"]) {
+      const res = await fetch(url(path));
+      expect(res.status, path).toBe(404);
+      expect(res.headers.get("cache-control"), path).toBe("no-store");
+      expect(res.headers.get("content-type"), path).not.toMatch(/html/);
+    }
+  });
+
+  it("an unknown API path is a 404, not the app's index.html; the app's pages still get it", async () => {
+    const api = await fetch(url("/api/nope"));
+    expect(api.status).toBe(404);
+    expect(api.headers.get("content-type")).toMatch(/json/);
+    for (const path of ["/r/abc", "/me", "/r/abc/m/def"]) {
+      const res = await fetch(url(path));
+      expect(res.status, path).toBe(200);
+      expect(await res.text(), path).toContain("<title>Chat</title>");
+    }
+  });
+
   it("index.html is never cached", async () => {
     for (const path of ["/", "/index.html"]) {
       const res = await fetch(url(path));

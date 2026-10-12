@@ -103,7 +103,7 @@ export function createRoomController(opts: {
   api: Api;
   store: Store<AppState>;
   roomId: string;
-  /** #/r/:id/m/:msgId */
+  /** /r/:id/m/:msgId */
   msgId?: string | undefined;
   scope: Scope;
   /** Is the list scrolled to (near) the bottom? New messages are followed only then. */

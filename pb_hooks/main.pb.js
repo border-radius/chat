@@ -6,6 +6,11 @@ routerUse((e) => {
   return e.next();
 });
 
+// Not the app's index.html (PocketBase's fallback for any other path, §7.1) for a missing asset or API.
+routerAdd("GET", "/assets/{path...}", (e) => require(`${__hooks}/lib/chat.js`).asset(e));
+routerAdd("GET", "/api/{path...}", () => {
+  throw new NotFoundError();
+});
 routerAdd("POST", "/api/chat/dms", (e) => require(`${__hooks}/lib/dms.js`).openDm(e), $apis.requireAuth("users"));
 routerAdd("GET", "/api/chat/unread", (e) => require(`${__hooks}/lib/reads.js`).unread(e), $apis.requireAuth("users"));
 routerAdd("POST", "/api/chat/reads", (e) => require(`${__hooks}/lib/reads.js`).markRead(e), $apis.requireAuth("users"));

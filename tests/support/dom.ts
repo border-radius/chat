@@ -94,3 +94,9 @@ export function installIntersectionObserver() {
     },
   };
 }
+
+/** Go to `path` the way Back and Forward do: a history entry, then `popstate` (what the router follows, §7.1). */
+export function visit(path: string): void {
+  history.pushState(null, "", path);
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}

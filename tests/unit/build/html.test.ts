@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { entryOutputs, injectAssets } from "../../../scripts/lib/build-utils.mjs";
+import { entryOutputs, injectAssets, staticImports, viewerDefine } from "../../../scripts/lib/build-utils.mjs";
 
 const template = `<!doctype html><head><!--CSS--></head><body><div id="app"></div><!--JS--></body>`;
 
@@ -43,5 +43,30 @@ describe("entryOutputs", () => {
 
   it("throws when an entry has no output", () => {
     expect(() => entryOutputs(metafile, "pb_public", { js: "web/src/other.ts", css: "web/styles/app.css" })).toThrow(/web\/src\/other\.ts/);
+  });
+});
+
+describe("staticImports", () => {
+  const metafile = {
+    outputs: {
+      "pb_public/assets/app-AB12.js": {
+        imports: [
+          { path: "pb_public/assets/viewer-EF56.js", kind: "dynamic-import" },
+          { path: "pb_public/assets/chunk-XY.js", kind: "import-statement" },
+        ],
+      },
+      "pb_public/assets/main-GH78.js": { imports: [{ path: "pb_public/assets/viewer-EF56.js", kind: "dynamic-import" }] },
+    },
+  };
+
+  it("lists the chunks an output loads up front, not the lazy ones", () => {
+    expect(staticImports(metafile, "pb_public", "assets/app-AB12.js")).toEqual(["pb_public/assets/chunk-XY.js"]);
+    expect(staticImports(metafile, "pb_public/", "assets/main-GH78.js")).toEqual([]);
+  });
+});
+
+describe("viewerDefine", () => {
+  it("defines the viewer stylesheet's absolute URL as a string literal", () => {
+    expect(viewerDefine("assets/viewer-AB12.css")).toEqual({ VIEWER_CSS: '"/assets/viewer-AB12.css"' });
   });
 });

@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, type Page, test } from "@playwright/test";
-import { apiRoom, apiSend, apiUser, composer, message, messages, openRoom, uniq } from "./fixtures.ts";
+import { apiRoom, apiSend, apiUser, atPath, composer, message, messages, openRoom, uniq } from "./fixtures.ts";
 
 async function seriousViolations(page: Page) {
   const { violations } = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
@@ -38,7 +38,7 @@ for (const colorScheme of ["light", "dark"] as const) {
     await dialog.getByRole("searchbox", { name: "Search rooms and people" }).fill(bob.name);
     expect(await seriousViolations(a), "forward dialog").toEqual([]);
     await dialog.getByRole("button", { name: bob.name }).click();
-    await expect(a).toHaveURL(/#\/r\/\w+$/);
+    await expect(a).toHaveURL(atPath(/^\/r\/\w+$/));
     await expect(messages(a)).toHaveCount(2);
     await expect(messages(a).first()).toContainText(`Forwarded from ${bob.name}`);
     await expect(messages(a).first()).toContainText("lunch at noon?");

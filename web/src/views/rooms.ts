@@ -128,7 +128,7 @@ export function createRoomsView({ api, store, sync, unread, actions, navigate }:
       actionError = "";
       if (!scope.active) return;
       toggleSearch(false);
-      navigate(`#/r/${room.id}`);
+      navigate(`/r/${room.id}`);
     } catch (e) {
       actionError = `Couldn't open the conversation with “${user.name}”. ${errorMessage(e)}`;
     }
@@ -187,7 +187,7 @@ export function createRoomsView({ api, store, sync, unread, actions, navigate }:
       n ? h("span", { class: "badge" }, [n > 99 ? "99+" : n, h("span", { class: "visually-hidden" }, " unread")]) : null,
     ];
     return h("li", { class: r.kind === "dm" ? "dm" : "", dataset: { roomId: r.id } }, [
-      h("a", { href: `#/r/${r.id}`, class: n ? "unread" : "", "aria-current": current ? "page" : null }, label),
+      h("a", { href: `/r/${r.id}`, class: n ? "unread" : "", "aria-current": current ? "page" : null }, label),
       rowMenu(r, menuItems(r, section), live),
     ]);
   }
@@ -353,7 +353,7 @@ export function createRoomsView({ api, store, sync, unread, actions, navigate }:
               const room = await actions.create(input.value, visibility.value as Visibility);
               if (!scope.active) return;
               toggleNewRoom(false);
-              navigate(`#/r/${room.id}`);
+              navigate(`/r/${room.id}`);
             } catch (e) {
               if (scope.active) setError(nameError(e));
             } finally {

@@ -31,7 +31,7 @@ export function createRoomHeader(opts: {
   const error = h("p", { class: "room-error", role: "alert" });
   const menu = createActionMenu({ label: "Room actions", signal });
   const el = h("header", { class: "room-header" }, [
-    h("a", { href: "#/", class: "back", "aria-label": "Back to rooms" }, "← Rooms"),
+    h("a", { href: "/", class: "back", "aria-label": "Back to rooms" }, "← Rooms"),
     title,
     menu.el,
     error,

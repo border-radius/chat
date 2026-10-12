@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { composer, message, send, uniq } from "./fixtures.ts";
+import { atPath, composer, message, send, uniq } from "./fixtures.ts";
 
 test("sign up, create a room, send the first message", async ({ page }) => {
   const errors: string[] = [];
@@ -7,14 +7,14 @@ test("sign up, create a room, send the first message", async ({ page }) => {
 
   await page.goto("/");
   await page.locator("header.app-bar").getByRole("link", { name: "Sign up" }).click();
-  await expect(page).toHaveURL(/#\/signup$/);
+  await expect(page).toHaveURL(atPath("/signup"));
   await expect(page.getByRole("tab", { name: "Sign up" })).toHaveAttribute("aria-selected", "true");
   await page.getByLabel("Display name").fill("Grace");
   await page.getByLabel("Email").fill(`grace-${uniq()}@test.local`);
   await page.getByLabel("Password").fill("password-123");
   await page.getByRole("button", { name: "Sign up" }).click();
 
-  await expect(page).toHaveURL(/#\/$/);
+  await expect(page).toHaveURL(atPath("/"));
   await expect(page.locator("header.app-bar")).toContainText("Grace");
   await expect(page.getByRole("navigation", { name: "Rooms" })).toBeVisible();
   // With no room open: the room list is a sidebar on the left, a greeting beside it.
@@ -30,7 +30,7 @@ test("sign up, create a room, send the first message", async ({ page }) => {
   await expect(page.getByLabel("Room name")).toBeFocused();
   await page.getByLabel("Room name").fill(name);
   await page.getByRole("button", { name: "Create" }).click();
-  await expect(page).toHaveURL(/#\/r\/[a-z0-9]{15}$/);
+  await expect(page).toHaveURL(atPath(/^\/r\/[a-z0-9]{15}$/));
   await expect(page.locator("header.room-header h1")).toHaveText(`#${name}`);
   await expect(page.locator("li.beginning")).toHaveText(`Beginning of #${name}`);
 

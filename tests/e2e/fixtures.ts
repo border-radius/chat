@@ -102,12 +102,18 @@ export function seed(
 }
 
 /** Log in through the real form. */
+/** For `toHaveURL`: the page is `path` (exactly, or matching), with no old-style `#/` hash (§7.1). */
+export const atPath =
+  (path: string | RegExp) =>
+  (url: URL): boolean =>
+    !url.hash && (typeof path === "string" ? url.pathname === path : path.test(url.pathname));
+
 export async function login(page: Page, user: User, base = ""): Promise<void> {
-  await page.goto(`${base}/#/login`);
+  await page.goto(`${base}/login`);
   await page.getByLabel("Email").fill(user.email);
   await page.getByLabel("Password").fill(user.password);
   await page.getByRole("button", { name: "Log in" }).click();
-  await expect(page).toHaveURL(/#\/$/);
+  await expect(page).toHaveURL(atPath("/"));
 }
 
 /** Log out the way a user does: Log out is on the profile page (§22.2). */
@@ -121,7 +127,7 @@ export async function openRoom(browser: Browser, user: User, room: Room, base = 
   const ctx = await browser.newContext({ viewport: { width: 1100, height: 720 } });
   const page = await ctx.newPage();
   await login(page, user, base);
-  await page.goto(`${base}/#/r/${room.id}`);
+  await page.goto(`${base}/r/${room.id}`);
   await expect(page.locator("header.room-header h1")).toHaveText(`#${room.name}`);
   await expect(page.locator("ol.messages")).toHaveAttribute("aria-busy", "false");
   return page;

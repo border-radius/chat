@@ -158,3 +158,128 @@ test("an uploaded HTML file never runs on our origin (§17, XSS)", async ({ brow
   expect(await tab.title()).not.toBe("pwned");
   expect(await a.evaluate(() => (window as { __pwned?: number }).__pwned)).toBeUndefined();
 });
+
+test("the image viewer: loaded on first use, steps through the room's images, closes back to the thumbnail (§17.7)", async ({
+  browser,
+}) => {
+  const ada = await apiUser("Ada");
+  const room = await apiRoom(ada);
+  const a = await openRoom(browser, ada, room);
+  await attach(a, [sizedPng("wide.png", 1600, 900), sizedPng("square.png", 600, 600)]);
+  await send(a, "first");
+  await attach(a, [sizedPng("tall.png", 100, 1000), pdf]);
+  await send(a, "second");
+  const tiles = a.locator("a.att-tile");
+  await expect(tiles).toHaveCount(3);
+  await expect(a.locator("li.msg.pending")).toHaveCount(0);
+
+  const loaded = () => a.evaluate(() => performance.getEntriesByType("resource").some((r) => /\/viewer-[^/]*\.(js|css)$/.test(r.name)));
+  expect(await loaded()).toBe(false);
+
+  const opener = message(a, "first").locator("a.att-tile").nth(1);
+  // Its stylesheet comes slowly here: keys pressed before it shows are still the page's, and don't step.
+  await a.route(/\/viewer-[^/]*\.css$/, async (r) => {
+    await new Promise((ok) => setTimeout(ok, 500));
+    await r.continue();
+  });
+  await Promise.all([a.waitForRequest(/\/viewer-[^/]*\.css$/), opener.click()]);
+  await a.keyboard.press("End");
+  // Named after the image it shows.
+  await expect(a.getByRole("dialog", { name: "square.png" })).toBeVisible();
+  const viewer = a.getByRole("dialog");
+  expect(await loaded()).toBe(true);
+  // Its stylesheet applied: it covers the window.
+  expect(await viewer.boundingBox()).toEqual({ x: 0, y: 0, width: 1100, height: 720 });
+  await expect(viewer.locator(".viewer-count")).toHaveText("2 / 3");
+  await expect(viewer.locator(".viewer-meta")).toContainText(ada.name);
+  const img = viewer.locator(".viewer-stage img");
+  // The full file, not a thumbnail.
+  await expect.poll(() => img.evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth)).toBe(600);
+
+  await a.keyboard.press("ArrowRight");
+  await expect(viewer.locator("h2")).toHaveText("tall.png");
+  await expect(viewer.locator(".viewer-count")).toHaveText("3 / 3");
+  await expect(viewer.getByRole("button", { name: "Next image" })).toBeHidden();
+  await expect.poll(() => img.evaluate((i: HTMLImageElement) => i.complete && i.naturalHeight)).toBe(1000);
+
+  await viewer.getByRole("button", { name: "Previous image" }).click();
+  await a.keyboard.press("Home");
+  await expect(viewer.locator("h2")).toHaveText("wide.png");
+  await expect(viewer.getByRole("button", { name: "Previous image" })).toBeHidden();
+  const download = viewer.getByRole("link", { name: "Download" });
+  await expect(download).toHaveAttribute("download", "wide.png");
+  expect(await statusOf(a, (await download.getAttribute("href"))!)).toBe(200);
+
+  // A swipe (here with the mouse) steps, and isn't taken for a click on the space around the image, which closes.
+  const box = (await viewer.locator(".viewer-stage").boundingBox())!;
+  await a.mouse.move(box.x + 700, box.y + 40);
+  await a.mouse.down();
+  await a.mouse.move(box.x + 500, box.y + 45, { steps: 4 });
+  await a.mouse.up();
+  await expect(viewer.locator("h2")).toHaveText("square.png");
+  await a.mouse.click(box.x + 20, box.y + 20);
+  await expect(a.locator("dialog.viewer")).toHaveCount(0);
+  await expect(opener).toBeFocused();
+
+  // Back closes it, and stays in the room.
+  const roomUrl = a.url();
+  const viewerEntry = () => a.evaluate(() => (history.state as { viewer?: string } | null)?.viewer ?? null);
+  await opener.click();
+  await expect(viewer).toBeVisible();
+  expect(await viewerEntry()).not.toBeNull();
+  await a.evaluate(() => history.back());
+  await expect(a.locator("dialog.viewer")).toHaveCount(0);
+  expect(a.url()).toBe(roomUrl);
+  await expect(composer(a)).toBeVisible();
+  await expect(opener).toBeFocused();
+
+  // Escape closes too, and takes its history entry with it, so Back would leave the room as before.
+  await opener.click();
+  await expect(viewer).toBeVisible();
+  await a.keyboard.press("Escape");
+  await expect(a.locator("dialog.viewer")).toHaveCount(0);
+  await expect.poll(viewerEntry).toBeNull();
+  expect(a.url()).toBe(roomUrl);
+
+  // Closed and opened again at once: the first one going Back off its entry doesn't close the second.
+  await opener.click();
+  await expect(viewer).toBeVisible();
+  await a.keyboard.press("Escape");
+  await opener.click();
+  await expect(viewer).toBeVisible();
+  await a.waitForTimeout(300);
+  await expect(viewer).toBeVisible();
+  await expect.poll(viewerEntry).not.toBeNull();
+
+  // Forward after Back closed it, or a reload while it was open, doesn't land on an entry that takes a Back that
+  // seems to do nothing.
+  await a.goBack();
+  await expect(a.locator("dialog.viewer")).toHaveCount(0);
+  await a.goForward();
+  await expect.poll(viewerEntry).toBeNull();
+  await opener.click();
+  await expect(viewer).toBeVisible();
+  await a.reload();
+  await expect(composer(a)).toBeVisible();
+  await expect.poll(viewerEntry).toBeNull();
+  expect(a.url()).toBe(roomUrl);
+
+  // Its message redrawn while it is open (a reaction from another tab): focus still goes back to the thumbnail.
+  await opener.click();
+  await expect(viewer).toBeVisible();
+  const other = await a.context().newPage();
+  await other.goto(roomUrl);
+  const there = message(other, "first");
+  await there.hover();
+  await there.getByRole("button", { name: "Add reaction" }).click();
+  await other.getByRole("dialog", { name: "Add reaction" }).getByRole("button", { name: "🎉" }).click();
+  await expect(message(a, "first").locator(".reaction")).toHaveCount(1);
+  await a.keyboard.press("Escape");
+  await expect(opener).toBeFocused();
+  await other.close();
+
+  // Ctrl/Cmd-click still opens the image in a new tab.
+  const [tab] = await Promise.all([a.context().waitForEvent("page"), opener.click({ modifiers: ["ControlOrMeta"] })]);
+  await tab.waitForURL(/\/api\/files\/messages\//); // under load it can still be about:blank here
+  await expect(a.locator("dialog.viewer")).toHaveCount(0);
+});

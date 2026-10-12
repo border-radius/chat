@@ -1,4 +1,5 @@
-// Hash router (§7.1, §7.2). Idempotent: re-resolving to the mounted route does nothing.
+// Router (§7.1, §7.2): pages are paths (`/r/abc`), changed with the History API; PocketBase serves index.html for any
+// path that isn't a file. Old `#/r/abc` links still work. Idempotent: re-resolving to the mounted route does nothing.
 
 export interface View {
   mount(root: HTMLElement, params: Record<string, string>): void;
@@ -22,22 +23,35 @@ export interface Route {
 export interface Router {
   start(): void;
   stop(): void;
-  navigate(hash: string): void;
+  /** Go to `path` (a new history entry), or re-check it if it is where we are. */
+  navigate(path: string): void;
   /** Re-check the current route, e.g. after auth changes. */
   refresh(): void;
   /** Unmount the current view and resolve the route again with a fresh one (e.g. after the user changed). */
   remount(): void;
 }
 
-const HOME = "#/";
-const LOGIN = "#/login";
+const HOME = "/";
+const LOGIN = "/login";
+
+/**
+ * The page we are on, as a path (what routes match). An old-style URL (`/#/r/abc`, from before paths) is its hash's.
+ * A trailing slash (`/r/abc/`, typed or pasted) is dropped.
+ */
+export const here = (): string => (location.hash.startsWith("#/") ? location.hash.slice(1) : location.pathname).replace(/(.)\/$/, "$1");
+
+/** An old-style URL: show it as its path (`/r/abc`) instead. True if it was one. */
+function fromLegacyHash(): boolean {
+  if (!location.hash.startsWith("#/")) return false;
+  history.replaceState(history.state, "", here());
+  return true;
+}
 
 export function matchRoute<R extends { pattern: string }>(
   routes: readonly R[],
-  hash: string,
+  path: string,
 ): { route: R; params: Record<string, string> } | null {
-  const path = hash === "" || hash === "#" ? HOME : hash;
-  const parts = path.split("/");
+  const parts = (path || HOME).split("/");
   for (const route of routes) {
     const pp = route.pattern.split("/");
     if (pp.length !== parts.length) continue;
@@ -58,17 +72,25 @@ export function matchRoute<R extends { pattern: string }>(
   return null;
 }
 
-export function createRouter(opts: { root: HTMLElement; routes: Route[]; isAuthed: () => boolean }): Router {
+export function createRouter(opts: {
+  root: HTMLElement;
+  routes: Route[];
+  isAuthed: () => boolean;
+  /** The user went somewhere (a link, Back/Forward, `navigate()`), before any redirect. */
+  onNavigate?: (path: string) => void;
+}): Router {
   const { root, routes, isAuthed } = opts;
   let current: { key: string; factory: () => View; view: View } | null = null;
   let running = false;
+  /** Stops the listeners added by start(). */
+  let listening: AbortController | null = null;
 
   function unmountCurrent() {
     current?.view.unmount();
     current = null;
   }
 
-  /** Where `hash` must go instead, or null if it may be shown. */
+  /** Where `path` must go instead, or null if it may be shown. */
   function redirect(route: Route | undefined): string | null {
     if (!route) return HOME;
     if (!route.public && !isAuthed()) return LOGIN;
@@ -78,48 +100,82 @@ export function createRouter(opts: { root: HTMLElement; routes: Route[]; isAuthe
 
   function resolve() {
     if (!running) return;
-    const hash = location.hash;
-    const m = matchRoute(routes, hash);
+    const path = here();
+    const m = matchRoute(routes, path);
     const target = redirect(m?.route);
-    if (target !== null && target !== hash) {
+    if (target !== null && target !== path) {
       history.replaceState(null, "", target);
       return resolve();
     }
     if (!m) return; // unreachable: no match always redirects to HOME, which matches
 
-    const key = hash || HOME;
-    if (current?.key === key) return;
+    if (current?.key === path) return;
     if (current?.factory === m.route.view && current.view.update) {
-      current.key = key;
+      current.key = path;
       current.view.update(m.params);
       return;
     }
     unmountCurrent();
     const view = m.route.view();
-    current = { key, factory: m.route.view, view };
+    current = { key: path, factory: m.route.view, view };
     view.mount(root, m.params);
   }
 
-  const onHashChange = () => resolve();
+  function go(path: string) {
+    if (here() !== path) {
+      history.pushState(null, "", path);
+      opts.onNavigate?.(path);
+    }
+    resolve();
+  }
+
+  /**
+   * An entry the image viewer added (§17.7) with no viewer open on it: Forward after Back closed it, or a reload while
+   * it was open. It would take an extra Back that seems to do nothing, so it is passed over. (While a viewer is open, a
+   * popstate only ever leaves its entry, so this never meets an open viewer.)
+   */
+  const skipViewerEntry = () => (history.state as { viewer?: unknown } | null)?.viewer && history.back();
+  /** Back/Forward. (Also the image viewer's own history entry, §17.7: same path, so nothing to do.) */
+  const onPopState = () => {
+    skipViewerEntry();
+    opts.onNavigate?.(here());
+    resolve();
+  };
+  /** An old-style link (`#/r/abc`) opened in this tab. */
+  const onHashChange = () => {
+    if (!fromLegacyHash()) return;
+    opts.onNavigate?.(here());
+    resolve();
+  };
+  /** A click on a link to one of the app's pages shows it here, without loading the page again. */
+  const onClick = (e: MouseEvent) => {
+    if (e.defaultPrevented || e.button || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+    const a = (e.target as Element | null)?.closest?.("a[href]");
+    if (!(a instanceof HTMLAnchorElement) || a.target || a.hasAttribute("download") || a.origin !== location.origin) return;
+    if (!matchRoute(routes, a.pathname)) return;
+    e.preventDefault();
+    go(a.pathname);
+  };
 
   return {
     start() {
       running = true;
-      window.addEventListener("hashchange", onHashChange);
+      fromLegacyHash();
+      skipViewerEntry();
+      listening = new AbortController();
+      const { signal } = listening;
+      window.addEventListener("popstate", onPopState, { signal });
+      window.addEventListener("hashchange", onHashChange, { signal });
+      document.addEventListener("click", onClick, { signal });
       resolve();
     },
     stop() {
       running = false;
-      window.removeEventListener("hashchange", onHashChange);
+      listening?.abort();
       unmountCurrent();
     },
-    navigate(hash) {
-      if (location.hash === hash) resolve();
-      else location.hash = hash;
-    },
-    refresh() {
-      resolve();
-    },
+    navigate: go,
+    refresh: resolve,
     remount() {
       unmountCurrent();
       resolve();

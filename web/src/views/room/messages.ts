@@ -5,6 +5,7 @@
 
 import { h, reconcile } from "../../dom.ts";
 import { attachmentName, isImage } from "../../lib/files.ts";
+import { linkify } from "../../lib/links.ts";
 import { type MessageWindow, quoteText, startsGroup } from "../../lib/messages.ts";
 import { reactors } from "../../lib/reactions.ts";
 import { captureAnchor, restoreAnchor } from "../../lib/scroll.ts";
@@ -28,7 +29,7 @@ export interface ListState {
   failed: boolean;
   /** Text of the "beginning of the room" marker. */
   beginning: string;
-  /** Highlighted message (#/r/:id/m/:msgId). */
+  /** Highlighted message (/r/:id/m/:msgId). */
   targetId: string | null;
   /** The selected messages while selecting (§21.1), else null. */
   selected: ReadonlySet<string> | null;
@@ -108,6 +109,8 @@ export function createMessageList(opts: {
   fileUrl: (m: Message, filename: string, thumb?: string) => string;
   /** Get a new file token (an image failed to load, maybe because its token expired). */
   refreshFileToken: () => Promise<unknown>;
+  /** A thumbnail was clicked: show the image in the viewer (§17.7). */
+  onOpenImage: (m: Message, file: string, opener: HTMLElement) => void;
   signal: AbortSignal;
 }): MessageList {
   const { signal } = opts;
@@ -347,7 +350,7 @@ export function createMessageList(opts: {
     if (editing === m.id) {
       parts.push(...editBox(m));
     } else {
-      parts.push(m.deleted ? h("div", { class: "body placeholder" }, "Message deleted") : h("div", { class: "body" }, m.text));
+      parts.push(m.deleted ? h("div", { class: "body placeholder" }, "Message deleted") : h("div", { class: "body" }, bodyText(m.text)));
       if (m.edited_at && !m.deleted)
         parts.push(h("span", { class: "edited", title: `Edited ${formatFull(parsePb(m.edited_at))}` }, "(edited)"));
     }
@@ -400,7 +403,7 @@ export function createMessageList(opts: {
     } else if (editing !== m.id && (reactable || repliable || deletable || selectable)) {
       parts.push(
         h("div", { class: "actions" }, [
-          reactable ? pickerButton(m.id, "React", "Add reaction", "react") : null,
+          reactable ? pickerButton(m.id, "☺+", "Add reaction", "react") : null,
           repliable ? btn("Reply", () => opts.onReply(m.id), "reply") : null,
           selectable ? btn("Forward", () => opts.onForward(m.id), "forward") : null,
           selectable ? btn("Select", () => opts.onSelect(m.id), "select") : null,
@@ -415,6 +418,13 @@ export function createMessageList(opts: {
     if (touched === m.id) li.classList.add("touched");
     cache.set(m.id, { sig, el: li });
     return li;
+  }
+
+  /** Message text with its links clickable (§7.6.3). They open in a new tab, which the router leaves alone. */
+  function bodyText(text: string): (string | HTMLAnchorElement)[] {
+    return linkify(text).map((part) =>
+      typeof part === "string" ? part : h("a", { href: part.href, target: "_blank", rel: "noopener noreferrer nofollow" }, part.text),
+    );
   }
 
   /** A button that opens the emoji picker for a reaction to message `id`. */
@@ -523,7 +533,10 @@ export function createMessageList(opts: {
     return a;
   }
 
-  /** An image thumbnail linking to the full image. A failed load retries once with a new token, then offers Retry. */
+  /**
+   * An image thumbnail: a click opens the viewer, a click that asks for a new tab or window (or a middle click) gets
+   * the full image there. A failed load retries once with a new token, then offers Retry.
+   */
   function imageTile(m: Message, name: string, thumb: string, ratio?: string): HTMLElement {
     const img = h("img", {
       src: opts.fileUrl(m, name, thumb),
@@ -534,6 +547,15 @@ export function createMessageList(opts: {
     if (ratio) img.style.aspectRatio = ratio;
     const tile = fileLink(m, name, "att-tile", [img]);
     tile.removeAttribute("download"); // open images in a tab rather than download them
+    tile.addEventListener(
+      "click",
+      (e) => {
+        if (e.button || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+        e.preventDefault();
+        opts.onOpenImage(m, name, tile);
+      },
+      { signal },
+    );
     let retried = false;
     img.addEventListener(
       "error",

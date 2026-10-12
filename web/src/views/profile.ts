@@ -248,7 +248,7 @@ export function createProfileView({ api, store, logOut }: Ctx): View {
 
       const shell = h("section", { class: "profile", "aria-labelledby": `${vid}-title` }, [
         h("header", { class: "room-header" }, [
-          h("a", { href: "#/", class: "back", "aria-label": "Back to rooms" }, "← Rooms"),
+          h("a", { href: "/", class: "back", "aria-label": "Back to rooms" }, "← Rooms"),
           h("h1", { id: `${vid}-title` }, "Your profile"),
         ]),
         h("div", { class: "profile-body" }, [

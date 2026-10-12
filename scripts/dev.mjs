@@ -4,7 +4,7 @@
 import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import * as esbuild from "esbuild";
-import { BASE_OPTIONS, injectAssets, OUTDIR } from "./lib/build-utils.mjs";
+import { BASE_OPTIONS, injectAssets, OUTDIR, VIEWER, viewerDefine } from "./lib/build-utils.mjs";
 
 const PORT = process.env.PORT ?? "8090";
 
@@ -28,6 +28,9 @@ const writeIndex = {
 
 const ctx = await esbuild.context({
   ...BASE_OPTIONS,
+  // Unhashed names, so the viewer's stylesheet can be built alongside.
+  entryPoints: [...BASE_OPTIONS.entryPoints, { in: VIEWER.css, out: "viewer" }],
+  define: viewerDefine("assets/viewer.css"),
   sourcemap: "inline",
   entryNames: "assets/[name]",
   logLevel: "info",

@@ -3,10 +3,10 @@ import { clear, h, reconcile } from "../../web/src/dom.ts";
 
 describe("h()", () => {
   it("creates an element with class, attributes and dataset", () => {
-    const el = h("a", { class: "link big", href: "#/r/1", title: "Go", dataset: { id: "m1", roomId: "r1" } });
+    const el = h("a", { class: "link big", href: "/r/1", title: "Go", dataset: { id: "m1", roomId: "r1" } });
     expect(el.tagName).toBe("A");
     expect(el.className).toBe("link big");
-    expect(el.getAttribute("href")).toBe("#/r/1");
+    expect(el.getAttribute("href")).toBe("/r/1");
     expect(el.title).toBe("Go");
     expect(el.dataset).toMatchObject({ id: "m1", roomId: "r1" });
     expect(el.getAttribute("data-room-id")).toBe("r1");

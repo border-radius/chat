@@ -547,6 +547,35 @@ function headers(e) {
   }
 }
 
+/** The directory the app is served from: `--publicDir`, else PocketBase's default, pb_public beside the executable. */
+function publicDir() {
+  const args = $os.args;
+  for (let i = 1; i < args.length; i++) {
+    if (args[i].startsWith("--publicDir=")) return args[i].slice("--publicDir=".length);
+    if (args[i] === "--publicDir") return args[i + 1];
+  }
+  return $filepath.join($filepath.dir(args[0]), "pb_public");
+}
+
+/**
+ * GET /assets/{path...}: the built JS and CSS (§8.2). A missing file is a 404, not the app's index.html, which
+ * PocketBase serves for any other path (§7.1). As index.html, an old build's lazy chunk (a tab still open across a
+ * deploy) would fail as a script anyway, and its content-hashed URL would keep that HTML cached for a year.
+ * @param {core.RequestEvent} e
+ */
+function asset(e) {
+  const dir = $filepath.join(publicDir(), "assets");
+  const path = e.request?.pathValue("path") ?? "";
+  try {
+    if (path.split("/").includes("..")) throw new Error("outside assets/");
+    if ($os.stat($filepath.join(dir, path)).isDir()) throw new Error("a directory");
+  } catch {
+    e.response.header().set("Cache-Control", "no-store");
+    throw new NotFoundError();
+  }
+  return $apis.static(dir, false)(e);
+}
+
 module.exports = {
   nameKey,
   beforeUserSave,
@@ -561,4 +590,5 @@ module.exports = {
   beforeMessageUpdate,
   beforeMessageUpdateRequest,
   headers,
+  asset,
 };
