@@ -1,13 +1,14 @@
 // Room list (§7.1, §16.5): Rooms / Direct messages / Hidden / Archived sections, new-room form, user search,
-// per-room actions, unread badges (§18.4).
+// per-room actions, unread badges (§18.4), private and Open Air markers (§23.1). A guest gets only the Open Air
+// rooms, to read (§23.3).
 // The data comes from the store, kept live by sync.ts; this view only renders it and issues commands.
 
 import { ApiError, errorMessage } from "../api.ts";
 import type { Ctx } from "../context.ts";
 import { clear, h, uniqueId } from "../dom.ts";
 import { LIMITS, textLength } from "../lib/limits.ts";
-import { otherMember, roomTitle } from "../lib/rooms.ts";
-import type { Room, User } from "../lib/types.ts";
+import { otherMember, roomTitle, VISIBILITY, visibilityOf } from "../lib/rooms.ts";
+import type { Room, User, Visibility } from "../lib/types.ts";
 import type { View } from "../router.ts";
 import { createScope, type Scope } from "../scope.ts";
 import { roomSections, unreadCount } from "../store.ts";
@@ -21,6 +22,16 @@ function nameError(err: unknown): string {
   if (err instanceof ApiError && err.codes.name === "validation_not_unique") return "A room with this name already exists.";
   if (err instanceof ApiError && err.fields.name) return err.fields.name;
   return errorMessage(err);
+}
+
+/** A private or Open Air room's marker next to its name (public rooms have none: they are the usual kind). */
+export function visibilityMark(v: Visibility): HTMLElement | null {
+  if (v === "public") return null;
+  const { icon, label } = VISIBILITY[v];
+  return h("span", { class: `vis vis-${v}`, title: label }, [
+    h("span", { "aria-hidden": "true" }, icon),
+    h("span", { class: "visually-hidden" }, ` (${label})`),
+  ]);
 }
 
 export function createRoomsView({ api, store, sync, unread, actions, navigate }: Ctx): View {
@@ -38,6 +49,7 @@ export function createRoomsView({ api, store, sync, unread, actions, navigate }:
   let search: UserSearch | null = null;
   /** The new-room form, built once per mount and shown while `creating` (so a half-typed name survives). */
   let newRoom: { form: HTMLFormElement; input: HTMLInputElement; reset: () => void };
+  const guest = () => !store.get().user;
   let creating = false;
 
   const alert = h("p", { role: "alert", class: "list-error" });
@@ -132,6 +144,7 @@ export function createRoomsView({ api, store, sync, unread, actions, navigate }:
   function menuItems(r: Room, section: Section): MenuItem[] {
     const mine = r.created_by === store.get().user?.id;
     const items: MenuItem[] = [];
+    if (guest()) return items; // reading only
     if (section === "dms") return [{ label: "Close conversation", run: () => void act("close", r, () => actions.hide(r.id)) }];
     if (section === "rooms") items.push({ label: "Hide", run: () => void hide(r) });
     // An archived room you had hidden is listed under Archived; it can still be unhidden from there.
@@ -170,6 +183,7 @@ export function createRoomsView({ api, store, sync, unread, actions, navigate }:
     const label = [
       other ? avatar(other, 24, api.avatarUrl) : null,
       h("span", {}, other ? other.name : r.kind === "dm" ? title(r) : r.name),
+      r.kind === "dm" ? null : visibilityMark(visibilityOf(r)),
       n ? h("span", { class: "badge" }, [n > 99 ? "99+" : n, h("span", { class: "visually-hidden" }, " unread")]) : null,
     ];
     return h("li", { class: r.kind === "dm" ? "dm" : "", dataset: { roomId: r.id } }, [
@@ -201,6 +215,7 @@ export function createRoomsView({ api, store, sync, unread, actions, navigate }:
 
   function render() {
     if (!scope.active) return;
+    if (guest()) return renderGuest();
     const s = store.get();
     const { rooms, dms, hidden, archived } = roomSections(s);
     const loading = s.roomsStatus === "idle" || s.roomsStatus === "loading";
@@ -268,6 +283,30 @@ export function createRoomsView({ api, store, sync, unread, actions, navigate }:
     for (const key of menus.keys()) if (!live.has(key)) menus.delete(key);
   }
 
+  /** A guest's list (§23.3): the Open Air rooms, which are all the server gives them. */
+  function renderGuest() {
+    const s = store.get();
+    const { rooms } = roomSections(s);
+    const loading = s.roomsStatus === "idle" || s.roomsStatus === "loading";
+    const live = new Set<string>();
+    shell.setAttribute("aria-busy", String(loading));
+    nav.replaceChildren(
+      h("div", { class: "room-section", dataset: { section: "rooms" } }, [
+        h("div", { class: "section-head" }, h("h2", {}, "Open Air rooms")),
+        rooms.length
+          ? h(
+              "ul",
+              {},
+              rooms.map((r) => roomRow(r, "rooms", live)),
+            )
+          : s.roomsStatus === "ready"
+            ? h("p", { class: "empty" }, "No Open Air rooms yet. Log in to see the others.")
+            : null,
+      ]),
+    );
+    menus.clear();
+  }
+
   function newRoomForm(): typeof newRoom {
     const inputId = `${id}-name`;
     const errId = `${inputId}-error`;
@@ -282,6 +321,12 @@ export function createRoomsView({ api, store, sync, unread, actions, navigate }:
       "aria-describedby": errId,
     });
     const submit = h("button", { type: "submit" }, "Create");
+    // Who can see it (§23.1): public unless chosen otherwise; members of a private room are added from the room.
+    const visibility = h(
+      "select",
+      { name: "visibility", "aria-label": "Who can see it", title: "Who can see it" },
+      (["public", "private", "open"] as const).map((v) => h("option", { value: v }, `${VISIBILITY[v].icon} ${VISIBILITY[v].label}`)),
+    );
     const setError = (msg: string) => {
       err.textContent = msg;
       if (msg) input.setAttribute("aria-invalid", "true");
@@ -305,7 +350,7 @@ export function createRoomsView({ api, store, sync, unread, actions, navigate }:
             submit.disabled = true;
             setError("");
             try {
-              const room = await actions.create(input.value);
+              const room = await actions.create(input.value, visibility.value as Visibility);
               if (!scope.active) return;
               toggleNewRoom(false);
               navigate(`#/r/${room.id}`);
@@ -318,13 +363,14 @@ export function createRoomsView({ api, store, sync, unread, actions, navigate }:
         },
         signal: scope.signal,
       },
-      [h("label", { for: inputId, class: "visually-hidden" }, "Room name"), input, submit, err],
+      [h("label", { for: inputId, class: "visually-hidden" }, "Room name"), input, submit, visibility, err],
     );
     return {
       form,
       input,
       reset() {
         input.value = "";
+        visibility.value = "public";
         setError("");
       },
     };

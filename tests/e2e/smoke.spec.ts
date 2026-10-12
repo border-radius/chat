@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("app boots to the login screen without console errors", async ({ page }) => {
+test("app boots to the guest home (Open Air rooms) without console errors; Log in is one click away", async ({ page }) => {
   const errors: string[] = [];
   page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
   page.on("pageerror", (e) => errors.push(e.message));
@@ -8,6 +8,9 @@ test("app boots to the login screen without console errors", async ({ page }) =>
   await page.goto("/");
 
   await expect(page).toHaveTitle("Chat");
+  await expect(page.getByRole("heading", { name: "Welcome!" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Rooms" })).toContainText("Open Air rooms");
+  await page.locator("header.app-bar").getByRole("link", { name: "Log in" }).click();
   await expect(page).toHaveURL(/#\/login$/);
   await expect(page.getByRole("tab", { name: "Log in" })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByLabel("Email")).toBeVisible();

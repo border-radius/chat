@@ -18,6 +18,8 @@ export const LIMITS = {
   attachments: 4,
   /** messages.files maxSize, per file (§17.1) */
   attachmentBytes: 8 * 1024 * 1024,
+  /** rooms.members maxSelect: a private room's members, its creator included (§23.2) */
+  roomMembers: 100,
 } as const;
 
 /** Length as PocketBase counts it for these limits: Unicode code points, not UTF-16 units (an emoji is 1, not 2). */

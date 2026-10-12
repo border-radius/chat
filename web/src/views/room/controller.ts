@@ -128,6 +128,9 @@ export function createRoomController(opts: {
    */
   const unsent = new Map<string, Message>();
   const loading = { top: false, bottom: false };
+  /** The room's realtime subscription, set up by start(); "ready" once the server has it. */
+  let live: Promise<unknown> = Promise.resolve();
+  let liveReady = false;
 
   const ready = () => phase === "ready";
   const room = (): Room | undefined => store.get().rooms.get(roomId);
@@ -138,9 +141,10 @@ export function createRoomController(opts: {
     return !!r && !r.archived && m.author === me()?.id && !m.deleted && !m.status;
   };
   const editable = (m: Message) => deletable(m) && !m.forwarded_from;
+  /** Guests only read (§23.3): no replies, reactions or selecting. */
   const repliable = (m: Message) => {
     const r = room();
-    return !!r && !r.archived && !m.deleted && !m.status;
+    return !!me() && !!r && !r.archived && !m.deleted && !m.status;
   };
   /**
    * My reaction changes still on their way, by message id and emoji: whether it should be there, and which change said
@@ -302,6 +306,24 @@ export function createRoomController(opts: {
     const pending = buffer;
     buffer = [];
     for (const [action, m] of pending) onMessage(action, m);
+    // The page and the subscription are set up side by side. A message sent after the page was read but before the
+    // server had the subscription reaches neither (QA BUG-61): once the subscription is there, fetch what is newer.
+    if (!liveReady) void live.then(catchUp);
+  }
+
+  /** Messages newer than the window's that realtime may have missed while it was being set up (QA BUG-61). */
+  async function catchUp() {
+    if (!scope.active || !ready() || win.hasNewer) return;
+    const g = gen;
+    const last = lastSaved(win);
+    const page = await api.page(last ? newer(roomId, last) : latest(roomId), signal).catch(() => null);
+    if (!page || g !== gen || !scope.active || win.hasNewer) return;
+    const missed = page.filter((m) => !find(m.id));
+    if (!missed.length) return;
+    const follow = nearBottom();
+    setWin(applyPage(win, page, last ? "newer" : "latest").win);
+    if (!follow) pill = "below";
+    emit(follow ? { render: {}, scroll: "bottom" } : { render: { anchor: true } });
   }
 
   function retry() {
@@ -590,7 +612,12 @@ export function createRoomController(opts: {
       scope.defer(() => clearInterval(keepToken));
       scope.defer(() => clearTimeout(targetTimer));
       // Room record changes (archive etc.) arrive through the store, kept live by sync.ts.
-      scope.sub(api.subscribeMessages(roomId, onMessage));
+      const sub = api.subscribeMessages(roomId, onMessage);
+      scope.sub(sub);
+      live = sub.then(
+        () => (liveReady = true),
+        () => {},
+      );
       scope.defer(api.onConnect((reconnect) => reconnect && onReconnect()));
       void open();
     },
@@ -616,7 +643,7 @@ export function createRoomController(opts: {
     discard,
     edit,
     remove: removeMessage,
-    selectable: (m) => !m.deleted && !m.status,
+    selectable: (m) => !!me() && !m.deleted && !m.status,
     removeMany,
     reactable: repliable,
     reactions: reactionsOf,

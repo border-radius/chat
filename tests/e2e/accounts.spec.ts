@@ -22,7 +22,7 @@ test("change your password on the profile page, then log in with the new one", a
   await expect(page.getByRole("heading", { name: "Your profile" })).toBeVisible();
 
   await logOut(page);
-  await expect(page).toHaveURL(/#\/login$/);
+  await expect(page).toHaveURL(/#\/$/);
   await login(page, { ...ada, password: "brand-new-pass" });
 });
 

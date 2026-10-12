@@ -6,8 +6,9 @@ test("sign up, create a room, send the first message", async ({ page }) => {
   page.on("pageerror", (e) => errors.push(e.message));
 
   await page.goto("/");
-  await expect(page).toHaveURL(/#\/login$/);
-  await page.getByRole("tab", { name: "Sign up" }).click();
+  await page.locator("header.app-bar").getByRole("link", { name: "Sign up" }).click();
+  await expect(page).toHaveURL(/#\/signup$/);
+  await expect(page.getByRole("tab", { name: "Sign up" })).toHaveAttribute("aria-selected", "true");
   await page.getByLabel("Display name").fill("Grace");
   await page.getByLabel("Email").fill(`grace-${uniq()}@test.local`);
   await page.getByLabel("Password").fill("password-123");

@@ -555,9 +555,9 @@ export function createMessageList(opts: {
     );
   }
 
-  /** The author's name: for other (known) users a menu offering "Message" (§16.5). */
+  /** The author's name: for other (known) users a menu offering "Message" (§16.5). Guests can't message (§23.3). */
   function authorEl(author: User, me: User | null, known: boolean): HTMLElement {
-    if (author.id === me?.id || !known) return h("span", { class: "author" }, author.name);
+    if (!me || author.id === me.id || !known) return h("span", { class: "author" }, author.name);
     const menu = createActionMenu({ label: author.name, summary: author.name, className: "author", signal });
     menu.update([{ label: "Message", run: () => opts.onMessageUser(author.id) }]);
     menu.el.classList.add("author-menu");

@@ -230,7 +230,7 @@ export function viewContext(api: Api, store: Store<AppState>, navigate: (hash: s
   contexts.add(sync);
   contexts.add(unread);
   const drafts = createDrafts(() => store.get().user?.id ?? "");
-  return { api, store, sync, unread, actions: createRoomActions({ api, store }), navigate, drafts, logOut: vi.fn() };
+  return { api, store, sync, unread, actions: createRoomActions({ api, store }), navigate, reopen: vi.fn(), drafts, logOut: vi.fn() };
 }
 
 const contexts = new Set<{ stop(): void }>();

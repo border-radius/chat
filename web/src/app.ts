@@ -1,5 +1,6 @@
 // App shell and boot (§7.1): restores the session, starts the room sync and unread counts and the tab's unread badge
-// (§22.4), wires the router, header and logout (offered on the profile page, §22.2).
+// (§22.4), wires the router, header and logout (offered on the profile page, §22.2). Without a session the app is open
+// to guests, who read the Open Air rooms and can log in or sign up from the header (§23.3).
 
 import { createRoomActions } from "./actions.ts";
 import { type Api, ApiError } from "./api.ts";
@@ -7,6 +8,7 @@ import type { Ctx } from "./context.ts";
 import { clear, h } from "./dom.ts";
 import { createDrafts } from "./drafts.ts";
 import { startFavicon } from "./favicon.ts";
+import type { User } from "./lib/types.ts";
 import { createRouter, type Router, type View } from "./router.ts";
 import { type AppState, createStore, initialState, type Store } from "./store.ts";
 import { createSync } from "./sync.ts";
@@ -21,7 +23,7 @@ import { createRoomsView } from "./views/rooms.ts";
 export interface App {
   store: Store<AppState>;
   router: Router;
-  /** End the session and go to the login screen (what the profile page's Log out does). */
+  /** End the session and go home, as a guest (what the profile page's Log out does). */
   logOut(): void;
   stop(): void;
 }
@@ -38,6 +40,12 @@ const RENEW_RETRY_MS = 60 * 1000;
 const CHECK_MIN_MS = 30 * 1000;
 const CHECK_STALE_MS = 5 * 60 * 1000;
 
+/** The pages for logging in and signing up: only for guests, and never where to go back to after logging in. */
+const AUTH_PAGES = new Set(["#/login", "#/signup"]);
+
+/** Starts the main view of the mounted layout over (a room that came back, §23.4). */
+const panes = { reload: () => {} };
+
 /**
  * Page layout (§7.1): the room list as a sidebar next to the main view. New params remount only the
  * main view, so switching rooms keeps the sidebar (and anything typed into it).
@@ -48,21 +56,29 @@ function withSidebar(sidebar: () => View, main: () => View, layoutClass = ""): (
     let pane = main();
     const content = h("div", { class: "pane" });
     let root: HTMLElement;
+    let current: Record<string, string> = {};
+    // A fresh view rather than a remount: late async work of the old one must not see itself as active.
+    const fresh = () => {
+      pane.unmount();
+      pane = main();
+      pane.mount(content, current);
+    };
     return {
       mount(el, params) {
         root = el;
+        current = params;
+        panes.reload = fresh;
         const aside = h("aside", { class: "sidebar" });
         el.replaceChildren(h("div", { class: `layout ${layoutClass}`.trim() }, [aside, content]));
         side.mount(aside, {});
         pane.mount(content, params);
       },
       update(params) {
-        // A fresh view rather than a remount: late async work of the old one must not see itself as active.
-        pane.unmount();
-        pane = main();
-        pane.mount(content, params);
+        current = params;
+        fresh();
       },
       unmount() {
+        if (panes.reload === fresh) panes.reload = () => {};
         pane.unmount();
         side.unmount();
         clear(root);
@@ -77,9 +93,17 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
   const sync = createSync({ api, store });
   const unread = createUnread({ api, store });
   const drafts = createDrafts(() => store.get().user?.id ?? "");
+  /** Start following the rooms (and, signed in, the unread counts) as whoever is logged in now, or as a guest. */
+  let running = false;
   const startSession = () => {
+    running = true;
     sync.start();
-    unread.start();
+    if (store.get().user) unread.start();
+  };
+  /** The page a guest was on before going to log in or sign up: where logging in takes them back to (§23.3). */
+  let lastPage = AUTH_PAGES.has(location.hash) ? "#/" : location.hash || "#/";
+  const onHash = () => {
+    if (!AUTH_PAGES.has(location.hash)) lastPage = location.hash || "#/";
   };
 
   const header = h("header", { class: "app-bar" });
@@ -89,6 +113,8 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
 
   /** Drop everything that belonged to the logged-in user. The session itself is left as it is. */
   function endSession() {
+    if (!running) return; // logging out ends it before the auth change would (QA BUG-62)
+    running = false;
     // Reads still waiting go out now, while the session is there. After another tab switched it to someone else,
     // this sends nothing: a reader only sends as the user it was opened for.
     unread.flush();
@@ -99,12 +125,35 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     store.set({ ...initialState() });
   }
 
-  function logOut() {
+  /**
+   * Someone else is logged in now (or nobody): everything that belonged to the previous one goes, the rooms are
+   * followed again as the new one (or as a guest), and the views start over.
+   */
+  function switchTo(next: User | null, after = "#/") {
+    const fromAuthPage = AUTH_PAGES.has(location.hash);
+    endSession();
+    if (next) store.set({ user: next });
+    startSession();
+    // Logged in from the login page: back to the room you were reading. Logged out: home (or `after`).
+    if (next && fromAuthPage) history.replaceState(null, "", lastPage);
+    if (!next) {
+      history.replaceState(null, "", after);
+      // After a logout, whoever logs in next starts from home, not from the page the previous user was on (their
+      // profile, a room; QA BUG-59). An expired session is logged back into where it was.
+      if (!AUTH_PAGES.has(after)) lastPage = "#/";
+    }
+    router.remount();
+  }
+
+  /** `after`: where to go, as a guest. */
+  function logOut(after = "#/") {
     // End the session before clearing it, so the auth-change listener below sees nothing left to do.
     endSession();
     api.logOut();
-    router.refresh();
+    switchTo(null, after);
   }
+  /** The session ran out or was revoked: the login page, and back to this page once logged in again. */
+  const expire = () => logOut("#/login");
 
   /**
    * Renew the session halfway through its lifetime, for as long as the tab stays open. A tab left open longer than a
@@ -121,7 +170,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     const user = store.get().user;
     if (!user) return;
     // Already over (e.g. the computer slept through it): it can't be renewed, so say so instead of failing quietly.
-    if (api.sessionExpiry() <= Date.now()) return logOut();
+    if (api.sessionExpiry() <= Date.now()) return expire();
     checkedAt = Date.now();
     api.refreshAuth().then(
       (fresh) => {
@@ -131,7 +180,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
       },
       (err: unknown) => {
         if (store.get().user?.id !== user.id) return;
-        if (err instanceof ApiError && AUTH_REJECTED.has(err.status)) logOut();
+        if (err instanceof ApiError && AUTH_REJECTED.has(err.status)) expire();
         else scheduleRenew(RENEW_RETRY_MS); // offline ≠ logged out: try again later
       },
     );
@@ -160,20 +209,26 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
       if (next && cur && (next.name !== cur.name || (next.avatar ?? "") !== (cur.avatar ?? ""))) store.set({ user: next });
       return;
     }
-    if (cur) endSession();
-    if (next) store.set({ user: next });
-    // Views mounted for the previous user hold its subscriptions and state: start them over.
-    if (cur) router.remount();
-    else router.refresh();
+    // Views mounted for the previous user (or the guest) hold its subscriptions and state: they start over.
+    switchTo(next);
   }
 
   function renderHeader() {
     const user = store.get().user;
-    header.hidden = !user;
     clear(header);
-    if (!user) return;
+    if (!user) {
+      // A guest (§23.3): reading the Open Air rooms, with the way in.
+      header.append(
+        h("a", { href: "#/", class: "brand" }, "Chat"),
+        h("nav", { class: "guest-links", "aria-label": "Account" }, [
+          h("a", { href: "#/login", class: "guest-link" }, "Log in"),
+          h("a", { href: "#/signup", class: "guest-link primary" }, "Sign up"),
+        ]),
+      );
+      return;
+    }
     header.append(
-      h("span", { class: "brand" }, "Chat"),
+      h("a", { href: "#/", class: "brand" }, "Chat"),
       h("a", { href: "#/me", class: "me-link", title: "Your profile" }, [
         avatar(user, 24, api.avatarUrl),
         h("span", { class: "who" }, user.name),
@@ -188,31 +243,33 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     unread,
     actions: createRoomActions({ api, store }),
     navigate: (hash) => router.navigate(hash),
+    reopen: () => panes.reload(),
     drafts,
     logOut,
   };
   const rooms = () => createRoomsView(ctx);
   const roomPage = withSidebar(rooms, () => createRoomView(ctx));
 
+  const authPage = (mode: "login" | "signup") => () =>
+    createLoginView({
+      api,
+      mode,
+      onLogin: (user) => {
+        // Usually followed already: logging in changed the session (onAuthChange).
+        if (store.get().user?.id !== user.id) switchTo(user);
+        router.navigate(lastPage);
+      },
+    });
   const router = createRouter({
     root: main,
     isAuthed: () => store.get().user !== null,
     routes: [
-      {
-        pattern: "#/login",
-        public: true,
-        view: () =>
-          createLoginView({
-            api,
-            onLogin: (user) => {
-              store.set({ user });
-              router.navigate("#/");
-            },
-          }),
-      },
-      { pattern: "#/", view: withSidebar(rooms, () => createHomeView(ctx), "home") },
-      { pattern: "#/r/:id", view: roomPage },
-      { pattern: "#/r/:id/m/:msgId", view: roomPage },
+      { pattern: "#/login", public: true, guestOnly: true, view: authPage("login") },
+      { pattern: "#/signup", public: true, guestOnly: true, view: authPage("signup") },
+      // Guests see the Open Air rooms (§23.3); a room they can't see says it doesn't exist.
+      { pattern: "#/", public: true, view: withSidebar(rooms, () => createHomeView(ctx), "home") },
+      { pattern: "#/r/:id", public: true, view: roomPage },
+      { pattern: "#/r/:id/m/:msgId", public: true, view: roomPage },
       { pattern: "#/me", view: withSidebar(rooms, () => createProfileView(ctx)) },
     ],
   });
@@ -220,10 +277,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
   const offStore = store.subscribe((s, prev) => {
     if (s.user === prev.user) return;
     renderHeader();
-    if (s.user && !prev.user) {
-      startSession();
-      scheduleRenew();
-    }
+    if (s.user && !prev.user) scheduleRenew();
     if (!s.user) clearTimeout(renewTimer);
   });
   const offAuth = api.onAuthChange(onAuthChange);
@@ -236,9 +290,10 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
   window.addEventListener("dragover", swallowFileDrag);
   window.addEventListener("drop", swallowFileDrag);
   document.addEventListener("visibilitychange", onVisible);
+  window.addEventListener("hashchange", onHash);
   const stopFavicon = startFavicon(store);
   renderHeader();
-  if (store.get().user) startSession();
+  startSession();
   router.start();
 
   // A restored session is checked (and renewed) right away.
@@ -254,6 +309,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
       window.removeEventListener("dragover", swallowFileDrag);
       window.removeEventListener("drop", swallowFileDrag);
       document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("hashchange", onHash);
       clearTimeout(renewTimer);
       stopFavicon();
       offStore();

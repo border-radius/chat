@@ -37,6 +37,7 @@ function shape(app, room) {
     id: room.id,
     name: room.getString("name"),
     kind: room.getString("kind"),
+    visibility: room.getString("visibility"),
     archived: room.getBool("archived"),
     created_by: room.getString("created_by"),
     members: room.getStringSlice("members"),

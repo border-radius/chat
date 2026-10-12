@@ -1,5 +1,5 @@
 /// <reference path="../types/pocketbase.d.ts" />
-// Server-side hooks (DESIGN.md §5.6, §16, §18, §20, §21, §22). Logic lives in lib/; handlers can't share top-level scope.
+// Server-side hooks (DESIGN.md §5.6, §16, §18, §20, §21, §22, §23). Logic lives in lib/; handlers can't share top-level scope.
 
 routerUse((e) => {
   require(`${__hooks}/lib/chat.js`).headers(e);
@@ -47,7 +47,11 @@ onRecordCreate((e) => {
 
 onRecordUpdate((e) => {
   require(`${__hooks}/lib/chat.js`).beforeRoomUpdate(e);
+  const access = require(`${__hooks}/lib/access.js`);
+  const before = access.accessOf(e.record?.original() ?? e.record);
   e.next();
+  // Saved: whoever can't see it any more is told (§23.4).
+  if (e.record) access.dropLostAccess(e.app, before, e.record);
 }, "rooms");
 
 onRecordCreateRequest((e) => {

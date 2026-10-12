@@ -3,7 +3,7 @@ import { type Api, ApiError, createApi } from "../../web/src/api.ts";
 import { type App, startApp } from "../../web/src/app.ts";
 import { newId } from "../../web/src/lib/id.ts";
 import { createClient } from "../../web/src/pb.ts";
-import { instrument, newApi, signedUp } from "../support/api.ts";
+import { instrument, newApi, signedUp, subscribed } from "../support/api.ts";
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
@@ -27,12 +27,83 @@ describe("app boot (§7.1)", () => {
   const meLink = () => root.querySelector("header.app-bar a.me-link");
   const logoutButton = () => [...root.querySelectorAll("button")].find((b) => b.textContent === "Log out");
 
-  it("without a session it shows the login screen", async () => {
-    app = startApp({ api: newApi(), root });
+  it("without a session it shows the Open Air rooms to a guest, with Log in and Sign up (§23.3)", async () => {
+    const ada = await signedUp("Ada");
+    const open = await ada.api.createRoom(`open-${newId()}`, "open");
+    const pub = await ada.api.createRoom(`pub-${newId()}`);
+    const api = newApi();
+    const ctl = instrument(api);
+    app = startApp({ api, root });
+    await tick();
+    expect(location.hash).toBe("#/");
+    expect(meLink()).toBeNull();
+    const links = [...root.querySelectorAll<HTMLAnchorElement>("header.app-bar .guest-links a")];
+    expect(links.map((a) => [a.textContent, a.getAttribute("href")])).toEqual([
+      ["Log in", "#/login"],
+      ["Sign up", "#/signup"],
+    ]);
+    const sidebar = root.querySelector("aside.sidebar")!;
+    await vi.waitFor(() => expect(sidebar.querySelector(`a[href="#/r/${open.id}"]`)).not.toBeNull());
+    expect(sidebar.querySelector(`a[href="#/r/${pub.id}"]`)).toBeNull();
+    expect(sidebar.querySelector("h2")!.textContent).toBe("Open Air rooms");
+    expect(sidebar.querySelector("button.new-room-toggle, button.new-dm, details, summary")).toBeNull();
+    expect(root.querySelector(".welcome p a[href='#/login']")).not.toBeNull();
+    // Nothing that needs an account is asked for.
+    expect(ctl.calls("unreadCounts")).toBe(0);
+    expect(ctl.calls("listHidden")).toBe(0);
+    expect(ctl.calls("subscribeHidden")).toBe(0);
+    location.hash = "#/me";
     await tick();
     expect(location.hash).toBe("#/login");
-    expect(root.querySelector("form")).not.toBeNull();
-    expect(meLink()).toBeNull();
+    expect(root.querySelector("form.auth-form")).not.toBeNull();
+    await api.unsubscribeAll();
+  });
+
+  it("a guest reads an Open Air room: messages and authors, a banner instead of the composer, no actions (§23.3)", async () => {
+    const ada = await signedUp("Ada");
+    const open = await ada.api.createRoom(`open-${newId()}`, "open");
+    const m = await ada.api.send({ id: newId(), room: open.id, text: "hello world" });
+    await ada.api.react(m.id, "👍", true);
+    const api = newApi();
+    const ctl = instrument(api);
+    history.replaceState(null, "", `#/r/${open.id}`);
+    app = startApp({ api, root });
+    await vi.waitFor(() => expect(root.querySelector("li.msg .body")?.textContent).toBe("hello world"));
+    const msg = root.querySelector("li.msg")!;
+    expect(msg.querySelector(".author")!.textContent).toBe("Ada");
+    expect(msg.querySelector("summary")).toBeNull(); // no "Message" menu
+    expect(msg.querySelector(".actions")).toBeNull();
+    expect(msg.querySelector(".reactions button")).toBeNull(); // shown, not clickable
+    expect(msg.querySelector(".reactions .reaction")!.getAttribute("title")).toBe("Ada reacted with 👍"); // in the window: no lookup needed
+    expect(root.querySelector("form.composer")).toBeNull();
+    expect(root.querySelector("footer .guest-banner a[href='#/login']")).not.toBeNull();
+    expect(root.querySelector("header.room-header h1")!.textContent).toContain("Open Air");
+    root.querySelector<HTMLElement>("header.room-header summary")!.click();
+    const items = [...root.querySelectorAll("header.room-header .menu-items button")].map((b) => b.textContent);
+    expect(items).toEqual(["Jump to beginning"]);
+    await tick();
+    expect(ctl.calls("usersById")).toBe(0);
+    expect(ctl.calls("fileToken")).toBeLessThanOrEqual(1); // answered "" without a request
+    await api.unsubscribeAll();
+  });
+
+  it("a guest following a link to a room that needs an account is told so; logging in takes them back to it", async () => {
+    const ada = await signedUp("Ada");
+    const pub = await ada.api.createRoom(`pub-${newId()}`);
+    const api = newApi();
+    history.replaceState(null, "", `#/r/${pub.id}`);
+    app = startApp({ api, root });
+    await vi.waitFor(() => expect(root.querySelector(".not-found")?.textContent).toContain("doesn't exist"));
+    root.querySelector<HTMLAnchorElement>(".not-found a[href='#/login']")!.click();
+    location.hash = "#/login";
+    await vi.waitFor(() => expect(root.querySelector("form.auth-form")).not.toBeNull());
+    root.querySelector<HTMLInputElement>('input[name="email"]')!.value = ada.email;
+    root.querySelector<HTMLInputElement>('input[name="password"]')!.value = ada.password;
+    root.querySelector("form")!.requestSubmit();
+    await vi.waitFor(() => expect(location.hash).toBe(`#/r/${pub.id}`));
+    await vi.waitFor(() => expect(root.querySelector("header.room-header h1")?.textContent).toBe(`#${pub.name}`));
+    expect(root.querySelector("form.composer")).not.toBeNull();
+    await api.unsubscribeAll();
   });
 
   it("with a stored session it goes straight to the route and refreshes auth in the background", async () => {
@@ -175,6 +246,20 @@ describe("app boot (§7.1)", () => {
     expect(api.currentUser()).toBeNull();
   });
 
+  it("an expired session goes to the login page, and logging in again goes back to where you were (§23.3)", async () => {
+    const ada = await signedUp("Ada");
+    const room = await ada.api.createRoom(`r-${newId()}`);
+    instrument(ada.api).failNext("refreshAuth", new ApiError("The request requires valid record authorization token.", 401));
+    history.replaceState(null, "", `#/r/${room.id}`);
+    app = startApp({ api: ada.api, root });
+    await vi.waitFor(() => expect(location.hash).toBe("#/login"));
+    root.querySelector<HTMLInputElement>('input[name="email"]')!.value = ada.email;
+    root.querySelector<HTMLInputElement>('input[name="password"]')!.value = ada.password;
+    root.querySelector("form")!.requestSubmit();
+    await vi.waitFor(() => expect(location.hash).toBe(`#/r/${room.id}`));
+    await ada.api.unsubscribeAll();
+  });
+
   it("QA BUG-45: an open tab renews the session halfway through its lifetime", async () => {
     const { api } = await signedUp("Ada");
     const ctl = instrument(api);
@@ -252,6 +337,7 @@ describe("app boot (§7.1)", () => {
 
   it("logging in through the form goes to the room list", async () => {
     const ada = await signedUp("Ada");
+    history.replaceState(null, "", "#/login");
     app = startApp({ api: newApi(), root });
     await tick();
     root.querySelector<HTMLInputElement>('input[name="email"]')!.value = ada.email;
@@ -275,7 +361,7 @@ describe("app boot (§7.1)", () => {
     await api.unsubscribeAll();
   });
 
-  it("log out (on the profile page) clears auth, drops realtime subscriptions and returns to login", async () => {
+  it("log out (on the profile page) clears auth, drops realtime subscriptions and goes home as a guest", async () => {
     const { api } = await signedUp("Ada");
     const ctl = instrument(api);
     history.replaceState(null, "", "#/me");
@@ -286,21 +372,86 @@ describe("app boot (§7.1)", () => {
     expect(api.currentUser()).toBeNull();
     expect(ctl.calls("unsubscribeAll")).toBe(1);
     expect(app.store.get().user).toBeNull();
-    expect(location.hash).toBe("#/login");
+    expect(location.hash).toBe("#/");
     expect(meLink()).toBeNull();
     expect(logoutButton()).toBeUndefined();
-    expect(app.store.get().rooms.size).toBe(0);
+    await tick();
+    expect([...app.store.get().rooms.values()].every((r) => r.visibility === "open" && !r.archived)).toBe(true);
+    expect(app.store.get().hidden.size).toBe(0);
   });
 
-  it("after logout, going back to a room shows the login screen, not room content", async () => {
-    const { api } = await signedUp("Ada");
-    history.replaceState(null, "", "#/r/abc");
+  it("QA BUG-59: whoever logs in after a logout starts from home, not from the previous user's page", async () => {
+    const ada = await signedUp("Ada");
+    const bob = await signedUp("Bob");
+    history.replaceState(null, "", "#/me");
+    app = startApp({ api: ada.api, root });
+    await vi.waitFor(() => expect(logoutButton()).toBeDefined());
+    logoutButton()!.click();
+    await tick();
+    location.hash = "#/login";
+    await tick();
+    await vi.waitFor(() => expect(root.querySelector("form.auth-form")).not.toBeNull());
+    root.querySelector<HTMLInputElement>('input[name="email"]')!.value = bob.email;
+    root.querySelector<HTMLInputElement>('input[name="password"]')!.value = bob.password;
+    root.querySelector("form")!.requestSubmit();
+    await vi.waitFor(() => expect(app!.store.get().user?.id).toBe(bob.user.id));
+    await tick();
+    expect(location.hash).toBe("#/");
+    await Promise.all([ada.api.unsubscribeAll(), bob.api.unsubscribeAll()]);
+  });
+
+  it("QA BUG-66: after logout the tab gets none of the previous user's live events, and the guest's list stays live", async () => {
+    const ada = await signedUp("Ada");
+    const bob = await signedUp("Bob");
+    app = startApp({ api: ada.api, root });
+    await vi.waitFor(() => expect(app!.store.get().roomsStatus).toBe("ready"));
+    await subscribed(ada.api);
+    app.logOut();
+    await vi.waitFor(() => expect(app!.store.get().roomsStatus).toBe("ready"));
+    await subscribed(ada.api);
+    const dm = await bob.api.openDm(ada.user.id);
+    await bob.api.send({ id: newId(), room: dm.id, text: "secret" });
+    const priv = await bob.api.createRoom(`p-${newId()}`, "private");
+    await bob.api.setAccess(priv.id, "private", [ada.user.id]);
+    const open = await bob.api.createRoom(`o-${newId()}`, "open");
+    // The Open Air room comes live; Ada's DM and private room, sent before it, never do.
+    await vi.waitFor(() => expect(app!.store.get().rooms.has(open.id)).toBe(true));
+    expect(app.store.get().rooms.has(dm.id)).toBe(false);
+    expect(app.store.get().rooms.has(priv.id)).toBe(false);
+    await bob.api.unsubscribeAll();
+  });
+
+  it("QA BUG-66: logging in from the guest view gets the user's live events", async () => {
+    const ada = await signedUp("Ada");
+    const bob = await signedUp("Bob");
+    const api = newApi();
+    history.replaceState(null, "", "#/login");
     app = startApp({ api, root });
+    await vi.waitFor(() => expect(app!.store.get().roomsStatus).toBe("ready"));
+    await subscribed(api);
+    await api.logIn(ada.email, ada.password);
+    await vi.waitFor(() => expect(app!.store.get().user?.id).toBe(ada.user.id));
+    await vi.waitFor(() => expect(app!.store.get().roomsStatus).toBe("ready"));
+    await subscribed(api);
+    const priv = await bob.api.createRoom(`p-${newId()}`, "private");
+    await bob.api.setAccess(priv.id, "private", [ada.user.id]);
+    await vi.waitFor(() => expect(app!.store.get().rooms.has(priv.id)).toBe(true));
+    await Promise.all([bob.api.unsubscribeAll(), api.unsubscribeAll()]);
+  });
+
+  it("after logout, going back to a room that needs an account shows no room content", async () => {
+    const { api } = await signedUp("Ada");
+    const room = await api.createRoom(`r-${newId()}`);
+    await api.send({ id: newId(), room: room.id, text: "members only" });
+    history.replaceState(null, "", `#/r/${room.id}`);
+    app = startApp({ api, root });
+    await vi.waitFor(() => expect(root.querySelector("li.msg")).not.toBeNull());
     app.logOut();
     await tick();
-    location.hash = "#/r/abc";
-    await tick();
-    expect(location.hash).toBe("#/login");
+    location.hash = `#/r/${room.id}`;
+    await vi.waitFor(() => expect(root.querySelector(".not-found")).not.toBeNull());
+    expect(root.querySelector("li.msg")).toBeNull();
+    expect(root.textContent).not.toContain("members only");
   });
 
   describe("another tab changes the shared session (BUG-02, BUG-03)", () => {
@@ -341,7 +492,7 @@ describe("app boot (§7.1)", () => {
       pb.authStore.clear();
       await tick();
       expect(app.store.get().user).toBeNull();
-      expect(location.hash).toBe("#/login");
+      expect(location.hash).toBe("#/");
       expect(meLink()).toBeNull();
     });
 

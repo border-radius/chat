@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { client, expectRejected, newRoom, newUser, post, status, uniq } from "./helpers.ts";
+import { client, expectRejected, newRoom, newUser, post, uniq } from "./helpers.ts";
 
 describe("users rules (§5.5)", () => {
   it("anyone can sign up and use the account immediately, without verification", async () => {
@@ -48,11 +48,13 @@ describe("users rules (§5.5)", () => {
     expect(list[0]!.email).toBeFalsy();
   });
 
-  it("anonymous users cannot list or view users", async () => {
+  it("anonymous users cannot list users; one whose id they have shows only the public profile (§23.3)", async () => {
     const b = await newUser();
     const anon = client();
     expect((await anon.collection("users").getList(1, 50)).items).toHaveLength(0);
-    expect(await status(anon.collection("users").getOne(b.user.id))).toBe(404);
+    const u = await anon.collection("users").getOne(b.user.id);
+    expect(u.name).toBe(b.user.name);
+    expect(u.email).toBeUndefined();
   });
 
   it("a user can update their own name but not someone else's", async () => {

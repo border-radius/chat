@@ -87,13 +87,14 @@ describe("DMs can't be made or changed through the rooms API (§16.3)", () => {
     expect((await a.pb.collection("rooms").create({ ...base, kind: "public" })).kind).toBe("public");
   });
 
-  it("a public room's kind and members can't change, not even with modifiers", async () => {
+  it("a public room's kind can't change, and it keeps no members, not even with modifiers (§23.2)", async () => {
     const a = await newUser();
     const b = await newUser();
     const room = await newRoom(a);
     await expectRejected(a.pb.collection("rooms").update(room.id, { kind: "dm" }));
-    await expectRejected(a.pb.collection("rooms").update(room.id, { members: [a.user.id, b.user.id] }));
-    await expectRejected(a.pb.collection("rooms").update(room.id, { "members+": b.user.id }));
+    await expectRejected(a.pb.collection("rooms").update(room.id, { "kind+": "dm" }));
+    expect((await a.pb.collection("rooms").update(room.id, { members: [a.user.id, b.user.id] })).members).toEqual([]);
+    expect((await a.pb.collection("rooms").update(room.id, { "members+": b.user.id })).members).toEqual([]);
     await a.pb.collection("rooms").update(room.id, { dm_key: "k" });
     expect(dmKeyOf(room.id)).toBe("");
     expect((await a.pb.collection("rooms").getOne(room.id)).members).toEqual([]);

@@ -1,10 +1,11 @@
-// Room header (§7.1, §16.5): back link, room title and the room actions menu (hide, archive, jump to
-// beginning). A DM shows the other member's avatar and name, and can be closed but never archived.
+// Room header (§7.1, §16.5): back link, room title and the room actions menu (hide, archive, room access, jump to
+// beginning). A DM shows the other member's avatar and name, and can be closed but never archived. A private or Open
+// Air room says so next to its name (§23.1); a guest only gets "Jump to beginning" (§23.3).
 
 import type { RoomActions } from "../../actions.ts";
 import { errorMessage } from "../../api.ts";
 import { h } from "../../dom.ts";
-import { otherMember, roomTitle } from "../../lib/rooms.ts";
+import { otherMember, roomTitle, VISIBILITY, visibilityOf } from "../../lib/rooms.ts";
 import type { Room, User } from "../../lib/types.ts";
 import { type AvatarUrl, avatar } from "../../ui/avatar.ts";
 import { createActionMenu, type MenuItem } from "../../ui/menu.ts";
@@ -19,6 +20,8 @@ export function createRoomHeader(opts: {
   actions: RoomActions;
   avatarUrl: AvatarUrl;
   onJumpToBeginning: () => void;
+  /** "Room access…" (the creator) or "Members" (the others, in a private room): open the access dialog (§23.2). */
+  onAccess: () => void;
   /** A DM was closed from this menu. */
   onClosed: () => void;
   signal: AbortSignal;
@@ -63,9 +66,13 @@ export function createRoomHeader(opts: {
     ];
   }
 
-  function items(room: Room | undefined, hidden: boolean, mine: boolean): MenuItem[] {
+  function items(room: Room | undefined, hidden: boolean, mine: boolean, guest: boolean): MenuItem[] {
     if (room?.kind === "dm") return dmItems(room, hidden);
     const out: MenuItem[] = [];
+    if (guest) return [{ label: "Jump to beginning", run: opts.onJumpToBeginning }];
+    if (room && (mine || visibilityOf(room) === "private")) {
+      out.push({ label: mine ? "Room access…" : `Members (${room.members?.length ?? 0})`, run: opts.onAccess });
+    }
     // Hiding an archived room is pointless (it is listed under Archived), but one hidden before it was
     // archived must still be unhidable, or it would silently come back hidden after an unarchive.
     if (room && (!room.archived || hidden)) {
@@ -95,13 +102,18 @@ export function createRoomHeader(opts: {
     update({ room, hidden, me }) {
       const other = room ? otherMember(room, me) : undefined;
       const text = room ? roomTitle(room, me) : "";
-      const key = JSON.stringify([text, other?.avatar ?? null]);
+      const vis = room && !other ? visibilityOf(room) : "public";
+      const key = JSON.stringify([text, other?.avatar ?? null, vis]);
       if (key !== shown) {
         shown = key;
-        title.replaceChildren(...(other ? [avatar(other, 24, opts.avatarUrl), h("span", {}, text)] : [text]));
+        const badge =
+          vis === "public"
+            ? null
+            : h("span", { class: `vis-badge vis-${vis}`, title: VISIBILITY[vis].hint }, `${VISIBILITY[vis].icon} ${VISIBILITY[vis].label}`);
+        title.replaceChildren(...(other ? [avatar(other, 24, opts.avatarUrl), h("span", {}, text)] : [text, badge ?? ""]));
       }
       title.classList.toggle("dm-title", !!other);
-      menu.update(items(room, hidden, !!room && room.created_by === me?.id));
+      menu.update(items(room, hidden, !!room && room.created_by === me?.id, !me));
     },
   };
 }

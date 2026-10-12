@@ -1690,6 +1690,226 @@ dialog.forward .cancel {
   text-align: center;
 }
 
+/* ---- Room access (§23) ---- */
+
+/* The logo links home (a guest's way back from the login page). */
+a.brand {
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.guest-links {
+  display: flex;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.guest-link {
+  padding: 0.35rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: var(--pill);
+  background: var(--raised);
+  color: var(--fg);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.guest-link.primary {
+  border-color: transparent;
+  background: var(--grad);
+  color: #fff;
+}
+
+@media (hover: hover) {
+  .guest-link:not(.primary):hover {
+    background: var(--hover);
+  }
+}
+
+.auth-skip {
+  margin: 1rem 0 0;
+  text-align: center;
+}
+
+.guest-banner {
+  margin: 0;
+  padding: 0.9rem 1rem calc(0.9rem + env(safe-area-inset-bottom));
+  color: var(--muted);
+  text-align: center;
+}
+
+/* 🔒 / 🌐 next to a room's name in the list. */
+.room-section li a > .vis {
+  flex: none;
+  font-size: 0.8rem;
+}
+
+.vis-badge {
+  margin-left: 0.5rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: var(--pill);
+  background: var(--tint);
+  color: var(--fg);
+  font-size: 0.75rem;
+  font-weight: 700;
+  vertical-align: middle;
+}
+
+.new-room select {
+  padding: 0.35rem 0.5rem;
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--raised);
+  color: var(--fg);
+  font: inherit; /* 16px: iOS zooms in on a smaller field */
+}
+
+dialog.access {
+  width: min(28rem, calc(100% - 2rem));
+  max-height: min(40rem, 90vh);
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--raised);
+  color: var(--fg);
+  box-shadow: var(--shadow);
+}
+
+dialog.access[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+dialog.access::backdrop {
+  background: rgb(0 0 0 / 45%);
+}
+
+dialog.access h2,
+dialog.access h3 {
+  margin: 0;
+}
+
+dialog.access h3 {
+  font-size: 0.95rem;
+}
+
+.vis-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.vis-choices legend {
+  margin-bottom: 0.4rem;
+  font-weight: 700;
+}
+
+.vis-choice {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  padding: 0.55rem 0.7rem;
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.vis-choice:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--tint);
+}
+
+.vis-choice input {
+  width: auto;
+  margin: 0.2rem 0 0;
+  accent-color: var(--accent);
+}
+
+.vis-icon {
+  width: 1.4rem;
+  font-weight: 800;
+  text-align: center;
+}
+
+.vis-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.vis-label {
+  font-weight: 700;
+}
+
+.vis-hint {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.members {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-height: 0;
+}
+
+.member-list {
+  max-height: 14rem;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.member {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.25rem 0;
+}
+
+.member-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.member-role {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.member .remove-member {
+  margin-left: auto;
+}
+
+.add-member {
+  align-self: flex-start;
+}
+
+.access-warning:empty,
+dialog.access .field-error:empty {
+  display: none;
+}
+
+.access-warning {
+  margin: 0;
+  padding: 0.5rem 0.7rem;
+  border-radius: var(--radius);
+  background: var(--highlight);
+  font-size: 0.85rem;
+}
+
+.dialog-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
 /* ---- Motion ---- */
 
 @keyframes pop {

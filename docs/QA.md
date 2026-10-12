@@ -414,3 +414,106 @@ your connection and try again." on a 429. BUG-39 fixed this elsewhere. **Fix:** 
 
 Known, not fixed here: in the forward dialog, the first Escape in a non-empty search field clears it (the browser's
 behaviour for search fields) and the second closes the dialog.
+
+---
+
+# QA pass 6 — room access: private rooms, Open Air rooms, guests
+
+Testing of §23 while building it, 2026-10-12, on PocketBase 0.40.4 in Chromium (1100×720 and a 390×844 phone, light
+and dark): integration probes of every rule and route as a member, a non-member, a removed member, the creator and a
+guest (no session); unit tests of the views; Playwright runs with several users and a guest side by side; axe on the
+guest home, guest room, sign up, the room list's new-room form and the access dialog. Numbering continues from BUG-58.
+
+| # | Severity | Area | Summary | Status |
+|---|---|---|---|---|
+| BUG-66 | **High** (privacy) | Realtime | After logging out, the tab goes on receiving the previous user's live events: their DMs and private rooms show up in the guest's room list | Fixed |
+| BUG-59 | Medium | Session | After a logout, the next login (anyone's) lands on the page the previous user was on: their profile, or a private room's URL | Fixed |
+| BUG-60 | Medium | Room access | A room that went away while open stays "You can't see this room any more" after access comes back, and clicking it in the list does nothing | Fixed |
+| BUG-61 | Medium | Rooms | A message sent while a room is opening can be missed until the next reconnect (likelier for a guest following a link) | Fixed |
+| BUG-67 | Medium | Realtime | A connection replaced while still connecting (BUG-66's restart, or a reconnect) could fail the new connection's subscriptions | Fixed |
+| BUG-62 | Low | Session | Logging out reset the session twice (two `unsubscribeAll` requests) | Fixed |
+| BUG-63 | Low | Performance | Every DM message made the server go through every realtime client, looking for someone who lost access | Fixed |
+| BUG-64 | Low (a11y) | Room access | Each visibility radio button's name was its whole explanation | Fixed |
+| BUG-65 | Low | Mobile | The new-room form's visibility select used 13.6 px text, which makes iOS Safari zoom in on focus | Fixed |
+
+## BUG-66 — A logged-out tab still gets the previous user's events (High, privacy)
+
+**Steps:** Ada logs out (the tab now shows the guest view). Bob then writes to Ada in their DM and adds her to a
+private room. **Expected:** the guest view shows neither. **Actual:** both rooms appear in the guest's room list,
+live; anyone at the computer sees Ada's DM and private room names (and the DM partner).
+**Cause:** the realtime connection outlived the session. Logging out dropped the subscriptions on the client, the guest
+view subscribed again on the same connection, and PocketBase refused that request (403: "the current and the previous
+request authorization don't match"), leaving the connection subscribed as Ada. The guest's room-list listener has the
+same subscription key as Ada's, so it got her events. Before guests existed, nothing subscribed after a logout.
+**Fix:** when the session changes to another user, or to none, the client closes the realtime connection and opens a
+new one (`restart()` in `pb.ts`); a new token for the same user still just resends the subscriptions (BUG-52). Found
+by a `403` in the output of a unit test, then reproduced with a probe.
+
+## BUG-59 — The next login lands on the previous user's page (Medium)
+
+**Steps:** Ada opens her profile (or a private room) and logs out; Bob logs in on the same tab.
+**Expected:** Bob lands on the home page. **Actual:** he lands on Ada's last page, `#/me` (or the private room's URL,
+which says it doesn't exist).
+**Cause:** the page to go back to after logging in (so a guest returns to the room they were reading) was only updated
+on `hashchange`; logging out moves home with `history.replaceState`, which fires none.
+**Fix:** logging out resets it to home. Found by `session.spec.ts`.
+
+## BUG-60 — A room that comes back stays gone (Medium)
+
+**Steps:** a guest reads an Open Air room; its creator archives it (the guest sees "You can't see this room any
+more."), then unarchives it. **Expected:** the room shows again. **Actual:** the message stays, and clicking the room,
+which is back in the list, does nothing: it is the URL already open, so nothing remounts. Same for a member taken out
+of a private room and added back.
+**Fix:** a room view showing "gone" or "doesn't exist" starts the page over once the room is in the list (again).
+Found by `room_access.spec.ts`.
+
+## BUG-61 — A message sent while a room opens can be missed (Medium)
+
+**Steps:** open a room (as a guest, from a link) while someone posts in it. **Expected:** the message shows.
+**Actual:** sometimes it never does, until a reconnect or a reload.
+**Cause:** the first page and the realtime subscription are set up side by side. A message created after the page was
+read but before the server had the subscription reaches neither. With a warm connection the window is one request;
+a guest's first page load also opens the realtime connection, which makes it several round trips. Found while
+investigating a flaky `room_access.spec.ts` run, and shown by a unit test that holds the subscription back (it fails
+without the fix). That flaky run itself turned out to be the spec's own race: it typed into the composer while the
+modal access dialog was still saving, so the message was never sent; the spec now waits for the dialog to close.
+**Fix:** when the subscription is ready only after the page, the room fetches anything newer than its newest message
+once (no request otherwise, no scrolling unless at the bottom).
+
+## BUG-67 — A replaced connection fails the new one (Medium)
+
+**Found:** `npm run check` stopped on an unhandled rejection ("Missing or invalid client id", 404) after the BUG-66 fix.
+**Cause:** when a connection is closed while its connect handler is still sending the subscriptions (a restart for
+another user, or a reconnect), the server forgets that client and answers 404. The handler's error path then ran
+against the *new* connection: it rejected the new connection's pending subscribes (the unhandled rejection: the room
+list or a room got no live updates) and could close the new connection. Before BUG-66's fix only an ill-timed
+reconnect could do this.
+**Fix:** each connection's handlers check that it is still the current one before touching any state.
+
+## BUG-62 to BUG-65 (Low)
+
+- **BUG-62:** logging out ended the session, then the auth change ended it again: two `unsubscribeAll` requests. Ending
+  a session that isn't running now does nothing.
+- **BUG-63:** the hook that tells clients they lost access ran on every room save, and DM messages save their room.
+  It returns early when visibility, archived, creator and members are unchanged.
+- **BUG-64:** the radio buttons' labels held the explanation too ("Private Only the people you add can read and
+  post."). They are labelled by the name and described by the explanation.
+- **BUG-65:** the select was 0.85 rem; fields stay at 16 px (§22, QA pass 5).
+
+## Checked and fine
+
+- Non-members of a private room can't list, view, filter, expand into, subscribe to (by `*` or by id), post in, react
+  in, forward into, hide or mark read the room, or download its attachments; neither can guests. A member taken out
+  loses all of it, including editing and deleting what they wrote there, and gets a realtime delete for the room; the
+  others get the update, everyone else nothing.
+- Only the creator changes visibility and members; the creator can't be removed; duplicate and unknown members, more
+  than 100, and changes to a DM are refused or cleaned up; the members list is dropped when a room stops being private.
+- Guests list and read Open Air rooms only, with authors (no emails), reactions, replies and attachments (thumbnails
+  and full files, without a token), live; never public, private or archived ones, DMs, user lists, unread counts or
+  file tokens. A guest's view drops an Open Air room as soon as it is archived or made public, and gets it back live.
+- Logging in or signing up from a room returns to it; `#/me` as a guest asks to log in and returns there; logging out
+  goes home as a guest; an expired session goes to the login page.
+- axe: no violations in the states above, light and dark. No horizontal overflow at 390 px.
+
+Accepted, not fixed: room names stay unique across all rooms, so trying to create a room under a private room's name
+says it is taken (§13, room access).

@@ -65,10 +65,18 @@ describe("rooms rules (§5.2, §5.5)", () => {
       expect(list).toHaveLength(1);
     });
 
-    it("anonymous users cannot list or view rooms", async () => {
+    it("anonymous users cannot list or view public rooms, only Open Air ones (§23.3)", async () => {
       const a = await newUser();
       const room = await newRoom(a);
-      expect((await client().collection("rooms").getList(1, 50)).items).toHaveLength(0);
+      expect(
+        (
+          await client()
+            .collection("rooms")
+            .getList(1, 50, { filter: `id = "${room.id}"` })
+        ).items,
+      ).toHaveLength(0);
+      const all = await client().collection("rooms").getFullList();
+      expect(all.every((r) => r.visibility === "open" && !r.archived)).toBe(true);
       expect(await status(client().collection("rooms").getOne(room.id))).toBe(404);
     });
   });

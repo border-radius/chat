@@ -2,7 +2,7 @@
 
 import { PAGE_SIZE, type PageQuery } from "./lib/cursor.ts";
 import { createTokenCache } from "./lib/token.ts";
-import type { Message, Room, User } from "./lib/types.ts";
+import type { Message, Room, User, Visibility } from "./lib/types.ts";
 import { type AuthRecord, type PbClient, PbError, type Query, type RequestOptions } from "./pb.ts";
 
 export type AvatarSize = 48 | 96;
@@ -81,8 +81,13 @@ export interface Api {
   // rooms
   listRooms(signal?: AbortSignal): Promise<Room[]>;
   getRoom(id: string, signal?: AbortSignal): Promise<Room>;
-  createRoom(name: string): Promise<Room>;
+  createRoom(name: string, visibility?: Visibility): Promise<Room>;
   setArchived(id: string, archived: boolean): Promise<Room>;
+  /**
+   * Who can see the room (§23.2): its visibility, and for a private room its members (user ids; the creator is always
+   * one). Only the creator may. Resolves to the room as saved.
+   */
+  setAccess(id: string, visibility: Visibility, members: readonly string[]): Promise<Room>;
 
   // direct messages (§16)
   /** The DM with `userId`, created on first use; reopens it if you had closed it. */
@@ -119,7 +124,10 @@ export interface Api {
   forward(ids: readonly string[], room: string): Promise<Message[]>;
 
   // attachments (§17.3)
-  /** A fresh file token for protected attachments (cached; one request shared by concurrent callers). */
+  /**
+   * A fresh file token for protected attachments (cached; one request shared by concurrent callers). "" without a
+   * session: a guest reads Open Air rooms' attachments without one (§23.3).
+   */
   fileToken(force?: boolean): Promise<string>;
   /**
    * URL of an attachment (a thumbnail with `thumb`, e.g. "480x360"), signed with the cached file token.
@@ -183,7 +191,7 @@ export const MSG_FIELDS =
 const MSG_OPTS = { expand: "author,reply_to.author,forwarded_from", fields: MSG_FIELDS } as const;
 /** Rooms with their members' public profile (DMs, §16.5); never emails. */
 export const ROOM_FIELDS =
-  "id,name,archived,created_by,kind,members,last_message_at,created,expand.members.id,expand.members.name,expand.members.avatar";
+  "id,name,archived,created_by,kind,visibility,members,last_message_at,created,expand.members.id,expand.members.name,expand.members.avatar";
 const ROOM_OPTS = { expand: "members", fields: ROOM_FIELDS } as const;
 const HIDDEN_FIELDS = "id,room";
 const ACTIVITY_FIELDS = "id,room,author,created,deleted";
@@ -368,8 +376,11 @@ export function createApi(client: PbClient): Api {
 
     listRooms: (signal) => wrap(rooms.fullList<Room>({ sort: "name", ...ROOM_OPTS }, signal)),
     getRoom: (id, signal) => wrap(rooms.get<Room>(id, ROOM_OPTS, signal)),
-    createRoom: async (name) => wrap(rooms.create<Room>({ name, created_by: me() }, ROOM_OPTS)),
+    createRoom: async (name, visibility) =>
+      wrap(rooms.create<Room>({ name, created_by: me(), ...(visibility ? { visibility } : {}) }, ROOM_OPTS)),
     setArchived: (id, archived) => wrap(rooms.update<Room>(id, { archived }, ROOM_OPTS)),
+    setAccess: (id, visibility, members) =>
+      wrap(rooms.update<Room>(id, { visibility, members: visibility === "private" ? [...members] : [] }, ROOM_OPTS)),
 
     openDm: (userId) => wrap(pb.send<Room>("/api/chat/dms", { method: "POST", body: { user: userId } })),
     async searchUsers(query, signal) {
@@ -424,10 +435,11 @@ export function createApi(client: PbClient): Api {
     deleteMany: (ids) => wrap(pb.send<Message[]>("/api/chat/delete", { method: "POST", body: { messages: ids }, query: MSG_OPTS })),
     forward: (ids, room) =>
       wrap(pb.send<Message[]>("/api/chat/forward", { method: "POST", body: { messages: ids, room }, query: MSG_OPTS })),
-    fileToken: (force) => tokens.ensure(force),
+    fileToken: async (force) => (api.currentUser() ? tokens.ensure(force) : ""),
     fileUrl(m, filename, thumb) {
-      if (!tokens.fresh()) void tokens.ensure().catch(() => {});
-      const token = tokens.current();
+      const user = api.currentUser();
+      if (user && !tokens.fresh()) void tokens.ensure().catch(() => {});
+      const token = user ? tokens.current() : "";
       return pb.fileUrl("messages", m.id, filename, { token: token || undefined, thumb });
     },
 

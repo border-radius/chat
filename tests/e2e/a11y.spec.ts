@@ -16,6 +16,9 @@ for (const colorScheme of ["light", "dark"] as const) {
 
     test("login, rooms, room and archived room have no serious accessibility violations", async ({ page }) => {
       await page.goto("/");
+      await expect(page.getByRole("heading", { name: "Welcome!" })).toBeVisible();
+      expect(await seriousViolations(page), "guest home").toEqual([]);
+      await page.goto("/#/login");
       await expect(page.getByLabel("Email")).toBeVisible();
       expect(await seriousViolations(page), "login").toEqual([]);
 

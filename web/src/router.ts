@@ -13,8 +13,10 @@ export interface View {
 export interface Route {
   pattern: string;
   view: () => View;
-  /** Reachable without auth (only the login screen). */
+  /** Reachable without auth (guests read the Open Air rooms, §23.3). */
   public?: boolean;
+  /** Only for guests (logging in, signing up): signed in, it goes home. */
+  guestOnly?: boolean;
 }
 
 export interface Router {
@@ -70,7 +72,7 @@ export function createRouter(opts: { root: HTMLElement; routes: Route[]; isAuthe
   function redirect(route: Route | undefined): string | null {
     if (!route) return HOME;
     if (!route.public && !isAuthed()) return LOGIN;
-    if (route.pattern === LOGIN && isAuthed()) return HOME;
+    if ((route.guestOnly || route.pattern === LOGIN) && isAuthed()) return HOME;
     return null;
   }
 

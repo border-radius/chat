@@ -2,7 +2,7 @@
 // the emoji picker (§20), selecting messages to forward or delete them (§21), archived mode, read state (§18.3).
 // The message window and everything that changes it live in room/controller.ts (no DOM). This module puts the
 // controller's changes on screen and wires the DOM parts in room/: header (title + actions menu), messages (the
-// list), composer, forward dialog.
+// list), composer, forward dialog, access dialog (§23.2). A guest reads an Open Air room without a composer (§23.3).
 
 import { errorMessage } from "../api.ts";
 import type { Ctx } from "../context.ts";
@@ -17,6 +17,7 @@ import { createScope } from "../scope.ts";
 import { roomSections } from "../store.ts";
 import { createEmojiPicker } from "../ui/emoji-picker.ts";
 import type { RoomReader } from "../unread.ts";
+import { createAccessDialog } from "./room/access.ts";
 import { createComposer, validEdit } from "./room/composer.ts";
 import { type Change, createRoomController, type Phase, type RoomController } from "./room/controller.ts";
 import { createForwardDialog } from "./room/forward.ts";
@@ -26,7 +27,7 @@ import { createMessageList, reactionFocus } from "./room/messages.ts";
 /** How long a confirmation such as "Message forwarded." stays on screen (§22.6). */
 export const NOTICE_MS = 4000;
 
-export function createRoomView({ api, store, unread, actions, navigate, drafts }: Ctx): View {
+export function createRoomView({ api, store, unread, actions, navigate, reopen, drafts }: Ctx): View {
   const vid = uniqueId("room");
   const scope = createScope();
   const { signal } = scope;
@@ -61,7 +62,24 @@ export function createRoomView({ api, store, unread, actions, navigate, drafts }
     actions,
     avatarUrl: api.avatarUrl,
     onJumpToBeginning: () => void ctl.jump("first"),
+    onAccess: () => {
+      const r = room();
+      if (r) accessDialog.open(r, r.created_by === me()?.id, me());
+    },
     onClosed: () => navigate("#/"),
+    signal,
+  });
+  const accessDialog = createAccessDialog({
+    searchUsers: (q, sig) => api.searchUsers(q, sig),
+    avatarUrl: api.avatarUrl,
+    onSave: async (visibility, members) => {
+      try {
+        await actions.setAccess(roomId, visibility, members);
+        return null;
+      } catch (e) {
+        return `Couldn't save. ${errorMessage(e)}`;
+      }
+    },
     signal,
   });
   /** "Beginning of #general" / "Beginning of your conversation with Bob". */
@@ -155,6 +173,13 @@ export function createRoomView({ api, store, unread, actions, navigate, drafts }
   const pill = h("button", { type: "button", class: "new-messages", hidden: true });
   const footer = h("footer", { class: "room-footer" });
   const banner = h("p", { class: "archived-banner" }, "This room is archived. History is read-only.");
+  const guestBanner = h("p", { class: "guest-banner" }, [
+    "You're reading as a guest. ",
+    h("a", { href: "#/login" }, "Log in"),
+    " or ",
+    h("a", { href: "#/signup" }, "sign up"),
+    " to join the conversation.",
+  ]);
   const notice = h("p", { class: "room-notice", role: "status" });
   let noticeTimer: ReturnType<typeof setTimeout> | undefined;
   /** Show a confirmation that goes away by itself (§22.6), unless something else is said meanwhile. */
@@ -172,6 +197,7 @@ export function createRoomView({ api, store, unread, actions, navigate, drafts }
     footer,
     picker.el,
     forwardDialog.el,
+    accessDialog.el,
   ]);
 
   // ---------------------------------------------------------------- selecting (§21)
@@ -388,6 +414,8 @@ export function createRoomView({ api, store, unread, actions, navigate, drafts }
     } else if (r.archived) {
       footer.replaceChildren(banner);
       picker.close(); // nothing left to insert into or react to
+    } else if (!me()) {
+      if (footer.firstChild !== guestBanner) footer.replaceChildren(guestBanner);
     } else if (footer.firstChild !== composer.el) footer.replaceChildren(composer.el);
     composer.setPlaceholder(`Message ${roomTitle(r, me())}`);
     // Entering a room (or switching to another one), you can just type. Not on touch screens: it would pop up the
@@ -398,8 +426,38 @@ export function createRoomView({ api, store, unread, actions, navigate, drafts }
     }
   }
 
+  /**
+   * Shown "not found" or "gone": once the room is yours to see (again), the page starts over and shows it (§23.4, QA
+   * BUG-60). Clicking it in the room list couldn't: it is the same URL.
+   */
+  let offReturn: (() => void) | null = null;
+  function awaitReturn() {
+    offReturn ??= store.subscribe((s, prev) => {
+      if (s.rooms.has(roomId) && !prev.rooms.has(roomId) && s.user === prev.user) reopen();
+    });
+  }
+
   function renderNotFound() {
-    shell.replaceChildren(h("p", { class: "not-found" }, ["This room doesn't exist. ", h("a", { href: "#/" }, "Back to rooms")]));
+    awaitReturn();
+    // A guest may have followed a link to a room that needs an account (§23.3).
+    const why = me() ? [] : [h("a", { href: "#/login" }, "Log in"), " to see more rooms, or "];
+    const back = h("a", { href: "#/" }, me() ? "Back to rooms" : "go back to the Open Air rooms");
+    shell.replaceChildren(h("p", { class: "not-found" }, ["This room doesn't exist. ", ...why, back]));
+  }
+
+  /**
+   * The room went from the list while open (§23.4): you were taken out of a private room, or it is no longer open to
+   * guests. What was on screen goes too.
+   */
+  function renderGone() {
+    shown = "not-found";
+    awaitReturn();
+    picker.close();
+    forwardDialog.close();
+    accessDialog.close();
+    const back = h("a", { href: "#/" }, "Back to rooms");
+    shell.replaceChildren(h("p", { class: "not-found" }, ["You can't see this room any more. ", back]));
+    scope.dispose();
   }
 
   // ---------------------------------------------------------------- edit / delete
@@ -448,6 +506,7 @@ export function createRoomView({ api, store, unread, actions, navigate, drafts }
   let lookingUp = false;
 
   function nameOf(id: string): string | undefined {
+    if (!me()) return undefined; // looking people up needs an account (§23.3): "3 people"
     const name = people.get(id);
     if (name !== undefined || asking.has(id)) return name;
     asking.add(id);
@@ -602,6 +661,8 @@ export function createRoomView({ api, store, unread, actions, navigate, drafts }
       scope.defer(() => r.close(atLiveEdge()));
       scope.defer(
         store.subscribe((s, prev) => {
+          // Lost while you were in it (§23.4). Not on logging out: the views start over then anyway.
+          if (prev.rooms.has(roomId) && !s.rooms.has(roomId) && s.user === prev.user && shown !== "not-found") return renderGone();
           const roomChanged = s.rooms.get(roomId) !== prev.rooms.get(roomId);
           if (roomChanged || s.hidden !== prev.hidden || s.user !== prev.user) {
             renderHeader();
@@ -616,6 +677,7 @@ export function createRoomView({ api, store, unread, actions, navigate, drafts }
       ctl.start();
     },
     unmount() {
+      offReturn?.();
       scope.dispose();
       clear(root);
     },

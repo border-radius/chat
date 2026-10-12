@@ -29,7 +29,16 @@ describe("messages create (§5.3, §5.5, §5.6)", () => {
       const a = await newUser();
       const room = await newRoom(a);
       const m = await post(a, room.id, "secret");
-      expect((await client().collection("messages").getList(1, 50)).items).toHaveLength(0);
+      expect(
+        (
+          await client()
+            .collection("messages")
+            .getList(1, 50, { filter: `room = "${room.id}"` })
+        ).items,
+      ).toHaveLength(0);
+      // Only Open Air rooms' messages are readable without an account (§23.3).
+      const all = await client().collection("messages").getFullList({ expand: "room" });
+      expect(all.every((x) => x.expand?.room?.visibility === "open")).toBe(true);
       expect(await status(client().collection("messages").getOne(m.id))).toBe(404);
     });
 

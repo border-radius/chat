@@ -240,6 +240,7 @@ describe("createApi", () => {
         archived: false,
         created_by: a.currentUser()!.id,
         kind: "public",
+        visibility: "public",
         members: [],
         last_message_at: "",
         created: expect.any(String),
@@ -247,6 +248,29 @@ describe("createApi", () => {
       });
       expect(await b.getRoom(room.id)).toEqual(room);
       expect((await b.listRooms()).find((r) => r.id === room.id)).toEqual(room);
+    });
+
+    it("room access (§23.2): created private, members set with their profiles, then opened to everyone", async () => {
+      const { a, b, anon } = await setup();
+      const room = await a.createRoom(`priv-${uniq()}`, "private");
+      expect(room.visibility).toBe("private");
+      expect(room.members).toEqual([a.currentUser()!.id]);
+      const shared = await a.setAccess(room.id, "private", [b.currentUser()!.id]);
+      expect(shared.members).toEqual([a.currentUser()!.id, b.currentUser()!.id]);
+      expect(shared.expand?.members?.map((u) => u.name)).toEqual(["Alice", "Bob"]);
+      expect(Object.keys(shared.expand!.members![0]!).sort()).toEqual(["avatar", "id", "name"]); // never the email
+      expect((await b.getRoom(room.id)).id).toBe(room.id);
+      const open = await a.setAccess(room.id, "open", [b.currentUser()!.id]);
+      expect(open).toMatchObject({ visibility: "open", members: [] });
+      expect((await anon.listRooms()).map((r) => r.id)).toContain(room.id);
+      // Only the creator: Bob is refused.
+      expect([400, 403, 404]).toContain((await rejection(b.setAccess(room.id, "private", []))).status);
+    });
+
+    it("a guest (§23.3) gets no file token, without asking the server", async () => {
+      const { anon } = await setup();
+      expect(await anon.fileToken()).toBe("");
+      expect(await anon.fileToken(true)).toBe("");
     });
 
     it("duplicate names (any case) are rejected with a name field error", async () => {

@@ -1,4 +1,4 @@
-// Login / signup screen (§7.1).
+// Login / signup screen (§7.1): #/login and #/signup, reached from the header (§23.3).
 
 import { type Api, ApiError, errorMessage, SIGNUP_LOGIN_FAILED } from "../api.ts";
 import { clear, h, uniqueId } from "../dom.ts";
@@ -32,9 +32,9 @@ const FIELDS: Record<Mode, FieldSpec[]> = {
 
 const TITLES: Record<Mode, string> = { login: "Log in", signup: "Sign up" };
 
-export function createLoginView(deps: { api: Api; onLogin: (user: User) => void }): View {
+export function createLoginView(deps: { api: Api; onLogin: (user: User) => void; mode?: Mode }): View {
   let ac: AbortController | null = null;
-  let mode: Mode = "login";
+  let mode: Mode = deps.mode ?? "login";
   let busy = false;
   const values: Record<Field, string> = { name: "", email: "", password: "" };
   const prefix = uniqueId("login");
@@ -109,7 +109,14 @@ export function createLoginView(deps: { api: Api; onLogin: (user: User) => void 
     );
 
     clear(root);
-    root.append(h("section", { class: "auth" }, [h("h1", {}, "Chat"), h("div", { role: "tablist", class: "tabs" }, tabs), form]));
+    root.append(
+      h("section", { class: "auth" }, [
+        h("h1", {}, "Chat"),
+        h("div", { role: "tablist", class: "tabs" }, tabs),
+        form,
+        h("p", { class: "auth-skip" }, h("a", { href: "#/" }, "Just looking? Read the Open Air rooms")),
+      ]),
+    );
   }
 
   async function onSubmit(button: HTMLButtonElement) {

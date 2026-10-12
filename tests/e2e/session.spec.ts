@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { apiRoom, apiUser, login, logOut } from "./fixtures.ts";
 
-test("a reload keeps the session; logging out guards rooms even via the back button", async ({ page }) => {
+test("a reload keeps the session; logging out guards rooms even via the back button (§23.3)", async ({ page }) => {
   const ada = await apiUser("Ada");
   const room = await apiRoom(ada);
   await login(page, ada);
@@ -14,13 +14,14 @@ test("a reload keeps the session; logging out guards rooms even via the back but
   await expect(page.locator("header.app-bar")).toContainText("Ada");
 
   await logOut(page);
-  await expect(page).toHaveURL(/#\/login$/);
+  await expect(page).toHaveURL(/#\/$/);
+  await expect(page.locator("header.app-bar").getByRole("link", { name: "Log in" })).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem("pocketbase_auth"))).toBeNull();
 
+  // Back to the (public) room: as a guest it is out of reach.
   await page.goBack();
-  await expect(page).toHaveURL(/#\/login$/);
+  await expect(page.getByText("This room doesn't exist.")).toBeVisible();
   await expect(page.locator("ol.messages")).toHaveCount(0);
-  await expect(page.getByLabel("Email")).toBeVisible();
 });
 
 test("tabs share the session: a logout or a login as someone else in one tab is followed by the others", async ({ page, context }) => {
@@ -33,7 +34,7 @@ test("tabs share the session: a logout or a login as someone else in one tab is 
   await expect(other.locator("header.app-bar")).toContainText("Ada");
 
   await logOut(page);
-  await expect(other).toHaveURL(/#\/login$/);
+  await expect(other).toHaveURL(/#\/$/);
   await expect(other.locator("ol.messages")).toHaveCount(0);
 
   await login(page, bob);

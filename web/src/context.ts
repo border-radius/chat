@@ -14,6 +14,8 @@ export interface Ctx {
   unread: Unread;
   actions: RoomActions;
   navigate: (hash: string) => void;
+  /** Start the current page over, with the same route (a room you can see again, §23.4). */
+  reopen: () => void;
   /** Unsent composer text by room id, kept across rooms (QA BUG-50) and reloads (§22.3). Cleared when the session ends. */
   drafts: Drafts;
   /** End the session and go to the login screen (the profile page's Log out, §22.2). */

@@ -1,8 +1,10 @@
 /// <reference path="../../types/pocketbase.d.ts" />
 // Unread counts (DESIGN.md §18): GET /api/chat/unread and POST /api/chat/reads.
 
+const { visibleRoom } = require(`${__hooks}/lib/access.js`);
+
 /**
- * Unread messages per room the caller can see: other people's, not deleted, newer than the caller's read position
+ * Unread messages per room the caller can see (§23.1): other people's, not deleted, newer than the caller's read position
  * (or their signup, for a room they never opened). One correlated count per room, so each one is a range scan on
  * idx_messages_room_created, stopped at UNREAD_CAP (the badge shows "99+" past 99, so more is never needed).
  * Hidden and archived rooms are counted too; the client doesn't show those (§18.4).
@@ -21,7 +23,7 @@ SELECT room, n FROM (
     )
   ) AS n
   FROM rooms r
-  WHERE r.kind = 'public' OR EXISTS (SELECT 1 FROM json_each(r.members) WHERE value = {:me})
+  WHERE r.visibility != 'private' OR r.created_by = {:me} OR EXISTS (SELECT 1 FROM json_each(r.members) WHERE value = {:me})
 ) WHERE n > 0`;
 
 /** @param {core.RequestEvent} e */
@@ -56,22 +58,6 @@ function unread(e) {
 }
 
 /**
- * The room if the user can see it (public, or a DM they are in), else null.
- * @param {core.App} app
- * @param {string} roomId
- * @param {string} userId
- */
-function visibleRoom(app, roomId, userId) {
-  let room;
-  try {
-    room = app.findRecordById("rooms", roomId);
-  } catch {
-    return null;
-  }
-  return room.getString("kind") === "public" || room.getStringSlice("members").includes(userId) ? room : null;
-}
-
-/**
  * @param {core.App} app
  * @param {string} user
  * @param {string} room
@@ -93,7 +79,7 @@ function markRead(e) {
   const user = me(e);
   const body = /** @type {Record<string, unknown>} */ (e.requestInfo().body);
   const roomId = typeof body.room === "string" ? body.room : "";
-  // Someone else's DM gets the same answer as a room that doesn't exist.
+  // Someone else's DM (or private room) gets the same answer as a room that doesn't exist.
   if (!roomId || !visibleRoom(e.app, roomId, user.id)) throw new NotFoundError("The room doesn't exist.");
 
   const now = new DateTime();

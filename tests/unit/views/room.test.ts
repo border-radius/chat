@@ -221,6 +221,26 @@ describe("room view (§7.5–7.6)", () => {
       await loaded();
     });
 
+    it("QA BUG-61: a message sent after the first page was read, before realtime was set up, still shows", async () => {
+      const other = await signedUp("Other");
+      const room = await newRoom();
+      let open!: () => void;
+      const gate = new Promise<void>((r) => (open = r));
+      // The server only gets the subscription once the gate opens: the page is read first.
+      intercept(me.api, "subscribeMessages", (original) => async (roomId, fn) => {
+        await gate;
+        return original(roomId, fn);
+      });
+      view = createRoomView(viewContext(me.api, store, navigate));
+      view.mount(root, { id: room.id });
+      layout = fakeLayout(list(), { rowHeight: ROW, clientHeight: VIEWPORT });
+      await loaded();
+      const m = await other.api.send({ id: newId(), room: room.id, text: "in the gap" });
+      open();
+      await vi.waitFor(() => expect(bodyOf(m.id)).toBe("in the gap"));
+      await other.api.unsubscribeAll();
+    });
+
     it("an unknown room shows a not-found message", async () => {
       view = createRoomView(viewContext(me.api, store, navigate));
       view.mount(root, { id: "doesnotexist123" });

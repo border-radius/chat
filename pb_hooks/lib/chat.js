@@ -36,6 +36,7 @@ const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g;
 const MAX_FILE_NAME_BYTES = 200;
 
 const { assertImagesFit } = require(`${__hooks}/lib/images.js`);
+const { accessOf, canSee } = require(`${__hooks}/lib/access.js`);
 
 /** @param {string} s */
 const isBlank = (s) => s.replace(INVISIBLE, "").trim() === "";
@@ -237,9 +238,9 @@ function beforeMessageCreate(e) {
   rec.set("file_names", originalNames(rec, "files")); // whatever the client sent is replaced
   rec.set("reactions", []); // only POST /api/chat/reactions adds them (§20.2)
   const room = activeRoom(e.app, rec.getString("room"));
-  // Defense in depth for the members-only create rule (§16.3).
-  if (room && isDm(room) && !room.getStringSlice("members").includes(rec.getString("author"))) {
-    throw fieldError("room", "You are not a member of this conversation.");
+  // Defense in depth for the members-only create rule (§16.3, §23.1): DMs and private rooms.
+  if (room && !canSee(accessOf(room), rec.getString("author"))) {
+    throw fieldError("room", isDm(room) ? "You are not a member of this conversation." : "You are not a member of this room.");
   }
   assertReplyTarget(e.app, rec);
 }
@@ -404,6 +405,25 @@ function setRoomName(app, rec) {
 }
 
 /**
+ * Who is in the room (§23.1): a DM's two members never change. A private room lists its creator and the people they
+ * added, each once; other rooms list nobody (their members were only for while they were private).
+ * @param {core.Record} rec
+ */
+function setMembers(rec) {
+  if (isDm(rec)) {
+    rec.set("visibility", "private");
+    return;
+  }
+  if (!rec.getString("visibility")) rec.set("visibility", "public");
+  if (rec.getString("visibility") !== "private") {
+    rec.set("members", []);
+    return;
+  }
+  const creator = rec.getString("created_by");
+  rec.set("members", [...new Set([creator, ...rec.getStringSlice("members")])].filter(Boolean));
+}
+
+/**
  * rooms create: public unless said otherwise; clean the name and check it is unique (§5.2, §16.1).
  * @param {core.RecordEvent} e
  */
@@ -411,9 +431,10 @@ function beforeRoomCreate(e) {
   const rec = recordOf(e);
   if (!rec.getString("kind")) rec.set("kind", "public");
   setRoomName(e.app, rec);
+  setMembers(rec);
 }
 
-/** Fields only the DM route and hooks may set (§16.3). */
+/** Fields only the DM route and hooks may set (§16.3). A room's creator may change a private room's members (§23.2). */
 const DM_FIELDS = ["kind", "members", "dm_key", "last_message_at"];
 
 /**
@@ -445,6 +466,7 @@ function beforeRoomUpdateRequest(e) {
   const rec = recordOf(e);
   const orig = rec.original();
   for (const f of DM_FIELDS) {
+    if (f === "members" && !isDm(orig)) continue;
     if (dmValue(rec, f) !== dmValue(orig, f)) throw fieldError(f, "This field can't be changed.");
   }
 }
@@ -485,6 +507,7 @@ function beforeRoomUpdate(e) {
   } else {
     setRoomName(e.app, rec);
   }
+  setMembers(rec);
   if (isDm(rec)) return;
   const was = orig.getBool("archived");
   const now = rec.getBool("archived");

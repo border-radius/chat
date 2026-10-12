@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | Draft |
 | **Date** | 2026-10-10 |
-| **Scope** | MVP (§1–§14); post-MVP features: avatars §15, direct messages §16, attachments §17, unread counts §18, replies §19, reactions and emoji §20, selecting, forwarding and deleting several messages §21, accounts and quality of life §22 |
+| **Scope** | MVP (§1–§14); post-MVP features: avatars §15, direct messages §16, attachments §17, unread counts §18, replies §19, reactions and emoji §20, selecting, forwarding and deleting several messages §21, accounts and quality of life §22, room access (private rooms, Open Air rooms and guests) §23 |
 
 Code and tests cite this document by section number (e.g. `§7.5`). **Don't renumber sections:** append new ones, and
 mark obsolete ones as such instead of deleting them.
@@ -319,7 +319,7 @@ Filters are always built with `pb.filter()` and never by string concatenation, w
 
 | Route | View | Notes |
 |---|---|---|
-| `#/login` | login / signup (tabbed form) | redirected here if not authenticated |
+| `#/login`, `#/signup` | login / signup (tabbed form) | guests only (§23.3); `#/me` redirects here without a session. Until §23 every route did. |
 | `#/` | room list + "new room" form, with a greeting where a room would be | on narrow screens only the room list shows |
 | `#/r/:roomId` | room: message list + composer | on wide screens the room list stays visible as a sidebar |
 | `#/r/:roomId/m/:msgId` | room, opened at a specific message (window centered on it) | used by "jump to beginning" and shareable later |
@@ -461,8 +461,8 @@ If the room's first load fails (other than "room not found"), the list shows an 
 
 | Asset | Budget (gzipped) |
 |---|---|
-| `app.js` (including the PocketBase client) | **≤ 34 KB** (25 KB for the MVP; raised for §15–§17, §19 and §22, see §13) |
-| `app.css` | **≤ 5.5 KB** (5 KB until §21, see §13) |
+| `app.js` (including the PocketBase client) | **≤ 37 KB** (25 KB for the MVP; raised for §15–§17, §19, §22 and §23, see §13) |
+| `app.css` | **≤ 6 KB** (5 KB until §21, 5.5 KB until §23, see §13) |
 | `index.html` | ≤ 1.5 KB |
 | Web fonts | **none** (system font stack) |
 | Requests on first load | 3 (html, js, css) + API |
@@ -838,6 +838,18 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 | Drafts | Kept in `localStorage` per user and room, as you type; cleared when the session ends (§22.3). |
 | Bundle budget (§22) | `app.js` budget raised from 32 KB to 34 KB gzipped (§7.7): §22 took it to 32.9 KB. |
 
+### Decided (2026-10-12, room access)
+
+| Topic | Decision |
+|---|---|
+| Levels | Private (members only), Public (signed in; the default) and Open Air (anyone can read, signed-in users post) (§23). Only the creator changes them. |
+| Field | A new `visibility` next to `kind`, not more `kind` values: `kind` still says room or DM, which half the rules and the UI branch on. DMs are `private`. |
+| Members | `rooms.members`, as for DMs, up to 100. Dropped when a room stops being private, so an old list never comes back by surprise, and guests never see who was in it. |
+| Guests | Read Open Air rooms that aren't archived, with authors' names and avatars and attachments; nothing else. The app starts on the guest view, not the login screen. |
+| Losing access | Pushed as a realtime `delete` by a rooms hook (PocketBase sends changes only to those who can still see them). |
+| Private room names | Still unique among all rooms, as before: creating a room under a private room's name says it is taken. Accepted (the name is all it gives away), like most chat apps. |
+| Bundle budget (§23) | `app.js` raised from 34 KB to 37 KB and `app.css` from 5.5 KB to 6 KB gzipped (§7.7): §23 took them to 35.7 KB and 5.7 KB. |
+
 ### Still open
 
 1. ~~**Unread state for DMs.**~~ Done for every room: §18.
@@ -845,7 +857,7 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 
 ## 14. Future work (post-MVP)
 
-Private rooms (§16's `kind` + `members`, allowing more than two members), blocking users, link previews, typing and presence (custom realtime channels via `$app.subscriptionsBroker()`), OAuth2 providers, message search (SQLite FTS5 through a custom route), a service worker for an offline shell, and HttpOnly cookie auth.
+Blocking users, link previews, typing and presence (custom realtime channels via `$app.subscriptionsBroker()`), OAuth2 providers, message search (SQLite FTS5 through a custom route), a service worker for an offline shell, and HttpOnly cookie auth.
 
 ---
 
@@ -1578,3 +1590,103 @@ it. "↓ New messages" and "New messages · Jump to latest" take precedence as b
 - **E2E** (`accounts.spec.ts`): change the password and log in with it; a taken name at sign up; a draft survives a
   reload and the composer has focus on entering rooms; the title and favicon count unread messages; Jump to latest;
   the forward confirmation going away.
+
+## 23. Room access: private rooms and Open Air
+
+A room's creator chooses who can see it. Three levels, shown everywhere with the same names and icons
+(`VISIBILITY` in `web/src/lib/rooms.ts`):
+
+| Visibility | Icon | Who can read | Who can post |
+|---|---|---|---|
+| **Private** | 🔒 | its members: the creator and the people they added | its members |
+| **Public** (the default, and every room from before) | # | everyone with an account | everyone with an account |
+| **Open Air** | 🌐 | anyone, even without an account, while the room isn't archived | everyone with an account |
+
+"Open Air" is the name for a room that is readable from the open web: like a talk in the open air, anyone walking by
+can listen in, but you need to step up (sign in) to speak.
+
+### 23.1 Data model and rules
+
+`rooms.visibility` (select `public` / `private` / `open`, required) is new; the migration
+(`1760000014_room_access.js`) backfills `public`, and `private` for DMs, which are private to their two members.
+`rooms.members` (§16.1) now holds up to 100 users (`LIMITS.roomMembers`), and also lists a private room's members.
+The rooms hooks keep it consistent on every save (`setMembers` in `pb_hooks/lib/chat.js`): a private room always lists
+its creator first, each member once; any other room lists nobody (switching away from Private drops the list).
+
+With `MEMBER(r)` = `@auth && (r.visibility != "private" || r.members.id ?= @auth || r.created_by = @auth)`:
+
+| Collection | Rule | Value |
+|---|---|---|
+| `rooms` | list / view | `(visibility = "open" && archived = false) \|\| MEMBER("")` |
+| `rooms` | create | as before; `visibility` may be set, `members` may not (a private room starts with its creator) |
+| `rooms` | update | as before (creator only, never a DM), but `members` may now be sent; the hooks check it |
+| `messages` | list / view | `(room.visibility = "open" && room.archived = false) \|\| MEMBER("room.")` |
+| `messages` | create | `MEMBER("@request.body.room.")` instead of §16.3's condition |
+| `messages` | update | as before `&& MEMBER("room.")`: someone taken out of a private room can't edit or delete what they wrote there |
+| `hidden_rooms` | create | `MEMBER("@request.body.room.")` |
+| `users` | view | `""` (anyone): guests see who wrote a message (`expand=author`: name and avatar; never the email). Listing and searching users still needs a session, so nobody can enumerate the accounts. |
+
+Routes and hooks that check a room themselves use `canSee()` in `pb_hooks/lib/access.js`, which mirrors the view rule:
+marking a room read, the unread counts' SQL, and the defense-in-depth check in `beforeMessageCreate` (§16.3). The
+reaction, delete and forward routes already check the view rules. Attachments are protected (§17.3) and PocketBase
+checks the message's view rule for them, so a guest downloads an Open Air room's files without a file token and
+nobody else's.
+
+### 23.2 Changing who can see a room
+
+Only the creator, through the rooms API: `api.setAccess(id, visibility, members)` sends both (members only for
+Private). In the room header's menu, the creator gets **Room access…**, a modal dialog (`views/room/access.ts`):
+three radio cards, a member list with Remove buttons (not for the creator) and **+ Add people** (the user search of
+§16.5), a warning that says what the change does ("Everything ever written here … becomes readable by anyone on the
+web", "Everyone else loses it from their list", …), and Save/Cancel. Escape in the people search closes the search,
+not the dialog. In a private room, the other members get **Members (*n*)**: the same dialog, read-only. The new-room
+form has a "Who can see it" select, Public by default.
+
+### 23.3 Guests
+
+Without a session the app no longer starts on the login screen. Every route but `#/me` is public; `#/login` and
+`#/signup` are only for guests (`guestOnly`). A guest gets:
+
+- the app bar with **Log in** and **Sign up**;
+- the room list with only the Open Air rooms (the server lists nothing else to them), without menus, the new-room form,
+  DMs, Hidden or Archived;
+- rooms read-only: no composer but "You're reading as a guest. Log in or sign up to join the conversation.", no message
+  actions, reactions shown but not clickable, no "Message" on authors, and only "Jump to beginning" in the menu;
+- a room they can't see says "This room doesn't exist. Log in to see more rooms, …".
+
+Nothing that needs an account is asked for: no unread counts, hidden rows, file tokens or user lookups. Logging in (or
+signing up) from a page goes back to that page; logging out goes home as a guest (an expired or revoked session goes
+to the login page instead, and back once logged in). Whoever logs in after a logout starts from home (QA BUG-59).
+When the session changes to another user or to none, the realtime connection is closed and a new one opened: on the
+old one, PocketBase would refuse the new subscriptions and go on sending the previous user's events (QA BUG-66).
+
+### 23.4 Losing (and regaining) access live
+
+PocketBase only sends a record change to the clients that can see the result, so nobody would hear of a room they
+can no longer see. After a room is saved, `dropLostAccess()` (`pb_hooks/lib/access.js`) goes through the realtime
+clients and sends each one that could see the room before but can't now a `delete` event, with only the id, on its
+rooms subscriptions. Saves that don't change access return early (every DM message saves its room). Gaining access
+needs nothing new: the update event reaches the new viewer.
+
+On the client, a room that leaves the store while it is open replaces the room view with "You can't see this room any
+more." (the messages go too). If it comes back (re-added, unarchived, opened again), or a room shown as "doesn't exist"
+becomes visible, the page starts over and shows it (`ctx.reopen`, QA BUG-60). A room that appears (e.g. you were added)
+refreshes the unread counts.
+
+### 23.5 Tests
+
+- **Integration** (`room_access.test.ts`): who sees, posts, reacts, forwards, hides and marks read in each kind of room;
+  members kept consistent (creator always, deduplicated, cleared off Private, 100 at most, unknown users refused, DMs
+  unchanged); only the creator changes access; a removed member can't edit, delete or download; guests read Open Air
+  rooms with authors, attachments and live messages, and nothing else; archived Open Air rooms hidden from guests;
+  delete events for losing access, update events for gaining it, nothing for anyone else; filters, expands and
+  subscriptions by id don't reach into a private room.
+- **Unit**: the guest app (Open Air list, header links, no session calls, `#/me` asks to log in), a guest reading a
+  room, logging in from a room goes back to it; the header's items; the dialog (making a room private, adding and
+  removing people, warnings, a failed save, read-only members); losing and regaining access; markers and the visibility
+  select in the room list; a guest's room list; QA BUG-61.
+- **E2E** (`room_access.spec.ts`): a private room created from the sidebar, a member added in the dialog sees it live,
+  others never do, the member sees the read-only list, and is taken out while reading it; a guest reads an Open Air
+  room live with its picture, can't write, is told about a room that needs an account, and logs in back into the room;
+  an Open Air room leaves and comes back on a guest's screen as it is archived, unarchived and made public. axe checks
+  the dialog.

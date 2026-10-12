@@ -9,6 +9,12 @@ export interface User {
 
 export type RoomKind = "public" | "dm";
 
+/**
+ * Who can see a room (§23.1): its members only, every signed-in user, or anyone at all, even without an account
+ * (Open Air). A DM is private to its two members.
+ */
+export type Visibility = "private" | "public" | "open";
+
 export interface Room {
   id: string;
   /** "" for a DM: its title is the other member's name (lib/rooms.ts). */
@@ -17,7 +23,9 @@ export interface Room {
   created_by: string;
   /** Absent = "public" (§16.1). */
   kind?: RoomKind;
-  /** A DM's two members; empty for public rooms. */
+  /** Absent = "public" (§23.1). */
+  visibility?: Visibility;
+  /** A DM's two members, or a private room's (the creator and whoever they added, §23.2); empty otherwise. */
   members?: string[];
   /** DMs: when the latest message was sent ("" before the first). */
   last_message_at?: string;

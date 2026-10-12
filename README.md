@@ -5,6 +5,7 @@ A small, fast, real-time group chat. One [PocketBase](https://pocketbase.io) bin
 ~33 KB of JS gzipped.
 
 - Public rooms anyone can create; hide rooms you don't care about; creators archive rooms (read-only, history kept)
+- Room access, chosen by each room's creator: **Private** (only the people they add), **Public** (everyone with an account) or **Open Air** (anyone can read it, no account needed; the home page shows these rooms to guests, who log in or sign up to join in)
 - Live messages, edits and deletes (deleted messages leave a placeholder)
 - Full history: scroll back to the very first message of any room (windowed, ≤300 messages in the DOM)
 - Direct messages between any two users, private to them; close a conversation and it comes back on the next message
@@ -33,7 +34,7 @@ npm run setup      # downloads the pinned PocketBase (checksum-verified) into bi
 npm run dev        # esbuild watch + PocketBase on http://127.0.0.1:8090
 ```
 
-Open http://127.0.0.1:8090 and sign up. The dev database lives in `pb_data/` — delete it to start over.
+Open http://127.0.0.1:8090 and sign up (top right). The dev database lives in `pb_data/` — delete it to start over.
 The PocketBase admin UI is at http://127.0.0.1:8090/_/ (create a superuser with
 `bin/pocketbase superuser upsert you@example.com <password> --dir=pb_data`).
 

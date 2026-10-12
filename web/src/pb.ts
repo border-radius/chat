@@ -197,11 +197,17 @@ export function createClient(baseUrl: string, authStore: AuthStore = createAuthS
   const realtime = createRealtime(`${base}/api/realtime`, send);
   // The server reads who a realtime client is from the token its subscriptions were sent with. A new token (a password
   // change, which revokes the old ones, here or in another tab) must reach it, or nothing more arrives (QA BUG-52).
+  // Someone else (or nobody, after a logout) needs a new connection: the server refuses another user's subscriptions on
+  // one it knows as someone, and would go on sending that user's events on it (QA BUG-66).
   let token = authStore.token;
+  let who = token ? (authStore.record?.id ?? "") : "";
   authStore.onChange(() => {
     if (authStore.token === token) return;
     token = authStore.token;
-    realtime.resubmit();
+    const next = token ? (authStore.record?.id ?? "") : "";
+    if (next === who) return realtime.resubmit();
+    who = next;
+    realtime.restart();
   });
 
   return {
@@ -231,7 +237,7 @@ type Listener = (e: Event) => void;
  * The SDK's realtime protocol: one EventSource; PB_CONNECT carries the client id; the set of subscriptions (each a
  * topic plus its serialized options) is POSTed to /api/realtime whenever it changes, and again after a reconnect.
  */
-function createRealtime(url: string, send: PbClient["send"]): Realtime & { resubmit(): void } {
+function createRealtime(url: string, send: PbClient["send"]): Realtime & { resubmit(): void; restart(): void } {
   let es: EventSource | null = null;
   let clientId = "";
   /** Subscription key → listeners. A key is the topic plus its options, and the event name the server uses. */
@@ -287,14 +293,20 @@ function createRealtime(url: string, send: PbClient["send"]): Realtime & { resub
   function initConnect() {
     disconnect(true);
     connectTimer = setTimeout(() => connectError(new Error("EventSource connect took too long.")), CONNECT_TIMEOUT_MS);
-    es = new EventSource(url);
-    es.onerror = () => connectError(new Error("Failed to establish realtime connection."));
-    es.addEventListener("PB_CONNECT", (e) => {
+    const source = new EventSource(url);
+    es = source;
+    // A connection closed meanwhile (a restart for another user, a reconnect) must leave the current one alone: its
+    // late answers would otherwise settle or fail the new connection's pending subscribes.
+    const current = () => es === source;
+    source.onerror = () => current() && connectError(new Error("Failed to establish realtime connection."));
+    source.addEventListener("PB_CONNECT", (e) => {
+      if (!current()) return;
       clientId = (e as MessageEvent).lastEventId;
       lastSent = [];
       submit()
         .then(async () => {
-          for (let tries = 3; unsent() && tries > 0; tries--) await submit();
+          for (let tries = 3; current() && unsent() && tries > 0; tries--) await submit();
+          if (!current()) return;
           for (const p of pending) p.resolve();
           pending = [];
           attempts = 0;
@@ -304,6 +316,7 @@ function createRealtime(url: string, send: PbClient["send"]): Realtime & { resub
           if (unsent()) await submit();
         })
         .catch((err) => {
+          if (!current()) return;
           clientId = "";
           lastSent = [];
           connectError(err);
@@ -380,6 +393,12 @@ function createRealtime(url: string, send: PbClient["send"]): Realtime & { resub
       if (!clientId || !subs.size) return;
       lastSent = [];
       submit().catch(() => connectError(new PbError(0)));
+    },
+    /** Close the connection and, with subscriptions left, open a new one that sends them all (with the current token). */
+    restart() {
+      if (!es && !pending.length) return; // not connected: the next subscribe() connects afresh
+      disconnect();
+      if (subs.size) connect().catch(() => {});
     },
   };
 }

@@ -151,6 +151,13 @@ export function createUnread({ api, store, timing = TIMING }: { api: Api; store:
           if (reconnect && s.active) void load(s);
         }),
       );
+      // A room you can now see (you were added to a private room, §23.2) may already have messages for you.
+      s.defer(
+        store.subscribe((st, prev) => {
+          if (s.active && prev.roomsStatus === "ready" && st.rooms !== prev.rooms && [...st.rooms.keys()].some((id) => !prev.rooms.has(id)))
+            refresh();
+        }),
+      );
       void load(s);
     },
     stop() {

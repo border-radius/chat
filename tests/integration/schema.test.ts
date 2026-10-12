@@ -57,7 +57,9 @@ describe("schema (§5)", () => {
   it("rooms DM fields (§16.1): kind, members, hidden dm_key with a partial unique index, last_message_at", () => {
     const f = fieldsOf(cols.rooms!);
     expect(f.kind).toMatchObject({ type: "select", required: true, maxSelect: 1, values: ["public", "dm"] });
-    expect(f.members).toMatchObject({ type: "relation", maxSelect: 2, collectionId: cols.users!.id });
+    // Up to 100: a private room's members (§23.2); a DM has its two.
+    expect(f.members).toMatchObject({ type: "relation", maxSelect: 100, collectionId: cols.users!.id });
+    expect(f.visibility).toMatchObject({ type: "select", required: true, maxSelect: 1, values: ["public", "private", "open"] });
     expect(f.dm_key).toMatchObject({ type: "text", hidden: true });
     expect(f.last_message_at).toMatchObject({ type: "date" });
     const idx = cols.rooms!.indexes.map(norm);
