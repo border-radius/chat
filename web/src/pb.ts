@@ -10,6 +10,8 @@ export interface RequestOptions {
   /** JSON, or multipart when any value is a Blob/File (or an array of them). */
   body?: Record<string, unknown>;
   signal?: AbortSignal | undefined;
+  /** How much of a multipart body has been sent, 0 to 1: the request then goes through XHR (fetch can't tell). */
+  onUpload?: ((fraction: number) => void) | undefined;
 }
 
 export interface AuthRecord {
@@ -166,10 +168,24 @@ function toFormData(body: Record<string, unknown>): FormData {
   return form;
 }
 
+/** An XHR answer as fetch gives it: rejects only when nothing came back (an AbortError when aborted). */
+function upload(url: string, method: string, headers: Record<string, string>, body: FormData, onUpload: (fraction: number) => void) {
+  return new Promise<{ status: number; json: () => Promise<unknown> }>((ok, fail) => {
+    const x = new XMLHttpRequest();
+    x.open(method, url);
+    for (const [k, v] of Object.entries(headers)) x.setRequestHeader(k, v);
+    x.upload.onprogress = (e) => e.lengthComputable && e.total && onUpload(e.loaded / e.total);
+    x.onload = () => ok({ status: x.status, json: async () => JSON.parse(x.responseText) });
+    x.onerror = () => fail(new TypeError("Network request failed"));
+    x.onabort = () => fail(new DOMException("Aborted", "AbortError"));
+    x.send(body);
+  });
+}
+
 export function createClient(baseUrl: string, authStore: AuthStore = createAuthStore()): PbClient {
   const base = baseUrl.replace(/\/+$/, "");
 
-  async function send<T>(path: string, { method = "GET", query, body, signal }: RequestOptions = {}): Promise<T> {
+  async function send<T>(path: string, { method = "GET", query, body, signal, onUpload }: RequestOptions = {}): Promise<T> {
     const headers: Record<string, string> = {};
     if (authStore.token) headers.Authorization = authStore.token;
     let payload: BodyInit | undefined;
@@ -181,11 +197,15 @@ export function createClient(baseUrl: string, authStore: AuthStore = createAuthS
       }
     }
     const aborted = (e: unknown) => !!signal?.aborted || (e as Error)?.name === "AbortError";
-    let res: Response;
+    let res: { status: number; json: () => Promise<unknown> };
     let data: PbError["response"] = {};
+    const url = base + path + qs(query);
     try {
-      res = await fetch(base + path + qs(query), { method, headers, ...(payload ? { body: payload } : {}), ...(signal ? { signal } : {}) });
-      data = await res.json().catch((e) => {
+      res =
+        onUpload && payload instanceof FormData
+          ? await upload(url, method, headers, payload, onUpload)
+          : await fetch(url, { method, headers, ...(payload ? { body: payload } : {}), ...(signal ? { signal } : {}) });
+      data = await (res.json() as Promise<PbError["response"]>).catch((e) => {
         if (aborted(e)) throw e;
         return {};
       });

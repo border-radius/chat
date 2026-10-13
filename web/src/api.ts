@@ -117,7 +117,8 @@ export interface Api {
   getMessage(id: string, signal?: AbortSignal): Promise<Message>;
   /** Every message matching `q` (not just one page): used for the edits/deletes missed during a disconnect. */
   changes(q: PageQuery, signal?: AbortSignal): Promise<Message[]>;
-  send(m: NewMessage): Promise<Message>;
+  /** `onUpload`: how much of its attachments has been sent, 0 to 1 (§17.4). */
+  send(m: NewMessage, onUpload?: (fraction: number) => void): Promise<Message>;
   edit(id: string, text: string): Promise<Message>;
   softDelete(id: string): Promise<Message>;
   /** Add (`on`) or remove your `emoji` reaction on a message (§20). Idempotent. */
@@ -191,7 +192,7 @@ export const reasonOf = (err: unknown): string => (err instanceof ApiError && Ob
 
 /** Only what the UI renders; never user emails (§6). */
 export const MSG_FIELDS =
-  "id,room,text,created,updated,edited_at,deleted,files,file_names,reactions,author,expand.author.id,expand.author.name,expand.author.avatar," +
+  "id,room,text,created,updated,edited_at,deleted,files,file_names,reactions,author,expand.author.id,expand.author.name,expand.author.avatar,expand.author.no_dms," +
   "reply_to,expand.reply_to.id,expand.reply_to.author,expand.reply_to.text,expand.reply_to.deleted,expand.reply_to.files," +
   "expand.reply_to.expand.author.id,expand.reply_to.expand.author.name," +
   "forwarded_from,forward_of,expand.forwarded_from.id,expand.forwarded_from.name";
@@ -234,7 +235,12 @@ async function wrap<T>(p: Promise<T>): Promise<T> {
   }
 }
 
-const toUser = (r: AuthRecord): User => ({ id: r.id, name: r.name as string, avatar: (r.avatar as string | undefined) ?? "" });
+const toUser = (r: AuthRecord): User => ({
+  id: r.id,
+  name: r.name as string,
+  avatar: (r.avatar as string | undefined) ?? "",
+  ...(r.no_dms ? { no_dms: true } : {}),
+});
 /** What the profile calls return: never the email, even for yourself. */
 const USER_FIELDS = "id,name,avatar";
 
@@ -267,7 +273,8 @@ function records(pb: PbClient, collection: string) {
       }
     },
     get: <T>(id: string, query: Query, signal?: AbortSignal) => pb.send<T>(one(id), { query, signal }),
-    create: <T>(body: Record<string, unknown>, query?: Query) => pb.send<T>(`${path}/records`, { method: "POST", body, query }),
+    create: <T>(body: Record<string, unknown>, query?: Query, onUpload?: (fraction: number) => void) =>
+      pb.send<T>(`${path}/records`, { method: "POST", body, query, onUpload }),
     async update<T>(id: string, body: Record<string, unknown>, query: Query): Promise<T> {
       const item = await pb.send<AuthRecord>(one(id), { method: "PATCH", body, query });
       // Updating the logged-in user refreshes the stored record (other tabs and onAuthChange see it).
@@ -441,7 +448,7 @@ export function createApi(client: PbClient): Api {
     },
     getMessage: (id, signal) => wrap(messages.get<Message>(id, MSG_OPTS, signal)),
     changes: (q, signal) => wrap(messages.fullList<Message>(listOptions(q, pb.filter), signal, 200)),
-    send: async (m) =>
+    send: async (m, onUpload) =>
       wrap(
         messages.create<Message>(
           {
@@ -453,6 +460,7 @@ export function createApi(client: PbClient): Api {
             ...(m.replyTo ? { reply_to: m.replyTo } : {}),
           },
           MSG_OPTS,
+          m.files?.length ? onUpload : undefined,
         ),
       ),
     edit: (id, text) => wrap(messages.update<Message>(id, { text }, MSG_OPTS)),

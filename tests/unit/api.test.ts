@@ -38,6 +38,7 @@ describe("listOptions", () => {
       "expand.author.id",
       "expand.author.name",
       "expand.author.avatar",
+      "expand.author.no_dms",
       // the message a reply quotes (§19)
       "reply_to",
       "expand.reply_to.id",

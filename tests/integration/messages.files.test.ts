@@ -39,28 +39,37 @@ describe("attachments (§17.1)", () => {
     await expectRejected(withFiles(a, room.id, [], " ​ "));
   });
 
-  it("rejects a 5th file and files over 8 MB", async () => {
+  it("rejects an 11th file and files over 20 MB", async () => {
     const a = await newUser();
     const room = await newRoom(a);
     await expectRejected(
       withFiles(
         a,
         room.id,
-        Array.from({ length: 5 }, (_, i) => file(`f${i}.txt`, "text/plain")),
+        Array.from({ length: 11 }, (_, i) => file(`f${i}.txt`, "text/plain")),
       ),
     );
-    await expectRejected(withFiles(a, room.id, [file("big.bin", "application/octet-stream", 8 * 1024 * 1024 + 1)]));
+    await expectRejected(withFiles(a, room.id, [file("big.bin", "application/octet-stream", 20 * 1024 * 1024 + 1)]));
   });
 
-  it("accepts 4 files of 8 MB in one message (the request body limit fits)", async () => {
+  it("accepts 10 files of 20 MB in one message (the request body limit fits), and other requests keep 32 MB", async () => {
     const a = await newUser();
     const room = await newRoom(a);
     const m = await withFiles(
       a,
       room.id,
-      Array.from({ length: 4 }, (_, i) => file(`b${i}.bin`, "application/octet-stream", 8 * 1024 * 1024)),
+      Array.from({ length: 10 }, (_, i) => file(`b${i}.bin`, "application/octet-stream", 20 * 1024 * 1024)),
     );
-    expect(m.files).toHaveLength(4);
+    expect(m.files).toHaveLength(10);
+    // An avatar is not a message: PocketBase's default limit still holds.
+    const big = new FormData();
+    big.append("avatar", file("big.png", "image/png", 33 * 1024 * 1024));
+    const res = await fetch(`${a.pb.baseURL}/api/collections/users/records/${a.user.id}`, {
+      method: "PATCH",
+      headers: { Authorization: a.pb.authStore.token },
+      body: big,
+    });
+    expect(res.status).toBe(413);
   }, 60_000);
 
   it("attachments can't be added, removed or replaced by an edit; a text edit keeps them", async () => {

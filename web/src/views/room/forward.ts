@@ -91,7 +91,7 @@ export function createForwardDialog(opts: {
     inflight = ac;
     try {
       const found = await opts.searchUsers(q, ac.signal);
-      if (inflight === ac && !signal.aborted) people = found;
+      if (inflight === ac && !signal.aborted) people = found.filter((u) => !u.no_dms); // no DM with them (§16.7)
     } catch {
       /* rooms still show; people are a bonus */
     }

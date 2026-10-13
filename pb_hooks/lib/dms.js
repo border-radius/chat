@@ -47,6 +47,35 @@ function shape(app, room) {
   };
 }
 
+/**
+ * The first of these users who doesn't take direct messages (§16.7), or null.
+ * @param {core.App} app
+ * @param {string[]} ids
+ */
+function noDmsUser(app, ids) {
+  for (const id of ids) {
+    try {
+      const u = app.findRecordById("users", id);
+      if (u.getBool("no_dms")) return u;
+    } catch {
+      // a member deleted meanwhile: the relation drops it
+    }
+  }
+  return null;
+}
+
+/**
+ * Why `me` can't write in a DM with these members, or "" when they can.
+ * @param {core.App} app
+ * @param {string} me
+ * @param {string[]} members
+ */
+function dmRefusal(app, me, members) {
+  const u = noDmsUser(app, members);
+  if (!u) return "";
+  return u.id === me ? "You've turned off direct messages." : `${u.getString("name")} doesn't take direct messages.`;
+}
+
 /** @param {core.RequestEvent} e */
 function openDm(e) {
   const me = e.auth;
@@ -60,6 +89,8 @@ function openDm(e) {
   } catch {
     throw userError("There is no such user.");
   }
+  const refused = dmRefusal(e.app, me.id, [me.id, other]);
+  if (refused) throw userError(refused);
 
   const members = [me.id, other].sort();
   const key = members.join(":");
@@ -87,4 +118,4 @@ function openDm(e) {
   return e.json(200, shape(e.app, room));
 }
 
-module.exports = { openDm };
+module.exports = { openDm, dmRefusal };

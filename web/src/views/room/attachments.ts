@@ -5,6 +5,9 @@ import { type Child, h } from "../../dom.ts";
 import { attachmentName, isMedia, isVideo } from "../../lib/files.ts";
 import type { LocalFile, Message } from "../../lib/types.ts";
 
+/** Most image and video tiles a message shows; the last one says how many more there are, which the viewer shows. */
+export const MAX_TILES = 4;
+
 /** A message's attachments, or null without any. */
 export type Attachments = (m: Message) => HTMLElement | null;
 
@@ -15,6 +18,8 @@ export function createAttachments(opts: {
   refreshFileToken: () => Promise<unknown>;
   /** A thumbnail was clicked: show the image or video in the viewer (§17.7). */
   onOpenImage: (m: Message, file: string, opener: HTMLElement) => void;
+  /** How much of a sending message's attachments has been uploaded, 0 to 1 (§17.4). */
+  uploadProgress: (id: string) => number;
   signal: AbortSignal;
 }): Attachments {
   const { signal } = opts;
@@ -24,7 +29,8 @@ export function createAttachments(opts: {
 
   /**
    * A message's attachments (§17.5): images and videos as uncropped thumbnails of a fixed height (1 large, or a row of
-   * up to 4 small ones), other files as download chips. A message not yet on the server shows its local previews instead.
+   * up to 4 small ones, the 4th saying "+N" when there are more), other files as download chips. A message not yet on
+   * the server shows its local previews instead, and while it sends, how much of them has been uploaded.
    */
   function attachments(m: Message): HTMLElement | null {
     const local = m.localFiles ?? [];
@@ -33,6 +39,12 @@ export function createAttachments(opts: {
     // Shown as an image or video only if the server will show it as one too, so nothing changes shape once it is sent.
     const shown = (f: LocalFile) => !!f.url && isMedia(f.file.name);
     const imageCount = local.length ? local.filter(shown).length : names.filter(isMedia).length;
+    /** The last tile shown, when more are left out: it says how many. */
+    const more = (tile: HTMLElement) => {
+      if (images.childElementCount === MAX_TILES && imageCount > MAX_TILES) {
+        tile.append(h("span", { class: "att-more" }, [`+${imageCount - MAX_TILES}`, h("span", { class: "visually-hidden" }, " more")]));
+      }
+    };
     const thumb = imageCount === 1 ? "800x480f" : "480x240f";
     const images = h("div", { class: `att-images ${imageCount === 1 ? "one" : "row"}` });
     const others = h("ul", { class: "att-files" });
@@ -43,6 +55,7 @@ export function createAttachments(opts: {
           others.append(h("li", {}, h("span", { class: "att-file" }, f.file.name)));
           continue;
         }
+        if (images.childElementCount === MAX_TILES) continue;
         const i = images.childElementCount;
         const el = preview(f.file.name, f.url);
         el.addEventListener(
@@ -56,16 +69,30 @@ export function createAttachments(opts: {
           },
           { signal },
         );
-        images.append(h("span", { class: "att-tile" }, [el, playBadge(f.file.name)]));
+        const tile = h("span", { class: "att-tile" }, [el, playBadge(f.file.name)]);
+        images.append(tile);
+        more(tile);
       }
     } else {
       const ratios = sentRatios.get(m.id);
       for (const name of names) {
-        if (isMedia(name)) images.append(mediaTile(m, name, thumb, ratios?.[images.childElementCount]));
-        else others.append(h("li", {}, fileLink(m, name, "att-file", [attachmentName(m, name)])));
+        if (isMedia(name)) {
+          if (images.childElementCount === MAX_TILES) continue;
+          const tile = mediaTile(m, name, thumb, ratios?.[images.childElementCount]);
+          images.append(tile);
+          more(tile);
+        } else others.append(h("li", {}, fileLink(m, name, "att-file", [attachmentName(m, name)])));
       }
     }
-    return h("div", { class: "attachments" }, [images.childElementCount ? images : null, others.childElementCount ? others : null]);
+    const progress =
+      local.length && m.status === "pending"
+        ? h("progress", { class: "att-progress", max: "1", value: String(opts.uploadProgress(m.id)), "aria-label": "Uploading" })
+        : null;
+    return h("div", { class: "attachments" }, [
+      images.childElementCount ? images : null,
+      others.childElementCount ? others : null,
+      progress,
+    ]);
   }
 
   /** A link to the full file, re-signed with the current token whenever it is about to be used. */

@@ -13,13 +13,14 @@ A small, fast, real-time group chat. One [PocketBase](https://pocketbase.io) bin
 - Replies: answer any message with a quote of it; click the quote to jump to the original, however far back
 - Links in messages are clickable and open in a new tab (http, https and www. addresses only)
 - Emoji: a picker in the composer, and reactions on any message (as many different ones as you like), live for everyone
-- Attachments: up to 4 files per message, images shown as thumbnails and videos as their first frame; files are private to whoever can read the message
+- Attachments: up to 10 files of 20 MB per message, with an upload progress bar; images shown as thumbnails and videos as their first frame (4 tiles, then "+N"); files are private to whoever can read the message
 - Image viewer: click a thumbnail to see it full size (or a video to play it) and step through the room's images and videos (buttons, arrow keys, swipe);
   loaded only when first used, so it adds nothing to the page's first load
 - Select messages (up to 50): forward them to any room or DM, with "Forwarded from" and their attachments (forwards show the original, so nothing is copied), or delete them together when they are yours
 - Unread counts on every room and DM, live, and in sync across your tabs and devices; the total shows in the tab's favicon and title
 - What you were typing is kept per room, even across a reload; "Jump to latest" whenever you are scrolled up
 - Your own branding (title and logo) and, if you like, invite-only signups: set by the admin in PocketBase
+- Telegram bridge (optional): link rooms to Telegram groups through a bot; messages, replies, edits and files go both ways (deletes from the chat to Telegram), Telegram people show under stand-in accounts with their names and pictures
 - Optimistic sending with safe retries, reconnect gap-fill, light/dark themes, works on phones
 
 Design: [`docs/DESIGN.md`](docs/DESIGN.md) · QA: [`docs/QA.md`](docs/QA.md) · Refactoring plan: [`docs/REFACTOR.md`](docs/REFACTOR.md) · Archived plans: [MVP build](docs/history/BUILD_PLAN.md), [avatars, DMs, attachments](docs/history/NEXT_FEATURES_PLAN.md)
@@ -65,7 +66,8 @@ per browser (Chromium, Firefox, WebKit).
 
 ```
 pb_migrations/   schema + API rules (the source of truth for access control)
-pb_hooks/        server-side hooks: trimming, soft delete, edit/archive stamps, DM + unread routes, guards, security headers
+pb_hooks/        server-side hooks: trimming, soft delete, edit/archive stamps, DM + unread routes, guards, security headers;
+                 telegram.pb.js + telegram/: the optional Telegram bridge
 web/src/         frontend: api.ts (only SDK user), router, store, views/, lib/ (pure logic)
 web/styles/      app.css (bundles app/*.css, one file per part) and viewer.css
 scripts/         build, dev, fetch-pocketbase, html-sink check
@@ -120,6 +122,14 @@ are shown in the app bar, on the login page and in the tab's title. Tick `invite
 only people who have the code sign up (they enter it on the Sign up form; it is case-sensitive). Change the code to stop
 the old one working; leave it empty to close signups. Existing accounts are unaffected, and you can still create
 accounts yourself under *Collections → users*.
+
+**Telegram bridge** (DESIGN.md §26, optional): create a bot with [@BotFather](https://t.me/BotFather), turn its
+privacy mode off (`/setprivacy` → Disable) so it sees group messages, and start PocketBase with
+`TELEGRAM_BOT_TOKEN=<token>` and `TELEGRAM_WEBHOOK_URL=https://chat.example.com/api/telegram/webhook`
+(`Environment=` lines in the unit). Add the bot to a Telegram group: a row for the group appears in the admin UI under
+*Collections → tg_links*; pick the room and tick `enabled`. `/chatid` in the group says whether it is linked.
+Without `TELEGRAM_WEBHOOK_URL` the bridge polls Telegram instead, which is meant for local development. Without a
+token it does nothing. To remove it, delete `pb_hooks/telegram.pb.js` and `pb_hooks/telegram/`.
 
 **Backups:** in the admin UI, *Settings → Backups* — schedule automatic backups (optionally to S3-compatible
 storage). Uploaded files (avatars, attachments) live in `pb_data/storage` (or S3, under *Settings → Files storage*) and

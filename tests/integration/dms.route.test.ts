@@ -1,7 +1,7 @@
 // POST /api/chat/dms (§16.2) and the DM message hooks (§16.4).
 
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
-import { adminClient, client, collect, eventually, newRoom, newUser, openDm, post, rawDb, status } from "./helpers.ts";
+import { adminClient, client, collect, eventually, newRoom, newUser, openDm, post, rawDb, status, uniq } from "./helpers.ts";
 
 describe("POST /api/chat/dms (§16.2)", () => {
   it("creates the DM on first call and returns the same room afterwards, whoever asks", async () => {
@@ -39,6 +39,32 @@ describe("POST /api/chat/dms (§16.2)", () => {
     expect(await status(openDm(a, "nosuchuser00000"))).toBe(400);
     expect(await status(openDm(a, a))).toBe(400);
     expect(await status(client().send("/api/chat/dms", { method: "POST", body: { user: a.user.id } }))).toBe(401);
+  });
+
+  it("refuses DMs with or by a user who takes none, also in a DM that already exists (§16.7)", async () => {
+    const a = await newUser();
+    const b = await newUser(`Bea-${uniq()}`); // capitalized: PocketBase capitalizes a validation message
+    const dm = await openDm(a, b);
+    await post(a, dm.id, "before");
+    await b.pb.collection("users").update(b.user.id, { no_dms: true });
+    const refusal = async (p: Promise<unknown>) => {
+      try {
+        await p;
+        return "";
+      } catch (e) {
+        const data = (e as { response?: { data?: Record<string, { message: string }> } }).response?.data ?? {};
+        return Object.values(data)[0]?.message ?? "?";
+      }
+    };
+    expect(await refusal(openDm(a, b))).toBe(`${b.user.name} doesn't take direct messages.`);
+    expect(await refusal(openDm(b, a))).toBe("You've turned off direct messages.");
+    expect(await refusal(post(a, dm.id, "after"))).toBe(`${b.user.name} doesn't take direct messages.`);
+    expect(await refusal(post(b, dm.id, "after"))).toBe("You've turned off direct messages.");
+    expect((await a.pb.collection("messages").getFullList({ filter: `room = "${dm.id}"` })).map((m) => m.text)).toEqual(["before"]);
+    // The search says so; a public room still takes their messages.
+    const found = await a.pb.send("/api/chat/users", { query: { q: b.user.name } });
+    expect(found).toEqual([{ id: b.user.id, name: b.user.name, avatar: "", no_dms: true }]);
+    await post(b, (await newRoom(a)).id, "in a room");
   });
 
   it("reopens the caller's closed DM (and only theirs)", async () => {

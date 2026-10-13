@@ -1,0 +1,413 @@
+// Telegram bridge (§26), end to end against its own PocketBase and a stub Bot API (tests/support/telegram.ts).
+// The bridge's worker runs on a cron job and also on POST /api/telegram/tick; checks wait for its work with
+// `eventually`, since either may do it.
+
+import PocketBase, { type RecordModel } from "pocketbase";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { PNG } from "../support/files.ts";
+import { uniq } from "../support/ids.ts";
+import { withName } from "../support/names.ts";
+import { disableRateLimits, type PocketBaseServer, SUPERUSER, startPocketBase } from "../support/pocketbase.ts";
+import { startTelegramStub, type TelegramStub } from "../support/telegram.ts";
+import { sleep, status } from "./helpers.ts";
+
+const SECRET = "test-secret";
+
+let stub: TelegramStub;
+let server: PocketBaseServer;
+let admin: PocketBase;
+
+beforeAll(async () => {
+  stub = await startTelegramStub();
+  server = await startPocketBase({
+    fixtureRoute: true,
+    env: {
+      TELEGRAM_BOT_TOKEN: stub.token,
+      TELEGRAM_API_BASE: stub.url,
+      TELEGRAM_WEBHOOK_URL: "https://chat.example/api/telegram/webhook",
+      TELEGRAM_WEBHOOK_SECRET: SECRET,
+    },
+  });
+  await disableRateLimits(server.url);
+  admin = new PocketBase(server.url);
+  admin.autoCancellation(false);
+  await admin.collection("_superusers").authWithPassword(SUPERUSER.email, SUPERUSER.password);
+}, 60_000);
+
+afterAll(async () => {
+  await server?.stop();
+  await stub?.close();
+});
+
+/** Wait (up to `ms`) until `fn` passes, running the worker meanwhile. */
+async function eventually<T>(fn: () => T | Promise<T>, ms = 8_000): Promise<T> {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (Date.now() > deadline) throw e;
+      await tick();
+      await sleep(100);
+    }
+  }
+}
+
+const tick = () => admin.send("/api/telegram/tick", { method: "POST" }).catch(() => {});
+
+interface User {
+  pb: PocketBase;
+  user: RecordModel;
+}
+
+async function signUp(name = `user-${uniq()}`): Promise<User> {
+  const pb = new PocketBase(server.url);
+  pb.autoCancellation(false);
+  const email = `${uniq()}@test.local`;
+  const password = "password-123";
+  await withName(server.url, name, () => pb.collection("users").create({ email, password, passwordConfirm: password, name }));
+  const { record } = await pb.collection("users").authWithPassword(email, password);
+  return { pb, user: record };
+}
+
+let chatSeq = 0;
+/** A new Telegram group id (supergroups are negative). */
+const newChat = () => -1_000_000_000_000 - ++chatSeq;
+
+/** A room of `owner`, linked to a new Telegram group. */
+async function linkedRoom(owner: User, extra: Record<string, unknown> = {}) {
+  const room = await owner.pb.collection("rooms").create({ name: `tg-${uniq()}`, created_by: owner.user.id, ...extra });
+  const chat = newChat();
+  await admin.collection("tg_links").create({ chat_id: String(chat), title: "Group", room: room.id, enabled: true });
+  return { room, chat };
+}
+
+let updateSeq = 1;
+let tgMessageSeq = 1;
+const ann = { id: 4242, is_bot: false, first_name: "Ann", last_name: "Lee", username: "annlee" };
+
+/** POST an update to the webhook, as Telegram would. */
+async function deliver(update: Record<string, unknown>, secret = SECRET) {
+  return fetch(`${server.url}/api/telegram/webhook`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "X-Telegram-Bot-Api-Secret-Token": secret },
+    body: JSON.stringify({ update_id: updateSeq++, ...update }),
+  });
+}
+
+/** A Telegram message in `chat`. */
+function tgMessage(chat: number, fields: Record<string, unknown> = {}) {
+  return {
+    message_id: tgMessageSeq++,
+    date: Math.floor(Date.now() / 1000),
+    chat: { id: chat, type: "supergroup", title: "Group" },
+    from: ann,
+    ...fields,
+  };
+}
+
+const messagesOf = (room: string) =>
+  admin.collection("messages").getFullList({ filter: admin.filter("room = {:room}", { room }), sort: "created", expand: "author" });
+
+describe("Telegram bridge (§26)", () => {
+  it("tells Telegram where to send updates, signed, one at a time; a wrong secret is refused", async () => {
+    const [hook] = stub.callsOf("setWebhook");
+    expect(hook!.params).toMatchObject({
+      url: "https://chat.example/api/telegram/webhook",
+      secret_token: SECRET,
+      max_connections: 1,
+      allowed_updates: ["message", "edited_message", "my_chat_member"],
+    });
+    expect((await deliver({}, "wrong")).status).toBe(401);
+    expect((await deliver({})).status).toBe(200);
+  });
+
+  it("added to a group, the bot makes a disabled link for it and says the chat id; /chatid says it again", async () => {
+    const chat = newChat();
+    await deliver({
+      my_chat_member: {
+        chat: { id: chat, type: "supergroup", title: "Friends" },
+        from: ann,
+        date: 0,
+        old_chat_member: { status: "left", user: { id: 1 } },
+        new_chat_member: { status: "member", user: { id: 1 } },
+      },
+    });
+    const link = await admin.collection("tg_links").getFirstListItem(admin.filter("chat_id = {:c}", { c: String(chat) }));
+    expect(link).toMatchObject({ title: "Friends", enabled: false, room: "" });
+    expect(stub.callsOf("sendMessage").at(-1)!.params.text).toContain(`Chat id: ${chat}`);
+    await deliver({ message: tgMessage(chat, { text: "/chatid@stub_bot" }) });
+    expect(stub.callsOf("sendMessage").at(-1)!.params.text).toContain("isn't linked");
+  });
+
+  it("links only rooms (not DMs), and only with a room", async () => {
+    const a = await signUp();
+    const b = await signUp();
+    const dm = await a.pb.send("/api/chat/dms", { method: "POST", body: { user: b.user.id } });
+    expect(await status(admin.collection("tg_links").create({ chat_id: String(newChat()), room: dm.id }))).toBe(400);
+    expect(await status(admin.collection("tg_links").create({ chat_id: String(newChat()), enabled: true }))).toBe(400);
+    // Only superusers see the bridge's collections.
+    for (const name of ["tg_links", "tg_people", "tg_messages", "tg_queue"])
+      expect(await status(a.pb.collection(name).getList())).toBe(403);
+  });
+
+  it("a Telegram message shows under its sender's stand-in, with their picture; stand-ins take no DMs", async () => {
+    const owner = await signUp();
+    const { room, chat } = await linkedRoom(owner);
+    stub.addFile("ann-photo", PNG, "photos/ann.jpg");
+    stub.setPhoto(ann.id, "ann-photo");
+    await deliver({ message: tgMessage(chat, { text: "hello from telegram" }) });
+    const [m] = await eventually(async () => {
+      const list = await messagesOf(room.id);
+      expect(list).toHaveLength(1);
+      return list;
+    });
+    expect(m!.text).toBe("hello from telegram");
+    const author = m!.expand!.author;
+    expect(author.name).toBe("Ann Lee (TG)");
+    expect(author.no_dms).toBe(true);
+    expect(author.avatar).toMatch(/^avatar_\w{10}\.jpg$/);
+    expect(await status(owner.pb.send("/api/chat/dms", { method: "POST", body: { user: author.id } }))).toBe(400);
+    // Not sent back to the group it came from.
+    await tick();
+    expect(stub.callsOf("sendMessage").filter((c) => c.params.chat_id === String(chat))).toEqual([]);
+  });
+
+  it("brings files over, an album as one message, and says what it can't bring", async () => {
+    const owner = await signUp();
+    const { room, chat } = await linkedRoom(owner);
+    stub.addFile("p1", PNG, "photos/p1.jpg");
+    stub.addFile("p2", PNG, "photos/p2.jpg");
+    stub.addFile("doc", new TextEncoder().encode("%PDF-1.4"), "documents/report.pdf");
+    const album = `album-${uniq()}`;
+    await deliver({
+      message: tgMessage(chat, { media_group_id: album, caption: "our trip", photo: [{ file_id: "p1", width: 90, height: 90 }] }),
+    });
+    await deliver({ message: tgMessage(chat, { media_group_id: album, photo: [{ file_id: "p2", width: 90, height: 90 }] }) });
+    // Something else after the album: the album is complete, and shows first.
+    await deliver({
+      message: tgMessage(chat, {
+        document: { file_id: "doc", file_name: "Report 2026.pdf", file_size: 8 },
+        caption: "the report",
+      }),
+    });
+    await deliver({
+      message: tgMessage(chat, { video: { file_id: "huge", file_name: "film.mp4", file_size: 25 * 1024 * 1024 } }),
+    });
+    const list = await eventually(async () => {
+      const l = await messagesOf(room.id);
+      expect(l).toHaveLength(3);
+      return l;
+    });
+    expect(list.map((m) => [m.text, m.files.length])).toEqual([
+      ["our trip", 2],
+      ["the report", 1],
+      ["[film.mp4, 25 MB: too large to bring over from Telegram]", 0],
+    ]);
+    expect(list[0]!.files[0]).toMatch(/\.jpg$/);
+    expect(Object.values(list[1]!.file_names)).toEqual(["Report 2026.pdf"]);
+  });
+
+  it("an album that ends a conversation comes over once it is quiet", async () => {
+    const owner = await signUp();
+    const { room, chat } = await linkedRoom(owner);
+    stub.addFile("q1", PNG, "photos/q1.jpg");
+    const album = `album-${uniq()}`;
+    await deliver({ message: tgMessage(chat, { media_group_id: album, photo: [{ file_id: "q1", width: 9, height: 9 }] }) });
+    expect(await messagesOf(room.id)).toHaveLength(0);
+    await sleep(1600);
+    const list = await eventually(async () => {
+      const l = await messagesOf(room.id);
+      expect(l).toHaveLength(1);
+      return l;
+    });
+    expect(list[0]!.files).toHaveLength(1);
+  });
+
+  it("replies and edits from Telegram; a delivery Telegram repeats comes over once", async () => {
+    const owner = await signUp();
+    const { room, chat } = await linkedRoom(owner);
+    const first = tgMessage(chat, { text: "first" });
+    await deliver({ message: first });
+    await deliver({ message: first }); // a webhook retry
+    await deliver({ message: tgMessage(chat, { text: "answer", reply_to_message: first }) });
+    await deliver({ edited_message: { ...first, text: "first, edited", edit_date: 1 } });
+    const list = await eventually(async () => {
+      const l = await messagesOf(room.id);
+      expect(l.map((m) => m.text)).toEqual(["first, edited", "answer"]);
+      return l;
+    });
+    expect(list[0]!.edited_at).not.toBe("");
+    expect(list[1]!.reply_to).toBe(list[0]!.id);
+  });
+
+  it("a stand-in posting in a private room becomes a member of it", async () => {
+    const owner = await signUp();
+    const { room, chat } = await linkedRoom(owner, { visibility: "private" });
+    await deliver({ message: tgMessage(chat, { text: "private hello", from: { ...ann, id: 777, first_name: "Pri" } }) });
+    const [m] = await eventually(async () => {
+      const l = await messagesOf(room.id);
+      expect(l).toHaveLength(1);
+      return l;
+    });
+    expect((await admin.collection("rooms").getOne(room.id)).members).toContain(m!.author);
+  });
+
+  it("a chat message goes to the group under its author's name; replies, edits and deletes follow", async () => {
+    const owner = await signUp(`Bob-${uniq()}`);
+    const { room, chat } = await linkedRoom(owner);
+    const from = tgMessage(chat, { text: "question?" });
+    await deliver({ message: from });
+    const [q] = await eventually(async () => {
+      const l = await messagesOf(room.id);
+      expect(l).toHaveLength(1);
+      return l;
+    });
+    const sent = await owner.pb
+      .collection("messages")
+      .create({ room: room.id, author: owner.user.id, text: "a <b>bold</b> answer", reply_to: q!.id });
+    const call = await eventually(() => {
+      const c = stub.callsOf("sendMessage").find((x) => x.params.chat_id === String(chat));
+      expect(c).toBeDefined();
+      return c!;
+    });
+    expect(call.params).toMatchObject({
+      text: `<b>${owner.user.name}</b>\na &lt;b&gt;bold&lt;/b&gt; answer`,
+      parse_mode: "HTML",
+      reply_parameters: { message_id: from.message_id },
+    });
+    await owner.pb.collection("messages").update(sent.id, { text: "edited answer" });
+    const edit = await eventually(() => {
+      const c = stub.callsOf("editMessageText").find((x) => x.params.chat_id === String(chat));
+      expect(c).toBeDefined();
+      return c!;
+    });
+    expect(edit.params.text).toBe(`<b>${owner.user.name}</b>\nedited answer`);
+    await owner.pb.collection("messages").update(sent.id, { deleted: true });
+    await eventually(() => expect(stub.callsOf("deleteMessage").find((x) => x.params.chat_id === String(chat))).toBeDefined());
+  });
+
+  it("attachments go as an album of photos with the text as its caption, and documents apart", async () => {
+    const owner = await signUp();
+    const { room, chat } = await linkedRoom(owner);
+    await owner.pb.collection("messages").create({
+      room: room.id,
+      author: owner.user.id,
+      text: "pics",
+      files: [
+        new File([PNG], "a.png", { type: "image/png" }),
+        new File([PNG], "b.png", { type: "image/png" }),
+        new File(["%PDF"], "Notes.pdf"),
+      ],
+    });
+    const group = await eventually(() => {
+      const c = stub.callsOf("sendMediaGroup").find((x) => x.params.chat_id === String(chat));
+      expect(c).toBeDefined();
+      return c!;
+    });
+    expect(group.params.media).toEqual([
+      { type: "photo", media: "attach://file0", caption: `<b>${owner.user.name}</b>\npics`, parse_mode: "HTML" },
+      { type: "photo", media: "attach://file1" },
+    ]);
+    // By the name the media refer to: PocketBase sends multipart fields in no particular order.
+    expect([group.files.file0!.name, group.files.file1!.name]).toEqual(["a.png", "b.png"]);
+    const doc = await eventually(() => {
+      const c = stub.callsOf("sendDocument").find((x) => x.params.chat_id === String(chat));
+      expect(c).toBeDefined();
+      return c!;
+    });
+    expect(doc.files.document!.name).toBe("Notes.pdf");
+    expect(doc.params.caption).toBeUndefined();
+  });
+
+  it("a room linked to two groups passes each group's messages to the other", async () => {
+    const owner = await signUp();
+    const { room, chat } = await linkedRoom(owner);
+    const other = newChat();
+    await admin.collection("tg_links").create({ chat_id: String(other), title: "Other", room: room.id, enabled: true });
+    await deliver({ message: tgMessage(chat, { text: "to the other group" }) });
+    const call = await eventually(() => {
+      const c = stub.callsOf("sendMessage").find((x) => x.params.chat_id === String(other));
+      expect(c).toBeDefined();
+      return c!;
+    });
+    expect(call.params.text).toBe("<b>Ann Lee (TG)</b>\nto the other group");
+    await tick();
+    expect(stub.callsOf("sendMessage").filter((c) => c.params.chat_id === String(chat))).toEqual([]);
+  });
+
+  it("retries what Telegram refuses for now, in order; drops what it refuses for good", async () => {
+    const owner = await signUp();
+    const { room, chat } = await linkedRoom(owner);
+    stub.fail("sendMessage", 429, { description: "Too Many Requests: retry after 1", parameters: { retry_after: 1 } });
+    await owner.pb.collection("messages").create({ room: room.id, author: owner.user.id, text: "one" });
+    await owner.pb.collection("messages").create({ room: room.id, author: owner.user.id, text: "two" });
+    const texts = () =>
+      stub
+        .callsOf("sendMessage")
+        .filter((c) => c.params.chat_id === String(chat))
+        .map((c) => c.params.text.split("\n")[1]);
+    await eventually(() => expect(texts()).toEqual(["one", "one", "two"]), 15_000);
+
+    stub.fail("sendMessage", 400, { description: "Bad Request: chat not found" });
+    await owner.pb.collection("messages").create({ room: room.id, author: owner.user.id, text: "three" });
+    await owner.pb.collection("messages").create({ room: room.id, author: owner.user.id, text: "four" });
+    await eventually(() => expect(texts()).toEqual(["one", "one", "two", "three", "four"]), 15_000);
+    await eventually(async () =>
+      expect(await admin.collection("tg_queue").getFullList({ filter: admin.filter("chat_id = {:c}", { c: String(chat) }) })).toEqual([]),
+    );
+  }, 30_000);
+
+  it("nothing goes either way while a link is disabled or its room archived", async () => {
+    const owner = await signUp();
+    const { room, chat } = await linkedRoom(owner);
+    const link = await admin.collection("tg_links").getFirstListItem(admin.filter("chat_id = {:c}", { c: String(chat) }));
+    await admin.collection("tg_links").update(link.id, { enabled: false });
+    await deliver({ message: tgMessage(chat, { text: "nobody hears" }) });
+    await owner.pb.collection("messages").create({ room: room.id, author: owner.user.id, text: "unsent" });
+    await admin.collection("tg_links").update(link.id, { enabled: true });
+    await owner.pb.collection("rooms").update(room.id, { archived: true });
+    await deliver({ message: tgMessage(chat, { text: "still nobody" }) });
+    await tick();
+    await sleep(300);
+    expect((await messagesOf(room.id)).map((m) => m.text)).toEqual(["unsent"]);
+    expect(stub.callsOf("sendMessage").filter((c) => c.params.chat_id === String(chat))).toEqual([]);
+  });
+});
+
+describe("Telegram bridge without a webhook URL: polling, for development (§26.2)", () => {
+  let polling: PocketBaseServer;
+  let pollStub: TelegramStub;
+
+  beforeAll(async () => {
+    pollStub = await startTelegramStub();
+    polling = await startPocketBase({ env: { TELEGRAM_BOT_TOKEN: pollStub.token, TELEGRAM_API_BASE: pollStub.url } });
+  }, 60_000);
+
+  afterAll(async () => {
+    await polling?.stop();
+    await pollStub?.close();
+  });
+
+  it("drops any webhook on start, answers no webhook calls, and gets updates by polling", async () => {
+    expect(pollStub.callsOf("deleteWebhook")).toHaveLength(1);
+    expect(pollStub.callsOf("setWebhook")).toHaveLength(0);
+    const chat = newChat();
+    pollStub.updates.push({ update_id: 1, message: tgMessage(chat, { text: "/chatid" }) });
+    const su = new PocketBase(polling.url);
+    await su.collection("_superusers").authWithPassword(SUPERUSER.email, SUPERUSER.password);
+    const deadline = Date.now() + 8_000;
+    while (!pollStub.callsOf("sendMessage").length && Date.now() < deadline) {
+      await su.send("/api/telegram/tick", { method: "POST" });
+      await sleep(100);
+    }
+    expect(pollStub.callsOf("sendMessage")[0]!.params.text).toContain(`Chat id: ${chat}`);
+    // The next poll confirms the update, so Telegram doesn't send it again.
+    const polls = pollStub.callsOf("getUpdates").length;
+    while (pollStub.callsOf("getUpdates").length === polls && Date.now() < deadline) {
+      await su.send("/api/telegram/tick", { method: "POST" });
+      await sleep(100);
+    }
+    expect(pollStub.callsOf("getUpdates").at(-1)!.params.offset).toBe(2);
+  });
+});

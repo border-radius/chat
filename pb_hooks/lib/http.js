@@ -31,6 +31,25 @@ function headers(e) {
   }
 }
 
+/** PocketBase's own request body limit, which every request but a message create keeps. */
+const DEFAULT_BODY_LIMIT = 32 << 20;
+
+/** A message create: 10 attachments of 20 MB (DESIGN.md §17.1), and room for the rest of the form. */
+const MESSAGE_BODY_LIMIT = 10 * 20 * 1024 * 1024 + (1 << 20);
+
+/**
+ * The body limit is MESSAGE_BODY_LIMIT for every route (main.pb.js replaces PocketBase's default, as one route can't
+ * have its own: the records API is PocketBase's): refuse a body over the default anywhere but a message create. A body
+ * of unknown length (chunked) is still held to MESSAGE_BODY_LIMIT.
+ * @param {core.RequestEvent} e
+ */
+function bodyLimit(e) {
+  const req = e.request;
+  if (!req || req.contentLength <= DEFAULT_BODY_LIMIT) return;
+  if (req.method === "POST" && req.url?.path === "/api/collections/messages/records") return;
+  throw new ApiError(413, "Request entity too large");
+}
+
 /** The directory the app is served from: `--publicDir`, else PocketBase's default, pb_public beside the executable. */
 function publicDir() {
   const args = $os.args;
@@ -81,4 +100,4 @@ function trustProxy(app) {
   app.save(settings);
 }
 
-module.exports = { headers, asset, trustProxy };
+module.exports = { headers, bodyLimit, asset, trustProxy, MESSAGE_BODY_LIMIT };

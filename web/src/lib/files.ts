@@ -38,7 +38,7 @@ export interface FileCheck {
   rejected: { name: string; reason: string }[];
 }
 
-/** Which of `added` fit next to `existing`: at most 4 files per message, each at most 8 MB. */
+/** Which of `added` fit next to `existing`: at most 10 files per message, each at most 20 MB (LIMITS). */
 export function checkFiles(existing: readonly File[], added: readonly File[]): FileCheck {
   const out: FileCheck = { accepted: [], rejected: [] };
   for (const f of added) {

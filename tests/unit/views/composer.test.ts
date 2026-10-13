@@ -86,11 +86,11 @@ describe("composer attachments (§17.4)", () => {
   });
 
   it("refuses files over the limits and says why", async () => {
-    await composer.addFiles([pdf("1.pdf"), pdf("2.pdf"), pdf("3.pdf")]);
-    await composer.addFiles([pdf("big.pdf", 8 * 1024 * 1024 + 1), pdf("4.pdf"), pdf("5.pdf")]);
-    expect(items()).toHaveLength(4);
-    expect(trayError()).toContain("“big.pdf”: larger than 8 MB.");
-    expect(trayError()).toContain("“5.pdf”: at most 4 files per message.");
+    await composer.addFiles(Array.from({ length: 9 }, (_, i) => pdf(`${i + 1}.pdf`)));
+    await composer.addFiles([pdf("big.pdf", 20 * 1024 * 1024 + 1), pdf("10.pdf"), pdf("11.pdf")]);
+    expect(items()).toHaveLength(10);
+    expect(trayError()).toContain("“big.pdf”: larger than 20 MB.");
+    expect(trayError()).toContain("“11.pdf”: at most 10 files per message.");
   });
 
   it("over-long text can't be sent even with files", async () => {

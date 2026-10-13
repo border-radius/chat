@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | Draft |
 | **Date** | 2026-10-10 |
-| **Scope** | MVP (§1–§14); post-MVP features: avatars §15, direct messages §16, attachments §17, unread counts §18, replies §19, reactions and emoji §20, selecting, forwarding and deleting several messages §21, accounts and quality of life §22, room access (private rooms, Open Air rooms and guests) §23 |
+| **Scope** | MVP (§1–§14); post-MVP features: avatars §15, direct messages §16, attachments §17, unread counts §18, replies §19, reactions and emoji §20, selecting, forwarding and deleting several messages §21, accounts and quality of life §22, room access (private rooms, Open Air rooms and guests) §23, site settings §24, measured scale §25, Telegram bridge §26 |
 
 Code and tests cite this document by section number (e.g. `§7.5`). **Don't renumber sections:** append new ones, and
 mark obsolete ones as such instead of deleting them.
@@ -106,9 +106,14 @@ chat/
 │   ├── 1760000010_fit_thumbs.js        # §17.5
 │   ├── 1760000011_forwarding.js        # §21.3
 │   ├── 1760000012_accounts.js          # §22.1, §22.2
-│   └── 1760000015_site.js              # §24
+│   ├── 1760000015_site.js              # §24
+│   ├── 1760000017_no_dms.js            # §16.7
+│   ├── 1760000018_attachment_limits.js # §17.1
+│   └── 1760000019_telegram.js          # §26 (tg_* collections)
 ├── pb_hooks/                   # server-side JS hooks (committed)
 │   ├── main.pb.js              # registrations only
+│   ├── telegram.pb.js          # the Telegram bridge's registrations, only with TELEGRAM_BOT_TOKEN (§26)
+│   ├── telegram/               # the bridge: api, people, links, inbound, outbound, worker (§26)
 │   └── lib/
 │       ├── messages.js         # messages hooks: text, attachments, replies, forwards, soft delete, edit stamps (§5.6, §17, §19, §21)
 │       ├── rooms.js            # rooms hooks: names, DM fields, members, archive stamps (§5.2, §16, §23)
@@ -491,7 +496,7 @@ If the room's first load fails (other than "room not found"), the list shows an 
 
 | Asset | Budget (gzipped) |
 |---|---|
-| `app.js` (including the PocketBase client) | **≤ 39.35 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments and the QA pass 8 and 9 fixes, see §13) |
+| `app.js` (including the PocketBase client) | **≤ 39.80 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes and bigger attachments, see §13) |
 | `app.css` | **≤ 6 KB** (5 KB until §21, 5.5 KB until §23, see §13) |
 | `index.html` | ≤ 1.5 KB |
 | Image viewer (§17.7), loaded on first use | ≤ 4 KB script, ≤ 1.5 KB stylesheet |
@@ -916,6 +921,7 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 | Bundle budget (§24) | `app.js` raised from 37 KB to 38 KB gzipped (§7.7): §24 took it to 37.6 KB. |
 | Bundle budget (videos) | `app.js` raised from 38 KB to 39 KB gzipped (§7.7): video attachments (§17.5) and the viewer paging through the whole room (§17.7) took it to 38.1 KB, after merging the image and video tiles. The paging itself lives in the lazy viewer chunk. |
 | Bundle budget (QA pass 8) | `app.js` raised from 39 KB to 39.25 KB gzipped (§7.7): the fixes of QA pass 8 (sends and edits in order, failed sends kept after leaving a room, realtime retrying a failed first connect, …) took it to 39.15 KB. |
+| Bundle budget (bigger attachments) | `app.js` raised from 39.35 KB to 39.80 KB gzipped (§7.7): uploads through XHR for their progress bar, the "+N" tile and `no_dms` (§16.7, §17) took it to 39.76 KB. |
 | Bundle budget (QA pass 9) | `app.js` raised from 39.25 KB to 39.35 KB gzipped (§7.7): the forwarding fixes of QA pass 9 (messages deleted meanwhile left out, the server's reason shown, focus kept while selecting) took it to 39.30 KB. |
 
 ### Still open
@@ -1158,6 +1164,19 @@ reaches both members through their `rooms` subscription.
   and replies; C's sidebar never shows it, and C opening its URL sees "room not found". B closes the DM, A writes
   again, and it reappears for B.
 
+### 16.7 Users who take no direct messages
+
+`users.no_dms` (bool, off by default) marks someone who doesn't take part in DMs: the Telegram bridge's stand-in
+users (§26) have it, and a user may set it on their own record (the profile doesn't offer it yet).
+
+- `POST /api/chat/dms` refuses when either person has it ("Ann doesn't take direct messages." / "You've turned off
+  direct messages.").
+- The messages create hook refuses a message in a DM where a member has it, so turning it on also closes DMs that
+  already exist (they stay readable).
+- `GET /api/chat/users` returns `no_dms`, and messages expand `author.no_dms`: the "New message" search and the
+  forward dialog leave such users out, and their author name has no **Message** menu. Adding them to a private room
+  (§23) still finds them.
+
 ## 17. Attachments
 
 ### 17.1 Data model
@@ -1166,11 +1185,13 @@ reaches both members through their `rooms` subscription.
 
 | Field | Type | Notes |
 |---|---|---|
-| `files` | file, multiple | `maxSelect` 4, `maxSize` 8 MB each, **`protected: true`**, `thumbs`: `480x360` (center crop) and `240x180`. No `mimeTypes` allowlist: any file can be attached, because nothing is ever rendered from the file itself (§15 shared rules). |
+| `files` | file, multiple | `maxSelect` 10, `maxSize` 20 MB each (4 and 8 MB until 1760000018, raised to take a whole Telegram album, §26), **`protected: true`**, `thumbs`: `480x360` (center crop) and `240x180`. No `mimeTypes` allowlist: any file can be attached, because nothing is ever rendered from the file itself (§15 shared rules). |
 | `file_names` | json | stored name → original upload name, written only by the create hook from the uploads themselves (bidi and invisible characters removed, 200 characters max); cleared by a soft delete, never changed by an edit (QA BUG-28) |
 
-PocketBase's default request body limit (32 MB) fits 4 × 8 MB plus text; if the pinned version's default is lower, the
-route gets `$apis.bodyLimit` for multipart message creates. A test pins this.
+PocketBase's default request body limit (32 MB) doesn't fit 10 × 20 MB, and the records API is PocketBase's own, so
+one route can't get its own limit: `main.pb.js` replaces the default with 201 MB (`$apis.bodyLimit`, same middleware
+id), and a middleware (`lib/http.js` `bodyLimit`) answers 413 to any other request declaring more than 32 MB. A test
+pins both.
 
 **Text becomes optional when files are attached:** the hook rule "text is non-empty" (§5.6) changes to "text is
 non-empty **or** at least one file is attached". A message with neither is still rejected.
@@ -1220,11 +1241,13 @@ The composer gains an **Attach** button ("+", opening a hidden `multiple` file i
 (`clipboardData.files`). Selected files show as a tray above the textarea: image thumbnails from object URLs,
 other files as chips with name and size, each with a remove (×) button.
 
-- Client checks before sending: at most 4 files, each ≤ 8 MB after preparation (§15.3, images re-encoded to at most
+- Client checks before sending: at most 10 files, each ≤ 20 MB after preparation (§15.3, images re-encoded to at most
   2048 px). A rejected file shows why, inline, and is not added.
 - Send works as in §7.5, with `FormData` instead of JSON: the client id, room, author, text and the files. The
-  pending message shows the local previews dimmed, with a spinner (fetch has no upload progress; a progress bar would
-  need XHR and is left out).
+  pending message shows the local previews dimmed, with a progress bar under them: a send with files goes through
+  XHR (`pb.ts` `upload`, used when the request has an `onUpload` callback), since fetch can't report upload
+  progress. The controller passes it on (`onUpload`), and the list moves the bar in place (`setUpload`), without
+  re-rendering the message. The tray shows about three rows of files, then scrolls.
 - **The pending entry keeps its `File` objects,** so **Retry** re-sends the same id with the same files. A duplicate
   id is still rejected by the server, so a retry after a lost response can never post twice.
 - Once the server version replaces the pending one (§7.5 step 4), the object URLs are revoked.
@@ -1235,8 +1258,9 @@ other files as chips with name and size, each with a remove (×) button.
 ### 17.5 Rendering
 
 - **Images** (by file extension: `jpg jpeg png gif webp avif`): a wrapping row under the text, uncropped, in their
-  own aspect ratio. One image shows 240px high and at most 400px wide (the `800x480f` thumb); two to four show
-  120px high and at most 240px wide (the `480x240f` thumb). The height is fixed, so loading never shifts the list
+  own aspect ratio. One image shows 240px high and at most 400px wide (the `800x480f` thumb); two or more show
+  120px high and at most 240px wide (the `480x240f` thumb). At most 4 tiles show: with more images and videos the 4th
+  says "+N" over it (N more), and the viewer (§17.7) steps through all of them. The height is fixed, so loading never shifts the list
   vertically: a too-wide image is narrowed and letterboxed rather than shortened, a very narrow one is centred in a
   tile at least half as wide as it is high, and a small one is never enlarged (`object-fit: scale-down`). While a
   message sends it shows the local previews, at the size its thumbnails will take: the thumbnails get the previews'
@@ -1266,11 +1290,11 @@ other files as chips with name and size, each with a remove (×) button.
   rejected; the file URL without a token is 403/404, with A's token works, and with C's token on an A–B DM file
   is 404; responses carry the sandbox CSP and `nosniff` (an uploaded `.html` and `.svg` included); an edit cannot
   add, remove or replace files; soft delete empties `files` and the old file URL returns 404; the body limit fits
-  4 × 8 MB.
+  10 × 20 MB, and other requests still get 413 over 32 MB.
 - **Unit:** `displayName`; token cache (reuse, refresh after 2 min, one in-flight request); the composer tray (add,
   remove, limits, paste, drop); optimistic send with files, failure, and Retry with the same id and files; object
-  URLs revoked on ack, removal and unmount; image grid layout classes for 1–4 images; expired-token retry happens
-  once.
+  URLs revoked on ack, removal and unmount; image grid layout classes for 1–4 images, and "+N" past 4; the upload
+  progress bar; expired-token retry happens once.
 - **E2E:** A attaches an image and a PDF and sends; B sees the thumbnail and the file chip live and can open both;
   in a DM, C can't load the file URL even when given it; deleting the message removes the attachments for B; the
   XSS smoke test (§9.3) also uploads an `.html` file and checks that opening it runs no script.
@@ -1941,3 +1965,117 @@ at 100):
   Around 4,000 visible rooms one fetch would take about a second of server time; then count only rooms with activity
   since the caller's oldest read, or keep counts per user. Next, the fan-out: at hundreds of open tabs, each message
   costs tens of ms of server time; a thinner event or batching would help (REFACTOR item 26).
+
+## 26. Telegram bridge
+
+A Telegram bot joins Telegram groups, and each group can be linked to a room. What is written on either side shows on
+the other, files included, so people in the room and people in the group talk to each other.
+
+### 26.1 A module apart
+
+The bridge is `pb_hooks/telegram.pb.js` (it registers everything), `pb_hooks/telegram/` (its code: PocketBase only
+runs `*.pb.js` files, so these load only when required) and its own collections, `tg_*`
+(`pb_migrations/1760000019_telegram.js`). Nothing in the app refers to it. It reads the app's records, and saves
+messages and users through the same hooks as everything else, so trimming, limits, access checks, unread counts and
+realtime work for its messages unchanged.
+
+- **On:** `TELEGRAM_BOT_TOKEN` is set. Unset, `telegram.pb.js` registers nothing (the `tg_*` collections stay, empty).
+- **Removed:** delete `telegram.pb.js` and `telegram/`. Going down the migration drops `tg_*`. Stand-in users and their
+  messages stay, as any user's do.
+- **Core changes it needed** were made for themselves: `users.no_dms` (§16.7), and attachments of 10 × 20 MB (§17.1),
+  the size of a Telegram album and of the largest file a bot may download.
+
+### 26.2 Settings
+
+All from the environment (`telegram/api.js`):
+
+| Variable | |
+|---|---|
+| `TELEGRAM_BOT_TOKEN` | the bot's token from @BotFather |
+| `TELEGRAM_WEBHOOK_URL` | this server's public `https://…/api/telegram/webhook`. Unset, the bridge polls (development) |
+| `TELEGRAM_WEBHOOK_SECRET` | what Telegram sends with each update; derived from the token when unset |
+| `TELEGRAM_API_BASE` | the Bot API server, `https://api.telegram.org` by default (tests point it at a stub) |
+
+On `serve`, the bridge calls `setWebhook` (the URL, the secret, `max_connections: 1` so updates come one at a time
+and in order, and only `message`, `edited_message` and `my_chat_member`), or, without a URL, `deleteWebhook` (a bot
+with a webhook can't poll). The bot needs **privacy mode off** (@BotFather → `/setprivacy` → Disable) or to be a group
+admin, or it sees only commands.
+
+### 26.3 Telegram people in the chat
+
+Each Telegram sender (or chat posting as itself: an anonymous admin, a channel) gets a **stand-in user** on their
+first message (`tg_people` maps the Telegram id to it):
+
+- Named after them with " (TG)": "Ann Lee (TG)", "Ann Lee 2 (TG)" if taken (names are unique, §22.1), within the 32
+  characters. A Telegram name change renames it.
+- Their Telegram profile picture as its avatar, checked again at most once a day.
+- `no_dms` set (§16.7): nobody can open a DM with them, and their names have no **Message** menu.
+- An address at `telegram.invalid` and a random password: nobody can log in as one.
+- They appear in user search like anyone (e.g. to add them to a private room). A stand-in writing in a private room is
+  made a member of it, as the messages hook requires (§23).
+
+### 26.4 Telegram → chat
+
+`POST /api/telegram/webhook` (the secret checked; any update that fails is logged and answered 200, so Telegram
+doesn't hold the next ones back) or polling hands each update to `inbound.js`:
+
+- **A message** in a linked group becomes a message of its sender's stand-in: the text or caption ("↪ Forwarded from
+  X" above a forward), and the files, downloaded from Telegram (`getFile`) and saved like uploads: photos (the largest
+  size), videos, documents, audio, voice, video notes, GIFs, static stickers. A file over 20 MB, an animated sticker, a
+  location, a contact, a poll or a dice becomes a line of text saying what it was. Text is cut to 2000 characters.
+- **A reply** to a message the bridge knows (either way) replies to it in the room.
+- **An album** comes as one update per item. The items wait in `tg_queue` and become **one message** (up to 10 files,
+  the caption as its text) when the next update from that group comes, or when the album has been quiet for 1.5 s (the
+  worker checks every second).
+- **An edit** edits the message's text. Telegram doesn't tell bots about **deletes**, so a message deleted in Telegram
+  stays in the room (a known limit).
+- The same update delivered twice (a webhook retry) comes over once (`tg_messages` knows it).
+- The message and what it maps to are saved in one transaction, so the worker never sees a message from a group
+  without knowing it came from there.
+- Joins, leaves, pins and title changes are left out. In a private chat with the bot, it says it works in groups.
+
+### 26.5 Linking
+
+`tg_links` has a row per group: `chat_id`, `title`, `room`, `enabled`. When the bot is added to a group (or first
+hears from it) it makes the row, disabled and without a room, and posts the group's chat id. **A superuser links the
+group in the admin UI** (*Collections → tg_links*): pick the room, tick `enabled`. `/chatid` (or `/start`) in the group
+says whether it is linked. A DM can't be linked, a link can't be enabled without a room, and a group that removes the
+bot is disabled. A room may be linked to several groups: each one's messages go to the others too. A group that
+becomes a supergroup (a new chat id) keeps its link. An archived room, or a disabled link, passes nothing either way.
+
+### 26.6 Chat → Telegram
+
+The messages hooks only **queue** the work (`tg_queue`, in the same transaction as the save): a new message, an edit
+of the text, a delete, for each group the room is linked to. The worker sends it, so nobody's request waits for
+Telegram (`outbound.js`):
+
+- **The message** goes as the bot, with the author's name in bold over the text (Telegram HTML, escaped): "**Bob**
+  hello". A forward says "*forwarded from Ann*" and shows its original's text and files (§21.3).
+- **Files:** photos (jpg, png, webp up to 10 MB, Telegram's photo limit) and videos (mp4) go together as an album,
+  other files as a second album of documents (Telegram doesn't mix them); one file goes alone. The text is the first
+  item's caption when it fits (1024 characters), else a message of its own before the files. Files keep their original
+  names.
+- **A reply** replies to the Telegram message of what it answers, when that is in the group.
+- **Edits** edit the Telegram message holding the text (or the caption). **Deletes** delete the Telegram messages;
+  bots can delete their own only for 48 hours, so an older one is edited to "*Message deleted*" instead.
+- A message from a group isn't sent back to it.
+- Not passed on: reactions, and a forward's later changes when its original is edited.
+
+### 26.7 The worker
+
+A cron job (`* * * * *`) starts `worker.js`, which runs for 57 s, once a second: it brings over albums that are
+complete, then sends what is queued, oldest first (polling Telegram first, when there's no webhook). One run at a time
+(a lock in the app store). A failure that may pass (no answer, 5xx, 429) is retried after `retry_after` or 2, 4, 8…
+seconds, up to 8 tries, and holds back that group's later items so they arrive in order; one Telegram refuses for good
+(4xx) is dropped and logged. `POST /api/telegram/tick` (superusers) runs one pass at once. A message whose send fails
+halfway (some of its files sent) isn't sent again.
+
+### 26.8 Tests
+
+`tests/integration/telegram.test.ts` starts its own PocketBase with the bridge on, against a stub Bot API
+(`tests/support/telegram.ts`: records calls, serves files, queues updates, fails on demand). The harness never passes
+the developer's own `TELEGRAM_*` variables to a test server. Covered: setWebhook and the secret; a new group's link
+and `/chatid`; links only for rooms; a stand-in (name, picture, `no_dms`); files, an album as one message (by the next
+update, and once quiet), files too large; replies, edits and a repeated delivery; a stand-in joining a private room; a
+message, reply, edit and delete going out; files going out as an album with a caption plus documents; a room linked to
+two groups; retries in order and dropping; nothing while disabled or archived; polling.

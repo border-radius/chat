@@ -5,6 +5,7 @@
 const { assertImagesFit } = require(`${__hooks}/lib/images.js`);
 const { accessOf, canSee, visibleRoom } = require(`${__hooks}/lib/access.js`);
 const { fieldError, originalNames, recordOf } = require(`${__hooks}/lib/records.js`);
+const { dmRefusal } = require(`${__hooks}/lib/dms.js`);
 const { isDm } = require(`${__hooks}/lib/rooms.js`);
 const { isBlank } = require(`${__hooks}/lib/text.js`);
 
@@ -68,6 +69,10 @@ function beforeMessageCreate(e) {
   // Defense in depth for the members-only create rule (§16.3, §23.1): DMs and private rooms.
   if (room && !canSee(accessOf(room), rec.getString("author"))) {
     throw fieldError("room", isDm(room) ? "You are not a member of this conversation." : "You are not a member of this room.");
+  }
+  if (room && isDm(room)) {
+    const refused = dmRefusal(e.app, rec.getString("author"), room.getStringSlice("members"));
+    if (refused) throw fieldError("room", refused);
   }
   assertReplyTarget(e.app, rec);
   assertForwardTarget(e.app, rec);

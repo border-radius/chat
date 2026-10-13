@@ -5,6 +5,8 @@ export interface User {
   name: string;
   /** Avatar filename (§15); "" or absent when the user has none. */
   avatar?: string;
+  /** Doesn't take direct messages (§16.7), e.g. a Telegram bridge's stand-in; absent where the server doesn't say. */
+  no_dms?: boolean;
 }
 
 export type RoomKind = "public" | "dm";

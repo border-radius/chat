@@ -1,6 +1,7 @@
 // Room view: authors, avatars and messaging them (§15.4, §16.5).
 
-import { describe, expect, it, vi } from "vitest";
+import PocketBase from "pocketbase";
+import { describe, expect, inject, it, vi } from "vitest";
 import { newId } from "../../../../web/src/lib/id.ts";
 import { createRoomView } from "../../../../web/src/views/room.ts";
 import { signedUp, viewContext } from "../../../support/api.ts";
@@ -85,6 +86,21 @@ describe("room view", () => {
       await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith(expect.stringMatching(/^\/r\//)));
       const dmId = navigate.mock.calls.at(-1)![0].slice(3);
       expect(store.get().rooms.get(dmId)?.members).toContain(bob.user.id);
+    });
+  });
+
+  describe("users who take no DMs (§16.7)", () => {
+    it("their name has no Message menu", async () => {
+      const bot = await signedUp("Bridge Person");
+      const pb = new PocketBase(inject("pbUrl"));
+      await pb.collection("users").authWithPassword(bot.email, bot.password);
+      await pb.collection("users").update(bot.user.id, { no_dms: true });
+      const room = await newRoom();
+      await bot.api.send({ id: newId(), room: room.id, text: "from telegram" });
+      await mount(room);
+      const [theirs] = msgEls();
+      expect(theirs!.querySelector("details.author-menu")).toBeNull();
+      expect(theirs!.querySelector(".author")!.textContent).toBe("Bridge Person");
     });
   });
 

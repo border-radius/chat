@@ -36,14 +36,15 @@ describe("attachment helpers (§17.4, §17.5)", () => {
     expect(formatBytes(1.5 * 1024 * 1024)).toBe("1.5 MB");
   });
 
-  it("checkFiles allows 4 files per message, each up to 8 MB, and says why it refuses", () => {
-    const three = [f("1"), f("2"), f("3")];
-    const big = f("big.bin", 8 * 1024 * 1024 + 1);
-    const res = checkFiles(three, [f("4"), big, f("5")]);
-    expect(res.accepted.map((x) => x.name)).toEqual(["4"]);
+  it("checkFiles allows 10 files per message, each up to 20 MB, and says why it refuses", () => {
+    const nine = Array.from({ length: 9 }, (_, i) => f(String(i + 1)));
+    const big = f("big.bin", 20 * 1024 * 1024 + 1);
+    expect(checkFiles([], [f("ok.bin", 20 * 1024 * 1024)]).accepted).toHaveLength(1);
+    const res = checkFiles(nine, [f("10"), big, f("11")]);
+    expect(res.accepted.map((x) => x.name)).toEqual(["10"]);
     expect(res.rejected).toEqual([
-      { name: "big.bin", reason: "larger than 8 MB" },
-      { name: "5", reason: "at most 4 files per message" },
+      { name: "big.bin", reason: "larger than 20 MB" },
+      { name: "11", reason: "at most 10 files per message" },
     ]);
   });
 });

@@ -156,6 +156,43 @@ describe("room view", () => {
       expect(chip!.getAttribute("href")).toMatch(/token=/);
     });
 
+    it("more than 4 images and videos: 4 tiles, the 4th saying how many more", async () => {
+      const other = await signedUp("Other");
+      const room = await newRoom();
+      const files = Array.from({ length: 7 }, (_, i) => pngFile(`p${i}.png`));
+      const m = await other.api.send({ id: newId(), room: room.id, text: "", files: [...files, pdf("notes.pdf")] });
+      await mount(room);
+      const shown = tiles(m.id);
+      expect(shown).toHaveLength(4);
+      expect(shown.map((t) => t.querySelector(".att-more")?.textContent ?? "")).toEqual(["", "", "", "+3 more"]);
+      expect(chips(m.id).map((a) => a.textContent)).toEqual(["notes.pdf"]);
+    });
+
+    it("a sending message shows how much of its attachments has been uploaded", async () => {
+      const room = await newRoom();
+      let report: ((fraction: number) => void) | undefined;
+      let finish!: () => void;
+      const done = new Promise<void>((r) => (finish = r));
+      intercept(me.api, "send", (original) => async (m, onUpload) => {
+        report = onUpload;
+        await done;
+        return original(m, onUpload);
+      });
+      await mount(room);
+      paste([pngFile("a.png")]);
+      await vi.waitFor(() => expect(root.querySelectorAll(".tray-item")).toHaveLength(1));
+      key(composer()!, "Enter");
+      const id = msgEls().at(-1)!.dataset.id!;
+      const bar = () => msgEl(id)!.querySelector<HTMLProgressElement>("progress.att-progress");
+      await vi.waitFor(() => expect(report).toBeDefined());
+      expect(bar()!.value).toBe(0);
+      report!(0.4);
+      expect(bar()!.value).toBeCloseTo(0.4);
+      finish();
+      await vi.waitFor(() => expect(msgEl(id)!.classList.contains("pending")).toBe(false));
+      expect(bar()).toBeNull();
+    });
+
     it("BUG-28: files show, download and describe themselves under their original names", async () => {
       const other = await signedUp("Other");
       const room = await newRoom();

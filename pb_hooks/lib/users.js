@@ -26,7 +26,7 @@ function searchUsers(e) {
   // Only the public profile, never the email (§6).
   return e.json(
     200,
-    found.flatMap((u) => (u ? [{ id: u.id, name: u.getString("name"), avatar: u.getString("avatar") }] : [])),
+    found.flatMap((u) => (u ? [{ id: u.id, name: u.getString("name"), avatar: u.getString("avatar"), no_dms: u.getBool("no_dms") }] : [])),
   );
 }
 

@@ -98,7 +98,7 @@ describe("createApi", () => {
       const room = await b.createRoom(`r-${uniq()}`);
       await a.send({ id: newId(), room: room.id, text: "hi" });
       const [m] = await b.page(latest(room.id));
-      expect(m!.expand?.author).toEqual({ id: me.id, name: me.name, avatar: set.avatar });
+      expect(m!.expand?.author).toEqual({ id: me.id, name: me.name, avatar: set.avatar, no_dms: false });
 
       const removed = await a.removeAvatar();
       expect(removed.avatar).toBe("");
@@ -308,7 +308,7 @@ describe("createApi", () => {
       const id = newId();
       const m = await a.send({ id, room: room.id, text: "  hello  " });
       expect(m).toMatchObject({ id, room: room.id, text: "hello", author: a.currentUser()!.id, edited_at: "", deleted: false });
-      expect(m.expand?.author).toEqual(a.currentUser());
+      expect(m.expand?.author).toEqual({ ...a.currentUser(), no_dms: false });
       expect(m.created).toMatch(/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{3}Z$/);
     });
 
@@ -356,7 +356,7 @@ describe("createApi", () => {
       const e = await a.edit(m.id, " v2 ");
       expect(e).toMatchObject({ id: m.id, text: "v2" });
       expect(e.edited_at).not.toBe("");
-      expect(e.expand?.author).toEqual(a.currentUser());
+      expect(e.expand?.author).toEqual({ ...a.currentUser(), no_dms: false });
     });
 
     it("softDelete wipes text and freezes the message", async () => {
@@ -430,7 +430,7 @@ describe("createApi", () => {
           ["update", "edited", false],
           ["update", "", true],
         ]);
-        expect(events[0]![1].expand?.author).toEqual(a.currentUser());
+        expect(events[0]![1].expand?.author).toEqual({ ...a.currentUser(), no_dms: false });
       } finally {
         await off();
       }

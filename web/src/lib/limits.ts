@@ -15,9 +15,9 @@ export const LIMITS = {
   /** users.avatar mimeTypes (§15.1) */
   avatarTypes: ["image/jpeg", "image/png", "image/webp", "image/gif"],
   /** messages.files maxSelect (§17.1) */
-  attachments: 4,
+  attachments: 10,
   /** messages.files maxSize, per file (§17.1) */
-  attachmentBytes: 8 * 1024 * 1024,
+  attachmentBytes: 20 * 1024 * 1024,
   /** rooms.members maxSelect: a private room's members, its creator included (§23.2) */
   roomMembers: 100,
 } as const;

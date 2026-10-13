@@ -531,6 +531,7 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
         scope,
         nearBottom: () => isNearBottom(list),
         onChange: apply,
+        onUpload: (id, fraction) => messages.setUpload(id, fraction),
       });
 
       pill.addEventListener(

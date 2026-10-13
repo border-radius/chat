@@ -12,6 +12,14 @@ routerUse((e) => {
   return e.next();
 });
 
+// Bodies up to 10 attachments of 20 MB (§17.1): replaces PocketBase's default limit (same middleware id); lib/http.js
+// keeps the default for everything but a message create.
+routerUse($apis.bodyLimit(require(`${__hooks}/lib/http.js`).MESSAGE_BODY_LIMIT));
+routerUse((e) => {
+  require(`${__hooks}/lib/http.js`).bodyLimit(e);
+  return e.next();
+});
+
 // Not the app's index.html (PocketBase's fallback for any other path, §7.1) for a missing asset or API.
 routerAdd("GET", "/assets/{path...}", (e) => require(`${__hooks}/lib/http.js`).asset(e));
 routerAdd("GET", "/api/{path...}", () => {

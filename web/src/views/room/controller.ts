@@ -116,6 +116,8 @@ export function createRoomController(opts: {
   /** Is the list scrolled to (near) the bottom? New messages are followed only then. */
   nearBottom: () => boolean;
   onChange: (change: Change) => void;
+  /** A sending message's attachments are this far uploaded, 0 to 1 (§17.4). */
+  onUpload?: (id: string, fraction: number) => void;
 }): RoomController {
   const { api, store, roomId, msgId, scope, nearBottom } = opts;
   const { signal } = scope;
@@ -468,13 +470,16 @@ export function createRoomController(opts: {
     let failed: Message | null = null;
     try {
       const files = msg.localFiles?.map((f) => f.file);
-      saved = await api.send({
-        id: msg.id,
-        room: msg.room,
-        text: msg.text,
-        ...(files?.length ? { files } : {}),
-        ...(replyTo ? { replyTo } : {}),
-      });
+      saved = await api.send(
+        {
+          id: msg.id,
+          room: msg.room,
+          text: msg.text,
+          ...(files?.length ? { files } : {}),
+          ...(replyTo ? { replyTo } : {}),
+        },
+        (fraction) => opts.onUpload?.(msg.id, fraction),
+      );
     } catch (e) {
       // A retry of a send that already reached the server fails with a duplicate id: it was sent after all.
       const recovered = e instanceof ApiError && e.status === 400 ? await api.getMessage(msg.id).catch(() => null) : null;

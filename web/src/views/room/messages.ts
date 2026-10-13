@@ -52,6 +52,8 @@ export interface MessageList {
    * message's element is rebuilt when what it shows changes.
    */
   focusIn(id: string, selectors: readonly string[], later?: boolean): void;
+  /** A sending message's attachments are this far uploaded, 0 to 1 (§17.4): its progress bar moves (no render). */
+  setUpload(id: string, fraction: number): void;
 }
 
 /** At most this many characters of a quote are in its accessible name. */
@@ -204,7 +206,9 @@ export function createMessageList(opts: {
   /** Names of the people in the window, for who reacted (rebuilt every render). */
   let names = new Map<string, string>();
 
-  const attachments = createAttachments(opts);
+  /** Upload progress of sending messages, by id. */
+  const uploads = new Map<string, number>();
+  const attachments = createAttachments({ ...opts, uploadProgress: (id) => uploads.get(id) ?? 0 });
   const reactionParts = createReactionParts(opts);
 
   const btn = (label: string, onClick: () => void, cls?: string) =>
@@ -468,9 +472,9 @@ export function createMessageList(opts: {
     );
   }
 
-  /** The author's name: for other (known) users a menu offering "Message" (§16.5). Guests can't message (§23.3). */
+  /** The author's name: for other (known) users a menu offering "Message" (§16.5), unless they take no DMs (§16.7). Guests can't message (§23.3). */
   function authorEl(author: User, me: User | null, known: boolean): HTMLElement {
-    if (!me || author.id === me.id || !known) return h("span", { class: "author" }, author.name);
+    if (!me || author.id === me.id || !known || author.no_dms) return h("span", { class: "author" }, author.name);
     const menu = createActionMenu({ label: author.name, summary: author.name, className: "author", signal });
     menu.update([{ label: "Message", run: () => opts.onMessageUser(author.id) }]);
     menu.el.classList.add("author-menu");
@@ -607,6 +611,11 @@ export function createMessageList(opts: {
     focusIn(id, selectors, later) {
       if (later) focusAfter = { id, selector: selectors };
       else find(id, selectors)?.focus();
+    },
+    setUpload(id, fraction) {
+      uploads.set(id, fraction);
+      const bar = el.querySelector<HTMLProgressElement>(`${byId(id)} progress.att-progress`);
+      if (bar) bar.value = fraction;
     },
   };
   return list;

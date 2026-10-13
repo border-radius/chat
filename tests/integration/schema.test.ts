@@ -69,7 +69,7 @@ describe("schema (§5)", () => {
     );
   });
 
-  it("messages.files: up to 4 protected files of 8 MB, with image thumbnails (§17.1)", () => {
+  it("messages.files: up to 10 protected files of 20 MB, with image thumbnails (§17.1)", () => {
     expect(fieldsOf(cols.messages!).files).toMatchObject({
       type: "file",
       maxSelect: LIMITS.attachments,

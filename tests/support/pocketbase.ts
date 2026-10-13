@@ -82,7 +82,8 @@ export async function startPocketBase(opts: StartOptions = {}): Promise<PocketBa
   const url = `http://127.0.0.1:${port}`;
   const proc = spawn(bin, ["serve", `--http=127.0.0.1:${port}`, `--publicDir=${publicDir}`, "--hooksWatch=false", ...dirArgs], {
     stdio: opts.verbose ? "inherit" : "pipe",
-    env: { ...process.env, ...opts.env },
+    // Never a Telegram bot from the developer's own environment: only what a test passes (the bridge, §26).
+    env: { ...withoutTelegram(process.env), ...opts.env },
   });
 
   let output = "";
@@ -102,6 +103,10 @@ export async function startPocketBase(opts: StartOptions = {}): Promise<PocketBa
   }
 
   return { url, dataDir, publicDir, stop };
+}
+
+function withoutTelegram(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(env).filter(([k]) => !k.startsWith("TELEGRAM_")));
 }
 
 async function freePort(): Promise<number> {

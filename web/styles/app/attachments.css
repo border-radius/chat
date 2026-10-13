@@ -116,3 +116,43 @@ a.att-file::before,
 span.att-file::before {
   content: "📄 ";
 }
+
+/* Over the last tile when a message has more images and videos than it shows: the viewer steps through them all. */
+.att-more {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgb(13 11 20 / 55%);
+  color: #fff;
+  font-size: 1.5rem;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+/* How much of a sending message's attachments has been uploaded (§17.4). */
+.att-progress {
+  display: block;
+  width: min(100%, 16rem);
+  height: 4px;
+  margin-top: 0.35rem;
+  overflow: hidden;
+  border: 0;
+  border-radius: 2px;
+  background: var(--border);
+  accent-color: var(--accent);
+  appearance: none;
+}
+
+.att-progress::-webkit-progress-bar {
+  background: var(--border);
+}
+
+.att-progress::-webkit-progress-value {
+  background: var(--accent);
+  transition: width 0.2s;
+}
+
+.att-progress::-moz-progress-bar {
+  background: var(--accent);
+}

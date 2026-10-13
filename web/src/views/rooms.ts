@@ -103,7 +103,8 @@ export function createRoomsView({ api, store, sync, unread, actions, navigate }:
     if (open === !!search) return;
     search = open
       ? createUserSearch({
-          search: (q, signal) => api.searchUsers(q, signal),
+          // Not those who take no direct messages (§16.7).
+          search: async (q, signal) => (await api.searchUsers(q, signal)).filter((u) => !u.no_dms),
           avatarUrl: api.avatarUrl,
           onPick: (u) => void message(u),
           onClose: () => {
