@@ -9,6 +9,14 @@ const ext = (name: string) => name.slice(name.lastIndexOf(".") + 1).toLowerCase(
 
 export const isImage = (name: string): boolean => name.includes(".") && IMAGE_EXT.has(ext(name));
 
+/** Extensions shown inline as videos: the browser draws their first frame and plays them (there are no server thumbnails). */
+const VIDEO_EXT = new Set(["mp4", "m4v", "webm", "mov", "ogv"]);
+
+export const isVideo = (name: string): boolean => name.includes(".") && VIDEO_EXT.has(ext(name));
+
+/** Shown inline (as an image or a video) rather than as a download chip. */
+export const isMedia = (name: string): boolean => isImage(name) || isVideo(name);
+
 /** "report_k3j2h1g0f9.pdf" → "report.pdf": PocketBase adds "_" + 10 random characters to stored names. */
 export function displayName(stored: string): string {
   return stored.replace(/_[a-z0-9]{10}(\.[^.]*)?$/i, "$1");

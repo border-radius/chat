@@ -517,3 +517,212 @@ reconnect could do this.
 
 Accepted, not fixed: room names stay unique across all rooms, so trying to create a room under a private room's name
 says it is taken (§13, room access).
+
+---
+
+# QA pass 7 — found while refactoring (docs/REFACTOR.md round 3)
+
+Not an exploratory pass: these turned up as flaky tests while the test suites were reorganized, 2026-10-13, and each
+was traced to its cause before being fixed (a stack trace per request, the test server's own request log). Each fix
+lands with a test that fails without it. Numbering continues from BUG-67.
+
+| # | Severity | Area | Summary | Status |
+|---|---|---|---|---|
+| BUG-68 | Medium | Realtime | A session renewal (or password change) answered after a logout closed the guest's new connection: no live updates, no reconnect | Fixed |
+| BUG-69 | Medium | Rooms | A room list reload answered after live events undid them: a room you were taken out of was listed again, an archive undone | Fixed |
+| BUG-70 | Low | Attachments | Leaving a room while a message with attachments was sending kept its previews in memory | Fixed |
+
+## BUG-68 — A late resubmit closes the new connection (Medium)
+
+**Found:** unhandled `PbError` rejections from `pb.ts` in full unit runs, after a logout.
+**Cause:** BUG-67 made each connection's connect handler check that it is still the current one, but `resubmit()`
+(which sends the subscriptions again whenever the token changes: every session renewal, a password change) had no such
+check. Answered after its connection was replaced (a logout in between), its failure went to `connectError` while the
+new connection had no client id yet: that rejected the new connection's subscribes and closed it, with no reconnect
+scheduled. `scope.sub()` also left a failed subscribe unhandled until the scope was disposed.
+**Fix:** `resubmit()` ignores a failure once `es` is no longer the connection it was sent for; `scope.sub()` catches at
+once (the realtime client keeps the subscription and sends it on the next connection). Tests: `pb.test.ts` (a fake
+EventSource and fetch play renew, log out, late 404), `scope.test.ts`.
+
+## BUG-69 — A reload undoes live room events (Medium)
+
+**Found:** `access.test.ts` "taken out of a private room while in it" saw the room come back, now and then.
+**Cause:** `sync.ts` reloads the room list on start and on every reconnect, and its answer replaced the list in the
+store. Live events that arrived while it was in flight are newer than that answer and were lost: a room you were taken
+out of was listed again (and the view, seeing it back, reopened it), an archive was undone. An older reload answering
+after a newer one overwrote it too.
+**Fix:** events received during a reload are applied again on top of its answer, in the same store update (one by one,
+the room would vanish and come back, which the view takes for access regained), and an answer older than the one in
+the store is dropped, as `unread.ts` already did for counts. Tests: `sync.test.ts`.
+
+## BUG-70 — Previews kept after leaving a room mid-send (Low)
+
+**Found:** a flaky check in `room/attachments.test.ts` that the preview was released.
+**Cause:** a sent message's preview URLs were released when `api.send` answered, after the room view's scope check. The
+realtime echo can replace the pending copy before that answer; leaving the room in between skipped the release, and
+nothing else held those previews any more.
+**Fix:** released as soon as the server has the message, before the scope check (`room/controller.ts`).
+
+## Also found: test fixtures writing to the database
+
+Not an app bug, but it looked like one: message edits and deletes failing with 400 "Failed to update record." under
+load, logged by PocketBase as `database is locked (517)`. The test helpers wrote to `data.db` from other processes,
+which can commit inside one of the server's transactions; PocketBase itself sends every write through one connection.
+Fixture writes now go through the test server (docs/REFACTOR.md item 30).
+
+---
+
+# QA pass 8 — exploratory, whole app
+
+Exploratory testing of the whole app, 2026-10-13, on a production build and a fresh PocketBase, in Chromium (desktop
+1100×720 and a 390×844 phone, light and dark), with two or three users side by side, slowed or failing requests
+(Playwright routes, CDP network throttling), probes of the REST API and the custom routes, and axe on states earlier
+passes didn't list (emoji picker, image viewer, selecting, editing, delete confirm, forward dialog). Numbering
+continues from BUG-70. Each fix lands with a test that fails without it.
+
+| # | Severity | Area | Summary | Status |
+|---|---|---|---|---|
+| BUG-74 | Medium | Realtime | If the realtime connection failed as the page loaded, it was never tried again: no live messages, room list or unread counts, and nothing said so | Fixed |
+| BUG-71 | Medium | Sending | Messages sent close together could land out of order: a message with an attachment ended up after the text sent just after it, for everyone | Fixed |
+| BUG-76 | Medium | Sending | A message whose send failed after you had opened another room vanished: no "Not sent", and it was gone from the composer and the draft | Fixed |
+| BUG-72 | Medium | Editing | Two quick edits of a message, the first slow to arrive, saved the older text: the latest edit was lost | Fixed |
+| BUG-73 | Medium | Forwarding | People you share a private room with (but have no DM with) couldn't be found in the Forward dialog: "Nothing found." | Fixed |
+| BUG-77 | Medium | Composer | In Safari, the Enter that confirms a word typed with an input method (Japanese, Chinese…) sent the message | Fixed |
+| BUG-75 | Low | Profile | Renamed in another tab, the profile still showed the old name, and Save quietly undid the rename | Fixed |
+| BUG-78 | Low (a11y) | Emoji | The picker's category headings were h3s under the room's h1 (axe: heading-order) | Fixed |
+
+## BUG-74 — No live updates after a failed first connect (Medium)
+
+**Steps:** open the app while the realtime request fails once (a network blip, a proxy dropping the stream), then let
+it through. Bob posts in the open room. **Expected:** the message shows. **Actual:** nothing ever arrives; the room list
+and unread counts stay frozen too, with no error, until a reload or opening another room.
+**Cause:** `pb.ts` reported a failed *first* connect to the subscribers and then stopped, so as not to retry forever.
+Nothing else tried again: the subscriptions it kept were only sent by a later `subscribe()`.
+**Fix:** it reports the failure and then retries like after a lost connection. That later connect counts as a reconnect
+(`realtime.recovered`), so the room list, unread counts and open room fetch what they missed.
+
+## BUG-71 — Messages land out of order (Medium)
+
+**Steps:** attach a 3 MB file and send it, then send a short text right away (any slow network). **Expected:** the
+file's message, then the text. **Actual:** the text reached the server first, so it was saved first: the sender saw the
+two swap places once sent, and everyone else got them in the wrong order. Two plain texts swapped the same way when the
+first request was slow. **Cause:** every send went out at once; the server orders messages by when it saves them.
+**Fix:** the room's sends go one at a time, in order (a slow upload makes the next message wait for it).
+
+## BUG-76 — A send failing after you left the room is lost (Medium)
+
+**Steps:** send a message, open another room before it is through, and let the request fail. Go back.
+**Expected:** the message shows as not sent, with Retry. **Actual:** it is gone, and so is the text: the composer and
+the saved draft were cleared on sending. **Cause:** the failure was ignored once the room's view had gone.
+**Fix:** such a message is kept (`strays` in `room/controller.ts`) and the room's next view shows it as not sent, with
+Retry and Discard. Its attachments come along (shown by name, as their previews went with the old view). A reload still
+loses it, like unsent text before.
+
+## BUG-72 — An older edit overwrites a newer one (Medium)
+
+**Steps:** edit a message and save; edit it again and save before the first save is answered (slow network).
+**Expected:** the second text stays. **Actual:** when the first request was the slower one, the server saved it last:
+the message (for everyone, and for you once answered) showed the first edit. **Fix:** a message's edits, deletes and
+reactions go one at a time (reactions already did, §20.3).
+
+## BUG-73 — Forward can't find people you share a private room with (Medium)
+
+**Steps:** Ada and Bob are in a private room, with no DM between them. Ada forwards a message and searches "Bob".
+**Expected:** Bob, to start a DM. **Actual:** "Nothing found." **Cause:** the dialog leaves out people found by name
+whom it already offers as a DM, but it took everyone in *any* room you see (private rooms list their members) for a DM
+partner. **Fix:** only the other member of each DM counts.
+
+## BUG-77 — Safari sends while you pick a word with an input method (Medium, Safari)
+
+Not reproduced here (no WebKit locally); found by reading the key handling and checked against WebKit's known
+behaviour. **Steps:** in Safari, type Japanese with the system input method and press Enter to confirm a word.
+**Expected:** the word is confirmed. **Actual:** the half-written message is sent. **Cause:** the composer (and the edit
+box) skip Enter while `isComposing`, but Safari ends the composition before that keydown, which then only has
+`keyCode` 229. **Fix:** `composing()` checks both.
+
+## BUG-75 and BUG-78 (Low)
+
+- **BUG-75:** with your profile open in two tabs, renaming yourself in one left the old name in the other's field
+  (the header did follow, BUG-33); pressing Save there renamed you back, saying "Saved.". The field now follows a
+  rename made elsewhere, unless you are typing a new name in it.
+- **BUG-78:** the emoji picker's category headings were `h3`s right under the room's `h1`. They are `h2`s.
+
+## Checked and fine
+
+- Sending, editing, replying, deleting, reactions and their live updates between two users; 12 messages typed as fast
+  as possible keep their order; an offline send fails, keeps its text and is sent by Retry; edits and deletes made
+  while offline show after reconnecting, and so do new messages.
+- 420-message room: scrolling down from the first message and back up loads every page, no duplicates, at most 300
+  in the DOM; a quote of the very first message jumps there and offers "Jump to latest".
+- Image viewer: arrow keys through a message's images and on, stops at the end, Escape gives focus back to the
+  thumbnail; attachments that aren't images show as download chips.
+- New room form (leading "#"s and spaces tidied, duplicates and over-long names refused), private room with members
+  added in the access dialog (live for the new member, read-only member list for them), Open Air room read by a guest,
+  log in from there returns to it, signup errors (taken name and email).
+- Unread counts and the tab title, rooms and DMs, while away and back; avatars (upload, refused file, remove).
+- REST probes: emails can't be filtered or expanded by others; `verified`, `created`, other users' rooms and fields
+  the rules guard can't be set; the custom routes refuse malformed bodies, dates and ids with 400/404 (no 500s); user
+  search treats `%`, `_` and `\` as text. Odd URLs (`/#//example.com`, malformed escapes, trailing slashes) land home.
+- No horizontal overflow at 390 px; axe: nothing else in the states above, light and dark.
+
+---
+
+# QA pass 9 — forwarding, then the rest of the app
+
+Exploratory testing focused on forwarding (§21.3), 2026-10-13, on a production build and a fresh PocketBase, in
+Chromium (desktop 1100×720 and a 390×844 phone, light and dark), with two or three users side by side, slowed or failing
+forward requests (Playwright routes), and probes of `POST /api/chat/forward` and of what a forward's readers can read.
+Numbering continues from BUG-78. Each fix lands with a test that fails without it.
+
+| # | Severity | Area | Summary | Status |
+|---|---|---|---|---|
+| BUG-80 | Medium (privacy) | Forwarding | Whoever could see a forward (a guest in an Open Air room too) could read, on its original, who reacted to it and which message it replies to, in a private room they can't see | Fixed |
+| BUG-79 | Medium | Forwarding | A selected message deleted while the Forward dialog was open made the whole forward fail | Fixed |
+| BUG-81 | Low | Forwarding | A refused forward or bulk delete said "Failed to forward the messages." instead of why ("A message was deleted.", "This room is archived…") | Fixed |
+| BUG-82 | Low | Forwarding | A forward whose original was deleted still had Forward, which always failed | Fixed |
+| BUG-83 | Low | Forwarding | The Forward dialog listed rooms as "# #name"; long names ran out of its list (and out of New message's) | Fixed |
+| BUG-84 | Low (keyboard) | Selecting | After selecting messages by clicking them, Escape no longer stopped selecting | Fixed |
+
+## BUG-80 — A forward's readers learn who is in the original's room (Medium, privacy)
+
+**Steps:** Ada and Cy are in a private room. Cy reacts to Ada's message, which replies to an earlier one; Ada forwards
+it to an Open Air room. Anyone (no account needed) reads `GET /api/collections/messages/records/<original>`, which the
+view rule allows readers of the forward (§21.3). **Expected:** that message's words and attachments. **Actual:** also
+its `reactions` (Cy's user id, so who is in the private room) and its `reply_to`. **Fix:** `keepToRoom` (an
+`onRecordEnrich` hook) empties both in any answer to someone who can't see the message's room. It costs a room lookup
+only for messages that have reactions or reply to one.
+
+## BUG-79 — A message deleted meanwhile fails the whole forward (Medium)
+
+**Steps:** select Bob's message and yours, press Forward; Bob deletes his; pick a room. **Expected:** yours is
+forwarded. **Actual:** "Couldn't forward. Failed to forward the messages." and nothing is forwarded; the selection had
+already dropped Bob's message (§21.1), but the dialog kept the ids it opened with. **Fix:** picking where to forward
+leaves out messages deleted since (and forwards whose original was); when none are left, the dialog says "A message was
+deleted." and sends nothing.
+
+## BUG-81 to BUG-84 (Low)
+
+- **BUG-81:** the forward and delete routes say what is wrong per field (`messages`, `room`, `user` for a new DM), and the
+  client showed only the general message. Both failures now show the server's reason (`reasonOf` in `api.ts`).
+- **BUG-82:** "The original message was deleted" forwards had Forward in their pill; the server refuses them (400).
+  They keep Reply, reactions and Delete.
+- **BUG-83:** rooms' titles start with "#", and the dialog put a "#" icon before them. Rooms now show their name next to
+  the icon. A name too long for the list (search results here and in New message) ends in "…".
+- **BUG-84:** a click on a message toggles it but left focus on the page itself (a message isn't focusable), outside
+  the room, where Escape isn't heard. Focus now goes to that message's checkbox, as with Select.
+
+## Checked and fine
+
+- Forwarding one message from its pill and several from the selection, into another room, the same room ("Message
+  forwarded."), a DM, a DM you had closed (it reopens, live for the other person too), someone found by name, and from a
+  DM into a room; the selection's order kept; Back afterwards.
+- Edits and deletes of the original show live in its forwards and in replies quoting them, also after a reload;
+  forwarding a forward points at the original; a forward can't be edited; unread counts and the tab title count a forward
+  once and never again for edits of its original.
+- Forwarded images: thumbnails, and the viewer paging through them, served from the original; gone when it is deleted.
+- The dialog: searching (by name, with "#", spaces only, your own name finds no one), a slow forward that can't be
+  cancelled (Cancel disabled, Escape refused), a network failure shown and tried again; 390 px, dark.
+- REST: forwarding into or from a room you can't see (404), deleted messages (400), archived targets (400), 51 ids that
+  are the same message (one forward), bad bodies (400), anonymous (401); a forward's reader can't forward or react to
+  the original by id.
+- Unit, integration and Chromium e2e suites, before and after the fixes.

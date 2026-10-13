@@ -15,6 +15,7 @@ import { createSync } from "../../web/src/sync.ts";
 import { createUnread, type UnreadTiming } from "../../web/src/unread.ts";
 import { uniq } from "./ids.ts";
 import { withName } from "./names.ts";
+import { runSql } from "./sql.ts";
 
 // The unit project runs in happy-dom, where Vite refuses static imports of Node built-ins.
 const { DatabaseSync } = process.getBuiltinModule("node:sqlite") as typeof import("node:sqlite");
@@ -77,15 +78,14 @@ export async function signedUp(name = `user-${uniq()}`): Promise<SignedUp> {
   const api = newApi();
   const email = `${uniq()}@test.local`;
   const password = "password-123";
-  const db = () => new DatabaseSync(join(inject("pbDataDir"), "data.db"));
-  const user = await withName(db, name, () => api.signUp({ email, password, name }));
+  const user = await withName(inject("pbUrl"), name, () => api.signUp({ email, password, name }));
   return { api, user, email, password };
 }
 
 /**
  * Insert `n` messages straight into the test DB in one transaction: oldest first, `stepMs` apart, starting at
  * `startAt` (default: so the last one is `stepMs` in the past, before any live message). Fixture data only: no
- * hooks, no realtime events.
+ * hooks, no realtime events. Written through the server's own connection (runSql), read here.
  */
 export async function seedMessages(
   room: string,
@@ -94,37 +94,38 @@ export async function seedMessages(
   opts: { text?: (i: number) => string; stepMs?: number; startAt?: number } = {},
 ): Promise<Message[]> {
   const { text = (i) => `msg ${i + 1}`, stepMs = 1000, startAt } = opts;
-  const db = new DatabaseSync(join(inject("pbDataDir"), "data.db"));
+  const db = new DatabaseSync(join(inject("pbDataDir"), "data.db"), { readOnly: true });
+  let name: string;
   try {
-    db.exec("PRAGMA busy_timeout = 5000");
-    const name = (db.prepare("SELECT name FROM users WHERE id = ?").get(author) as { name: string }).name;
-    const insert = db.prepare(
-      "INSERT INTO messages (id, room, author, text, edited_at, deleted, deleted_at, created, updated) VALUES (?, ?, ?, ?, '', 0, '', ?, ?)",
-    );
-    const start = startAt ?? Date.now() - (n + 1) * stepMs;
-    const out: Message[] = [];
-    db.exec("BEGIN IMMEDIATE");
-    for (let i = 0; i < n; i++) {
-      const ts = toPb(start + i * stepMs);
-      const m: Message = {
-        id: newId(),
-        room,
-        author,
-        text: text(i),
-        created: ts,
-        updated: ts,
-        edited_at: "",
-        deleted: false,
-        expand: { author: { id: author, name } },
-      };
-      insert.run(m.id, room, author, m.text, ts, ts);
-      out.push(m);
-    }
-    db.exec("COMMIT");
-    return out;
+    name = (db.prepare("SELECT name FROM users WHERE id = ?").get(author) as { name: string }).name;
   } finally {
     db.close();
   }
+  const start = startAt ?? Date.now() - (n + 1) * stepMs;
+  const out: Message[] = [];
+  for (let i = 0; i < n; i++) {
+    const ts = toPb(start + i * stepMs);
+    const m: Message = {
+      id: newId(),
+      room,
+      author,
+      text: text(i),
+      created: ts,
+      updated: ts,
+      edited_at: "",
+      deleted: false,
+      expand: { author: { id: author, name } },
+    };
+    out.push(m);
+  }
+  await runSql(
+    inject("pbUrl"),
+    out.map((m) => ({
+      sql: "INSERT INTO messages (id, room, author, text, edited_at, deleted, deleted_at, created, updated) VALUES ({:id}, {:room}, {:author}, {:text}, '', 0, '', {:ts}, {:ts})",
+      params: { id: m.id, room, author, text: m.text, ts: m.created },
+    })),
+  );
+  return out;
 }
 
 type AsyncOp = { [K in keyof Api]: Api[K] extends (...a: never[]) => Promise<unknown> ? K : never }[keyof Api];

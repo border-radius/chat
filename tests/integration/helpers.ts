@@ -34,11 +34,7 @@ export async function newUser(name = `user-${uniq()}`): Promise<TestUser> {
   const pb = client();
   const email = `${name}@test.local`;
   const password = "password-123";
-  await withName(
-    () => rawDb({ write: true }),
-    name,
-    () => pb.collection("users").create({ email, password, passwordConfirm: password, name }),
-  );
+  await withName(inject("pbUrl"), name, () => pb.collection("users").create({ email, password, passwordConfirm: password, name }));
   const { record } = await pb.collection("users").authWithPassword(email, password);
   return { pb, user: record, email, password };
 }

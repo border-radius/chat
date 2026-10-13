@@ -42,6 +42,8 @@ describe("favicon unread badge (§22.4)", () => {
     };
     s = { ...s, ...markHidden("d", "row")(s) };
     expect(totalUnread(s)).toBe(2);
+    expect(totalUnread({ ...s, away: true })).toBe(5);
+    expect(totalUnread({ ...s, away: true, activeRoomId: "d" })).toBe(5); // hidden stays silent, open or not
   });
 
   it("follows the store: favicon and title, back to plain when everything is read or it stops", () => {
@@ -71,6 +73,14 @@ describe("favicon unread badge (§22.4)", () => {
     store.set(bumpUnread("a"));
     store.set({ activeRoomId: "b" }); // opening a room: its messages are being read
     expect(document.title).toBe("(1) Chat");
+    store.set(bumpUnread("b"));
+    expect(document.title).toBe("(1) Chat");
+    // The tab away: nobody is reading the open room, so its messages count too.
+    store.set({ away: true });
+    expect(document.title).toBe("(4) Chat");
+    store.set({ away: false });
+    expect(document.title).toBe("(1) Chat");
+    store.set(clearUnread("b"));
     store.set(clearUnread("a"));
     expect(icon().href).toBe(faviconUrl(""));
     expect(document.title).toBe("Chat");

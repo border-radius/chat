@@ -1,0 +1,67 @@
+/* ---- Login: a card floating on colorful blobs ---- */
+
+.app-main:has(> .auth) {
+  background:
+    radial-gradient(circle at 15% 20%, rgb(106 75 255 / 35%), transparent 40%),
+    radial-gradient(circle at 85% 75%, rgb(196 42 124 / 30%), transparent 45%),
+    radial-gradient(circle at 70% 10%, rgb(20 184 166 / 22%), transparent 35%), var(--bg);
+}
+
+.auth {
+  max-width: 24rem;
+  margin: 10vh auto 2rem;
+  padding: 2rem 1.5rem;
+  border-radius: 1.5rem;
+  background: var(--raised);
+  box-shadow: var(--shadow);
+  animation: pop 0.4s var(--ease);
+}
+
+.auth h1 .brand-logo {
+  display: block;
+  height: 4rem;
+  max-width: 12rem;
+  margin: 0 auto 0.5rem;
+}
+
+.auth h1 {
+  margin-bottom: 1.25rem;
+  background: var(--grad);
+  background-clip: text;
+  color: transparent;
+  font-size: 2.25rem;
+  letter-spacing: -0.03em;
+  text-align: center;
+}
+
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 1.25rem;
+  padding: 0.25rem;
+  border-radius: var(--pill);
+  background: var(--surface);
+}
+
+[role="tab"] {
+  flex: 1;
+  border: 0;
+  background: none;
+  color: var(--muted);
+}
+
+[role="tab"][aria-selected="true"] {
+  background: var(--raised);
+  color: var(--fg);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 12%);
+}
+
+.field {
+  margin-bottom: 0.9rem;
+}
+
+.auth-form button[type="submit"] {
+  width: 100%;
+  margin-top: 0.5rem;
+  padding: 0.65rem;
+}

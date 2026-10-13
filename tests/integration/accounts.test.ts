@@ -1,6 +1,17 @@
 import { ClientResponseError } from "pocketbase";
-import { describe, expect, it } from "vitest";
-import { client, expectRejected, newUser, rawDb, status, uniq } from "./helpers.ts";
+import { describe, expect, inject, it } from "vitest";
+import { type Api, createApi } from "../../web/src/api.ts";
+import { newId } from "../../web/src/lib/id.ts";
+import type { Message } from "../../web/src/lib/types.ts";
+import { createClient } from "../../web/src/pb.ts";
+import { client, eventually, expectRejected, newRoom, newUser, post, rawDb, status, uniq } from "./helpers.ts";
+
+const PASSWORD = "password-123";
+
+const signUpAs = (email: string, name = `Casey ${uniq()}`) =>
+  client().collection("users").create({ email, password: PASSWORD, passwordConfirm: PASSWORD, name });
+
+const realClient = (): Api => createApi(createClient(inject("pbUrl")));
 
 const signUp = (name: string) =>
   client()
@@ -105,5 +116,80 @@ describe("POST /api/chat/password (§22.2)", () => {
     a.pb.authStore.save(res.token, a.pb.authStore.record);
     await a.pb.collection("users").authRefresh();
     expect(await status(other.collection("users").authRefresh())).toBe(401);
+  });
+});
+
+describe("account deletion (BUG-08)", () => {
+  it("is not offered through the API, for users with or without content", async () => {
+    const empty = await newUser();
+    await expectRejected(empty.pb.collection("users").delete(empty.user.id));
+    const busy = await newUser();
+    await post(busy, (await newRoom(busy)).id, "hello");
+    await expectRejected(busy.pb.collection("users").delete(busy.user.id));
+  });
+});
+
+describe("emails ignore capitalization (BUG-47)", () => {
+  it("stores a new email in lower case and logs in however it is capitalized", async () => {
+    const id = uniq();
+    await signUpAs(`Casey.${id}@Example.TEST`);
+    const pb = client();
+    const { record } = await pb.collection("users").authWithPassword(`casey.${id}@example.test`, PASSWORD);
+    expect(record.email).toBe(`casey.${id}@example.test`);
+    expect(await status(client().collection("users").authWithPassword(`CASEY.${id}@EXAMPLE.TEST`, PASSWORD))).toBe(200);
+    expect(await status(client().collection("users").authWithPassword(`casey.${id}@example.test`, "wrong-password"))).toBe(400);
+  });
+
+  it("refuses a second account for the same address in another case", async () => {
+    const id = uniq();
+    await signUpAs(`dup.${id}@test.local`);
+    await expectRejected(signUpAs(`Dup.${id}@Test.Local`));
+  });
+
+  it("an update that doesn't touch the email leaves an existing one as it is", async () => {
+    const u = await newUser();
+    const legacy = `Legacy.${uniq()}@Test.Local`;
+    rawDb({ write: true }).prepare("UPDATE users SET email = ? WHERE id = ?").run(legacy, u.user.id);
+    await u.pb.collection("users").update(u.user.id, { name: `renamed-${uniq()}` });
+    expect(rawDb().prepare("SELECT email FROM users WHERE id = ?").get(u.user.id)).toEqual({ email: legacy });
+    // ...and logs in as typed.
+    expect(await status(client().collection("users").authWithPassword(legacy, u.password))).toBe(200);
+  });
+
+  it("an unknown email still gets the usual refusal", async () => {
+    expect(await status(client().collection("users").authWithPassword(`nobody.${uniq()}@test.local`, PASSWORD))).toBe(400);
+  });
+});
+
+describe("passwords change only through POST /api/chat/password (BUG-53)", () => {
+  it("refuses a password in a users update, which skipped the route's rate limit and checks", async () => {
+    const u = await newUser();
+    const update = u.pb
+      .collection("users")
+      .update(u.user.id, { oldPassword: u.password, password: "other-pass-1", passwordConfirm: "other-pass-1" });
+    expect(await status(update)).toBe(404);
+    expect(await status(client().collection("users").authWithPassword(u.email, u.password))).toBe(200);
+    // The rest of the profile still saves.
+    expect(await status(u.pb.collection("users").update(u.user.id, { name: `renamed-${uniq()}` }))).toBe(200);
+  });
+});
+
+describe("a password change keeps realtime working where you are still logged in (BUG-52)", () => {
+  it("events keep arriving after the token changes: the subscriptions are sent again with the new one", async () => {
+    const ada = realClient();
+    const bob = realClient();
+    const tag = uniq();
+    await ada.signUp({ email: `${uniq()}@test.local`, password: "password-123", name: `Ada ${tag}` });
+    await bob.signUp({ email: `${uniq()}@test.local`, password: "password-123", name: `Bob ${tag}` });
+    const room = await ada.createRoom(`pw-${tag}`);
+    const got: Message[] = [];
+    await ada.subscribeMessages(room.id, (_action, m) => got.push(m));
+    try {
+      await ada.changePassword("password-123", "new-password-1");
+      await bob.send({ id: newId(), room: room.id, text: "after the change" });
+      await eventually(() => expect(got.map((m) => m.text)).toContain("after the change"), 3_000);
+    } finally {
+      await ada.unsubscribeAll();
+    }
   });
 });

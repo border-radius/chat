@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, inject, it } from "vitest";
+import { type Api, createApi } from "../../web/src/api.ts";
+import { createClient } from "../../web/src/pb.ts";
 import { client, expectRejected, newRoom, newUser, post, uniq } from "./helpers.ts";
+
+const realClient = (): Api => createApi(createClient(inject("pbUrl")));
 
 describe("users rules (§5.5)", () => {
   it("anyone can sign up and use the account immediately, without verification", async () => {
@@ -68,5 +72,33 @@ describe("users rules (§5.5)", () => {
   it("a user cannot make their email public", async () => {
     const a = await newUser();
     await expectRejected(a.pb.collection("users").update(a.user.id, { emailVisibility: true }));
+  });
+});
+
+describe("user search ignores case beyond ASCII (BUG-55)", () => {
+  it("finds “Иван”, “Élodie” and “Straße” however they are typed, as names are compared (§22.1)", async () => {
+    const tag = uniq();
+    const me = realClient();
+    await me.signUp({ email: `${uniq()}@test.local`, password: "password-123", name: `searcher ${tag}` });
+    for (const name of [`Иван ${tag}`, `Élodie ${tag}`, `Straße ${tag}`]) {
+      await realClient().signUp({ email: `${uniq()}@test.local`, password: "password-123", name });
+    }
+    const names = async (q: string) => (await me.searchUsers(q)).map((u) => u.name);
+    expect(await names(`иван ${tag}`)).toEqual([`Иван ${tag}`]);
+    expect(await names(`ИВАН ${tag}`)).toEqual([`Иван ${tag}`]);
+    expect(await names(`élodie ${tag}`)).toEqual([`Élodie ${tag}`]);
+    expect(await names(`STRASSE ${tag}`)).toEqual([`Straße ${tag}`]);
+    expect(await names(`searcher ${tag}`)).toEqual([]); // never yourself
+    expect(await names("   ")).toEqual([]);
+  });
+
+  it("needs a session, and answers only the public profile", async () => {
+    expect((await fetch(`${inject("pbUrl")}/api/chat/users?q=a`)).status).toBe(401);
+    const me = realClient();
+    const tag = uniq();
+    await me.signUp({ email: `${uniq()}@test.local`, password: "password-123", name: `viewer ${tag}` });
+    await realClient().signUp({ email: `${uniq()}@test.local`, password: "password-123", name: `shown ${tag}` });
+    const [found] = await me.searchUsers(`shown ${tag}`);
+    expect(Object.keys(found!).sort()).toEqual(["avatar", "id", "name"]);
   });
 });

@@ -66,6 +66,8 @@ describe("emoji picker (§20.4)", () => {
     expect(picker.el.getAttribute("aria-label")).toBe("Insert emoji");
     expect(opener.getAttribute("aria-expanded")).toBe("true");
     expect([...picker.el.querySelectorAll(".emoji-heading")].map((x) => x.textContent)).toEqual(CATEGORIES.map((c) => c.name));
+    // Under the room's h1: h3s would skip a level (QA BUG-78, axe heading-order).
+    expect(new Set([...picker.el.querySelectorAll(".emoji-heading")].map((x) => x.tagName))).toEqual(new Set(["H2"]));
     expect(document.activeElement).toBe(emojiButton("😀"));
     emojiButton("🎉").click();
     expect(onPick).toHaveBeenCalledWith("🎉");

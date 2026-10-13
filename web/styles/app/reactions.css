@@ -1,0 +1,32 @@
+/* ---- Reactions (§20.3): a chip per emoji with its count; yours are tinted. ---- */
+
+.reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0.25rem 0 0.1rem;
+}
+
+.reaction,
+.add-reaction {
+  display: inline-flex;
+  gap: 0.3rem;
+  align-items: center;
+  padding: 0.05rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: var(--pill);
+  background: var(--raised);
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1.6;
+}
+
+.reaction.mine {
+  border-color: var(--accent);
+  background: var(--tint);
+  color: var(--accent);
+}
+
+.add-reaction {
+  color: var(--muted);
+}

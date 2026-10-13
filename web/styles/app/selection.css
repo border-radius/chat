@@ -1,0 +1,95 @@
+/* ---- Selecting and forwarding (§21): a checkbox on each message, a bar in place of the composer. ---- */
+
+.forwarded {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-style: italic;
+}
+
+.messages.selecting .msg {
+  padding-right: 2.5rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.msg > .select {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.75rem;
+  width: 1.15rem;
+  height: 1.15rem;
+  padding: 0;
+  accent-color: var(--accent);
+}
+
+.msg.selected {
+  background: var(--tint);
+}
+
+.selection-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.6rem 1rem calc(0.9rem + env(safe-area-inset-bottom));
+}
+
+.selection-bar > span {
+  flex: 1;
+  font-weight: 700;
+}
+
+dialog.forward {
+  width: min(26rem, calc(100% - 2rem));
+  max-height: min(32rem, 85vh);
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--raised);
+  color: var(--fg);
+  box-shadow: var(--shadow);
+}
+
+dialog.forward[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+dialog.forward::backdrop {
+  background: rgb(0 0 0 / 45%);
+}
+
+.forward-list {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+dialog.forward.busy .forward-list {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+dialog.forward .cancel {
+  align-self: flex-end;
+}
+
+.hash {
+  flex: none;
+  width: 24px;
+  color: var(--muted);
+  font-weight: 800;
+  text-align: center;
+}
+
+.archived-banner {
+  margin: 0;
+  padding: 0.9rem 1rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+.not-found {
+  padding: 2rem 1rem;
+  text-align: center;
+}

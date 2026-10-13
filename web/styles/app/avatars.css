@@ -1,0 +1,68 @@
+/* ---- Avatars (§15.4) ---- */
+
+.avatar {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  object-fit: cover;
+  overflow: hidden;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  user-select: none;
+}
+
+.avatar.s24 {
+  width: 24px;
+  height: 24px;
+  font-size: 0.6rem;
+}
+
+.avatar.s32 {
+  width: 32px;
+  height: 32px;
+  font-size: 0.75rem;
+}
+
+.msg > .avatar.s32 {
+  width: 40px;
+  height: 40px;
+  font-size: 0.9rem;
+}
+
+.avatar.s96 {
+  width: 96px;
+  height: 96px;
+  font-size: 2rem;
+  box-shadow:
+    0 0 0 4px var(--bg),
+    0 0 0 7px var(--accent);
+}
+
+/* White text on every color: ≥ 4.5:1 in both themes. */
+.avatar.c0 {
+  background: #c4213b;
+}
+.avatar.c1 {
+  background: #b04a00;
+}
+.avatar.c2 {
+  background: #7a6000;
+}
+.avatar.c3 {
+  background: #22803a;
+}
+.avatar.c4 {
+  background: #00796b;
+}
+.avatar.c5 {
+  background: #1d63d8;
+}
+.avatar.c6 {
+  background: #7b3fe4;
+}
+.avatar.c7 {
+  background: #c01a6e;
+}

@@ -61,8 +61,9 @@ export function createUnread({ api, store, timing = TIMING }: { api: Api; store:
       countedAt = res.at;
       const unread = new Map(Object.entries(res.rooms));
       for (const b of recent) if (b.created > res.at) unread.set(b.room, (unread.get(b.room) ?? 0) + 1);
-      // The active room is the room view's to clear; the server may not have its latest read yet.
-      unread.delete(store.get().activeRoomId ?? "");
+      // The active room is the room view's to clear; the server may not have its latest read yet. Not while the tab
+      // is away: then the room view reads nothing, and the server's count is the one to show.
+      if (!store.get().away) unread.delete(store.get().activeRoomId ?? "");
       store.set({ unread });
     } finally {
       if (--inFlight === 0) recent = [];
@@ -103,9 +104,11 @@ export function createUnread({ api, store, timing = TIMING }: { api: Api; store:
 
     return {
       seen(created) {
-        if (!live() || created <= readAt) return;
-        readAt = created;
+        if (!live()) return;
+        // Even with nothing new: a count fetched while the tab was away may include what was already read.
         store.set(clearUnread(roomId));
+        if (created <= readAt) return;
+        readAt = created;
         if (timer) return;
         pending.add(self);
         timer = setTimeout(self.send, timing.readMs);
@@ -132,9 +135,10 @@ export function createUnread({ api, store, timing = TIMING }: { api: Api; store:
       s.sub(
         api.subscribeAllMessages((action, m) => {
           if (!s.active) return;
-          const { user, activeRoomId, unread } = store.get();
-          // The room you are in is read as it arrives (the room view reports it); your own messages never count.
-          if (action === "create" && m.author !== user?.id && m.room !== activeRoomId) {
+          const { user, activeRoomId, away, unread } = store.get();
+          // The room you are in is read as it arrives (the room view reports it), unless the tab is away; your own
+          // messages never count.
+          if (action === "create" && m.author !== user?.id && (m.room !== activeRoomId || away)) {
             if (inFlight) recent.push({ room: m.room, created: m.created });
             store.set(bumpUnread(m.room));
           } else if (action === "update" && m.deleted && unread.has(m.room)) refresh(); // was it unread?
@@ -142,8 +146,8 @@ export function createUnread({ api, store, timing = TIMING }: { api: Api; store:
       );
       s.sub(
         api.subscribeReads((_action, row) => {
-          // Read in another tab or on another device. The room you are in is already at 0 here.
-          if (s.active && row.room !== store.get().activeRoomId) refresh();
+          // Read in another tab or on another device. The room you are in is already at 0 here, unless the tab is away.
+          if (s.active && (row.room !== store.get().activeRoomId || store.get().away)) refresh();
         }),
       );
       s.defer(
@@ -152,10 +156,16 @@ export function createUnread({ api, store, timing = TIMING }: { api: Api; store:
         }),
       );
       // A room you can now see (you were added to a private room, §23.2) may already have messages for you.
+      // Leaving the tab: the open room may have messages that arrived unseen (scrolled up), which only the server
+      // counts. What was read is sent first.
       s.defer(
         store.subscribe((st, prev) => {
-          if (s.active && prev.roomsStatus === "ready" && st.rooms !== prev.rooms && [...st.rooms.keys()].some((id) => !prev.rooms.has(id)))
+          if (!s.active) return;
+          if (prev.roomsStatus === "ready" && st.rooms !== prev.rooms && [...st.rooms.keys()].some((id) => !prev.rooms.has(id))) refresh();
+          if (st.away && !prev.away && st.activeRoomId) {
+            for (const r of [...pending]) r.send();
             refresh();
+          }
         }),
       );
       void load(s);

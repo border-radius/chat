@@ -82,7 +82,7 @@ These are left out on purpose. The design should not block them later.
 chat/
 ├── docs/
 │   ├── DESIGN.md               # this document (the living spec)
-│   ├── QA.md                   # QA findings for §15–§17 (BUG-24 …)
+│   ├── QA.md                   # QA findings and their fixes, BUG-24 onward (code and tests cite them)
 │   ├── REFACTOR.md
 │   └── history/                # finished plans: BUILD_PLAN.md (MVP), NEXT_FEATURES_PLAN.md (§15–§17)
 ├── package.json
@@ -105,22 +105,30 @@ chat/
 │   ├── 1760000009_reactions.js         # §20.1
 │   ├── 1760000010_fit_thumbs.js        # §17.5
 │   ├── 1760000011_forwarding.js        # §21.3
-│   └── 1760000012_accounts.js          # §22.1, §22.2
+│   ├── 1760000012_accounts.js          # §22.1, §22.2
+│   └── 1760000015_site.js              # §24
 ├── pb_hooks/                   # server-side JS hooks (committed)
 │   ├── main.pb.js              # registrations only
 │   └── lib/
-│       ├── chat.js             # validation, stamps, soft delete, DM guards, headers (§5.6, §16, §17)
+│       ├── messages.js         # messages hooks: text, attachments, replies, forwards, soft delete, edit stamps (§5.6, §17, §19, §21)
+│       ├── rooms.js            # rooms hooks: names, DM fields, members, archive stamps (§5.2, §16, §23)
+│       ├── access.js           # who can see a room: canSee, SEES_SQL, lost-access events (§23)
+│       ├── records.js          # shared record helpers: field errors, name keys, uploaded file names
+│       ├── text.js             # pure string cleaning: invisible characters, name keys, file names (§5.2, QA BUG-38)
+│       ├── http.js             # security + cache headers, /assets/ (§5.6, §8.2)
 │       ├── dms.js              # POST /api/chat/dms (§16.2)
 │       ├── reads.js            # GET /api/chat/unread, POST /api/chat/reads (§18.2)
 │       ├── reactions.js        # POST /api/chat/reactions (§20.2)
 │       ├── bulk.js             # POST /api/chat/delete, POST /api/chat/forward (§21)
 │       ├── account.js          # POST /api/chat/password (§22.2)
-│       ├── users.js            # GET /api/chat/users: user search (§16.5)
+│       ├── site.js             # invite-only signups (§24)
+│       ├── users.js            # users hooks (§5.1, §22.1), login by email, GET /api/chat/users (§16.5)
 │       ├── emoji.js            # the emoji a reaction may be (§20.1)
 │       └── images.js           # upload image size limit (§15, QA BUG-24)
 ├── web/
 │   ├── index.html              # template; build injects hashed asset names
-│   ├── styles/app.css, viewer.css (the image viewer's, loaded on first use: §17.7)
+│   ├── styles/app.css          # @imports styles/app/*.css (one file per part, in cascade order) into one bundle
+│   ├── styles/viewer.css       # the image viewer's, loaded on first use (§17.7)
 │   └── src/
 │       ├── main.ts             # boot
 │       ├── app.ts              # app shell: session, routes, app bar
@@ -270,7 +278,7 @@ The hooks are kept small. They only do things the rules can't express:
 - **Edit stamp:** on a `messages` update where `text` actually changed (and it isn't a delete), set `edited_at = now`. An update that doesn't change the text leaves it untouched.
 - **Archive stamp:** on a `rooms` update, set `archived_at = now` when `archived` becomes true, and clear it when `archived` becomes false.
 - **Archived-room guard (defense in depth):** reject a message create, update or delete when the target room is archived. This repeats the API rule in case rule traversal through `@request.body.room.archived` behaves differently in the pinned PocketBase version. Integration tests cover both layers.
-- **Security headers** via `routerUse`: every response gets `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`. Static app paths also get `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data: blob:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`. The CSP is *not* applied to `/api/*` or to the admin UI `/_/`, which sends its own CSP.
+- **Security headers** via `routerUse`: every response gets `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`. Static app paths also get `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`. The CSP is *not* applied to `/api/*` or to the admin UI `/_/`, which sends its own CSP.
 - **Cache headers:** `/assets/*` (content-hashed) gets `Cache-Control: public, max-age=31536000, immutable`. Every other static path, including `/` and `index.html`, gets `no-cache`.
 - **No `index.html` for a missing asset or API:** PocketBase serves `index.html` for any path that isn't a file (§7.1). Under `/assets/` (a route of ours, `GET /assets/{path...}`) a missing file is a 404 with `Cache-Control: no-store` instead: an old build's lazy chunk, asked for by a tab left open across a deploy, would otherwise get HTML (useless as a script) cached for a year under its hashed name. An unknown `/api/` path is a JSON 404 too, not the app's page.
 - **Rate limiting:** PocketBase's built-in limiter, enabled from the init migration. The limits are per client IP:
@@ -423,6 +431,11 @@ The window state machine above lives in `views/room/controller.ts`, which has no
 3. `create()` is called with that id.
 4. Whichever arrives first, the `create()` response or the realtime `create` event, **replaces** the pending entry by id. The second one is a no-op because of the dedupe.
 5. On error the entry is marked `failed` with a **Retry** button that reuses the same id, so a retry can never create a duplicate.
+6. Sends go to the server one at a time, in the order they were made: the server orders messages by when it saves them,
+   so a slow one (a large attachment) must not be overtaken by the next (QA BUG-71). A message's edits, deletes and
+   reactions go one at a time too (QA BUG-72).
+7. A send that fails after its room view has gone (another room was opened meanwhile) is kept, and the room's next view
+   shows it as failed, with Retry (QA BUG-76).
 
 **Reconnects:** the client (`pb.ts`) reconnects SSE automatically. On every `PB_CONNECT` after the first, the room view checks where its window is:
 
@@ -478,7 +491,7 @@ If the room's first load fails (other than "room not found"), the list shows an 
 
 | Asset | Budget (gzipped) |
 |---|---|
-| `app.js` (including the PocketBase client) | **≤ 37 KB** (25 KB for the MVP; raised for §15–§17, §19, §22 and §23, see §13) |
+| `app.js` (including the PocketBase client) | **≤ 39.35 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments and the QA pass 8 and 9 fixes, see §13) |
 | `app.css` | **≤ 6 KB** (5 KB until §21, 5.5 KB until §23, see §13) |
 | `index.html` | ≤ 1.5 KB |
 | Image viewer (§17.7), loaded on first use | ≤ 4 KB script, ≤ 1.5 KB stylesheet |
@@ -597,7 +610,7 @@ View tests run against a real, throwaway PocketBase (temp data dir) using the re
 - A trailing slash is the same page.
 - An image viewer history entry with no viewer open (§17.7) is passed over with `history.back()`, on start and on `popstate`.
 
-**`views/room.test.ts`** (real PocketBase)
+**`views/room/*.test.ts`** (real PocketBase; one file per feature, sharing `views/room/harness.ts`)
 - Initial render shows 50 messages, oldest at the top.
 - Optimistic send shows a pending message straight away. The server ack clears the pending state, and a later realtime echo does **not** duplicate it.
 - When send fails, the message shows as failed with a Retry button. Retry calls `create` again with the **same id**.
@@ -760,7 +773,8 @@ Playwright traces are uploaded when a test fails. The job runs on every push and
 | Deleted content lingering | Soft delete wipes `text` on the server inside the same update. Only the placeholder metadata (author, time) remains, and an integration test checks the DB row directly. |
 | Filter injection | `pb.filter()` with bound params everywhere. |
 | Email harvesting | `emailVisibility = false`, and `fields` requests never include email. |
-| Spam and flooding | PocketBase rate limits, the 2000-char cap, and signup rate limiting. |
+| Spam and flooding | PocketBase rate limits, the 2000-char cap, and signup rate limiting. The limits are per client IP: behind a reverse proxy, `TRUSTED_PROXY=X-Forwarded-For` (applied on start by `trustProxy` in `http.js`, set in the Docker image) makes them per client rather than one for everyone; the rightmost address is used, so clients can't choose theirs. |
+| Filling the disk | Uploads are capped per file, per message and by the message rate limit; forwards copy nothing (§21.3). |
 | Token theft | The token is stored in `localStorage` by the client (`pb.ts`). The CSP greatly lowers XSS risk. Moving to HttpOnly cookies is noted as future work. |
 | Admin UI exposure | Strong superuser password. In production, optionally restrict `/_/` by IP using a hook. |
 
@@ -852,7 +866,7 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 |---|---|
 | What can be selected | Any saved message that isn't deleted, yours or not; at most 50 at a time (`MAX_SELECTED`). Forwarding works on any of them, archived rooms included; deleting only when every selected message is yours and the room isn't archived (§21.1). |
 | One request, all or nothing | Deleting or forwarding several messages is one request to a route that runs in one transaction (§21.2, §21.3), not one request per message: the per-message rate limits would refuse a large selection halfway, and a half-done delete or forward is harder to explain than a failed one. |
-| What a forward is | A new message by the forwarder, with the text and copies of the attachments, saying who first wrote it (`forwarded_from`, kept through forwards of forwards). Not a link to the original: the recipient may not be able to see the original's room, and the original can be deleted. Replies, reactions and edit stamps are not copied. |
+| What a forward is | A new message by the forwarder that points at the original (`forward_of`) and shows it as it is now, saying who first wrote it (`forwarded_from`, kept through forwards of forwards). Nothing is copied: copies of the attachments let one account fill the disk (50 messages × 32 MB per request, 20 requests a minute). An edit of the original shows in its forwards and a delete empties them; the view rule lets a forward's readers see that one original, nothing else of its room (§21.3). Replies and reactions are not forwarded. Forwards made before this hold copies. |
 | Where to | Any room or DM you can write in, or someone you have no DM with yet (found by name, which opens one). Afterwards the view goes to where the messages went. |
 | CSS budget | `app.css` raised from 5 KB to 5.5 KB gzipped (§7.7): §21 took it to 5.15 KB. |
 
@@ -890,6 +904,19 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 | Topic | Decision |
 |---|---|
 | Paths, not hashes | Pages are paths (`/r/abc`) (§7.1). PocketBase already serves `index.html` for any path that isn't a file, so no server change for pages (a missing asset or an unknown `/api/` path gets a 404 instead, §5.6); anything put in front of it (a proxy or CDN serving `pb_public/` itself) must do the same. Old `#/` links are rewritten to their path, so bookmarks and shared links keep working. `app.js` +0.2 KB. |
+
+### Decided (2026-10-12, site settings)
+
+| Topic | Decision |
+|---|---|
+| Where | A `site` collection with one record, edited in the PocketBase admin UI: no admin pages in the app. A collection, not PocketBase's own settings, because the logo is a file and the invite code must stay hidden (a hidden field). |
+| One code | One shared invite code, not one per person: what was asked for, and changing it is how an admin stops it working. Per-person invites (an `invites` collection, used up on signup) can come later without changing the rest. |
+| Closed signups | Invite-only with an empty code closes signups altogether, rather than letting anyone in by mistake. |
+| Favicon | Stays the app's speech bubble with its unread badge: the logo is any image, which an SVG favicon can't embed. |
+| Bundle budget (§24) | `app.js` raised from 37 KB to 38 KB gzipped (§7.7): §24 took it to 37.6 KB. |
+| Bundle budget (videos) | `app.js` raised from 38 KB to 39 KB gzipped (§7.7): video attachments (§17.5) and the viewer paging through the whole room (§17.7) took it to 38.1 KB, after merging the image and video tiles. The paging itself lives in the lazy viewer chunk. |
+| Bundle budget (QA pass 8) | `app.js` raised from 39 KB to 39.25 KB gzipped (§7.7): the fixes of QA pass 8 (sends and edits in order, failed sends kept after leaving a room, realtime retrying a failed first connect, …) took it to 39.15 KB. |
+| Bundle budget (QA pass 9) | `app.js` raised from 39.25 KB to 39.35 KB gzipped (§7.7): the forwarding fixes of QA pass 9 (messages deleted meanwhile left out, the server's reason shown, focus kept while selecting) took it to 39.30 KB. |
 
 ### Still open
 
@@ -1216,6 +1243,13 @@ other files as chips with name and size, each with a remove (×) button.
   aspect ratio before they load. Only files the server will show as images (by extension) show as previews. Clicking
   opens the image viewer (§17.7); a click asking for a new tab or window (Ctrl/Cmd/Shift/middle click) opens the full
   file there instead (`target="_blank" rel="noopener"`), served under the sandbox CSP.
+- **Videos** (by extension: `mp4 m4v webm mov ogv`): tiles like images, in the same row and at the same sizes,
+  showing the video's first frame with a play badge over it. There are no server thumbnails for videos: the tile is a
+  `<video preload="metadata">` of the full file with `#t=0.001` (so every browser, Safari too, draws the first
+  frame), and the browser fetches only enough of it to draw that. While sending, the local preview is the file's
+  object URL (so the app CSP allows `media-src blob:`), and its aspect ratio carries over like an image's. Clicking
+  plays it in the viewer (§17.7); a failed load retries once with a new token, then shows "Couldn't load video" with
+  Retry (a format the browser can't play ends up there too; Ctrl/Cmd-click still gets the file).
 - **Other files:** a chip with an icon, the display name and a download link (`download` attribute).
 - **Display name:** PocketBase stores `quarterly_report_final_k3j2h1g0f9.pdf` for "Quarterly Report (final).pdf". The
   create hook records each upload's original name in `file_names` (§17.1), and the list shows and downloads files
@@ -1243,13 +1277,21 @@ other files as chips with name and size, each with a remove (×) button.
 
 ### 17.7 Image viewer
 
-Clicking a thumbnail shows the image full size in a full-window viewer, and you can step through every image in the
-room's window (§7.5), oldest first, with no round trip to the server except for the images themselves.
+Clicking a thumbnail shows the image full size in a full-window viewer, and you can step through every image and
+video in the room, oldest first: those of the room's window (§7.5) to start with, and the others fetched from the
+server as you get near them.
 
 - **What it shows:** the full file (not a thumbnail; uploads are at most 2048 px, §15.3), fitted to the window; a bar
   with the file name, who sent it and when, "*n* / *total*", **Download** (`download` attribute, re-signed before use
   like every file link, §17.3) and **Close**. Images of deleted messages and of messages still sending are left out.
-  The list is taken when it opens; it doesn't follow new messages.
+  It starts with the window's images; it doesn't follow new messages.
+- **Beyond the window:** when the image shown is within 3 of the first or last one it has, and the room has messages
+  beyond the window on that side (`hasOlder`/`hasNewer`), it fetches the next page of the room's messages that have
+  attachments (`withFiles` in `lib/cursor.ts`: `files:length > 0`, the usual `(created, id)` cursor from its first or
+  last image), and the next while a page has none to show (only other files). Stepping past the end waits for it;
+  a failed fetch is tried again by the next step. Previous/Next stay while there may be more. The count shows once the
+  viewer has the whole room's images (at once in a room that fits the window), since it can't know the total before.
+  The paging is in the viewer chunk; the room view passes only the page request and which files are images or videos.
 - **Moving:** Previous/Next buttons on the sides (hidden at the first and last image), ←/→, Home/End, or a one-finger
   horizontal swipe (≥ 50 px, mostly horizontal; pinch-zoom still works). The neighbours are preloaded, so stepping is
   instant.
@@ -1265,6 +1307,11 @@ room's window (§7.5), oldest first, with no round trip to the server except for
   An entry with no viewer open on it (Forward after Back closed the viewer, a reload while it was open, one left by
   leaving the room) would take a Back that seems to do nothing, so the router passes over it with `history.back()`
   whenever it lands on one, on start or on `popstate`.
+- **Videos** step along with the images. One plays in a `<video controls>` (autoplay where the browser allows it, else
+  the controls start it); stepping away or closing stops it and drops its download. Neighbouring videos aren't
+  preloaded. Swipes don't start on the video (dragging its seek bar isn't a swipe) and the arrow keys are the video's
+  own while it has focus. A video whose token expires mid-play (the browser fetches it in ranges) gets a new token and
+  carries on from where it was.
 - **Failures:** an image that doesn't load gets one retry with a new file token (an expired token is the usual cause),
   then "Couldn't load image" with Retry, like thumbnails (§17.3).
 - **Accessibility:** a modal `<dialog>` (focus stays inside, the room behind is inert), named after the image shown;
@@ -1353,7 +1400,8 @@ No row means "read up to your signup" (`users.created`): history from before you
 
 - A pill after the room name (`.badge`, the accent gradient, `99+` past 99) and a bold name. The badge holds a
   visually hidden " unread", so a screen reader reads "general, 3 unread".
-- **No badge** for the active room, hidden rooms or archived rooms (`unreadCount()` in `store.ts`).
+- **No badge** for the active room, hidden rooms or archived rooms (`unreadCount()` in `store.ts`). The tab's
+  count (§22.4) does include the active room while the tab is away.
 - Room rows are now flex rows: the name ellipsizes, and the `#`, the avatar and the badge always stay visible.
 
 ### 18.5 Tests
@@ -1383,7 +1431,7 @@ soft-deleted, so the relation never dangles: a reply to a deleted message quotes
 
 - **Set on create only.** The update rule adds `@request.body.reply_to:isset = false`, and `beforeMessageUpdate`
   refuses any change to it (backing up the rule against field modifiers).
-- **Same room, not deleted** (`assertReplyTarget` in `pb_hooks/lib/chat.js`). Without the room check, a reply could
+- **Same room, not deleted** (`assertReplyTarget` in `pb_hooks/lib/messages.js`). Without the room check, a reply could
   point into a DM you aren't in, and its expanded quote would show you that message.
 - **Hard deletes still work.** When a superuser deletes a message (or a room) for good, PocketBase clears
   `reply_to` on its replies once the original is gone. `beforeMessageUpdate` lets that one save through
@@ -1565,11 +1613,35 @@ Every room member gets the usual realtime `update` per message. The client shows
 1. 1 to 50 distinct ids (400). A target room the caller can't see is a 404, an archived one a 400. Any message the
    caller can't see is a 404, and any deleted one a 400: forwarding never reveals a message you couldn't read.
 2. In one transaction, a new message per original, in the originals' order (`created`, then id): `author` is the caller,
-   `text` the original's, `forwarded_from` the original's `forwarded_from` or else its author. Attachments are copied
-   (`getReuploadableFile`, under their original names); `reply_to`, reactions and `edited_at` are not. The copies
-   are `created` a millisecond apart so they keep their order. The saves go through `beforeMessageCreate` and
-   `afterMessageCreate` like any message: a DM's members are checked, a closed DM reopens for the recipient, and
-   unread counts and realtime follow.
+   `forward_of` the original (for a forward, the message it shows: chains are one step), `forwarded_from` the
+   original's `forwarded_from` or else its author, and `text` empty. Nothing is copied, so a forward is one row however
+   big the attachments are. The forwards are `created` a millisecond apart so they keep their order. The saves go
+   through `beforeMessageCreate` and `afterMessageCreate` like any message: a DM's members are checked, a closed DM
+   reopens for the recipient, and unread counts and realtime follow. A message whose original is deleted or gone is a
+   400, like a deleted one.
+
+**Forwards show their original** (`messages.forward_of`, a relation to `messages`, max 1, no cascade):
+- *What is shown.* `onRecordEnrich` (`showOriginal`) fills in a forward that isn't deleted with its original's
+  `text`, `files`, `file_names` and `edited_at` in every answer and realtime event, expanded replies included (a
+  reply to a forward quotes the original's words). Once the original is deleted they are empty, and the client shows
+  "The original message was deleted" under "Forwarded from *name*"; a superuser removing it for good clears
+  `forward_of` (let through by `beforeMessageUpdate`, as for `reply_to`), with the same result. Nothing is saved.
+- *Who may see the original.* The messages **view** rule adds: a forward of this message that isn't deleted is in a
+  room the caller can see (an aliased `@collection.messages:fwd` join with "any of" operators, so every condition is
+  about the same forward). That covers reading it by id, expanding it and its attachments' URLs (the client signs
+  `/api/files/messages/<forward_of>/…`). The **list** rule is unchanged: the original's room, its other messages and
+  replies stay hidden, and the routes that act on a message (reactions, forward, delete) check the list rule, so a
+  forward's reader can't react to the original or forward it by id. Deleting the forward ends the grant. Read that way,
+  the original keeps to itself what would say who is in its room: `keepToRoom` (`onRecordEnrich`) empties its
+  `reactions` and `reply_to` for anyone who can't see its room (QA BUG-80).
+- *Live.* A reader of the forward can't subscribe to the original's room, so after an edit or delete of a message
+  (`changesForwards`), `touchForwards` saves its forwards again (nothing changes but `updated`), which sends them out
+  with the original as it is now. Forwards in archived rooms can't be saved: they show it when loaded.
+- *The viewer* pages through `files:length > 0 || forward_of != ""`: a filter can't see the original's files (relation
+  filters apply the original room's rules), so forwards without media are skipped in the client.
+- `forward_of` is set only by the route: the create and update rules add `@request.body.forward_of:isset = false`,
+  and `beforeMessageCreateRequest` / `beforeMessageUpdate` back that up against field modifiers, superusers included.
+  `beforeMessageCreate` checks the original is there, not deleted and not a forward. `MSG_FIELDS` gains `forward_of`.
 
 **`messages.forwarded_from`**: an optional relation to `users` (max 1, no cascade). The create and update rules add
 `@request.body.forwarded_from:isset = false`; `beforeMessageCreateRequest` and `beforeMessageUpdate` back that up
@@ -1577,15 +1649,18 @@ against field modifiers (superusers included). As with `reply_to` (§19.1), `bef
 clear it when a superuser deletes the user it names. `MSG_FIELDS` gains `forwarded_from` and its expanded `id` and
 `name`; the message shows "Forwarded from *name*" above its text. Rate limit: 20 per 60 s per IP.
 
-**A forward can't be edited**, only deleted: its words are someone else's, and "Forwarded from Bob" must stay true.
+**A forward can't be edited**, only deleted: its words are someone else's (they change only when their author edits the
+original), and "Forwarded from Bob" must stay true.
 `beforeMessageUpdate` refuses a text change on a message with `forwarded_from` (400); the client splits
 `ctl.editable` (no Edit button, skipped by Up arrow) from `ctl.deletable` (Delete, the selection bar).
 
 **The forward dialog** (`views/room/forward.ts`) is a modal `<dialog>` named "Forward *n* messages": a search box
-that filters your open DMs (most recent first), rooms and hidden rooms by title, and also finds people you have no DM
+that filters your open DMs (most recent first), rooms and hidden rooms by title (a room shows its name after a "#" icon), and also finds people you have no DM
 with yet (`api.searchUsers`, debounced); picking one of those opens the DM (`actions.openDm`) first. On success the
 dialog closes, selecting stops and the view goes to the target room (or, for the room you are in, says "*n* messages
-forwarded"). A failure is shown in the dialog, which stays open to try again. While a forward is on its way the dialog
+forwarded"). Messages deleted since the dialog opened, and forwards whose original was, are left out (QA BUG-79); with
+none left nothing is sent. A failure, with the server's reason, is shown in the dialog, which stays open to try again.
+A forward whose original was deleted has no Forward in its pill. While a forward is on its way the dialog
 can't be cancelled (Cancel disabled, Escape refused), and if the browser closes it anyway a failure reopens it: what
 happened must be seen. While a people search is pending the status says "Searching…", not "Nothing found."; people
 found for an earlier query stay only while they match the new one.
@@ -1596,9 +1671,13 @@ The pill's Forward button has the class `forward` too, so the dialog's styles ar
 
 - **Integration** (`bulk.test.ts`): a forward can be deleted but not edited; delete several, all or nothing (someone else's message → 403), idempotent, refused
   in archived rooms and for invisible or unknown messages, live for others; forward in order with `forwarded_from`
-  (kept through a forward of a forward), attachments copied and readable, the answer expanded like a read, into a DM
-  only for its members and reopening it, nothing forwarded from a DM you're not in or of deleted messages, clients
-  (and superusers) can't set or change `forwarded_from`; the rate limits.
+  and `forward_of` (pointing at the original through a forward of a forward), nothing stored but the pointer, edits and
+  deletes of the original showing live, an original removed for good, no files copied and the original's readable
+  wherever the forward is (guests in Open Air rooms too, nobody else), the grant limited to that one message and ended by
+  deleting the forward, a reply quoting the original's words, the answer expanded like a read, into a DM only for its
+  members and reopening it, nothing forwarded from a DM you're not in or of deleted messages, clients (and superusers)
+  can't set or change `forwarded_from` or `forward_of`; the rate limits. **E2E** (`attachments.spec.ts`): a forwarded
+  image's thumbnail and viewer load from the original.
 - **Unit** (room view): selecting by Select, checkbox and click; Cancel, Escape and the last unselect; deleted and unsent
   messages not selectable, one deleted meanwhile unselected; the 50 limit; Delete only for your own, its confirm, one
   request, and a failure putting them back; forwarding a selection in order and going there; forwarding one message to
@@ -1614,7 +1693,7 @@ The pill's Forward button has the class `forward` too, so the dialog's styles ar
 ### 22.1 Unique display names
 
 `users.name_key` (hidden text, unique index where not empty) holds the name's key: `nameKey()` in
-`pb_hooks/lib/chat.js`, the same NFKC + case folding without invisible characters as room names (§5.2). `beforeUserSave`
+`pb_hooks/lib/text.js`, the same NFKC + case folding without invisible characters as room names (§5.2). `beforeUserSave`
 sets it after cleaning the name and refuses a key someone else has: 400, `name: validation_not_unique`, "This display
 name is taken. Choose another one." (shown next to the field by sign up and the profile). An update that keeps the name
 keeps its key without checking it. The migration (`1760000012_accounts.js`) backfills the keys; names that already
@@ -1652,6 +1731,12 @@ else) removes that user's drafts. Storage that is full or disabled only means no
 favicon (a speech bubble in the app's gradient) with a red badge holding the count (`99+` past 99); the title becomes
 "(3) Chat". `index.html` carries the plain icon, so the tab has one before the script runs.
 
+While the tab is away (`document.visibilityState` is `hidden`, kept as `AppState.away` by `app.ts`), nobody is
+reading the open room, so its new messages count too: `unread.ts` counts them live, keeps the server's count for it
+on a refetch, and refetches when the tab goes away (after sending what was read) to catch messages that came in
+unseen while scrolled up. The room list still shows no badge for it (§18.4). Coming back, the room view reads what is
+on screen as usual, which clears it; scrolled up, it stays out of the count, as before.
+
 ### 22.5 Focus on entering a room
 
 When the composer is first shown in a room (on entering it or switching from another), the caret goes into it. Not on
@@ -1678,7 +1763,8 @@ it. "↓ New messages" and "New messages · Jump to latest" take precedence as b
 - **Unit**: `passwordProblem`; the profile's password form (local checks, wrong current password, success) and Log
   out; a taken name on sign up and on the profile; drafts across a reload, per user, cleared; focus on entering a
   room (not on touch screens); Jump to latest scrolled up and back in history; the forward confirmation going away;
-  the favicon's label, count and title.
+  the favicon's label, count and title, with the open room counted while the tab is away (`favicon.test.ts`,
+  `unread.test.ts`, `app.test.ts`).
 - **E2E** (`accounts.spec.ts`): change the password and log in with it; a taken name at sign up; a draft survives a
   reload and the composer has focus on entering rooms; the title and favicon count unread messages; Jump to latest;
   the forward confirmation going away.
@@ -1702,7 +1788,7 @@ can listen in, but you need to step up (sign in) to speak.
 `rooms.visibility` (select `public` / `private` / `open`, required) is new; the migration
 (`1760000014_room_access.js`) backfills `public`, and `private` for DMs, which are private to their two members.
 `rooms.members` (§16.1) now holds up to 100 users (`LIMITS.roomMembers`), and also lists a private room's members.
-The rooms hooks keep it consistent on every save (`setMembers` in `pb_hooks/lib/chat.js`): a private room always lists
+The rooms hooks keep it consistent on every save (`setMembers` in `pb_hooks/lib/rooms.js`): a private room always lists
 its creator first, each member once; any other room lists nobody (switching away from Private drops the list).
 
 With `MEMBER(r)` = `@auth && (r.visibility != "private" || r.members.id ?= @auth || r.created_by = @auth)`:
@@ -1782,3 +1868,76 @@ refreshes the unread counts.
   room live with its picture, can't write, is told about a room that needs an account, and logs in back into the room;
   an Open Air room leaves and comes back on a guest's screen as it is archived, unarchived and made public. axe checks
   the dialog.
+
+## 24. Site settings: branding and invite-only signups
+
+An admin (a PocketBase superuser) sets the site's title and logo, and can make signing up need an invite code. There
+is no admin page in the app: it is all in the PocketBase admin UI (`/_/`, *Collections → site*).
+
+### 24.1 Data model and rules
+
+`site` (migration `1760000015_site.js`) holds one record, created by the migration:
+
+| Field | Type | Notes |
+|---|---|---|
+| `title` | text, required, 1–48 | Shown in the app bar, on the login page and in the tab's title. "Chat" at first. |
+| `logo` | file, optional | SVG, PNG, JPEG, WebP or GIF, up to 1 MB, public. Replaces the app bar's speech bubble and sits above the title on the login page. |
+| `invite_only` | bool | Signing up needs `invite_code`. |
+| `invite_code` | text, **hidden**, ≤ 100 | Only superusers see it. Empty while invite-only: signups are closed. |
+
+List and view rules are `""` (anyone, guests too: the login page needs the branding and whether to ask for a code);
+create, update and delete are superusers only. Should a second record be added, the oldest one counts. PocketBase
+serves files with a `sandbox` Content-Security-Policy, so an SVG logo can't run scripts even opened on its own.
+
+### 24.2 Invite-only signups
+
+`checkInvite()` (`pb_hooks/lib/site.js`, a users create-request hook) runs before the record is validated. While the
+site is invite-only, the request must carry `invite_code` (not a users field, so PocketBase doesn't store it) equal to
+the site's, ignoring spaces around it and compared in constant time; otherwise a 400 on `invite_code`:
+`validation_required` (none sent), `validation_invalid_invite` (wrong, case-sensitive) or `validation_signups_closed`
+(the site has no code). Superusers create accounts as before (the admin UI). Existing accounts log in as before. OAuth2
+(off, §14) can't create accounts while invite-only either: `checkOAuth2Signup()` refuses them. The signup rate limit
+(§5) also limits guessing.
+
+### 24.3 Frontend
+
+`api.site()` reads the record (`id,title,logo,invite_only`) and `startSite()` (`web/src/site.ts`) puts it in the store
+as `site` at startup: the app bar's brand, the login page's heading and the tab's title (§22.4) follow it. It stays when
+the session ends. The last one seen is kept in localStorage (`chat.site`), so a reload shows the site's own branding
+at once; a failed load keeps what is shown. On the Sign up tab of an invite-only site, an **Invite code** field comes
+last, and its errors show next to it. A site made invite-only after the page loaded still refuses the signup, with the
+server's message above the button.
+
+### 24.4 Tests
+
+- **Integration** (`site.test.ts`): one public record without its code; only superusers change it; the logo is a public
+  image and an SVG one is sandboxed; signups open, needing the code (missing, wrong, wrong case, padded), and closed;
+  existing accounts still log in and superusers still create accounts.
+- **Unit**: loading, caching and failing to load the site (`site.test.ts`); the app bar, login page and tab title with
+  a custom site, kept after logging out; the invite code field, what it sends and its errors (`login.test.ts`).
+
+---
+
+## 25. Measured scale
+
+`tests/perf/scale.ts` seeds a throwaway server and times, through the app's own client, the requests whose cost grows
+with the data (`node --experimental-eventsource --no-warnings tests/perf/scale.ts`; sizes from `ROOMS`, `USERS`,
+`MESSAGES`, `LISTENERS`). Measured 2026-10-13 on the dev machine (AMD Custom APU 0405: a Steam Deck, 4 cores /
+8 threads), 100,000 messages, every room with ≥ 100 unread for the caller (the worst case for §18.2: each count stops
+at 100):
+
+| Request | 200 rooms, 50 listeners | 1,000 rooms, 200 listeners |
+|---|---|---|
+| `GET /api/chat/unread` (§18.2) | 52 ms | 237 ms |
+| List rooms | 19 ms | 80 ms |
+| Latest page of a room (50 messages) | 10 ms | 10 ms |
+| Send a message | 5 ms | 5 ms |
+| Send, until every listener has the event (§18.3) | 34 ms | 82 ms |
+
+- **Linear in what grows:** unread counts ≈ 0.24 ms per visible room (worst case), the room list ≈ 0.08 ms per room,
+  a message's fan-out ≈ 0.4 ms per connected listener (every open signed-in tab listens to every room it can see).
+  Pages and sends don't depend on the size.
+- **First to matter:** the unread counts, fetched on load, on every reconnect and after reads elsewhere (debounced).
+  Around 4,000 visible rooms one fetch would take about a second of server time; then count only rooms with activity
+  since the caller's oldest read, or keep counts per user. Next, the fan-out: at hundreds of open tabs, each message
+  costs tens of ms of server time; a thinner event or batching would help (REFACTOR item 26).

@@ -115,6 +115,9 @@ export function lastOwnEditable(win: MessageWindow, me: string): Message | undef
   return undefined;
 }
 
+/** A forward whose original was deleted: it has nothing left to show, or to forward again (§21.3). */
+export const emptyForward = (m: Message): boolean => !!m.forwarded_from && !m.text && !m.files?.length;
+
 /** What a reply keeps of the message it answers (§19), e.g. for an optimistic reply before the server expands it. */
 export function quoteOf(m: Message): Quoted {
   return {
@@ -133,5 +136,6 @@ export function quoteText(q: Pick<Quoted, "text" | "deleted" | "files">): string
   const text = q.text.replace(/\s+/g, " ").trim();
   if (text) return text;
   const n = q.files?.length ?? 0;
+  if (!n) return "Message deleted"; // a forward whose original was deleted (§21.3)
   return n === 1 ? "Attachment" : `${n} attachments`;
 }

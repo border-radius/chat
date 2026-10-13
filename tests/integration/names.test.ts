@@ -1,9 +1,10 @@
-// Server-side fixes from the QA pass: invisible text, look-alike and Unicode-case room names, account deletion,
-// and the extra rate limits (pb_hooks/lib/chat.js, pb_migrations/1760000001_qa_fixes.js).
+// Display names and room names (§5.1, §5.2, §22.1): cleaned of invisible and control characters, unique however they are
+// written (case, script, look-alikes), and room names without their "#" (QA BUG-10, 11, 12, 38, 41, 48).
+// The cleaning is pb_hooks/lib/text.js; the uniqueness check is setNameKey in pb_hooks/lib/records.js.
 
 import { ClientResponseError } from "pocketbase";
-import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
-import { adminClient, client, expectRejected, newRoom, newUser, post, status, uniq } from "./helpers.ts";
+import { describe, expect, it } from "vitest";
+import { client, expectRejected, newRoom, newUser, post, rawDb, uniq } from "./helpers.ts";
 
 const signUp = (name: string) =>
   client()
@@ -91,50 +92,68 @@ describe("room names are unique ignoring case, in any script (BUG-12)", () => {
   });
 });
 
-describe("account deletion (BUG-08)", () => {
-  it("is not offered through the API, for users with or without content", async () => {
-    const empty = await newUser();
-    await expectRejected(empty.pb.collection("users").delete(empty.user.id));
-    const busy = await newUser();
-    await post(busy, (await newRoom(busy)).id, "hello");
-    await expectRejected(busy.pb.collection("users").delete(busy.user.id));
+describe("control characters and whitespace in names (BUG-38)", () => {
+  it("turns line breaks, tabs and runs of spaces in room names into single spaces", async () => {
+    const a = await newUser();
+    const n = uniq();
+    const room = await a.pb.collection("rooms").create({ name: `  two\nlines\t${n}  `, created_by: a.user.id });
+    expect(room.name).toBe(`two lines ${n}`);
+    // Look-alikes of an existing name are the same name.
+    await expectRejected(a.pb.collection("rooms").create({ name: `two  lines ${n}`, created_by: a.user.id }));
+    await expectRejected(a.pb.collection("rooms").create({ name: `two\u00a0lines\u2028${n}`, created_by: a.user.id }));
+  });
+
+  it("cleans display names the same way, and rejects one made only of control characters", async () => {
+    const a = await newUser();
+    const u = await a.pb.collection("users").update(a.user.id, { name: "Ada\n\n  Lovelace\u0007" });
+    expect(u.name).toBe("Ada Lovelace");
+    await expectRejected(a.pb.collection("users").update(a.user.id, { name: "\n\t\u0000" }));
   });
 });
 
-describe("extra rate limits (BUG-22, BUG-23)", () => {
-  it("migrations add limits for message edits/deletes and room creation", () => {
-    const rules = inject("bootRateLimits").rules;
-    expect(rules).toContainEqual(expect.objectContaining({ label: "messages:update", maxRequests: 20, duration: 10 }));
-    expect(rules).toContainEqual(expect.objectContaining({ label: "rooms:create", maxRequests: 5, duration: 60 }));
-    // the original rules are kept
-    expect(rules).toContainEqual(expect.objectContaining({ label: "messages:create", maxRequests: 10, duration: 5 }));
+describe("legacy rooms whose names share a key (BUG-41)", () => {
+  it("can still be archived and unarchived; renaming one onto the other is still refused", async () => {
+    const a = await newUser();
+    const n = uniq();
+    await newRoom(a, `Über ${n}`);
+    const legacy = await newRoom(a, `other ${n}`);
+    // As left by 1760000001_qa_fixes.js for names that already clashed: the key made unique with the room id.
+    const db = rawDb({ write: true });
+    try {
+      db.prepare("UPDATE rooms SET name = ?, name_key = ? WHERE id = ?").run(`über ${n}`, `über ${n}#${legacy.id}`, legacy.id);
+    } finally {
+      db.close();
+    }
+    const rooms = a.pb.collection("rooms");
+    expect((await rooms.update(legacy.id, { archived: true })).archived).toBe(true);
+    expect((await rooms.update(legacy.id, { archived: false })).archived).toBe(false);
+    await expectRejected(rooms.update(legacy.id, { name: `ÜBER ${n}` }));
   });
 
-  describe("when enabled", () => {
-    beforeAll(async () => {
-      const admin = await adminClient();
-      await admin.settings.update({ rateLimits: { ...inject("bootRateLimits"), enabled: true } });
-    });
-    afterAll(async () => {
-      const admin = await adminClient();
-      await admin.settings.update({ rateLimits: { ...inject("bootRateLimits"), enabled: false } });
-    });
+  it("a client can't set name_key, even without changing the name", async () => {
+    const a = await newUser();
+    const n = `room-${uniq()}`;
+    const room = await newRoom(a, n);
+    await a.pb.collection("rooms").update(room.id, { name_key: "something else" });
+    const db = rawDb();
+    try {
+      expect(db.prepare("SELECT name_key FROM rooms WHERE id = ?").get(room.id)).toEqual({ name_key: n });
+    } finally {
+      db.close();
+    }
+  });
+});
 
-    it("a burst of edits hits 429", async () => {
-      const a = await newUser();
-      const m = await post(a, (await newRoom(a)).id, "v0");
-      const codes: number[] = [];
-      for (let i = 0; i < 45; i++) codes.push(await status(a.pb.collection("messages").update(m.id, { text: `v${i + 1}` })));
-      expect(codes.slice(0, 20)).toEqual(Array(20).fill(200));
-      expect(codes).toContain(429);
-    });
-
-    it("a burst of room creation hits 429", async () => {
-      const a = await newUser();
-      const codes: number[] = [];
-      for (let i = 0; i < 7; i++)
-        codes.push(await status(a.pb.collection("rooms").create({ name: `flood-${uniq()}`, created_by: a.user.id })));
-      expect(codes).toContain(429);
-    });
+describe("room names typed with their # (BUG-48)", () => {
+  it("drops leading #s, so “#name” is the room “name”, shown as #name", async () => {
+    const a = await newUser();
+    const name = `hash-${uniq()}`;
+    const room = await a.pb.collection("rooms").create({ name: `## ${name}`, created_by: a.user.id });
+    expect(room.name).toBe(name);
+    await expectRejected(a.pb.collection("rooms").create({ name, created_by: a.user.id }));
+    await expectRejected(a.pb.collection("rooms").create({ name: " # ", created_by: a.user.id }));
+    // A # inside the name stays.
+    const inner = await a.pb.collection("rooms").create({ name: `c#-${uniq()}`, created_by: a.user.id });
+    expect(inner.name).toMatch(/^c#-/);
   });
 });

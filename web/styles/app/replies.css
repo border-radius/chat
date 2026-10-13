@@ -1,0 +1,85 @@
+/* ---- Replies (§19): a one-line quote of the original above the reply; clicking it shows the original. ---- */
+
+.reply-quote {
+  display: flex;
+  gap: 0.35rem;
+  align-items: baseline;
+  max-width: 100%;
+  margin: 0.1rem 0 0.15rem;
+  padding: 0.1rem 0.6rem;
+  border: 0;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 8px 8px 0;
+  background: var(--tint);
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 400;
+  text-align: left;
+}
+
+.reply-quote:active:not(:disabled) {
+  transform: none;
+}
+
+@media (hover: hover) {
+  .reply-quote:hover {
+    background: var(--hover);
+    color: var(--fg);
+  }
+}
+
+.reply-author {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reply-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reply-quote.deleted .reply-text {
+  font-style: italic;
+}
+
+.replying {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  margin: 0 0 0.4rem;
+  padding: 0.2rem 0.25rem 0.2rem 0.6rem;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  background: var(--tint);
+  font-size: 0.85rem;
+  animation: pop 0.25s var(--ease);
+}
+
+.replying-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.replying-label strong {
+  color: var(--fg);
+}
+
+.replying-text {
+  margin-left: 0.4rem;
+}
+
+.replying .remove {
+  flex: none;
+  padding: 0 0.45rem;
+  border: 0;
+}

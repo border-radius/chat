@@ -57,3 +57,16 @@ describe("avatars (§15)", () => {
     expect(m!.expand!.author.avatar).toBe(u.avatar);
   });
 });
+
+describe("long avatar names (BUG-35)", () => {
+  it("accepts an avatar with a long non-Latin name", async () => {
+    const a = await newUser();
+    const png = Uint8Array.from(
+      atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="),
+      (c) => c.charCodeAt(0),
+    );
+    const avatar = new File([png], `${"é".repeat(150)}.png`, { type: "image/png" });
+    const u = await a.pb.collection("users").update(a.user.id, { avatar });
+    expect(u.avatar).toMatch(/\.png$/);
+  });
+});

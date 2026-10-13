@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../../web/src/api.ts";
-import type { User } from "../../../web/src/lib/types.ts";
+import { DEFAULT_SITE, type Site, type User } from "../../../web/src/lib/types.ts";
+import { type AppState, createStore, initialState } from "../../../web/src/store.ts";
 import { createLoginView } from "../../../web/src/views/login.ts";
-import { instrument, newApi, signedUp, uniq } from "../../support/api.ts";
+import { instrument, intercept, newApi, signedUp, uniq } from "../../support/api.ts";
 
 function fill(root: HTMLElement, values: Record<string, string>) {
   for (const [name, value] of Object.entries(values)) {
@@ -203,5 +204,88 @@ describe("login view (§7.1)", () => {
     form.dispatchEvent(new Event("submit", { cancelable: true }));
     await new Promise((r) => setTimeout(r, 20));
     expect(ctl.calls("logIn")).toBe(0);
+  });
+});
+
+describe("login view: the site's branding and invite-only signups (§24)", () => {
+  let root: HTMLElement;
+  let onLogin: (u: User) => void;
+
+  beforeEach(() => {
+    root = document.createElement("main");
+    document.body.append(root);
+    onLogin = vi.fn();
+  });
+  afterEach(() => {
+    root.remove();
+    vi.restoreAllMocks();
+  });
+
+  const mount = (site: Partial<Site>, api = newApi()) => {
+    const store = createStore<AppState>({ ...initialState(), site: { ...DEFAULT_SITE, ...site } });
+    const view = createLoginView({ api, onLogin, store, mode: "signup" });
+    view.mount(root, {});
+    return { view, api, store };
+  };
+
+  it("shows the site's title and logo", () => {
+    const { store } = mount({ title: "Acme" });
+    expect(root.querySelector("h1")!.textContent).toBe("Acme");
+    expect(root.querySelector("h1 img")).toBeNull();
+    store.set({ site: { ...DEFAULT_SITE, title: "Acme team", logo: "/logo.png" } });
+    expect(root.querySelector("h1")!.textContent).toBe("Acme team");
+    expect(root.querySelector<HTMLImageElement>("h1 img")!.getAttribute("src")).toBe("/logo.png");
+    expect(root.querySelector("h1 img")!.getAttribute("alt")).toBe("");
+  });
+
+  it("asks for the invite code on signup only, and sends it", async () => {
+    const api = newApi();
+    let sent: Parameters<typeof api.signUp>[0] | undefined;
+    intercept(api, "signUp", () => async (input) => {
+      sent = input;
+      return { id: "u1", name: input.name, avatar: "" };
+    });
+    mount({ inviteOnly: true }, api);
+    expect(fieldNames(root)).toEqual(["name", "email", "password", "invite_code"]);
+    tab(root, "Log in").click();
+    expect(fieldNames(root)).toEqual(["email", "password"]);
+    tab(root, "Sign up").click();
+    fill(root, { name: "Grace", email: "grace@test.local", password: "password-123", invite_code: "open-sesame" });
+    submit(root);
+    await vi.waitFor(() => expect(onLogin).toHaveBeenCalled());
+    expect(sent).toEqual({ name: "Grace", email: "grace@test.local", password: "password-123", inviteCode: "open-sesame" });
+  });
+
+  it("a wrong code is refused next to its field", async () => {
+    const api = newApi();
+    const refusal = new ApiError(
+      "Failed to create record.",
+      400,
+      { invite_code: "This invite code isn't valid." },
+      { invite_code: "validation_invalid_invite" },
+    );
+    instrument(api).failNext("signUp", refusal);
+    mount({ inviteOnly: true }, api);
+    fill(root, { name: "Grace", email: `${uniq()}@test.local`, password: "password-123", invite_code: "nope" });
+    submit(root);
+    await vi.waitFor(() => expect(root.querySelector('input[name="invite_code"]')!.getAttribute("aria-invalid")).toBe("true"));
+    const input = root.querySelector<HTMLInputElement>('input[name="invite_code"]')!;
+    expect(document.getElementById(input.getAttribute("aria-describedby")!)!.textContent).toBe("This invite code isn't valid.");
+    expect(alertText(root)).toBe("");
+  });
+
+  it("without the field on screen (the site became invite-only meanwhile), the refusal shows above the button", async () => {
+    const api = newApi();
+    const refusal = new ApiError(
+      "Failed to create record.",
+      400,
+      { invite_code: "Enter your invite code." },
+      { invite_code: "validation_required" },
+    );
+    instrument(api).failNext("signUp", refusal);
+    mount({}, api);
+    fill(root, { name: "Grace", email: `${uniq()}@test.local`, password: "password-123" });
+    submit(root);
+    await vi.waitFor(() => expect(alertText(root)).toBe("Enter your invite code."));
   });
 });

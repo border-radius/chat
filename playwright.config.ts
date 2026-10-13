@@ -2,7 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 const PORT = Number(process.env.E2E_PORT ?? 8091);
 const CI = !!process.env.CI;
-// Set when pb_public/ is already a fresh production build (CI runs `npm run check` first, which builds).
+// Set when pb_public/ is already a fresh production build (CI's e2e jobs build just before).
 const SKIP_BUILD = !!process.env.E2E_SKIP_BUILD;
 
 export default defineConfig({

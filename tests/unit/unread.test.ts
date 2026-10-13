@@ -41,6 +41,12 @@ describe("unread counts (§18.3)", () => {
   };
   const say = (who: SignedUp, room: string, text = "hi") => who.api.send({ id: newId(), room, text });
   const count = (room: string) => store.get().unread.get(room);
+  /**
+   * Only message events of these rooms reach the service from now on. Public rooms are everyone's, so other test files'
+   * traffic arrives too, and a message deleted there rightly refreshes the counts: noise for a test counting requests.
+   */
+  const onlyRooms = (...rooms: string[]) =>
+    intercept(me.api, "subscribeAllMessages", (original) => (fn) => original((action, m) => rooms.includes(m.room) && fn(action, m)));
   /** A room with `n` messages from someone else, all newer than my signup. */
   async function unreadRoom(n: number) {
     const other = await signedUp("Other");
@@ -84,6 +90,25 @@ describe("unread counts (§18.3)", () => {
       expect(count(active.id)).toBeUndefined();
     });
 
+    it("the tab away (§22.4): the active room's messages count, live and in fetched counts", async () => {
+      const other = await signedUp("Other");
+      const active = await other.api.createRoom(`active-${uniq()}`);
+      await say(other, active.id);
+      store.set({ activeRoomId: active.id, away: true });
+      const ctl = instrument(me.api);
+      start();
+      await vi.waitFor(() => expect(count(active.id)).toBe(1));
+      await subscribed(me.api);
+      await say(other, active.id);
+      await vi.waitFor(() => expect(count(active.id)).toBe(2));
+      // Back, then away again: the counts are refetched, the server having been told what was read meanwhile.
+      store.set({ away: false });
+      const calls = ctl.calls("unreadCounts");
+      store.set({ away: true });
+      await vi.waitFor(() => expect(ctl.calls("unreadCounts")).toBe(calls + 1));
+      expect(count(active.id)).toBe(2);
+    });
+
     it("deleting an unread message brings the count down", async () => {
       const other = await signedUp("Other");
       const r = await other.api.createRoom(`room-${uniq()}`);
@@ -122,6 +147,7 @@ describe("unread counts (§18.3)", () => {
 
     it("refresh() debounces: several calls in a row make one request", async () => {
       const ctl = instrument(me.api);
+      onlyRooms();
       start();
       await vi.waitFor(() => expect(ctl.calls("unreadCounts")).toBe(1));
       for (let i = 0; i < 5; i++) unread!.refresh();
@@ -132,6 +158,7 @@ describe("unread counts (§18.3)", () => {
     it("a +1 that arrives while counts are being fetched is added on top of the answer, without a refetch", async () => {
       const { other, r } = await unreadRoom(2);
       const ctl = instrument(me.api);
+      onlyRooms(r.id);
       start();
       await vi.waitFor(() => expect(count(r.id)).toBe(2));
       await subscribed(me.api);
@@ -207,6 +234,16 @@ describe("unread counts (§18.3)", () => {
       expect(calls).toEqual([]);
       await vi.waitFor(() => expect(calls).toEqual([[r.id, msgs[2]!.created]]), { timeout: 3000 });
       await vi.waitFor(async () => expect((await me.api.unreadCounts()).rooms[r.id]).toBeUndefined());
+    });
+
+    it("seen() clears the count even with nothing new (fetched while the tab was away, after the last read)", async () => {
+      const { r, msgs } = await freshRoom(1);
+      start();
+      const reader = unread!.open(r.id);
+      reader.seen(msgs[0]!.created);
+      store.set({ unread: new Map([[r.id, 1]]) });
+      reader.seen(msgs[0]!.created);
+      expect(count(r.id)).toBeUndefined();
     });
 
     it("close() sends a pending read right away; caught up, the count stays clear", async () => {

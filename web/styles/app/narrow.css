@@ -1,0 +1,27 @@
+/* ---- Narrow screens (§7.8): the room list collapses; rooms are reached via "← Rooms". ---- */
+
+@media (max-width: 720px) {
+  .sidebar {
+    display: none;
+  }
+
+  .pane {
+    border-radius: 0;
+  }
+
+  /* At #/ the room list is the page. */
+  .layout.home .sidebar {
+    display: block;
+    flex: 1;
+  }
+
+  .layout.home .pane {
+    display: none;
+  }
+}
+
+@media (min-width: 721px) {
+  .back {
+    display: none;
+  }
+}

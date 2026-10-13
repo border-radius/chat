@@ -59,9 +59,12 @@ export function clear(el: Element): void {
  * never fully re-rendered). Nodes already in place keep their identity, focus and scroll anchoring.
  */
 export function reconcile(parent: Element, nodes: readonly Node[]): void {
+  // Drop what goes first: a replaced node left in place would push every node after it down one, and each of them
+  // would then be moved (re-inserted, restyled) instead of left alone.
+  const keep = new Set(nodes);
+  for (const c of [...parent.childNodes]) if (!keep.has(c)) c.remove();
   nodes.forEach((node, i) => {
     const at = parent.childNodes[i];
     if (at !== node) parent.insertBefore(node, at ?? null);
   });
-  while (parent.childNodes.length > nodes.length) parent.lastChild!.remove();
 }

@@ -5,7 +5,7 @@
 
 import { ApiError, errorMessage } from "../api.ts";
 import type { Ctx } from "../context.ts";
-import { clear, h, uniqueId } from "../dom.ts";
+import { clear, h, reconcile, uniqueId } from "../dom.ts";
 import { LIMITS, textLength } from "../lib/limits.ts";
 import { otherMember, roomTitle, VISIBILITY, visibilityOf } from "../lib/rooms.ts";
 import type { Room, User, Visibility } from "../lib/types.ts";
@@ -43,6 +43,10 @@ export function createRoomsView({ api, store, sync, unread, actions, navigate }:
   const open = { hidden: false, archived: false };
   /** Row menus by room id + name, kept across renders so their open/confirm state and focus survive. */
   const menus = new Map<string, ActionMenu>();
+  /** Room rows by room id, with what they were drawn from (roomRow) and their menu's key. */
+  const rows = new Map<string, { sig: unknown[]; el: HTMLElement; menu: string | null }>();
+  /** The sections, built on mount (skeleton). */
+  let parts: ReturnType<typeof skeleton>;
   /** The last failed action, shown until the next action or a successful one. */
   let actionError = "";
   /** The "New message" user search, while open (kept across renders, so typing and focus survive). */
@@ -161,39 +165,55 @@ export function createRoomsView({ api, store, sync, unread, actions, navigate }:
     return items;
   }
 
-  function rowMenu(r: Room, items: MenuItem[], live: Set<string>): HTMLElement | null {
+  function rowMenu(r: Room, items: MenuItem[]): { key: string; el: HTMLElement } | null {
     if (!items.length) return null;
     const name = r.kind === "dm" ? title(r) : r.name;
     const key = `${r.id}|${name}`;
-    live.add(key);
     let menu = menus.get(key);
     if (!menu) {
       menu = createActionMenu({ label: `Actions for ${name}`, signal: scope.signal });
       menus.set(key, menu);
     }
     menu.update(items);
-    return menu.el;
+    return { key, el: menu.el };
   }
 
+  /**
+   * A room's row. Rows are kept and reused while everything they show is the same (rooms are replaced, never mutated,
+   * in the store): a message in some room changes one badge, not all the rows (§18.4).
+   */
   function roomRow(r: Room, section: Section, live: Set<string>): HTMLElement {
     const s = store.get();
     const current = s.activeRoomId === r.id;
-    const other = r.kind === "dm" ? otherMember(r, s.user) : undefined;
     const n = unreadCount(s, r);
+    // What the row and its menu items depend on (menuItems reads the user and, when archived, hidden).
+    const sig = [r, section, n, current, s.user, section === "archived" && s.hidden.has(r.id)];
+    const hit = rows.get(r.id);
+    if (hit?.sig.every((v, i) => v === sig[i])) {
+      if (hit.menu) live.add(hit.menu);
+      return hit.el;
+    }
+    const other = r.kind === "dm" ? otherMember(r, s.user) : undefined;
+    const menu = rowMenu(r, menuItems(r, section));
+    if (menu) live.add(menu.key);
     const label = [
       other ? avatar(other, 24, api.avatarUrl) : null,
       h("span", {}, other ? other.name : r.kind === "dm" ? title(r) : r.name),
       r.kind === "dm" ? null : visibilityMark(visibilityOf(r)),
       n ? h("span", { class: "badge" }, [n > 99 ? "99+" : n, h("span", { class: "visually-hidden" }, " unread")]) : null,
     ];
-    return h("li", { class: r.kind === "dm" ? "dm" : "", dataset: { roomId: r.id } }, [
+    const el = h("li", { class: r.kind === "dm" ? "dm" : "", dataset: { roomId: r.id } }, [
       h("a", { href: `/r/${r.id}`, class: n ? "unread" : "", "aria-current": current ? "page" : null }, label),
-      rowMenu(r, menuItems(r, section), live),
+      menu?.el,
     ]);
+    rows.set(r.id, { sig, el, menu: menu?.key ?? null });
+    return el;
   }
 
-  function collapsible(section: "hidden" | "archived", title: string, rooms: Room[], live: Set<string>): HTMLElement {
-    return h(
+  function collapsible(section: "hidden" | "archived") {
+    const summary = h("summary");
+    const list = h("ul");
+    const el = h(
       "details",
       {
         class: "room-section",
@@ -202,15 +222,46 @@ export function createRoomsView({ api, store, sync, unread, actions, navigate }:
         on: { toggle: (e) => (open[section] = (e.currentTarget as HTMLDetailsElement).open) },
         signal: scope.signal,
       },
-      [
-        h("summary", {}, `${title} (${rooms.length})`),
-        h(
-          "ul",
-          {},
-          rooms.map((r) => roomRow(r, section, live)),
-        ),
-      ],
+      [summary, list],
     );
+    return { el, summary, list };
+  }
+
+  /**
+   * The list's sections, built once per mount and then only updated (the rows in them are reused too, see roomRow):
+   * the room list is redrawn on every unread change, so for every message in any room.
+   */
+  function skeleton() {
+    const newRoomToggle = h(
+      "button",
+      { type: "button", class: "link new-room-toggle", on: { click: () => toggleNewRoom(!creating) }, signal: scope.signal },
+      "+ New room",
+    );
+    const newDm = h(
+      "button",
+      {
+        type: "button",
+        class: "new-dm",
+        "aria-label": "New message",
+        title: "New message",
+        on: { click: () => toggleSearch(!search) },
+        signal: scope.signal,
+      },
+      "+",
+    );
+    return {
+      newRoomToggle,
+      newDm,
+      main: h("div", { class: "room-section", dataset: { section: "rooms" } }),
+      mainHead: h("div", { class: "section-head" }, [h("h2", {}, "Rooms"), newRoomToggle]),
+      rooms: h("ul"),
+      empty: h("p", { class: "empty" }),
+      direct: h("div", { class: "room-section", dataset: { section: "dms" } }),
+      directHead: h("div", { class: "section-head" }, [h("h2", {}, "Direct messages"), newDm]),
+      dms: h("ul"),
+      hidden: collapsible("hidden"),
+      archived: collapsible("archived"),
+    };
   }
 
   function render() {
@@ -220,67 +271,54 @@ export function createRoomsView({ api, store, sync, unread, actions, navigate }:
     const { rooms, dms, hidden, archived } = roomSections(s);
     const loading = s.roomsStatus === "idle" || s.roomsStatus === "loading";
     const live = new Set<string>();
-    // Rows are rebuilt; the focused control (a menu button, which is kept) gets its focus back below.
+    // Rows whose room changed are rebuilt; the focused control (a menu button, which is kept) gets its focus back below.
     const focused = nav.contains(document.activeElement) ? (document.activeElement as HTMLElement) : null;
     shell.setAttribute("aria-busy", String(loading));
-    const newRoomToggle = h(
-      "button",
-      {
-        type: "button",
-        class: "link new-room-toggle",
-        "aria-expanded": String(creating),
-        on: { click: () => toggleNewRoom(!creating) },
-        signal: scope.signal,
-      },
-      "+ New room",
+    const p = parts;
+    p.newRoomToggle.setAttribute("aria-expanded", String(creating));
+    reconcile(
+      p.rooms,
+      rooms.map((r) => roomRow(r, "rooms", live)),
     );
-    const main = h("div", { class: "room-section", dataset: { section: "rooms" } }, [
-      h("div", { class: "section-head" }, [h("h2", {}, "Rooms"), newRoomToggle]),
-      creating ? newRoom.form : null,
-      rooms.length
-        ? h(
-            "ul",
-            {},
-            rooms.map((r) => roomRow(r, "rooms", live)),
-          )
-        : s.roomsStatus === "ready"
-          ? h(
-              "p",
-              { class: "empty" },
-              // Rooms you hid (or that were archived) are still there, under their own sections (QA BUG-44).
-              hidden.length || archived.length
-                ? "No other rooms. Hidden and archived ones are listed below."
-                : "No rooms yet. Create the first one.",
-            )
-          : null,
-    ]);
-    const newDm = h(
-      "button",
-      {
-        type: "button",
-        class: "new-dm",
-        "aria-label": "New message",
-        "aria-expanded": String(!!search),
-        title: "New message",
-        on: { click: () => toggleSearch(!search) },
-        signal: scope.signal,
-      },
-      "+",
+    // Rooms you hid (or that were archived) are still there, under their own sections (QA BUG-44).
+    p.empty.textContent =
+      hidden.length || archived.length
+        ? "No other rooms. Hidden and archived ones are listed below."
+        : "No rooms yet. Create the first one.";
+    const mainList = rooms.length ? p.rooms : s.roomsStatus === "ready" ? p.empty : null;
+    reconcile(
+      p.main,
+      [p.mainHead, creating ? newRoom.form : null, mainList].filter((n) => n !== null),
     );
-    const direct = h("div", { class: "room-section", dataset: { section: "dms" } }, [
-      h("div", { class: "section-head" }, [h("h2", {}, "Direct messages"), newDm]),
-      search?.el,
-      dms.length
-        ? h(
-            "ul",
-            {},
-            dms.map((r) => roomRow(r, "dms", live)),
-          )
-        : null,
-    ]);
-    nav.replaceChildren(main, direct, collapsible("hidden", "Hidden", hidden, live), collapsible("archived", "Archived", archived, live));
+    p.newDm.setAttribute("aria-expanded", String(!!search));
+    reconcile(
+      p.dms,
+      dms.map((r) => roomRow(r, "dms", live)),
+    );
+    reconcile(
+      p.direct,
+      [p.directHead, search?.el ?? null, dms.length ? p.dms : null].filter((n) => n !== null),
+    );
+    for (const [section, title, list] of [
+      ["hidden", "Hidden", hidden],
+      ["archived", "Archived", archived],
+    ] as const) {
+      const c = p[section];
+      c.summary.textContent = `${title} (${list.length})`;
+      reconcile(
+        c.list,
+        list.map((r) => roomRow(r, section, live)),
+      );
+    }
+    reconcile(nav, [p.main, p.direct, p.hidden.el, p.archived.el]);
     if (focused?.isConnected && document.activeElement !== focused) focused.focus();
+    forget(live);
+  }
+
+  /** Drop the menus and rows of rooms no longer listed. */
+  function forget(live: Set<string>) {
     for (const key of menus.keys()) if (!live.has(key)) menus.delete(key);
+    for (const [id, row] of rows) if (!nav.contains(row.el)) rows.delete(id);
   }
 
   /** A guest's list (§23.3): the Open Air rooms, which are all the server gives them. */
@@ -304,7 +342,7 @@ export function createRoomsView({ api, store, sync, unread, actions, navigate }:
             : null,
       ]),
     );
-    menus.clear();
+    forget(live);
   }
 
   function newRoomForm(): typeof newRoom {
@@ -381,9 +419,11 @@ export function createRoomsView({ api, store, sync, unread, actions, navigate }:
       root = el;
       scope = createScope();
       menus.clear();
+      rows.clear();
       search = null;
       creating = false;
       newRoom = newRoomForm();
+      parts = skeleton();
       shell.replaceChildren(alert, nav);
       clear(root);
       root.append(shell);

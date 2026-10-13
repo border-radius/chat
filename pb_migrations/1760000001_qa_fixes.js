@@ -11,7 +11,7 @@ const NEW_LIMITS = [
 ];
 
 /**
- * Same as roomKey() in pb_hooks/lib/chat.js (migrations can't load the hooks' modules).
+ * Same as nameKey() in pb_hooks/lib/text.js (migrations can't load the hooks' modules).
  * @param {string} name
  */
 function roomKey(name) {

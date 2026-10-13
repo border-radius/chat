@@ -7,7 +7,7 @@ const ACCOUNT_LIMITS = [{ label: "POST /api/chat/password", audience: "", durati
 const ACCOUNT_LABELS = ACCOUNT_LIMITS.map((r) => r.label);
 
 /**
- * Same as nameKey() in pb_hooks/lib/chat.js (migrations can't load the hooks' modules).
+ * Same as nameKey() in pb_hooks/lib/text.js (migrations can't load the hooks' modules).
  * @param {string} name
  */
 function nameKey(name) {

@@ -1,13 +1,19 @@
 /// <reference path="../types/pocketbase.d.ts" />
-// Server-side hooks (DESIGN.md §5.6, §16, §18, §20, §21, §22, §23). Logic lives in lib/; handlers can't share top-level scope.
+// Server-side hooks (DESIGN.md §5.6, §16, §18, §20, §21, §22, §23, §24). Logic lives in lib/, one module per collection
+// or route: PocketBase hook handlers can't see top-level variables, so each handler require()s its module.
+
+onBootstrap((e) => {
+  e.next(); // the settings are loaded once bootstrapped
+  require(`${__hooks}/lib/http.js`).trustProxy(e.app);
+});
 
 routerUse((e) => {
-  require(`${__hooks}/lib/chat.js`).headers(e);
+  require(`${__hooks}/lib/http.js`).headers(e);
   return e.next();
 });
 
 // Not the app's index.html (PocketBase's fallback for any other path, §7.1) for a missing asset or API.
-routerAdd("GET", "/assets/{path...}", (e) => require(`${__hooks}/lib/chat.js`).asset(e));
+routerAdd("GET", "/assets/{path...}", (e) => require(`${__hooks}/lib/http.js`).asset(e));
 routerAdd("GET", "/api/{path...}", () => {
   throw new NotFoundError();
 });
@@ -21,37 +27,47 @@ routerAdd("GET", "/api/chat/users", (e) => require(`${__hooks}/lib/users.js`).se
 routerAdd("POST", "/api/chat/password", (e) => require(`${__hooks}/lib/account.js`).changePassword(e), $apis.requireAuth("users"));
 
 onRecordCreate((e) => {
-  require(`${__hooks}/lib/chat.js`).beforeUserSave(e);
+  require(`${__hooks}/lib/users.js`).beforeUserSave(e);
   e.next();
 }, "users");
 
 onRecordUpdate((e) => {
-  require(`${__hooks}/lib/chat.js`).beforeUserSave(e);
-  e.next();
-}, "users");
-
-onRecordAuthWithPasswordRequest((e) => {
-  require(`${__hooks}/lib/chat.js`).findLoginByEmail(e);
+  require(`${__hooks}/lib/users.js`).beforeUserSave(e);
   e.next();
 }, "users");
 
 onRecordCreateRequest((e) => {
-  require(`${__hooks}/lib/chat.js`).beforeRoomCreateRequest(e);
+  require(`${__hooks}/lib/site.js`).checkInvite(e);
+  e.next();
+}, "users");
+
+onRecordAuthWithOAuth2Request((e) => {
+  require(`${__hooks}/lib/site.js`).checkOAuth2Signup(e);
+  e.next();
+}, "users");
+
+onRecordAuthWithPasswordRequest((e) => {
+  require(`${__hooks}/lib/users.js`).findLoginByEmail(e);
+  e.next();
+}, "users");
+
+onRecordCreateRequest((e) => {
+  require(`${__hooks}/lib/rooms.js`).beforeRoomCreateRequest(e);
   e.next();
 }, "rooms");
 
 onRecordUpdateRequest((e) => {
-  require(`${__hooks}/lib/chat.js`).beforeRoomUpdateRequest(e);
+  require(`${__hooks}/lib/rooms.js`).beforeRoomUpdateRequest(e);
   e.next();
 }, "rooms");
 
 onRecordCreate((e) => {
-  require(`${__hooks}/lib/chat.js`).beforeRoomCreate(e);
+  require(`${__hooks}/lib/rooms.js`).beforeRoomCreate(e);
   e.next();
 }, "rooms");
 
 onRecordUpdate((e) => {
-  require(`${__hooks}/lib/chat.js`).beforeRoomUpdate(e);
+  require(`${__hooks}/lib/rooms.js`).beforeRoomUpdate(e);
   const access = require(`${__hooks}/lib/access.js`);
   const before = access.accessOf(e.record?.original() ?? e.record);
   e.next();
@@ -60,27 +76,38 @@ onRecordUpdate((e) => {
 }, "rooms");
 
 onRecordCreateRequest((e) => {
-  require(`${__hooks}/lib/chat.js`).beforeMessageCreateRequest(e);
+  require(`${__hooks}/lib/messages.js`).beforeMessageCreateRequest(e);
   e.next();
 }, "messages");
 
 onRecordCreate((e) => {
-  require(`${__hooks}/lib/chat.js`).beforeMessageCreate(e);
+  require(`${__hooks}/lib/messages.js`).beforeMessageCreate(e);
   e.next();
 }, "messages");
 
 onRecordAfterCreateSuccess((e) => {
-  require(`${__hooks}/lib/chat.js`).afterMessageCreate(e);
+  require(`${__hooks}/lib/messages.js`).afterMessageCreate(e);
   e.next();
 }, "messages");
 
 onRecordUpdate((e) => {
-  require(`${__hooks}/lib/chat.js`).beforeMessageUpdate(e);
+  const messages = require(`${__hooks}/lib/messages.js`);
+  messages.beforeMessageUpdate(e);
+  const touch = !!e.record && messages.changesForwards(e.record);
+  e.next();
+  // Saved: forwards of it tell their readers (§21.3).
+  if (touch && e.record) messages.touchForwards(e.app, e.record);
+}, "messages");
+
+onRecordEnrich((e) => {
+  const messages = require(`${__hooks}/lib/messages.js`);
+  messages.keepToRoom(e);
+  messages.showOriginal(e);
   e.next();
 }, "messages");
 
 onRecordUpdateRequest((e) => {
-  require(`${__hooks}/lib/chat.js`).beforeMessageUpdateRequest(e);
+  require(`${__hooks}/lib/messages.js`).beforeMessageUpdateRequest(e);
   // One transaction for the save, so beforeMessageUpdate reads the reactions it keeps right before writing (§20.2).
   e.app.runInTransaction((tx) => {
     e.app = tx;

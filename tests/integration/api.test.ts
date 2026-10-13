@@ -9,7 +9,6 @@ import { createClient } from "../../web/src/pb.ts";
 import { pngFile } from "../support/files.ts";
 import { uniq } from "../support/ids.ts";
 import { withName } from "../support/names.ts";
-import { rawDb } from "./helpers.ts";
 
 async function eventually(fn: () => void, ms = 2_000) {
   const deadline = Date.now() + ms;
@@ -38,11 +37,7 @@ const realClient = (): Api => createApi(createClient(inject("pbUrl")));
 
 /** signUp, freeing `name` first if an earlier test took it (display names are unique, §22.1). */
 const signUpAs = (api: Api, input: { email: string; password: string; name: string }) =>
-  withName(
-    () => rawDb({ write: true }),
-    input.name,
-    () => api.signUp(input),
-  );
+  withName(inject("pbUrl"), input.name, () => api.signUp(input));
 
 /** Two fresh logged-in clients and one logged-out client. */
 async function setup(): Promise<{ a: Api; b: Api; anon: Api }> {

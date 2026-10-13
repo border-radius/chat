@@ -1,19 +1,20 @@
 // The message list DOM (§7.5, §7.6.1, §7.6.2): renders a MessageWindow with author groups and day dividers,
 // reusing each message's element until something it shows changes. Owns the per-message UI state (edit box,
-// delete confirm, inline errors), shows reactions (§20.3) and which messages are selected (§21.1); what those buttons
-// *do* is up to the room view.
+// delete confirm, inline errors), shows reactions (§20.3, reactions.ts), attachments (§17.5, attachments.ts) and which
+// messages are selected (§21.1); what those buttons *do* is up to the room view.
 
 import { h, reconcile } from "../../dom.ts";
-import { attachmentName, isImage } from "../../lib/files.ts";
 import { linkify } from "../../lib/links.ts";
-import { type MessageWindow, quoteText, startsGroup } from "../../lib/messages.ts";
+import { emptyForward, type MessageWindow, quoteText, startsGroup } from "../../lib/messages.ts";
 import { reactors } from "../../lib/reactions.ts";
 import { captureAnchor, restoreAnchor } from "../../lib/scroll.ts";
 import { dayLabel, formatFull, formatTime, parsePb } from "../../lib/time.ts";
-import type { LocalFile, Message, Quoted, Reaction, User } from "../../lib/types.ts";
+import type { Message, Quoted, Reaction, User } from "../../lib/types.ts";
 import { type AvatarUrl, avatar } from "../../ui/avatar.ts";
 import { createActionMenu } from "../../ui/menu.ts";
-import { editProblem, fitRows, rowsFor } from "./composer.ts";
+import { createAttachments } from "./attachments.ts";
+import { composing, editProblem, fitRows, rowsFor } from "./composer.ts";
+import { createReactionParts, reactionFocus } from "./reactions.ts";
 
 export interface MsgError {
   text: string;
@@ -52,13 +53,6 @@ export interface MessageList {
    */
   focusIn(id: string, selectors: readonly string[], later?: boolean): void;
 }
-
-/** Where focus goes in a message after its reactions change: the reaction, else the buttons that add one. */
-export const reactionFocus = (emoji: string): readonly string[] => [
-  `.reactions [data-emoji="${CSS.escape(emoji)}"]`,
-  ".reactions .add-reaction",
-  ".actions .react",
-];
 
 /** At most this many characters of a quote are in its accessible name. */
 const QUOTE_SPOKEN = 80;
@@ -109,7 +103,7 @@ export function createMessageList(opts: {
   fileUrl: (m: Message, filename: string, thumb?: string) => string;
   /** Get a new file token (an image failed to load, maybe because its token expired). */
   refreshFileToken: () => Promise<unknown>;
-  /** A thumbnail was clicked: show the image in the viewer (§17.7). */
+  /** A thumbnail was clicked: show the image or video in the viewer (§17.7). */
   onOpenImage: (m: Message, file: string, opener: HTMLElement) => void;
   signal: AbortSignal;
 }): MessageList {
@@ -145,6 +139,8 @@ export function createMessageList(opts: {
       if (!li?.querySelector("input.select")) return;
       e.preventDefault();
       e.stopPropagation();
+      // Focus would stay on the page itself (the message isn't focusable), out of reach of Escape (§21.1).
+      focusAfter = { id: li.dataset.id!, selector: "input.select" };
       opts.onSelect(li.dataset.id!);
     },
     { capture: true, signal },
@@ -177,6 +173,22 @@ export function createMessageList(opts: {
     { capture: true, signal },
   );
 
+  /**
+   * Each timestamp parsed and formatted once: every change redraws the whole window, and this was most of its cost.
+   * Keyed by `created`; the stamps depend on today's date (time only for today), so a new day starts afresh.
+   */
+  let times = new Map<string, { ms: number; day: string; time: string }>();
+  let timesDay = "";
+  const timeOf = (created: string) => {
+    let t = times.get(created);
+    if (!t) {
+      const ms = parsePb(created);
+      t = { ms, day: new Date(ms).toDateString(), time: formatTime(ms) };
+      times.set(created, t);
+    }
+    return t;
+  };
+
   let editing: string | null = null;
   /**
    * What is typed in the open edit box, once it differs from the message (null: not yet). The box is rebuilt whenever
@@ -186,13 +198,14 @@ export function createMessageList(opts: {
   let confirmDelete: string | null = null;
   const errors = new Map<string, MsgError>();
   const cache = new Map<string, { sig: string; el: HTMLElement }>();
-  /** Aspect ratios of a sending message's image previews, so its server thumbnails take their width before loading. */
-  const sentRatios = new Map<string, string[]>();
   const dividers = new Map<string, HTMLElement>();
   /** Focus to apply after the next render: message elements are rebuilt when they change. The first selector found wins. */
   let focusAfter: { id: string; selector: string | readonly string[]; caretToEnd?: boolean } | null = null;
   /** Names of the people in the window, for who reacted (rebuilt every render). */
   let names = new Map<string, string>();
+
+  const attachments = createAttachments(opts);
+  const reactionParts = createReactionParts(opts);
 
   const btn = (label: string, onClick: () => void, cls?: string) =>
     h("button", { type: "button", ...(cls ? { class: cls } : {}), on: { click: onClick }, signal }, label);
@@ -225,7 +238,7 @@ export function createMessageList(opts: {
           hint.classList.remove("error");
         },
         keydown: (e) => {
-          if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+          if (e.key === "Enter" && !e.shiftKey && !composing(e)) {
             e.preventDefault();
             const value = (e.currentTarget as HTMLTextAreaElement).value;
             const problem = editProblem(value, !!m.files?.length);
@@ -236,7 +249,7 @@ export function createMessageList(opts: {
               return;
             }
             opts.onSaveEdit(m.id, value);
-          } else if (e.key === "Escape" && !e.isComposing) {
+          } else if (e.key === "Escape" && !composing(e)) {
             e.preventDefault();
             editing = null;
             editText = null;
@@ -279,14 +292,14 @@ export function createMessageList(opts: {
     const reactions = m.deleted
       ? []
       : opts.reactions(m).map((r) => ({ ...r, who: reactors(r.users, me?.id ?? "", (id) => names.get(id) ?? opts.nameOf(id)) }));
-    const ms = parsePb(m.created);
+    const { ms, time } = timeOf(m.created);
     const sig = JSON.stringify([
       m.text,
       m.deleted,
       m.edited_at,
       m.status ?? "",
       m.created,
-      formatTime(ms), // changes at midnight ("7:36 PM" → "Oct 10, 7:36 PM")
+      time, // changes at midnight ("7:36 PM" → "Oct 10, 7:36 PM")
       groupStart,
       editable,
       deletable,
@@ -339,7 +352,7 @@ export function createMessageList(opts: {
       parts.push(
         h("div", { class: "meta" }, [
           authorEl(author, me, !!m.expand?.author),
-          h("time", { datetime: new Date(ms).toISOString(), title: formatFull(ms) }, formatTime(ms)),
+          h("time", { datetime: new Date(ms).toISOString(), title: formatFull(ms) }, time),
         ]),
       );
     }
@@ -350,12 +363,18 @@ export function createMessageList(opts: {
     if (editing === m.id) {
       parts.push(...editBox(m));
     } else {
-      parts.push(m.deleted ? h("div", { class: "body placeholder" }, "Message deleted") : h("div", { class: "body" }, bodyText(m.text)));
+      // A forward with nothing to show: its original was deleted (§21.3).
+      const gone = m.deleted || emptyForward(m);
+      parts.push(
+        gone
+          ? h("div", { class: "body placeholder" }, m.deleted ? "Message deleted" : "The original message was deleted")
+          : h("div", { class: "body" }, bodyText(m.text)),
+      );
       if (m.edited_at && !m.deleted)
         parts.push(h("span", { class: "edited", title: `Edited ${formatFull(parsePb(m.edited_at))}` }, "(edited)"));
     }
     if (!m.deleted) parts.push(attachments(m));
-    if (reactions.length) parts.push(reactionsRow(m, reactions, reactable, me?.id ?? ""));
+    if (reactions.length) parts.push(reactionParts.row(m, reactions, reactable, me?.id ?? ""));
     if (m.status === "failed") {
       // The original went away while this reply was sending: Retry sends it without the quote (§19).
       const replyGone = !!quoted?.deleted;
@@ -403,9 +422,9 @@ export function createMessageList(opts: {
     } else if (editing !== m.id && (reactable || repliable || deletable || selectable)) {
       parts.push(
         h("div", { class: "actions" }, [
-          reactable ? pickerButton(m.id, "☺+", "Add reaction", "react") : null,
+          reactable ? reactionParts.addButton(m.id, "react") : null,
           repliable ? btn("Reply", () => opts.onReply(m.id), "reply") : null,
-          selectable ? btn("Forward", () => opts.onForward(m.id), "forward") : null,
+          selectable && !emptyForward(m) ? btn("Forward", () => opts.onForward(m.id), "forward") : null,
           selectable ? btn("Select", () => opts.onSelect(m.id), "select") : null,
           editable ? btn("Edit", () => list.startEdit(m.id), "edit") : null,
           deletable ? btn("Delete", () => askDelete(m.id), "delete") : null,
@@ -425,162 +444,6 @@ export function createMessageList(opts: {
     return linkify(text).map((part) =>
       typeof part === "string" ? part : h("a", { href: part.href, target: "_blank", rel: "noopener noreferrer nofollow" }, part.text),
     );
-  }
-
-  /** A button that opens the emoji picker for a reaction to message `id`. */
-  function pickerButton(id: string, text: string, label: string, cls: string): HTMLButtonElement {
-    const b: HTMLButtonElement = h(
-      "button",
-      {
-        type: "button",
-        class: cls,
-        title: label,
-        "aria-label": label,
-        "aria-haspopup": "dialog",
-        "aria-expanded": "false",
-        on: { click: () => opts.onPickReaction(id, b) },
-        signal,
-      },
-      text,
-    );
-    return b;
-  }
-
-  /**
-   * The emoji people reacted with, each with how many (§20.3). Where I can react, each one is a toggle for mine, and a
-   * last button adds another; otherwise (an archived room) they only show.
-   */
-  function reactionsRow(m: Message, reactions: (Reaction & { who: string })[], reactable: boolean, me: string): HTMLElement {
-    const chips = reactions.map((r) => {
-      const mine = r.users.includes(me);
-      const n = r.users.length;
-      const content = [h("span", { class: "reaction-emoji" }, r.emoji), h("span", { class: "reaction-count" }, String(n))];
-      const attrs = { class: `reaction${mine ? " mine" : ""}`, title: `${r.who} reacted with ${r.emoji}`, dataset: { emoji: r.emoji } };
-      if (!reactable) return h("span", attrs, content);
-      return h(
-        "button",
-        {
-          ...attrs,
-          type: "button",
-          "aria-pressed": String(mine),
-          "aria-label": `${r.emoji} ${n} ${n === 1 ? "reaction" : "reactions"}`,
-          on: { click: () => opts.onReact(m.id, r.emoji, !mine) },
-          signal,
-        },
-        content,
-      );
-    });
-    return h("div", { class: "reactions", role: "group", "aria-label": "Reactions" }, [
-      ...chips,
-      reactable ? pickerButton(m.id, "☺+", "Add reaction", "add-reaction") : null,
-    ]);
-  }
-
-  /**
-   * A message's attachments (§17.5): images as uncropped thumbnails of a fixed height (1 large, or a row of up to 4
-   * small ones), other files as download chips. A message not yet on the server shows its local previews instead.
-   */
-  function attachments(m: Message): HTMLElement | null {
-    const local = m.localFiles ?? [];
-    const names = m.files ?? [];
-    if (!local.length && !names.length) return null;
-    // Shown as an image only if the server will show it as one too, so nothing changes shape once it is sent.
-    const shown = (f: LocalFile) => !!f.url && isImage(f.file.name);
-    const imageCount = local.length ? local.filter(shown).length : names.filter(isImage).length;
-    const thumb = imageCount === 1 ? "800x480f" : "480x240f";
-    const images = h("div", { class: `att-images ${imageCount === 1 ? "one" : "row"}` });
-    const others = h("ul", { class: "att-files" });
-
-    if (local.length) {
-      for (const f of local) {
-        if (!shown(f)) {
-          others.append(h("li", {}, h("span", { class: "att-file" }, f.file.name)));
-          continue;
-        }
-        const img = h("img", { src: f.url, alt: f.file.name });
-        const i = images.childElementCount;
-        img.addEventListener(
-          "load",
-          () => {
-            if (!img.naturalWidth || !img.naturalHeight) return;
-            const ratios = sentRatios.get(m.id) ?? [];
-            ratios[i] = `${img.naturalWidth} / ${img.naturalHeight}`;
-            sentRatios.set(m.id, ratios);
-          },
-          { signal },
-        );
-        images.append(h("span", { class: "att-tile" }, img));
-      }
-    } else {
-      const ratios = sentRatios.get(m.id);
-      for (const name of names) {
-        if (isImage(name)) images.append(imageTile(m, name, thumb, ratios?.[images.childElementCount]));
-        else others.append(h("li", {}, fileLink(m, name, "att-file", [attachmentName(m, name)])));
-      }
-    }
-    return h("div", { class: "attachments" }, [images.childElementCount ? images : null, others.childElementCount ? others : null]);
-  }
-
-  /** A link to the full file, re-signed with the current token whenever it is about to be used. */
-  function fileLink(m: Message, name: string, cls: string, children: (Node | string)[]): HTMLAnchorElement {
-    const a = h(
-      "a",
-      { class: cls, href: opts.fileUrl(m, name), target: "_blank", rel: "noopener", download: attachmentName(m, name) },
-      children,
-    );
-    const sign = () => (a.href = opts.fileUrl(m, name));
-    for (const type of ["pointerenter", "focus", "click"] as const) a.addEventListener(type, sign, { signal });
-    return a;
-  }
-
-  /**
-   * An image thumbnail: a click opens the viewer, a click that asks for a new tab or window (or a middle click) gets
-   * the full image there. A failed load retries once with a new token, then offers Retry.
-   */
-  function imageTile(m: Message, name: string, thumb: string, ratio?: string): HTMLElement {
-    const img = h("img", {
-      src: opts.fileUrl(m, name, thumb),
-      alt: attachmentName(m, name),
-      loading: "lazy",
-      decoding: "async",
-    });
-    if (ratio) img.style.aspectRatio = ratio;
-    const tile = fileLink(m, name, "att-tile", [img]);
-    tile.removeAttribute("download"); // open images in a tab rather than download them
-    tile.addEventListener(
-      "click",
-      (e) => {
-        if (e.button || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
-        e.preventDefault();
-        opts.onOpenImage(m, name, tile);
-      },
-      { signal },
-    );
-    let retried = false;
-    img.addEventListener(
-      "error",
-      () => {
-        if (!retried) {
-          retried = true;
-          void opts.refreshFileToken().then(
-            () => (img.src = opts.fileUrl(m, name, thumb)),
-            () => img.dispatchEvent(new Event("error")),
-          );
-          return;
-        }
-        const broken = h("span", { class: "att-tile att-broken" }, [
-          "Couldn't load image ",
-          btn("Retry", () => {
-            retried = false;
-            broken.replaceWith(tile);
-            img.src = opts.fileUrl(m, name, thumb);
-          }),
-        ]);
-        tile.replaceWith(broken);
-      },
-      { signal },
-    );
-    return tile;
   }
 
   /** A reply's quote of the message it answers (§19): clicking it shows that message. */
@@ -654,9 +517,13 @@ export function createMessageList(opts: {
     else if (ready) nodes.push(beginning);
     let prev: Message | undefined;
     let prevDay = "";
+    const today = new Date().toDateString();
+    if (today !== timesDay || times.size > 2000) {
+      times = new Map();
+      timesDay = today;
+    }
     for (const m of win.items) {
-      const ms = parsePb(m.created);
-      const day = new Date(ms).toDateString();
+      const { ms, day } = timeOf(m.created);
       const newDay = day !== prevDay;
       if (newDay) nodes.push(divider(ms));
       nodes.push(messageNode(m, newDay || startsGroup(prev, m), targetId, quotedOf(m, win), selected));

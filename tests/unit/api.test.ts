@@ -49,6 +49,7 @@ describe("listOptions", () => {
       "expand.reply_to.expand.author.name",
       // who first wrote a forwarded message (§21.3)
       "forwarded_from",
+      "forward_of",
       "expand.forwarded_from.id",
       "expand.forwarded_from.name",
     ]);

@@ -1,0 +1,144 @@
+// A message's attachments (§17.5): image and video thumbnails that open the viewer (§17.7), download chips for other
+// files, and a sending message's local previews.
+
+import { type Child, h } from "../../dom.ts";
+import { attachmentName, isMedia, isVideo } from "../../lib/files.ts";
+import type { LocalFile, Message } from "../../lib/types.ts";
+
+/** A message's attachments, or null without any. */
+export type Attachments = (m: Message) => HTMLElement | null;
+
+export function createAttachments(opts: {
+  /** Signed URL of an attachment (§17.3). */
+  fileUrl: (m: Message, filename: string, thumb?: string) => string;
+  /** Get a new file token (an image failed to load, maybe because its token expired). */
+  refreshFileToken: () => Promise<unknown>;
+  /** A thumbnail was clicked: show the image or video in the viewer (§17.7). */
+  onOpenImage: (m: Message, file: string, opener: HTMLElement) => void;
+  signal: AbortSignal;
+}): Attachments {
+  const { signal } = opts;
+  /** Aspect ratios of a sending message's image and video previews, so its tiles take their width before loading. */
+  const sentRatios = new Map<string, string[]>();
+  const btn = (label: string, onClick: () => void) => h("button", { type: "button", on: { click: onClick }, signal }, label);
+
+  /**
+   * A message's attachments (§17.5): images and videos as uncropped thumbnails of a fixed height (1 large, or a row of
+   * up to 4 small ones), other files as download chips. A message not yet on the server shows its local previews instead.
+   */
+  function attachments(m: Message): HTMLElement | null {
+    const local = m.localFiles ?? [];
+    const names = m.files ?? [];
+    if (!local.length && !names.length) return null;
+    // Shown as an image or video only if the server will show it as one too, so nothing changes shape once it is sent.
+    const shown = (f: LocalFile) => !!f.url && isMedia(f.file.name);
+    const imageCount = local.length ? local.filter(shown).length : names.filter(isMedia).length;
+    const thumb = imageCount === 1 ? "800x480f" : "480x240f";
+    const images = h("div", { class: `att-images ${imageCount === 1 ? "one" : "row"}` });
+    const others = h("ul", { class: "att-files" });
+
+    if (local.length) {
+      for (const f of local) {
+        if (!shown(f)) {
+          others.append(h("li", {}, h("span", { class: "att-file" }, f.file.name)));
+          continue;
+        }
+        const i = images.childElementCount;
+        const el = preview(f.file.name, f.url);
+        el.addEventListener(
+          el instanceof HTMLVideoElement ? "loadedmetadata" : "load",
+          () => {
+            const [w, ht] = el instanceof HTMLVideoElement ? [el.videoWidth, el.videoHeight] : [el.naturalWidth, el.naturalHeight];
+            if (!w || !ht) return;
+            const ratios = sentRatios.get(m.id) ?? [];
+            ratios[i] = `${w} / ${ht}`;
+            sentRatios.set(m.id, ratios);
+          },
+          { signal },
+        );
+        images.append(h("span", { class: "att-tile" }, [el, playBadge(f.file.name)]));
+      }
+    } else {
+      const ratios = sentRatios.get(m.id);
+      for (const name of names) {
+        if (isMedia(name)) images.append(mediaTile(m, name, thumb, ratios?.[images.childElementCount]));
+        else others.append(h("li", {}, fileLink(m, name, "att-file", [attachmentName(m, name)])));
+      }
+    }
+    return h("div", { class: "attachments" }, [images.childElementCount ? images : null, others.childElementCount ? others : null]);
+  }
+
+  /** A link to the full file, re-signed with the current token whenever it is about to be used. */
+  function fileLink(m: Message, name: string, cls: string, children: Child[]): HTMLAnchorElement {
+    const a = h(
+      "a",
+      { class: cls, href: opts.fileUrl(m, name), target: "_blank", rel: "noopener", download: attachmentName(m, name) },
+      children,
+    );
+    const sign = () => (a.href = opts.fileUrl(m, name));
+    for (const type of ["pointerenter", "focus", "click"] as const) a.addEventListener(type, sign, { signal });
+    return a;
+  }
+
+  /**
+   * What shows an image or video: an image as itself, a video as its first frame (the browser fetches just enough of
+   * the file to draw it).
+   */
+  function preview(name: string, src: string): HTMLImageElement | HTMLVideoElement {
+    return isVideo(name)
+      ? h("video", { src: `${src}#t=0.001`, preload: "metadata", muted: true, playsinline: true })
+      : h("img", { src, alt: name, decoding: "async" });
+  }
+
+  /** A video's tile shows a play badge over its first frame. */
+  const playBadge = (name: string) => isVideo(name) && h("span", { class: "att-play", "aria-hidden": "true" }, "▶");
+
+  /**
+   * An image's thumbnail or a video's first frame: a click opens the viewer, a click that asks for a new tab or window
+   * (or a middle click) gets the full file there. A failed load retries once with a new token, then offers Retry.
+   */
+  function mediaTile(m: Message, name: string, thumb: string, ratio?: string): HTMLElement {
+    const video = isVideo(name);
+    const src = () => opts.fileUrl(m, name, video ? undefined : thumb);
+    const el = preview(attachmentName(m, name), src());
+    if (!video) el.setAttribute("loading", "lazy");
+    if (ratio) el.style.aspectRatio = ratio;
+    const tile = fileLink(m, name, "att-tile", [el, playBadge(name)]);
+    tile.removeAttribute("download"); // open images and videos in a tab rather than download them
+    if (video) tile.setAttribute("aria-label", `${attachmentName(m, name)}, video`);
+    tile.addEventListener(
+      "click",
+      (e) => {
+        if (e.button || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+        e.preventDefault();
+        opts.onOpenImage(m, name, tile);
+      },
+      { signal },
+    );
+    const load = () => (el.src = video ? `${src()}#t=0.001` : src());
+    let retried = false;
+    el.addEventListener(
+      "error",
+      () => {
+        if (!retried) {
+          retried = true;
+          void opts.refreshFileToken().then(load, () => el.dispatchEvent(new Event("error")));
+          return;
+        }
+        const broken = h("span", { class: "att-tile att-broken" }, [
+          `Couldn't load ${video ? "video" : "image"} `,
+          btn("Retry", () => {
+            retried = false;
+            broken.replaceWith(tile);
+            load();
+          }),
+        ]);
+        tile.replaceWith(broken);
+      },
+      { signal },
+    );
+    return tile;
+  }
+
+  return attachments;
+}

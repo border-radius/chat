@@ -285,7 +285,11 @@ export function createProfileView({ api, store, logOut }: Ctx): View {
       renderPicture();
       scope.defer(
         store.subscribe((s, prev) => {
-          if (s.user !== prev.user) renderPicture();
+          if (s.user === prev.user) return;
+          renderPicture();
+          // Renamed in another tab: show the new name, unless a change is being typed here. Saving the old one
+          // would quietly undo the rename.
+          if (s.user && nameInput.value.trim() === prev.user?.name) nameInput.value = s.user.name;
         }),
       );
       scope.defer(dropPreview);

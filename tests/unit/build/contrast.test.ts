@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 const { readFileSync } = process.getBuiltinModule("node:fs") as typeof import("node:fs");
 const { resolve } = process.getBuiltinModule("node:path") as typeof import("node:path");
 
-const css = readFileSync(resolve(import.meta.dirname, "../../../web/styles/app.css"), "utf8");
+const css = readFileSync(resolve(import.meta.dirname, "../../../web/styles/app/tokens.css"), "utf8");
 
 /** The color tokens of the first block of `css` that declares `--bg` after `from` (light: `:root`, dark: its media query). */
 function tokens(from: number): Record<string, string> {

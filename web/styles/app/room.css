@@ -1,0 +1,193 @@
+/* ---- Room ---- */
+
+.room {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.room-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.room-header h1 {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 1.15rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.room-header h1.dm-title {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.room-header .room-error {
+  flex-basis: 100%;
+}
+
+.back {
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--pill);
+  background: var(--tint);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.room-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-anchor: auto;
+  margin: 0;
+  padding: 0.5rem 1rem 1rem;
+  list-style: none;
+}
+
+.sentinel {
+  height: 1px;
+}
+
+.beginning,
+.load-error {
+  padding: 1.5rem 0 1rem;
+  color: var(--muted);
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.beginning::before {
+  content: "✨";
+  display: block;
+  font-size: 2rem;
+}
+
+/* The date sits in a chip on the line. */
+.day {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  margin: 1rem 0 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.day::before,
+.day::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--border);
+}
+
+/* Room on the left for the author's avatar, which only group starts show (§15.4). */
+.msg {
+  position: relative;
+  padding: 0.15rem 0.5rem 0.15rem calc(0.5rem + 40px + 0.75rem);
+  border-radius: var(--radius);
+  transition: background-color 0.1s;
+}
+
+.msg > .avatar {
+  position: absolute;
+  top: 0.25rem;
+  left: 0.5rem;
+}
+
+.msg.group-start {
+  min-height: calc(40px + 0.4rem);
+  margin-top: 0.75rem;
+}
+
+@media (hover: hover) {
+  .msg:hover {
+    background: var(--hover);
+  }
+}
+
+.meta {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.author {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meta time {
+  flex: none;
+}
+
+/* Another author's name opens a menu with "Message" (§16.5). It shrinks and truncates like a plain name, so the
+   time stays on screen (QA BUG-32). */
+.author-menu {
+  min-width: 0;
+}
+
+.author-menu > summary.author {
+  display: block;
+  padding: 0;
+  color: inherit;
+}
+
+.author-menu > summary.author:hover,
+.author-menu[open] > summary.author {
+  background: none;
+  text-decoration: underline;
+}
+
+.author-menu .menu-items {
+  right: auto;
+  left: 0;
+  min-width: 8rem;
+  transform-origin: top left;
+}
+
+.meta time,
+.edited,
+.hint,
+.counter {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.edited {
+  margin-left: 0.35rem;
+}
+
+.msg .body,
+.msg .edited {
+  display: inline;
+}
+
+.placeholder {
+  font-style: italic;
+  color: var(--muted);
+}

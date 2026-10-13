@@ -108,6 +108,16 @@ describe("reconcile()", () => {
     expect(spy).toHaveBeenCalledTimes(1);
   });
 
+  it("replacing one node moves nothing else (the ones after it stay put)", () => {
+    const [a, b, c, d, e] = [li("a"), li("b"), li("c"), li("d"), li("e")];
+    const ul = h("ul", {}, [a, b, c, d]);
+    const spy = vi.spyOn(ul, "insertBefore");
+    reconcile(ul, [a, e, c, d]);
+    expect(texts(ul)).toEqual(["a", "e", "c", "d"]);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith(e, c);
+  });
+
   it("prepends, removes and reorders", () => {
     const [a, b, c, d] = [li("a"), li("b"), li("c"), li("d")];
     const ul = h("ul", {}, [b, c, d]);

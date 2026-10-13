@@ -1,6 +1,6 @@
 // Tiny observable app state (§7.4). Message lists are owned by the room view, not stored here.
 
-import type { Room, User } from "./lib/types.ts";
+import { DEFAULT_SITE, type Room, type Site, type User } from "./lib/types.ts";
 
 type Listener<S> = (state: S, prev: S) => void;
 
@@ -41,6 +41,10 @@ export interface AppState {
   unread: Map<string, number>;
   roomsStatus: LoadStatus;
   activeRoomId: string | null;
+  /** The tab isn't visible (§22.4): nobody is reading the open room, so its new messages count too. */
+  away: boolean;
+  /** Branding and signup policy (§24): not the session's, so it stays when the session ends. */
+  site: Site;
 }
 
 export const initialState = (): AppState => ({
@@ -50,6 +54,8 @@ export const initialState = (): AppState => ({
   unread: new Map(),
   roomsStatus: "idle",
   activeRoomId: null,
+  away: false,
+  site: DEFAULT_SITE,
 });
 
 // ---- updates: pass to store.set(). Maps are replaced, never mutated, so listeners can compare by identity.
@@ -113,7 +119,9 @@ export function unreadCount(s: AppState, room: Room): number {
   return s.unread.get(room.id) ?? 0;
 }
 
-const byName = (a: Room, b: Room) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+/** One collator for every sort: `localeCompare` with options builds a new one per comparison, which is slow. */
+const collator = new Intl.Collator(undefined, { sensitivity: "base" });
+const byName = (a: Room, b: Room) => collator.compare(a.name, b.name);
 
 /** Most recent activity first: the latest message, or creation for a DM without one yet. */
 const byActivity = (a: Room, b: Room) => {

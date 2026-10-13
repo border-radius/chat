@@ -11,6 +11,7 @@ const pb = await startPocketBase({
   port: E2E_PORT,
   dataDir: E2E_DATA_DIR,
   verbose: process.env.PB_VERBOSE === "1",
+  fixtureRoute: true,
 });
 
 await disableRateLimits(pb.url); // all e2e users sign up from 127.0.0.1

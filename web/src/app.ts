@@ -10,6 +10,7 @@ import { createDrafts } from "./drafts.ts";
 import { startFavicon } from "./favicon.ts";
 import type { User } from "./lib/types.ts";
 import { createRouter, here, type Router, type View } from "./router.ts";
+import { startSite } from "./site.ts";
 import { type AppState, createStore, initialState, type Store } from "./store.ts";
 import { createSync } from "./sync.ts";
 import { avatar } from "./ui/avatar.ts";
@@ -89,7 +90,7 @@ function withSidebar(sidebar: () => View, main: () => View, layoutClass = ""): (
 
 export function startApp(deps: { api: Api; root: HTMLElement }): App {
   const { api, root } = deps;
-  const store = createStore<AppState>({ ...initialState(), user: api.currentUser() });
+  const store = createStore<AppState>({ ...initialState(), user: api.currentUser(), away: document.visibilityState === "hidden" });
   const sync = createSync({ api, store });
   const unread = createUnread({ api, store });
   const drafts = createDrafts(() => store.get().user?.id ?? "");
@@ -122,7 +123,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     sync.stop();
     void api.unsubscribeAll().catch(() => {});
     drafts.clear(store.get().user?.id ?? "");
-    store.set({ ...initialState() });
+    store.set({ ...initialState(), site: store.get().site });
   }
 
   /**
@@ -188,6 +189,8 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
   // Timers are late (or paused) while the computer sleeps or the tab is in the background: check on coming back.
   // Also check a session not checked for a while: revoked meanwhile, this tab would get nothing live and send nothing.
   const onVisible = () => {
+    // Before the room view's own listener (registered later) reads what is on screen.
+    store.set({ away: document.visibilityState === "hidden" });
     if (document.visibilityState !== "visible") return;
     if (store.get().user && Date.now() - checkedAt > CHECK_STALE_MS) renew();
     else scheduleRenew();
@@ -213,13 +216,22 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     switchTo(next);
   }
 
+  /** The site's logo (if any) and title (§24). */
+  function brand() {
+    const { title, logo } = store.get().site;
+    return h("a", { href: "/", class: logo ? "brand has-logo" : "brand" }, [
+      logo ? h("img", { src: logo, alt: "", class: "brand-logo" }) : null,
+      h("span", { class: "brand-title" }, title),
+    ]);
+  }
+
   function renderHeader() {
     const user = store.get().user;
     clear(header);
     if (!user) {
       // A guest (§23.3): reading the Open Air rooms, with the way in.
       header.append(
-        h("a", { href: "/", class: "brand" }, "Chat"),
+        brand(),
         h("nav", { class: "guest-links", "aria-label": "Account" }, [
           h("a", { href: "/login", class: "guest-link" }, "Log in"),
           h("a", { href: "/signup", class: "guest-link primary" }, "Sign up"),
@@ -228,7 +240,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
       return;
     }
     header.append(
-      h("a", { href: "/", class: "brand" }, "Chat"),
+      brand(),
       h("a", { href: "/me", class: "me-link", title: "Your profile" }, [
         avatar(user, 24, api.avatarUrl),
         h("span", { class: "who" }, user.name),
@@ -253,6 +265,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
   const authPage = (mode: "login" | "signup") => () =>
     createLoginView({
       api,
+      store,
       mode,
       onLogin: (user) => {
         // Usually followed already: logging in changed the session (onAuthChange).
@@ -276,6 +289,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
   });
 
   const offStore = store.subscribe((s, prev) => {
+    if (s.site !== prev.site) renderHeader();
     if (s.user === prev.user) return;
     renderHeader();
     if (s.user && !prev.user) scheduleRenew();
@@ -291,6 +305,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
   window.addEventListener("dragover", swallowFileDrag);
   window.addEventListener("drop", swallowFileDrag);
   document.addEventListener("visibilitychange", onVisible);
+  const stopSite = startSite(api, store);
   const stopFavicon = startFavicon(store);
   renderHeader();
   startSession();
@@ -311,6 +326,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
       document.removeEventListener("visibilitychange", onVisible);
       clearTimeout(renewTimer);
       stopFavicon();
+      stopSite();
       offStore();
       router.stop();
       unread.stop();

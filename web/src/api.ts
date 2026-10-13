@@ -2,7 +2,7 @@
 
 import { PAGE_SIZE, type PageQuery } from "./lib/cursor.ts";
 import { createTokenCache } from "./lib/token.ts";
-import type { Message, Room, User, Visibility } from "./lib/types.ts";
+import { DEFAULT_SITE, type Message, type Room, type Site, type User, type Visibility } from "./lib/types.ts";
 import { type AuthRecord, type PbClient, PbError, type Query, type RequestOptions } from "./pb.ts";
 
 export type AvatarSize = 48 | 96;
@@ -46,7 +46,8 @@ export interface NewMessage {
 export interface Api {
   // auth
   currentUser(): User | null;
-  signUp(input: { email: string; password: string; name: string }): Promise<User>;
+  /** `inviteCode`: needed while the site is invite-only (§24). */
+  signUp(input: { email: string; password: string; name: string; inviteCode?: string }): Promise<User>;
   logIn(email: string, password: string): Promise<User>;
   /** Re-validate the stored session with the server, which renews it. Rejects when it is no longer valid. */
   refreshAuth(): Promise<User>;
@@ -64,6 +65,9 @@ export interface Api {
    * the session can tell. Returns an unsubscribe function.
    */
   onRejected(fn: () => void): () => void;
+
+  /** The site's branding and signup policy (§24); the defaults when there is no site record. */
+  site(signal?: AbortSignal): Promise<Site>;
 
   // profile (§15)
   /** Upload a new avatar (already prepared, §15.3). Resolves to the updated user. */
@@ -180,6 +184,9 @@ export function errorMessage(err: unknown): string {
   return err.message;
 }
 
+/** errorMessage, or the server's reason when it gave one (e.g. "A message was deleted." for a forward, §21). */
+export const reasonOf = (err: unknown): string => (err instanceof ApiError && Object.values(err.fields)[0]) || errorMessage(err);
+
 // ---- PocketBase implementation ----
 
 /** Only what the UI renders; never user emails (§6). */
@@ -187,13 +194,21 @@ export const MSG_FIELDS =
   "id,room,text,created,updated,edited_at,deleted,files,file_names,reactions,author,expand.author.id,expand.author.name,expand.author.avatar," +
   "reply_to,expand.reply_to.id,expand.reply_to.author,expand.reply_to.text,expand.reply_to.deleted,expand.reply_to.files," +
   "expand.reply_to.expand.author.id,expand.reply_to.expand.author.name," +
-  "forwarded_from,expand.forwarded_from.id,expand.forwarded_from.name";
+  "forwarded_from,forward_of,expand.forwarded_from.id,expand.forwarded_from.name";
 const MSG_OPTS = { expand: "author,reply_to.author,forwarded_from", fields: MSG_FIELDS } as const;
 /** Rooms with their members' public profile (DMs, §16.5); never emails. */
 export const ROOM_FIELDS =
   "id,name,archived,created_by,kind,visibility,members,last_message_at,created,expand.members.id,expand.members.name,expand.members.avatar";
 const ROOM_OPTS = { expand: "members", fields: ROOM_FIELDS } as const;
 const HIDDEN_FIELDS = "id,room";
+/** The site record (§24); its invite code is hidden from everyone but superusers. */
+const SITE_FIELDS = "id,title,logo,invite_only";
+interface SiteRow {
+  id: string;
+  title?: string;
+  logo?: string;
+  invite_only?: boolean;
+}
 const ACTIVITY_FIELDS = "id,room,author,created,deleted";
 
 function toApiError(e: unknown): ApiError {
@@ -297,6 +312,7 @@ export function createApi(client: PbClient): Api {
   const rooms = records(pb, "rooms");
   const hidden = records(pb, "hidden_rooms");
   const messages = records(pb, "messages");
+  const site = records(pb, "site");
   /** Every record event of a collection, narrowed to our Action type. */
   const subscribe = <T>(collection: string, fn: RealtimeHandler<T>, query: Query) =>
     wrap(
@@ -332,8 +348,9 @@ export function createApi(client: PbClient): Api {
       const r = pb.authStore.record;
       return pb.authStore.isValid && r?.collectionName === "users" ? toUser(r) : null;
     },
-    async signUp({ email, password, name }) {
-      await wrap(users.create({ email, password, passwordConfirm: password, name }));
+    async signUp({ email, password, name, inviteCode }) {
+      const invite = inviteCode ? { invite_code: inviteCode } : {};
+      await wrap(users.create({ email, password, passwordConfirm: password, name, ...invite }));
       try {
         return await api.logIn(email, password);
       } catch (e) {
@@ -362,6 +379,17 @@ export function createApi(client: PbClient): Api {
     },
 
     // A body holding a File is sent as multipart; update() refreshes the stored auth record from the response.
+    async site(signal) {
+      const { items } = await wrap(site.list<SiteRow>(1, 1, { sort: "created", skipTotal: true, fields: SITE_FIELDS }, signal));
+      const row = items[0];
+      if (!row) return DEFAULT_SITE;
+      return {
+        title: row.title || DEFAULT_SITE.title,
+        logo: row.logo ? pb.fileUrl("site", row.id, row.logo) : "",
+        inviteOnly: row.invite_only === true,
+      };
+    },
+
     setAvatar: async (file) => toUser(await wrap(users.update(me(), { avatar: file }, { fields: USER_FIELDS }))),
     removeAvatar: async () => toUser(await wrap(users.update(me(), { avatar: null }, { fields: USER_FIELDS }))),
     rename: async (name) => toUser(await wrap(users.update(me(), { name }, { fields: USER_FIELDS }))),
@@ -440,7 +468,8 @@ export function createApi(client: PbClient): Api {
       const user = api.currentUser();
       if (user && !tokens.fresh()) void tokens.ensure().catch(() => {});
       const token = user ? tokens.current() : "";
-      return pb.fileUrl("messages", m.id, filename, { token: token || undefined, thumb });
+      // A forward's attachments are its original's (§21.3).
+      return pb.fileUrl("messages", m.forward_of || m.id, filename, { token: token || undefined, thumb });
     },
 
     subscribeMessages: (room, fn) => subscribe("messages", fn, { ...MSG_OPTS, filter: pb.filter("room = {:room}", { room }) }),
@@ -451,10 +480,11 @@ export function createApi(client: PbClient): Api {
 
     onConnect(fn) {
       // PB_CONNECT only reaches listeners for connections made after they subscribe. If we are already
-      // connected now, the next PB_CONNECT this listener sees is a reconnect, not the initial connect.
+      // connected now, the next PB_CONNECT this listener sees is a reconnect, not the initial connect. So is one that
+      // follows a failed first connect: what was loaded meanwhile may have missed events.
       let connected = pb.realtime.isConnected;
       const unsub = pb.realtime.subscribe("PB_CONNECT", () => {
-        fn(connected);
+        fn(connected || pb.realtime.recovered);
         connected = true;
       });
       return () => void unsub.then((off) => off()).catch(() => {});

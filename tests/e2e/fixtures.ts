@@ -32,19 +32,16 @@ async function call<T>(path: string, init: RequestInit & { token?: string } = {}
   return (await res.json()) as T;
 }
 
-/** `dataDir`: the server's, to free the name if an earlier test took it (support/names.ts). */
-export async function apiUser(name = "User", base = E2E_BASE, dataDir = E2E_DATA_DIR): Promise<User> {
+/** Frees the name first if an earlier test took it (support/names.ts). */
+export async function apiUser(name = "User", base = E2E_BASE): Promise<User> {
   const email = `user-${uniq()}@test.local`; // not derived from the name, which may contain markup
   const password = "password-123";
-  await withName(
-    () => new DatabaseSync(join(dataDir, "data.db")),
-    name,
-    () =>
-      call(
-        "/api/collections/users/records",
-        { method: "POST", body: JSON.stringify({ email, password, passwordConfirm: password, name }) },
-        base,
-      ),
+  await withName(base, name, () =>
+    call(
+      "/api/collections/users/records",
+      { method: "POST", body: JSON.stringify({ email, password, passwordConfirm: password, name }) },
+      base,
+    ),
   );
   const auth = await call<{ token: string; record: { id: string } }>(
     "/api/collections/users/auth-with-password",
@@ -72,7 +69,9 @@ export async function apiSend(user: User, room: Room, text: string): Promise<{ i
 
 /**
  * Insert `n` messages oldest-first, `stepMs` apart (default: one minute, ending in the past).
- * Fixture data: no hooks, no realtime events.
+ * Fixture data: no hooks, no realtime events. Written straight into data.db, which also works while the server is down
+ * (reconnect.spec.ts); a write from outside can make one of the server's transactions fail now and then
+ * (docs/REFACTOR.md item 30), so it is only for histories too long to create through the API.
  */
 export function seed(
   room: Room,

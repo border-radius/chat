@@ -1,12 +1,13 @@
 // Unread badge on the tab (§22.4): the favicon shows how many messages are unread across every room and DM that has
-// a badge in the room list (§18.4), and the title starts with it, e.g. "(3) Chat".
+// a badge in the room list (§18.4), and the title starts with it, e.g. "(3) Chat". The title is the site's (§24).
 
 import { type AppState, type Store, unreadCount } from "./store.ts";
 
-/** Unread messages over every room with a badge. */
+/** Unread messages over every room with a badge, and the open room's while the tab is away. */
 export function totalUnread(s: AppState): number {
   let n = 0;
-  for (const r of s.rooms.values()) n += unreadCount(s, r);
+  const view = s.away ? { ...s, activeRoomId: null } : s;
+  for (const r of s.rooms.values()) n += unreadCount(view, r);
   return n;
 }
 
@@ -15,7 +16,7 @@ export const badgeLabel = (n: number): string => (n <= 0 ? "" : n > 99 ? "99+" :
 
 /** The favicon as an SVG document: a speech bubble, with a red badge holding `label` when there is one. */
 export function faviconSvg(label: string): string {
-  // The app's gradient (--grad in app.css).
+  // The app's gradient (--grad in styles/app/tokens.css).
   const bubble =
     '<defs><linearGradient id="g" x2="1" y2="1"><stop offset="0" stop-color="#6a4bff"/><stop offset="1" stop-color="#c42a7c"/></linearGradient></defs>' +
     '<path d="M6 4h20a4 4 0 0 1 4 4v12a4 4 0 0 1-4 4H14l-6 6v-6H6a4 4 0 0 1-4-4V8a4 4 0 0 1 4-4z" fill="url(#g)"/>' +
@@ -36,6 +37,7 @@ export const faviconUrl = (label: string): string => `data:image/svg+xml,${encod
 /** Keep the favicon and the title in step with the unread counts. Returns a function that stops it. */
 export function startFavicon(store: Store<AppState>, doc: Document = document): () => void {
   const title = doc.title;
+  let shownTitle: string | null = null;
   // Firefox ignores a new href on the icon's <link>, so each change puts in a fresh one.
   const setIcon = (label: string) => {
     const link = doc.createElement("link");
@@ -47,14 +49,23 @@ export function startFavicon(store: Store<AppState>, doc: Document = document): 
   let shown: string | null = null;
   const render = (s: AppState) => {
     const label = badgeLabel(totalUnread(s));
-    if (label === shown) return;
+    if (label !== shown) setIcon(label);
+    if (label === shown && s.site.title === shownTitle) return;
     shown = label;
-    setIcon(label);
-    doc.title = label ? `(${label}) ${title}` : title;
+    shownTitle = s.site.title;
+    doc.title = label ? `(${label}) ${s.site.title}` : s.site.title;
   };
   render(store.get());
   const off = store.subscribe((s, prev) => {
-    if (s.unread !== prev.unread || s.rooms !== prev.rooms || s.hidden !== prev.hidden || s.activeRoomId !== prev.activeRoomId) render(s);
+    if (
+      s.unread !== prev.unread ||
+      s.rooms !== prev.rooms ||
+      s.hidden !== prev.hidden ||
+      s.activeRoomId !== prev.activeRoomId ||
+      s.away !== prev.away ||
+      s.site !== prev.site
+    )
+      render(s);
   });
   return () => {
     off();

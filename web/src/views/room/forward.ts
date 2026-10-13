@@ -60,16 +60,16 @@ export function createForwardDialog(opts: {
     const q = input.value.trim().toLowerCase();
     const me = opts.me();
     const rooms = opts.rooms().filter((r) => roomTitle(r, me).toLowerCase().includes(q));
-    // Someone you already have a DM with is offered as that DM.
-    const inDms = new Set(opts.rooms().flatMap((r) => r.members ?? []));
+    // Someone you already have a DM with is offered as that DM. Only DMs: sharing a private room with someone is no
+    // way to reach them alone.
+    const inDms = new Set(opts.rooms().map((r) => otherMember(r, me)?.id));
     const items = [
       ...rooms.map((r) => {
         const other = otherMember(r, me);
-        return target(
-          roomTitle(r, me),
-          other ? avatar(other, 24, opts.avatarUrl) : h("span", { class: "hash", "aria-hidden": "true" }, "#"),
-          { room: r },
-        );
+        // A room's name after its "#" icon: its title, "#name", would say "#" twice.
+        return target(other ? roomTitle(r, me) : r.name, other ? avatar(other, 24, opts.avatarUrl) : h("span", { class: "hash" }, "#"), {
+          room: r,
+        });
       }),
       // (Found for an earlier query, until this one's answer comes: only those that still match.)
       ...(q ? people.filter((u) => !inDms.has(u.id) && u.name.toLowerCase().includes(q)) : []).map((u) =>

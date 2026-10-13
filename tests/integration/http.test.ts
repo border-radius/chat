@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
-import { adminClient, newRoom, newUser, post, status } from "./helpers.ts";
+import { adminClient, newRoom, newUser, post, status, uniq } from "./helpers.ts";
 
 const url = (path: string) => `${inject("pbUrl")}${path}`;
 
@@ -18,7 +18,14 @@ describe("security and cache headers (§5.6)", () => {
     const res = await fetch(url("/"));
     expect(res.status).toBe(200);
     const csp = res.headers.get("content-security-policy") ?? "";
-    for (const d of ["default-src 'self'", "script-src 'self'", "style-src 'self'", "connect-src 'self'", "img-src 'self' data: blob:"]) {
+    for (const d of [
+      "default-src 'self'",
+      "script-src 'self'",
+      "style-src 'self'",
+      "connect-src 'self'",
+      "img-src 'self' data: blob:",
+      "media-src 'self' blob:",
+    ]) {
       expect(csp).toContain(d);
     }
     expect(csp).not.toContain("unsafe-inline");
@@ -102,6 +109,44 @@ describe("rate limits (§5.6)", () => {
       // 25 > 2 windows' worth, so a 429 shows up even if a window boundary falls inside the burst.
       for (let i = 0; i < 25; i++) codes.push(await status(post(a, room.id, `burst ${i}`)));
       expect(codes.slice(0, 10)).toEqual(Array(10).fill(200));
+      expect(codes).toContain(429);
+    });
+  });
+});
+
+describe("extra rate limits (BUG-22, BUG-23)", () => {
+  it("migrations add limits for message edits/deletes and room creation", () => {
+    const rules = inject("bootRateLimits").rules;
+    expect(rules).toContainEqual(expect.objectContaining({ label: "messages:update", maxRequests: 20, duration: 10 }));
+    expect(rules).toContainEqual(expect.objectContaining({ label: "rooms:create", maxRequests: 5, duration: 60 }));
+    // the original rules are kept
+    expect(rules).toContainEqual(expect.objectContaining({ label: "messages:create", maxRequests: 10, duration: 5 }));
+  });
+
+  describe("when enabled", () => {
+    beforeAll(async () => {
+      const admin = await adminClient();
+      await admin.settings.update({ rateLimits: { ...inject("bootRateLimits"), enabled: true } });
+    });
+    afterAll(async () => {
+      const admin = await adminClient();
+      await admin.settings.update({ rateLimits: { ...inject("bootRateLimits"), enabled: false } });
+    });
+
+    it("a burst of edits hits 429", async () => {
+      const a = await newUser();
+      const m = await post(a, (await newRoom(a)).id, "v0");
+      const codes: number[] = [];
+      for (let i = 0; i < 45; i++) codes.push(await status(a.pb.collection("messages").update(m.id, { text: `v${i + 1}` })));
+      expect(codes.slice(0, 20)).toEqual(Array(20).fill(200));
+      expect(codes).toContain(429);
+    });
+
+    it("a burst of room creation hits 429", async () => {
+      const a = await newUser();
+      const codes: number[] = [];
+      for (let i = 0; i < 7; i++)
+        codes.push(await status(a.pb.collection("rooms").create({ name: `flood-${uniq()}`, created_by: a.user.id })));
       expect(codes).toContain(429);
     });
   });

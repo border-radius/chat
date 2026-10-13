@@ -1,7 +1,8 @@
 /// <reference path="../../types/pocketbase.d.ts" />
-// Room access (DESIGN.md §23): who can see a room, the way the rooms view rule says it (pb_migrations/
-// 1760000014_room_access.js; keep the two in sync). For hooks and routes that check a room themselves, and for telling
-// realtime clients about a room they can no longer see.
+// Room access (DESIGN.md §23): who can see a room, the way the rooms view rule says it (CAN_SEE in pb_migrations/
+// 1760000014_room_access.js). For hooks and routes that check a room themselves, for SQL that lists rooms, and for
+// telling realtime clients about a room they can no longer see. The rule, canSee and SEES_SQL must agree:
+// tests/integration/access.matrix.test.ts checks every way in against one table.
 
 /** Most members a private room can have (rooms.members maxSelect). */
 const MAX_MEMBERS = 100;
@@ -36,6 +37,12 @@ function canSee(a, userId) {
   if (!userId) return false;
   return a.visibility !== "private" || a.createdBy === userId || a.members.includes(userId);
 }
+
+/**
+ * canSee for a signed-in user, as an SQL condition on `rooms r`, with the user's id bound as {:me}. (Open Air rooms are
+ * not private, so no guest case is needed: guests never run these queries.)
+ */
+const SEES_SQL = "(r.visibility != 'private' OR r.created_by = {:me} OR EXISTS (SELECT 1 FROM json_each(r.members) WHERE value = {:me}))";
 
 /**
  * The room if `userId` can see it, else null (also for a room that doesn't exist).
@@ -80,4 +87,4 @@ function dropLostAccess(app, before, room) {
   }
 }
 
-module.exports = { MAX_MEMBERS, accessOf, canSee, visibleRoom, dropLostAccess };
+module.exports = { MAX_MEMBERS, SEES_SQL, accessOf, canSee, visibleRoom, dropLostAccess };

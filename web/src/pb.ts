@@ -125,6 +125,8 @@ export type Unsubscribe = () => Promise<void>;
 export interface Realtime {
   /** Connected, with a client id, and no connect in progress. */
   readonly isConnected: boolean;
+  /** The connection being made follows one that failed or was lost: events may have been missed meanwhile. */
+  readonly recovered: boolean;
   /**
    * Listen to `topic` (e.g. "messages/*", or "PB_CONNECT" for every (re)connect). Resolves once the server has the
    * subscription, so an event caused after that reaches `fn`. `query` (fields, expand, filter) applies to its events.
@@ -244,6 +246,7 @@ function createRealtime(url: string, send: PbClient["send"]): Realtime & { resub
   const subs = new Map<string, Listener[]>();
   let lastSent: string[] = [];
   let attempts = 0;
+  let lost = false;
   let connectTimer: ReturnType<typeof setTimeout> | undefined;
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   let pending: { resolve: () => void; reject: (e: unknown) => void }[] = [];
@@ -313,6 +316,7 @@ function createRealtime(url: string, send: PbClient["send"]): Realtime & { resub
           clearTimeout(reconnectTimer);
           clearTimeout(connectTimer);
           for (const fn of subs.get("PB_CONNECT") ?? []) fn(e);
+          lost = false;
           if (unsent()) await submit();
         })
         .catch((err) => {
@@ -327,12 +331,13 @@ function createRealtime(url: string, send: PbClient["send"]): Realtime & { resub
   function connectError(err: unknown) {
     clearTimeout(connectTimer);
     clearTimeout(reconnectTimer);
+    lost = true;
     if (!clientId && !attempts) {
-      // The first connect failed: report it rather than retrying forever.
+      // The first connect failed: tell those waiting for it, then go on trying like after a lost connection. Nothing
+      // else would try again, and the page would get no live updates at all.
       for (const p of pending) p.reject(err instanceof PbError ? err : new PbError(0));
       pending = [];
-      disconnect();
-      return;
+      if (!subs.size) return disconnect();
     }
     disconnect(true);
     reconnectTimer = setTimeout(initConnect, RECONNECT_MS[Math.min(attempts, RECONNECT_MS.length - 1)]);
@@ -359,6 +364,9 @@ function createRealtime(url: string, send: PbClient["send"]): Realtime & { resub
   return {
     get isConnected() {
       return !!es && !!clientId && !pending.length;
+    },
+    get recovered() {
+      return lost;
     },
     async subscribe(topic, fn, query) {
       const key = query ? `${topic}?options=${encodeURIComponent(JSON.stringify({ query }))}` : topic;
@@ -392,7 +400,10 @@ function createRealtime(url: string, send: PbClient["send"]): Realtime & { resub
     resubmit() {
       if (!clientId || !subs.size) return;
       lastSent = [];
-      submit().catch(() => connectError(new PbError(0)));
+      // A failure that comes after this connection was replaced (a logout, another user) is the old one's: it must not
+      // fail and close the new one, whose subscribes would reject and which would never reconnect (QA BUG-68).
+      const source = es;
+      submit().catch(() => es === source && connectError(new PbError(0)));
     },
     /** Close the connection and, with subscriptions left, open a new one that sends them all (with the current token). */
     restart() {

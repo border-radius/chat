@@ -148,6 +148,16 @@ describe("profile view (§15.5)", () => {
     await other.api.unsubscribeAll();
   });
 
+  it("QA BUG-75: a rename in another tab shows here, so Save can't quietly undo it; a name being typed stays", () => {
+    mount();
+    // The other tab saved: the session (shared by the tabs) brings the new name to this one's store (BUG-33).
+    store.set({ user: { ...me.user, name: "Ada King" } });
+    expect(nameInput().value).toBe("Ada King");
+    nameInput().value = "Countess";
+    store.set({ user: { ...me.user, name: "Ada Byron" } });
+    expect(nameInput().value).toBe("Countess");
+  });
+
   it("QA BUG-56: putting your own name back after a refusal clears the error", async () => {
     const other = await signedUp();
     mount();

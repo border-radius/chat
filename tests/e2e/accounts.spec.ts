@@ -114,7 +114,7 @@ test("scrolled up, 'Jump to latest' takes you back down; a forward confirmation 
   await message(page, "pass it on").getByRole("button", { name: "Forward" }).click();
   await page
     .getByRole("dialog")
-    .getByRole("button", { name: `#${room.name}` })
+    .getByRole("button", { name: `# ${room.name}` })
     .click();
   const notice = page.locator(".room-notice");
   await expect(notice).toHaveText("Message forwarded.");

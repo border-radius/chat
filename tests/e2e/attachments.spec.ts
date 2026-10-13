@@ -1,7 +1,7 @@
 import { deflateSync } from "node:zlib";
 import { expect, type Page, test } from "@playwright/test";
 import { PNG } from "../support/files.ts";
-import { apiRoom, apiUser, attach, composer, login, message, openRoom, send, uniq } from "./fixtures.ts";
+import { apiRoom, apiUser, attach, composer, login, message, openRoom, seed, send, uniq } from "./fixtures.ts";
 
 const png = (name: string) => ({ name, mimeType: "image/png", buffer: Buffer.from(PNG) });
 /** A w×h PNG (a horizontal gradient). */
@@ -282,4 +282,132 @@ test("the image viewer: loaded on first use, steps through the room's images, cl
   const [tab] = await Promise.all([a.context().waitForEvent("page"), opener.click({ modifiers: ["ControlOrMeta"] })]);
   await tab.waitForURL(/\/api\/files\/messages\//); // under load it can still be about:blank here
   await expect(a.locator("dialog.viewer")).toHaveCount(0);
+});
+
+/** A short 320×180 video, recorded in the page (webm, or mp4 where that is what the browser records). */
+async function recordedVideo(page: Page, base: string) {
+  const { type, bytes } = await page.evaluate(async () => {
+    const canvas = Object.assign(document.createElement("canvas"), { width: 320, height: 180 });
+    const ctx = canvas.getContext("2d")!;
+    const type = ["video/webm", "video/mp4"].find((t) => MediaRecorder.isTypeSupported(t))!;
+    const rec = new MediaRecorder(canvas.captureStream(30), { mimeType: type });
+    const chunks: Blob[] = [];
+    rec.ondataavailable = (e) => chunks.push(e.data);
+    const done = new Promise((ok) => (rec.onstop = ok));
+    rec.start();
+    for (let i = 0; i < 15; i++) {
+      ctx.fillStyle = `hsl(${i * 20} 80% 50%)`;
+      ctx.fillRect(0, 0, 320, 180);
+      await new Promise((ok) => setTimeout(ok, 33));
+    }
+    rec.stop();
+    await done;
+    return { type, bytes: [...new Uint8Array(await new Blob(chunks).arrayBuffer())] };
+  });
+  return { name: `${base}.${type === "video/mp4" ? "mp4" : "webm"}`, mimeType: type, buffer: Buffer.from(bytes) };
+}
+
+test("videos: their first frame shows like an image, and a click plays them in the viewer (§17.5, §17.7)", async ({ browser }) => {
+  const ada = await apiUser("Ada");
+  const bob = await apiUser("Bob");
+  const room = await apiRoom(ada);
+  const a = await openRoom(browser, ada, room);
+  const b = await openRoom(browser, bob, room);
+
+  const clip = await recordedVideo(a, "clip");
+  await attach(a, [clip, sizedPng("photo.png", 600, 600)]);
+  await expect(a.locator(".tray-item video")).toHaveCount(1);
+  await send(a, "watch this");
+
+  const theirs = message(b, "watch this");
+  const tile = theirs.locator("a.att-tile:has(video)");
+  await expect(tile).toHaveAccessibleName(`${clip.name}, video`);
+  await expect(tile.locator(".att-play")).toBeVisible();
+  const preview = tile.locator("video");
+  await expect.poll(() => preview.evaluate((v: HTMLVideoElement) => v.readyState >= 2 && v.videoWidth)).toBe(320);
+  // Two media in a row: 120px high, as wide as the video's aspect ratio makes it.
+  const box = (await tile.boundingBox())!;
+  expect(box.height).toBe(120);
+  expect(Math.abs(box.width - (120 * 320) / 180)).toBeLessThan(2);
+
+  await tile.click();
+  await expect(b.getByRole("dialog", { name: clip.name })).toBeVisible();
+  const viewer = b.getByRole("dialog");
+  await expect(viewer.locator(".viewer-count")).toHaveText("1 / 2");
+  const video = viewer.locator(".viewer-stage video");
+  await expect(video).toBeVisible();
+  await expect(viewer.locator(".viewer-stage img")).toBeHidden();
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState >= 2 && v.videoWidth)).toBe(320);
+  await video.evaluate((v: HTMLVideoElement) => {
+    v.muted = true;
+    return v.play();
+  });
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime)).toBeGreaterThan(0);
+
+  // Stepping to the image stops the video.
+  await viewer.getByRole("button", { name: "Next image" }).click();
+  await expect(viewer.locator("h2")).toHaveText("photo.png");
+  await expect(video).toBeHidden();
+  expect(await video.evaluate((v: HTMLVideoElement) => v.getAttribute("src"))).toBeNull();
+  await b.keyboard.press("Escape");
+  await expect(b.locator("dialog.viewer")).toHaveCount(0);
+  await expect(tile).toBeFocused();
+});
+
+test("the viewer steps through the whole room's images, fetching those beyond the loaded messages (§17.7)", async ({ browser }) => {
+  const ada = await apiUser("Ada");
+  const room = await apiRoom(ada);
+  const a = await openRoom(browser, ada, room);
+  await attach(a, [sizedPng("old.png", 300, 200), pdf]);
+  await send(a, "old pic");
+  await expect(a.locator("li.msg.pending")).toHaveCount(0);
+  // More than a page of messages after it, so the room opens without it.
+  seed(room, ada, 60, { startAt: Date.now(), stepMs: 1 });
+  await attach(a, [sizedPng("new.png", 300, 200)]);
+  await send(a, "new pic");
+  await expect(a.locator("li.msg.pending")).toHaveCount(0);
+  await a.reload();
+  await expect(message(a, "new pic")).toBeVisible();
+  await expect(message(a, "old pic")).toHaveCount(0);
+
+  await message(a, "new pic").locator("a.att-tile").click();
+  const viewer = a.getByRole("dialog");
+  await expect(viewer.locator("h2")).toHaveText("new.png");
+  await a.keyboard.press("ArrowLeft");
+  await expect(viewer.locator("h2")).toHaveText("old.png");
+  await expect.poll(() => viewer.locator(".viewer-stage img").evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth)).toBe(300);
+  // Now it knows the whole room's: the count, and no Previous at the first.
+  await expect(viewer.locator(".viewer-count")).toHaveText("1 / 2");
+  await expect(viewer.getByRole("button", { name: "Previous image" })).toBeHidden();
+  await viewer.getByRole("button", { name: "Next image" }).click();
+  await expect(viewer.locator("h2")).toHaveText("new.png");
+  await expect(viewer.locator(".viewer-count")).toHaveText("2 / 2");
+});
+
+test("a forwarded image is the original's: its thumbnail and the viewer load it from there (§21.3)", async ({ browser }) => {
+  const ada = await apiUser("Ada");
+  const from = await apiRoom(ada);
+  const to = await apiRoom(ada);
+  const a = await openRoom(browser, ada, from);
+  await attach(a, [sizedPng("square.png", 600, 600)]);
+  await send(a, "look");
+  await expect(a.locator("li.msg.pending")).toHaveCount(0);
+  const original = await message(a, "look").getAttribute("data-id");
+
+  await message(a, "look").hover();
+  await message(a, "look").getByRole("button", { name: "Forward" }).click();
+  const dialog = a.getByRole("dialog", { name: "Forward message" });
+  await dialog.getByRole("searchbox", { name: "Search rooms and people" }).fill(to.name);
+  await dialog.getByRole("button", { name: `# ${to.name}` }).click();
+  await expect(a.locator("header.room-header h1")).toHaveText(`#${to.name}`);
+  const forwarded = message(a, "look");
+  await expect(forwarded).toContainText("Forwarded from Ada");
+  expect(await forwarded.getAttribute("data-id")).not.toBe(original);
+
+  const thumb = forwarded.locator("a.att-tile img");
+  await expect.poll(() => thumb.evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth > 0)).toBe(true);
+  expect(await thumb.getAttribute("src")).toContain(`/api/files/messages/${original}/`);
+  await forwarded.locator("a.att-tile").click();
+  const img = a.getByRole("dialog", { name: "square.png" }).locator(".viewer-stage img");
+  await expect.poll(() => img.evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth)).toBe(600);
 });

@@ -24,8 +24,15 @@ import type { Scope } from "../../scope.ts";
 import { type AppState, type Store, upsertRoom } from "../../store.ts";
 
 /** "loading" until the first page is in; "failed" offers Retry; "not-found": no such room (or not yours). */
-/** How long a message gone to (a quote, a link) stays highlighted; app.css fades it out over this time. */
+/** How long a message gone to (a quote, a link) stays highlighted; styles/app/messages.css fades it out over this time. */
 export const HIGHLIGHT_MS = 3000;
+
+/**
+ * Sends that failed after their room view had gone (another room was opened while they were on their way), by room.
+ * The room's next view shows them as not sent, with Retry: otherwise what was written would be lost without a word, as
+ * the composer and the draft were cleared on sending.
+ */
+const strays = new Map<string, Message[]>();
 
 export type Phase = "loading" | "ready" | "failed" | "not-found";
 /** "below": new messages under the viewport. "history": new messages, but the window isn't at the live edge. */
@@ -151,8 +158,19 @@ export function createRoomController(opts: {
    * so last. They show over every copy of the message until that change is answered (§20.3).
    */
   const reacting = new Map<string, Map<string, { on: boolean; seq: number }>>();
-  /** The requests for each message's reactions go one at a time, so the server applies them in the order they were made. */
-  const reactQueues = new Map<string, Promise<unknown>>();
+  /**
+   * Writes go one at a time, so the server applies them in the order they were made: sends (key ""), and each message's
+   * edits, deletes and reactions (key: its id). Two at once can land the other way round: a message with an attachment
+   * after the text sent just after it, or an older edit over a newer one.
+   */
+  const queues = new Map<string, Promise<unknown>>();
+  const inTurn = <T>(key: string, write: () => Promise<T>): Promise<T> => {
+    const run = (queues.get(key) ?? Promise.resolve()).then(write);
+    const done = run.catch(() => {});
+    queues.set(key, done);
+    void done.then(() => queues.get(key) === done && queues.delete(key));
+    return run;
+  };
   let reactSeq = 0;
   const emit = (change: Change = {}) => {
     if (scope.active) opts.onChange(change);
@@ -173,7 +191,7 @@ export function createRoomController(opts: {
     win = merge(win, [...unsent.values()]);
     unsent.clear();
   };
-  /** Highlight message `id` (or nothing) for HIGHLIGHT_MS: long enough to spot it, then it fades (app.css). */
+  /** Highlight message `id` (or nothing) for HIGHLIGHT_MS: long enough to spot it, then it fades (styles/app/messages.css). */
   const setTarget = (id: string | null) => {
     targetId = id;
     clearTimeout(targetTimer);
@@ -294,7 +312,7 @@ export function createRoomController(opts: {
     }
     const change: Change = { render: {} };
     if (current && loaded) {
-      win = loaded.win;
+      setWin(loaded.win); // keeps a message sent (or adopted) while loading
       setTarget(loaded.target);
       change.notice = msgId && !loaded.target ? "That message isn't in this room. Showing the latest messages instead." : "";
       // Otherwise the jump has positioned the list.
@@ -437,7 +455,7 @@ export function createRoomController(opts: {
       win = trim(merge(win, [msg]), "top").win;
       pill = null;
       emit({ render: {}, scroll: "bottom" });
-      await deliver(msg);
+      await inTurn("", () => deliver(msg));
     })();
     return true;
   }
@@ -458,9 +476,8 @@ export function createRoomController(opts: {
         ...(replyTo ? { replyTo } : {}),
       });
     } catch (e) {
-      if (!scope.active) return;
       // A retry of a send that already reached the server fails with a duplicate id: it was sent after all.
-      const recovered = e instanceof ApiError && e.status === 400 ? await api.getMessage(msg.id, signal).catch(() => null) : null;
+      const recovered = e instanceof ApiError && e.status === 400 ? await api.getMessage(msg.id).catch(() => null) : null;
       if (recovered && recovered.author === me()?.id) saved = recovered;
       else {
         const replyGone = e instanceof ApiError && "reply_to" in e.fields && quoted;
@@ -473,13 +490,20 @@ export function createRoomController(opts: {
         if (replyGone && find(quoted.id)) patchLocal(quoted.id, { text: "", deleted: true });
       }
     }
-    if (!scope.active) return;
+    // The server has the files now: the previews can go, even if the room was left meanwhile (its echo may already have
+    // replaced the pending copy, whose previews nothing else would release; QA BUG-70).
+    if (saved) revokeLocal(msg);
+    if (!scope.active) {
+      // Its previews went with the view: its files show by name.
+      const files = failed?.localFiles?.map((f) => ({ file: f.file, url: "" }));
+      if (failed) strays.set(roomId, [...(strays.get(roomId) ?? []), { ...failed, ...(files && { localFiles: files }) }]);
+      return;
+    }
     // The window may have moved back in history meanwhile (a quote, a jump): then the message isn't in it, and
     // must not be put after older messages. Sent, it shows once the window is back at the live edge.
     if (saved) {
       unsent.delete(msg.id);
       if (find(msg.id)) win = merge(win, [saved]);
-      revokeLocal(msg);
     } else if (failed && find(msg.id)?.status) win = merge(win, [failed]);
     else if (failed && unsent.has(msg.id)) unsent.set(msg.id, failed);
     emit({ render: {} });
@@ -490,7 +514,7 @@ export function createRoomController(opts: {
     if (m?.status !== "failed") return;
     patchLocal(id, { status: "pending" });
     emit({ render: {} });
-    await deliver({ ...m, status: "pending" });
+    await inTurn("", () => deliver({ ...m, status: "pending" }));
   }
 
   function discard(id: string) {
@@ -507,7 +531,7 @@ export function createRoomController(opts: {
     emit({ render: { anchor: true } });
     let ok = true;
     try {
-      const saved = await request();
+      const saved = await inTurn(id, request);
       if (scope.active) win = merge(win, [saved]);
     } catch {
       if (!scope.active) return false;
@@ -584,12 +608,10 @@ export function createRoomController(opts: {
         return false;
       }
     };
-    const queue = (reactQueues.get(id) ?? Promise.resolve()).then(request);
-    reactQueues.set(id, queue);
+    const queue = inTurn(id, request);
     reacting.set(id, mine.set(emoji, { on, seq }));
     emit({ render: { anchor: true } });
     const ok = await queue;
-    if (reactQueues.get(id) === queue) reactQueues.delete(id);
     // Changed again meanwhile: the later change shows, and says whether it worked.
     if (!latest()) return true;
     if (!scope.active) return ok;
@@ -611,6 +633,8 @@ export function createRoomController(opts: {
       const keepToken = setInterval(() => void api.fileToken().catch(() => {}), 30_000);
       scope.defer(() => clearInterval(keepToken));
       scope.defer(() => clearTimeout(targetTimer));
+      for (const m of strays.get(roomId) ?? []) if (m.author === me()?.id) unsent.set(m.id, m); // not from before a logout
+      strays.delete(roomId);
       // Room record changes (archive etc.) arrive through the store, kept live by sync.ts.
       const sub = api.subscribeMessages(roomId, onMessage);
       scope.sub(sub);

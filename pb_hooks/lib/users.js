@@ -1,9 +1,12 @@
 /// <reference path="../../types/pocketbase.d.ts" />
-// GET /api/chat/users?q= (DESIGN.md §16.5): find people to message by name. Matched against `name_key` (case folded
+// users (DESIGN.md §5.1, §22.1): the hooks that clean a saved user (display name, email) and find a login by email, and
+// GET /api/chat/users?q= (§16.5): find people to message by name. Matched against `name_key` (case folded
 // like names are compared, §22.1), so "иван" finds "Иван" and "strasse" "Straße": SQLite's LIKE only ignores the case
 // of ASCII letters (QA BUG-55). `name_key` is hidden from clients, hence a route rather than a filter.
 
-const { nameKey } = require(`${__hooks}/lib/chat.js`);
+const { assertImagesFit } = require(`${__hooks}/lib/images.js`);
+const { cleanName, originalNames, recordOf, setNameKey } = require(`${__hooks}/lib/records.js`);
+const { nameKey } = require(`${__hooks}/lib/text.js`);
 
 /** Most people one search returns. */
 const LIMIT = 20;
@@ -27,4 +30,40 @@ function searchUsers(e) {
   );
 }
 
-module.exports = { searchUsers };
+/**
+ * users create/update: clean the display name (§5.1), which must be unique (§22.1). A new email is stored in lower case, so the same address can't
+ * make two accounts and logging in doesn't depend on how it was capitalized (QA BUG-47). Existing ones are left as they
+ * are on other updates (the migration lowered every one it could).
+ * @param {core.RecordEvent} e
+ */
+function beforeUserSave(e) {
+  const rec = recordOf(e);
+  const email = rec.getString("email");
+  if (rec.isNew() || email !== rec.original().getString("email")) rec.set("email", email.trim().toLowerCase());
+  cleanName(rec);
+  if (!rec.isNew() && rec.getString("name") === rec.original().getString("name")) {
+    // Name unchanged: keep its key. Accounts named before name_key existed may share a name (the migration made
+    // their keys unique), and must still be able to change their picture or password.
+    rec.set("name_key", rec.original().getString("name_key"));
+  } else {
+    setNameKey(e.app, "users", rec, "This display name is taken. Choose another one.");
+  }
+  assertImagesFit(rec, "avatar");
+  originalNames(rec, "avatar"); // only for the upload's own name (QA BUG-35)
+}
+
+/**
+ * users auth-with-password: an email that matched nobody as typed is looked up in lower case, the way emails are
+ * stored (QA BUG-47). PocketBase then checks the password as usual.
+ * @param {core.RecordAuthWithPasswordRequestEvent} e
+ */
+function findLoginByEmail(e) {
+  if (e.record || (e.identityField && e.identityField !== "email") || !e.identity.includes("@")) return;
+  try {
+    e.record = e.app.findFirstRecordByFilter("users", "email = {:email}", { email: e.identity.trim().toLowerCase() });
+  } catch {
+    // no such user: PocketBase answers "Failed to authenticate." as for any wrong login
+  }
+}
+
+module.exports = { beforeUserSave, findLoginByEmail, searchUsers };

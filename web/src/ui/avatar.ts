@@ -6,7 +6,7 @@ import { h } from "../dom.ts";
 import { avatarColor, initials } from "../lib/avatar.ts";
 import type { User } from "../lib/types.ts";
 
-/** Rendered sizes in CSS px (`.avatar.s24` … in app.css). */
+/** Rendered sizes in CSS px (`.avatar.s24` … in styles/app/avatars.css). */
 export type AvatarPx = 24 | 32 | 96;
 
 export type AvatarUrl = (user: User, size: AvatarSize) => string;

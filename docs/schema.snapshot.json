@@ -1,0 +1,905 @@
+{
+  "collections": [
+    {
+      "name": "hidden_rooms",
+      "type": "base",
+      "listRule": "user = @request.auth.id",
+      "viewRule": "user = @request.auth.id",
+      "createRule": [
+        "@request.auth.id != \"\"",
+        "@request.body.user = @request.auth.id",
+        "(@request.auth.id != \"\" && (@request.body.room.visibility != \"private\" || @request.body.room.members.id ?= @request.auth.id || @request.body.room.created_by = @request.auth.id))"
+      ],
+      "updateRule": null,
+      "deleteRule": "user = @request.auth.id",
+      "fields": [
+        {
+          "autogeneratePattern": "[a-z0-9]{15}",
+          "help": "",
+          "hidden": false,
+          "max": 15,
+          "min": 15,
+          "name": "id",
+          "pattern": "^[a-z0-9]+$",
+          "presentable": false,
+          "primaryKey": true,
+          "required": true,
+          "system": true,
+          "type": "text"
+        },
+        {
+          "cascadeDelete": true,
+          "help": "",
+          "hidden": false,
+          "maxSelect": 1,
+          "minSelect": 0,
+          "name": "user",
+          "presentable": false,
+          "required": true,
+          "system": false,
+          "type": "relation",
+          "collection": "users"
+        },
+        {
+          "cascadeDelete": true,
+          "help": "",
+          "hidden": false,
+          "maxSelect": 1,
+          "minSelect": 0,
+          "name": "room",
+          "presentable": false,
+          "required": true,
+          "system": false,
+          "type": "relation",
+          "collection": "rooms"
+        },
+        {
+          "hidden": false,
+          "name": "created",
+          "onCreate": true,
+          "onUpdate": false,
+          "presentable": false,
+          "system": false,
+          "type": "autodate"
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX `idx_hidden_rooms_user_room` ON `hidden_rooms` (`user`, `room`)"
+      ]
+    },
+    {
+      "name": "messages",
+      "type": "base",
+      "listRule": "((room.visibility = \"open\" && room.archived = false) || (@request.auth.id != \"\" && (room.visibility != \"private\" || room.members.id ?= @request.auth.id || room.created_by = @request.auth.id)))",
+      "viewRule": "(((room.visibility = \"open\" && room.archived = false) || (@request.auth.id != \"\" && (room.visibility != \"private\" || room.members.id ?= @request.auth.id || room.created_by = @request.auth.id)))) || (@collection.messages:fwd.forward_of ?= id && @collection.messages:fwd.deleted ?= false && ((@collection.messages:fwd.room.visibility ?= \"open\" && @collection.messages:fwd.room.archived ?= false) || (@request.auth.id != \"\" && (@collection.messages:fwd.room.visibility ?!= \"private\" || @collection.messages:fwd.room.members.id ?= @request.auth.id || @collection.messages:fwd.room.created_by ?= @request.auth.id))))",
+      "createRule": [
+        "@request.auth.id != \"\"",
+        "@request.body.author = @request.auth.id",
+        "@request.body.room.archived = false",
+        "(@request.auth.id != \"\" && (@request.body.room.visibility != \"private\" || @request.body.room.members.id ?= @request.auth.id || @request.body.room.created_by = @request.auth.id))",
+        "@request.body.deleted:isset = false",
+        "@request.body.deleted_at:isset = false",
+        "@request.body.edited_at:isset = false",
+        "@request.body.reactions:isset = false",
+        "@request.body.forwarded_from:isset = false",
+        "@request.body.forward_of:isset = false"
+      ],
+      "updateRule": [
+        "author = @request.auth.id",
+        "room.archived = false",
+        "deleted = false",
+        "@request.body.author:isset = false",
+        "@request.body.room:isset = false",
+        "@request.body.edited_at:isset = false",
+        "@request.body.deleted_at:isset = false",
+        "(@request.body.deleted:isset = false || @request.body.deleted = true)",
+        "@request.body.files:isset = false",
+        "@request.body.reply_to:isset = false",
+        "@request.body.reactions:isset = false",
+        "@request.body.forwarded_from:isset = false",
+        "(@request.auth.id != \"\" && (room.visibility != \"private\" || room.members.id ?= @request.auth.id || room.created_by = @request.auth.id))",
+        "@request.body.forward_of:isset = false"
+      ],
+      "deleteRule": null,
+      "fields": [
+        {
+          "autogeneratePattern": "[a-z0-9]{15}",
+          "help": "",
+          "hidden": false,
+          "max": 15,
+          "min": 15,
+          "name": "id",
+          "pattern": "^[a-z0-9]+$",
+          "presentable": false,
+          "primaryKey": true,
+          "required": true,
+          "system": true,
+          "type": "text"
+        },
+        {
+          "cascadeDelete": true,
+          "help": "",
+          "hidden": false,
+          "maxSelect": 1,
+          "minSelect": 0,
+          "name": "room",
+          "presentable": false,
+          "required": true,
+          "system": false,
+          "type": "relation",
+          "collection": "rooms"
+        },
+        {
+          "cascadeDelete": false,
+          "help": "",
+          "hidden": false,
+          "maxSelect": 1,
+          "minSelect": 0,
+          "name": "author",
+          "presentable": false,
+          "required": true,
+          "system": false,
+          "type": "relation",
+          "collection": "users"
+        },
+        {
+          "autogeneratePattern": "",
+          "help": "",
+          "hidden": false,
+          "max": 2000,
+          "min": 0,
+          "name": "text",
+          "pattern": "",
+          "presentable": false,
+          "primaryKey": false,
+          "required": false,
+          "system": false,
+          "type": "text"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "max": "",
+          "min": "",
+          "name": "edited_at",
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "date"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "name": "deleted",
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "bool"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "max": "",
+          "min": "",
+          "name": "deleted_at",
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "date"
+        },
+        {
+          "hidden": false,
+          "name": "created",
+          "onCreate": true,
+          "onUpdate": false,
+          "presentable": false,
+          "system": false,
+          "type": "autodate"
+        },
+        {
+          "hidden": false,
+          "name": "updated",
+          "onCreate": true,
+          "onUpdate": true,
+          "presentable": false,
+          "system": false,
+          "type": "autodate"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "maxSelect": 4,
+          "maxSize": 8388608,
+          "mimeTypes": [],
+          "name": "files",
+          "presentable": false,
+          "protected": true,
+          "required": false,
+          "system": false,
+          "thumbs": [
+            "800x480f",
+            "480x240f"
+          ],
+          "type": "file"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "maxSize": 4096,
+          "name": "file_names",
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "json"
+        },
+        {
+          "cascadeDelete": false,
+          "help": "",
+          "hidden": false,
+          "maxSelect": 1,
+          "minSelect": 0,
+          "name": "reply_to",
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "relation",
+          "collection": "messages"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "maxSize": 0,
+          "name": "reactions",
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "json"
+        },
+        {
+          "cascadeDelete": false,
+          "help": "",
+          "hidden": false,
+          "maxSelect": 1,
+          "minSelect": 0,
+          "name": "forwarded_from",
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "relation",
+          "collection": "users"
+        },
+        {
+          "cascadeDelete": false,
+          "help": "",
+          "hidden": false,
+          "maxSelect": 1,
+          "minSelect": 0,
+          "name": "forward_of",
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "relation",
+          "collection": "messages"
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX `idx_messages_room_created` ON `messages` (`room`, `created`, `id`)"
+      ]
+    },
+    {
+      "name": "room_reads",
+      "type": "base",
+      "listRule": "user = @request.auth.id",
+      "viewRule": "user = @request.auth.id",
+      "createRule": null,
+      "updateRule": null,
+      "deleteRule": null,
+      "fields": [
+        {
+          "autogeneratePattern": "[a-z0-9]{15}",
+          "help": "",
+          "hidden": false,
+          "max": 15,
+          "min": 15,
+          "name": "id",
+          "pattern": "^[a-z0-9]+$",
+          "presentable": false,
+          "primaryKey": true,
+          "required": true,
+          "system": true,
+          "type": "text"
+        },
+        {
+          "cascadeDelete": true,
+          "help": "",
+          "hidden": false,
+          "maxSelect": 1,
+          "minSelect": 0,
+          "name": "user",
+          "presentable": false,
+          "required": true,
+          "system": false,
+          "type": "relation",
+          "collection": "users"
+        },
+        {
+          "cascadeDelete": true,
+          "help": "",
+          "hidden": false,
+          "maxSelect": 1,
+          "minSelect": 0,
+          "name": "room",
+          "presentable": false,
+          "required": true,
+          "system": false,
+          "type": "relation",
+          "collection": "rooms"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "max": "",
+          "min": "",
+          "name": "last_read_at",
+          "presentable": false,
+          "required": true,
+          "system": false,
+          "type": "date"
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX `idx_room_reads_user_room` ON `room_reads` (`user`, `room`)"
+      ]
+    },
+    {
+      "name": "rooms",
+      "type": "base",
+      "listRule": "((visibility = \"open\" && archived = false) || (@request.auth.id != \"\" && (visibility != \"private\" || members.id ?= @request.auth.id || created_by = @request.auth.id)))",
+      "viewRule": "((visibility = \"open\" && archived = false) || (@request.auth.id != \"\" && (visibility != \"private\" || members.id ?= @request.auth.id || created_by = @request.auth.id)))",
+      "createRule": [
+        "@request.auth.id != \"\"",
+        "@request.body.created_by = @request.auth.id",
+        "(@request.body.archived:isset = false || @request.body.archived = false)",
+        "@request.body.archived_at:isset = false",
+        "(@request.body.kind:isset = false || @request.body.kind = \"public\")",
+        "@request.body.members:isset = false",
+        "@request.body.dm_key:isset = false",
+        "@request.body.last_message_at:isset = false"
+      ],
+      "updateRule": [
+        "created_by = @request.auth.id",
+        "kind = \"public\"",
+        "@request.body.created_by:isset = false",
+        "@request.body.archived_at:isset = false",
+        "@request.body.kind:isset = false",
+        "@request.body.dm_key:isset = false",
+        "@request.body.last_message_at:isset = false"
+      ],
+      "deleteRule": null,
+      "fields": [
+        {
+          "autogeneratePattern": "[a-z0-9]{15}",
+          "help": "",
+          "hidden": false,
+          "max": 15,
+          "min": 15,
+          "name": "id",
+          "pattern": "^[a-z0-9]+$",
+          "presentable": false,
+          "primaryKey": true,
+          "required": true,
+          "system": true,
+          "type": "text"
+        },
+        {
+          "autogeneratePattern": "",
+          "help": "",
+          "hidden": false,
+          "max": 48,
+          "min": 1,
+          "name": "name",
+          "pattern": "",
+          "presentable": false,
+          "primaryKey": false,
+          "required": false,
+          "system": false,
+          "type": "text"
+        },
+        {
+          "cascadeDelete": false,
+          "help": "",
+          "hidden": false,
+          "maxSelect": 1,
+          "minSelect": 0,
+          "name": "created_by",
+          "presentable": false,
+          "required": true,
+          "system": false,
+          "type": "relation",
+          "collection": "users"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "name": "archived",
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "bool"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "max": "",
+          "min": "",
+          "name": "archived_at",
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "date"
+        },
+        {
+          "hidden": false,
+          "name": "created",
+          "onCreate": true,
+          "onUpdate": false,
+          "presentable": false,
+          "system": false,
+          "type": "autodate"
+        },
+        {
+          "hidden": false,
+          "name": "updated",
+          "onCreate": true,
+          "onUpdate": true,
+          "presentable": false,
+          "system": false,
+          "type": "autodate"
+        },
+        {
+          "autogeneratePattern": "",
+          "help": "",
+          "hidden": true,
+          "max": 400,
+          "min": 0,
+          "name": "name_key",
+          "pattern": "",
+          "presentable": false,
+          "primaryKey": false,
+          "required": false,
+          "system": false,
+          "type": "text"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "maxSelect": 1,
+          "name": "kind",
+          "presentable": false,
+          "required": true,
+          "system": false,
+          "type": "select",
+          "values": [
+            "public",
+            "dm"
+          ]
+        },
+        {
+          "cascadeDelete": false,
+          "help": "",
+          "hidden": false,
+          "maxSelect": 100,
+          "minSelect": 0,
+          "name": "members",
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "relation",
+          "collection": "users"
+        },
+        {
+          "autogeneratePattern": "",
+          "help": "",
+          "hidden": true,
+          "max": 40,
+          "min": 0,
+          "name": "dm_key",
+          "pattern": "",
+          "presentable": false,
+          "primaryKey": false,
+          "required": false,
+          "system": false,
+          "type": "text"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "max": "",
+          "min": "",
+          "name": "last_message_at",
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "date"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "maxSelect": 1,
+          "name": "visibility",
+          "presentable": false,
+          "required": true,
+          "system": false,
+          "type": "select",
+          "values": [
+            "public",
+            "private",
+            "open"
+          ]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX `idx_rooms_name_key` ON `rooms` (`name_key`) WHERE `name_key` != ''",
+        "CREATE UNIQUE INDEX `idx_rooms_dm_key` ON `rooms` (`dm_key`) WHERE `dm_key` != ''",
+        "CREATE UNIQUE INDEX `idx_rooms_name` ON `rooms` (`name` COLLATE NOCASE) WHERE `name` != ''"
+      ]
+    },
+    {
+      "name": "site",
+      "type": "base",
+      "listRule": "",
+      "viewRule": "",
+      "createRule": null,
+      "updateRule": null,
+      "deleteRule": null,
+      "fields": [
+        {
+          "autogeneratePattern": "[a-z0-9]{15}",
+          "help": "",
+          "hidden": false,
+          "max": 15,
+          "min": 15,
+          "name": "id",
+          "pattern": "^[a-z0-9]+$",
+          "presentable": false,
+          "primaryKey": true,
+          "required": true,
+          "system": true,
+          "type": "text"
+        },
+        {
+          "autogeneratePattern": "",
+          "help": "",
+          "hidden": false,
+          "max": 48,
+          "min": 1,
+          "name": "title",
+          "pattern": "",
+          "presentable": false,
+          "primaryKey": false,
+          "required": true,
+          "system": false,
+          "type": "text"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "maxSelect": 1,
+          "maxSize": 1048576,
+          "mimeTypes": [
+            "image/svg+xml",
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+            "image/gif"
+          ],
+          "name": "logo",
+          "presentable": false,
+          "protected": false,
+          "required": false,
+          "system": false,
+          "thumbs": [],
+          "type": "file"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "name": "invite_only",
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "bool"
+        },
+        {
+          "autogeneratePattern": "",
+          "help": "",
+          "hidden": true,
+          "max": 100,
+          "min": 0,
+          "name": "invite_code",
+          "pattern": "",
+          "presentable": false,
+          "primaryKey": false,
+          "required": false,
+          "system": false,
+          "type": "text"
+        },
+        {
+          "hidden": false,
+          "name": "created",
+          "onCreate": true,
+          "onUpdate": false,
+          "presentable": false,
+          "system": false,
+          "type": "autodate"
+        },
+        {
+          "hidden": false,
+          "name": "updated",
+          "onCreate": true,
+          "onUpdate": true,
+          "presentable": false,
+          "system": false,
+          "type": "autodate"
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "users",
+      "type": "auth",
+      "listRule": "@request.auth.id != \"\"",
+      "viewRule": "",
+      "createRule": "(@request.body.emailVisibility:isset = false || @request.body.emailVisibility = false)",
+      "updateRule": [
+        "id = @request.auth.id",
+        "(@request.body.emailVisibility:isset = false || @request.body.emailVisibility = false)",
+        "@request.body.password:isset = false",
+        "@request.body.passwordConfirm:isset = false"
+      ],
+      "deleteRule": null,
+      "authRule": "",
+      "manageRule": null,
+      "passwordAuth": {
+        "enabled": true,
+        "identityFields": [
+          "email"
+        ]
+      },
+      "oauth2": {
+        "enabled": false
+      },
+      "fields": [
+        {
+          "autogeneratePattern": "[a-z0-9]{15}",
+          "help": "",
+          "hidden": false,
+          "max": 15,
+          "min": 15,
+          "name": "id",
+          "pattern": "^[a-z0-9]+$",
+          "presentable": false,
+          "primaryKey": true,
+          "required": true,
+          "system": true,
+          "type": "text"
+        },
+        {
+          "cost": 0,
+          "help": "",
+          "hidden": true,
+          "max": 0,
+          "min": 8,
+          "name": "password",
+          "pattern": "",
+          "presentable": false,
+          "required": true,
+          "system": true,
+          "type": "password"
+        },
+        {
+          "autogeneratePattern": "[a-zA-Z0-9]{50}",
+          "help": "",
+          "hidden": true,
+          "max": 60,
+          "min": 30,
+          "name": "tokenKey",
+          "pattern": "",
+          "presentable": false,
+          "primaryKey": false,
+          "required": true,
+          "system": true,
+          "type": "text"
+        },
+        {
+          "exceptDomains": [],
+          "help": "",
+          "hidden": false,
+          "name": "email",
+          "onlyDomains": [],
+          "presentable": false,
+          "required": true,
+          "system": true,
+          "type": "email"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "name": "emailVisibility",
+          "presentable": false,
+          "required": false,
+          "system": true,
+          "type": "bool"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "name": "verified",
+          "presentable": false,
+          "required": false,
+          "system": true,
+          "type": "bool"
+        },
+        {
+          "autogeneratePattern": "",
+          "help": "",
+          "hidden": false,
+          "max": 32,
+          "min": 1,
+          "name": "name",
+          "pattern": "",
+          "presentable": false,
+          "primaryKey": false,
+          "required": true,
+          "system": false,
+          "type": "text"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "maxSelect": 1,
+          "maxSize": 2097152,
+          "mimeTypes": [
+            "image/jpeg",
+            "image/png",
+            "image/webp",
+            "image/gif"
+          ],
+          "name": "avatar",
+          "presentable": false,
+          "protected": false,
+          "required": false,
+          "system": false,
+          "thumbs": [
+            "48x48",
+            "96x96"
+          ],
+          "type": "file"
+        },
+        {
+          "hidden": false,
+          "name": "created",
+          "onCreate": true,
+          "onUpdate": false,
+          "presentable": false,
+          "system": false,
+          "type": "autodate"
+        },
+        {
+          "hidden": false,
+          "name": "updated",
+          "onCreate": true,
+          "onUpdate": true,
+          "presentable": false,
+          "system": false,
+          "type": "autodate"
+        },
+        {
+          "autogeneratePattern": "",
+          "help": "",
+          "hidden": true,
+          "max": 400,
+          "min": 0,
+          "name": "name_key",
+          "pattern": "",
+          "presentable": false,
+          "primaryKey": false,
+          "required": false,
+          "system": false,
+          "type": "text"
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX `idx_tokenKey__pb_users_auth_` ON `users` (`tokenKey`)",
+        "CREATE UNIQUE INDEX `idx_email__pb_users_auth_` ON `users` (`email`) WHERE `email` != ''",
+        "CREATE UNIQUE INDEX `idx_users_name_key` ON `users` (`name_key`) WHERE `name_key` != ''"
+      ]
+    }
+  ],
+  "rateLimits": [
+    {
+      "label": "*:auth",
+      "audience": "",
+      "duration": 3,
+      "maxRequests": 2
+    },
+    {
+      "label": "*:create",
+      "audience": "",
+      "duration": 5,
+      "maxRequests": 20
+    },
+    {
+      "label": "/api/",
+      "audience": "",
+      "duration": 10,
+      "maxRequests": 300
+    },
+    {
+      "label": "/api/batch",
+      "audience": "",
+      "duration": 1,
+      "maxRequests": 3
+    },
+    {
+      "label": "messages:create",
+      "audience": "",
+      "duration": 5,
+      "maxRequests": 10
+    },
+    {
+      "label": "messages:update",
+      "audience": "",
+      "duration": 10,
+      "maxRequests": 20
+    },
+    {
+      "label": "POST /api/chat/delete",
+      "audience": "",
+      "duration": 60,
+      "maxRequests": 20
+    },
+    {
+      "label": "POST /api/chat/dms",
+      "audience": "",
+      "duration": 60,
+      "maxRequests": 10
+    },
+    {
+      "label": "POST /api/chat/forward",
+      "audience": "",
+      "duration": 60,
+      "maxRequests": 20
+    },
+    {
+      "label": "POST /api/chat/password",
+      "audience": "",
+      "duration": 60,
+      "maxRequests": 5
+    },
+    {
+      "label": "POST /api/chat/reactions",
+      "audience": "",
+      "duration": 10,
+      "maxRequests": 30
+    },
+    {
+      "label": "POST /api/chat/reads",
+      "audience": "",
+      "duration": 60,
+      "maxRequests": 120
+    },
+    {
+      "label": "rooms:create",
+      "audience": "",
+      "duration": 60,
+      "maxRequests": 5
+    },
+    {
+      "label": "users:create",
+      "audience": "@guest",
+      "duration": 60,
+      "maxRequests": 20
+    }
+  ]
+}

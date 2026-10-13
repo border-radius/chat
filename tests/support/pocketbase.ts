@@ -1,16 +1,17 @@
 // Spawns a throwaway PocketBase process on a free port with its own temp data dir.
 // Shared by the Vitest integration globalSetup and the Playwright webServer.
 import { type ChildProcess, execFile, spawn } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { cp, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
+import { SUPERUSER } from "./sql.ts";
 
 const root = resolve(import.meta.dirname, "../..");
 const bin = join(root, "bin/pocketbase");
 
-export const SUPERUSER = { email: "admin@test.local", password: "test-password-123" } as const;
+export { SUPERUSER } from "./sql.ts";
 
 export interface PocketBaseServer {
   url: string;
@@ -27,16 +28,50 @@ export interface StartOptions {
   dataDir?: string;
   /** Pipe PocketBase stdout/stderr to this process (useful when debugging). */
   verbose?: boolean;
+  /** Add the test-only POST /api/test/sql route (see runSql). */
+  fixtureRoute?: boolean;
+  /** Extra environment variables for the PocketBase process. */
+  env?: Record<string, string>;
+}
+
+/**
+ * A test-only route, added to a copy of pb_hooks (never to the repo's, so never deployed): superusers run fixture SQL
+ * through PocketBase's own write connection. Writing to data.db from a second connection instead (another process)
+ * can commit between a server transaction's read and its write, which then fails with "database is locked (517)" and
+ * reaches the client as 400 "Failed to update record." (docs/REFACTOR.md item 30).
+ */
+const FIXTURE_ROUTE = `// Test-only (tests/support/pocketbase.ts): fixture SQL through the server's own write connection.
+routerAdd(
+  "POST",
+  "/api/test/sql",
+  (e) => {
+    const { statements } = e.requestInfo().body;
+    e.app.runInTransaction((tx) => {
+      for (const s of statements) tx.db().newQuery(s.sql).bind(s.params || {}).execute();
+    });
+    return e.noContent(204);
+  },
+  $apis.requireSuperuserAuth(),
+);
+`;
+
+/** A copy of pb_hooks with the fixture route added. */
+async function hooksWithFixtureRoute(tmp: string): Promise<string> {
+  const dir = join(tmp, "pb_hooks");
+  await cp(join(root, "pb_hooks"), dir, { recursive: true });
+  await writeFile(join(dir, "test_fixtures.pb.js"), FIXTURE_ROUTE);
+  return dir;
 }
 
 export async function startPocketBase(opts: StartOptions = {}): Promise<PocketBaseServer> {
   const tmp = await mkdtemp(join(tmpdir(), "chat-pb-"));
   const dataDir = opts.dataDir ?? join(tmp, "pb_data");
   const publicDir = opts.publicDir ?? join(tmp, "pb_public");
+  const hooksDir = opts.fixtureRoute ? await hooksWithFixtureRoute(tmp) : join(root, "pb_hooks");
   const dirArgs = [
     `--dir=${dataDir}`,
     `--migrationsDir=${join(root, "pb_migrations")}`,
-    `--hooksDir=${join(root, "pb_hooks")}`,
+    `--hooksDir=${hooksDir}`,
     // Never let tests write generated migrations into the repo.
     "--automigrate=false",
   ];
@@ -47,6 +82,7 @@ export async function startPocketBase(opts: StartOptions = {}): Promise<PocketBa
   const url = `http://127.0.0.1:${port}`;
   const proc = spawn(bin, ["serve", `--http=127.0.0.1:${port}`, `--publicDir=${publicDir}`, "--hooksWatch=false", ...dirArgs], {
     stdio: opts.verbose ? "inherit" : "pipe",
+    env: { ...process.env, ...opts.env },
   });
 
   let output = "";

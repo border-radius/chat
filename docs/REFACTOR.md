@@ -192,3 +192,193 @@ Every view has the same fields: `ac`, `active`, `subs: Promise<Unsubscribe>[]`, 
       anonymous subscribers (nothing at all can be delivered to them), and negative checks after `stop()`.
 - [x] Unread timing is injectable (`createUnread({ timing })`): tests batch reads for 100 ms, not 1 s, and wait
       `READ_WINDOW_MS` (300 ms) to check that nothing was sent.
+
+---
+
+## Round 3 (2026-10-13), after room access (§23), forwarding (§21) and QA passes 3–5
+
+Rounds 1–2 are done. This round is about the code that grew since: the same access rule in four places, a 600-line
+hooks module, and tests grouped by when a bug was found rather than what they protect. Same rules as before: each item
+keeps `npm run check` and e2e green and lands on its own.
+
+**Progress (2026-10-13):** done: 20–25, 28–31, and 26's measurement and 27's healthcheck and CI. Found on the way and
+fixed with tests: three app bugs (QA BUG-68, 69, 70 in QA.md) and a test-harness one (item 30). **Waiting on the
+owner:** client error reporting (27), when to optimize unread counts and fan-out (26, measured), and the JS budget (32).
+
+### 20. One definition of "who can see a room" ✅
+The rule exists in four forms that must agree: the PocketBase filter `CAN_SEE` (`pb_migrations/1760000014_room_access.js`),
+`canSee` / `visibleRoom` (`pb_hooks/lib/access.js`), the raw SQL in `UNREAD_SQL` (`pb_hooks/lib/reads.js`, worded
+differently), and what the views assume.
+- [x] An integration test that sweeps guest / member / non-member / creator × open / public / private / DM × archived,
+      and checks every way in: list/view rules, messages, `GET /api/chat/unread`, `POST /api/chat/reads`, message create,
+      file access. A disagreement fails one test instead of becoming a QA bug.
+      Done: `tests/integration/access.matrix.test.ts` (7 rooms × 4 viewers × 11 ways in: view, list, messages view/list,
+      attachment, unread, post, react, forward into, mark read, hide). It lists every disagreement at once. Checked by
+      breaking the member clause in `canSee` and in the SQL: each was caught and named. Not covered here: realtime, which
+      `room_access.test.ts` tests on its own.
+- [x] Build the unread SQL's room filter from constants in `access.js`, next to `canSee`. Done: `SEES_SQL`. The
+      migration keeps its own `CAN_SEE`: a migration must not change when a hook does.
+
+### 21. Split `pb_hooks/lib/chat.js` (595 lines) by concern ✅
+- [x] `lib/text.js` (`tidy`, `nameKey`, `clipFileName`, `isBlank`, `fieldError`), `lib/messages.js`, `lib/rooms.js`,
+      `lib/users.js` (user hooks next to search), `lib/http.js` (`headers`, `asset`). Mechanical: `main.pb.js` only
+      changes its `require` paths.
+      Done: cut by script into its 44 top-level declarations, each moved whole with its doc comment, no code retyped.
+      `text.js` is pure strings only; the record helpers (`fieldError`, `recordOf`, `cleanName`, `setNameKey`,
+      `originalNames`) went to `lib/records.js`, shared by users, rooms and messages. The other modules keep their own
+      error helpers: their top-level messages differ on purpose.
+
+### 22. Make the effective schema and API rules reviewable ✅
+Rules are built across 16 migrations by string concatenation (e.g. `qa_pass5` appends `&& NO_PASSWORD`), so the live
+rule is nowhere to read.
+- [x] A snapshot test that dumps every collection's rules, fields and indexes into a checked-in
+      `docs/schema.snapshot.json`: rule changes become readable diffs in review.
+      Done: `tests/integration/schema.snapshot.test.ts`, refreshed with `npm run schema:snapshot`. Each rule is listed as
+      its top-level `&&` conditions, so a diff names the condition that changed. Ids are left out, relations name their
+      collection, PocketBase's own collections are skipped, and rate limits are the ones the migrations set (the harness
+      turns them off after boot). Checked by dropping one condition from a migration: the test failed with a one-line diff.
+      Seen in it: the messages `createRule` checks `@request.auth.id != ""` twice (on its own and inside the access
+      condition). Harmless; leave it, since changing a rule means a new migration.
+- ~~Squash the migrations into one baseline~~: dropped (owner's decision, 2026-10-13). Migrations stay as they are.
+
+### 23. Finish splitting the room view ✅
+- [x] `views/room.ts` (726 lines) still holds selection, the bulk-delete bar, forwarding, replies, the reaction picker,
+      flash messages and the not-found/gone screens. Extract `room/selection.ts` and `room/reply.ts`.
+      Done (726 → 591 lines): `room/selection.ts` (selected set, bar, delete confirm, Escape), `room/reply.ts`, and two
+      more that fell out: `room/notice.ts` (the status line and its timed confirmations; `NOTICE_MS` moved there) and
+      `room/names.ts` (batched lookup of who reacted). Forwarding, the reaction picker and the not-found/gone screens
+      stay: they are wiring between parts, which is what the view is for.
+- [x] `room/messages.ts` (757 lines): move reaction chips and attachment rendering into their own modules.
+      Done (757 → 585 lines): `room/reactions.ts` (chips, "Add reaction" buttons, `reactionFocus`) and
+      `room/attachments.ts` (thumbnails, file chips, local previews, token retry).
+- Code moved by script (cut whole, not retyped). 559 unit tests and all 45 Chromium e2e specs pass. Bundle: +131 bytes
+  gzipped (the factories). Note the JS budget is nearly used up: 38.25 of 39 KB. The next feature will need room, so
+  either raise the budget on purpose or find savings first.
+
+### 24. Test files by feature ✅
+- [x] `tests/unit/views/room.test.ts` (2,255 lines): after item 23, move logic-only tests to DOM-free tests, as was
+      done for the controller.
+      Done differently: split into `tests/unit/views/room/*.test.ts` (load, compose, header, keyboard, read-state,
+      attachments, replies, reactions, selection, people), sharing `room/harness.ts` (setup via `useRoomView()`,
+      the helpers, and `setView`/`setLayout` for the tests that mount or unmount themselves). Its "QA fixes" block is
+      gone: each BUG test is in its feature's block. Split by script, all 129 tests kept. The full unit run is faster
+      (~75 s, was ~110 s). DOM-free tests for the new `room/selection.ts`, `reply.ts` and `names.ts`: not yet.
+- [x] `tests/integration/qa_fixes`, `qa_pass3/4/5.test.ts`: move each test into the file of the feature it protects,
+      keeping the BUG id in the test name.
+      Done: new `names.test.ts` (cleaning and uniqueness of display and room names), and `accounts`, `http` (rate
+      limits), `messages.files`, `avatars`, `users`. 28 tests moved, 293 in all, 4 files fewer.
+
+### 25. Split `web/styles/app.css` (2,052 lines) ✅
+- [x] One file per existing section (rooms, room, replies, attachments, reactions, emoji, tray, selection, access),
+      bundled by esbuild into the same single output, so the size budget and the one request stay.
+      Done: `web/styles/app.css` is now only `@import`s, in cascade order, of 20 files in `web/styles/app/` (tokens,
+      base, shell, avatars, profile, login, room-list, menus, room, replies, attachments, messages, reactions, composer,
+      emoji-picker, tray, selection, access, motion, narrow). Two sections held rules that weren't theirs: message states
+      and the Edit/Delete toolbar were under "Attachments" (now `messages.css`), the composer, hints and notices under
+      "Reactions" (now `composer.css`); each new file is imported where its rules were, so the order is unchanged.
+      Checked: the minified bundle is byte-identical to before (24,653 bytes). Only the asset hash changed: it covers
+      the linked source map, whose source list did. `contrast.test.ts` reads `app/tokens.css`.
+- ~~Tokens for repeated raw values (spacing, radii, z-index)~~: not done, on purpose. Radii already are tokens
+  (`--radius`, `--pill`: 24 of 31 uses); z-index is used twice; spacing isn't a scale (0.4rem and 0.5rem, 0.25rem and
+  0.3rem side by side), so tokens would either just rename numbers or change the look, a design decision rather than a
+  refactor. And `var()` costs bytes with the CSS at 5.86 of its 6 KB budget.
+
+### 26. Plan for scale
+Fine at today's size; the first things to break as usage grows.
+- [x] Load-test once with a seeded database (200 rooms, 100k messages); record the numbers in DESIGN.md. Done:
+      `tests/perf/scale.ts` (sizes from env vars) and DESIGN §25. 200 rooms / 50 listeners: unread 52 ms, room list
+      19 ms, fan-out to every listener 34 ms; 1,000 rooms / 200 listeners: 237, 80 and 82 ms. Pages and sends: 5–10 ms
+      at any size. All linear in rooms or listeners.
+- [ ] `UNREAD_SQL` runs correlated subqueries over every visible room per fetch. Measured: ≈ 0.24 ms per visible room in
+      the worst case (every room at the 100 cap), so about a second at ~4,000 rooms. Not needed yet; when it is, count
+      only rooms with activity since the caller's oldest read, or keep counts per user. The owner's call when to.
+- [ ] `subscribeAllMessages` sends every message event in every visible room to every client (N×M fan-out). Measured:
+      ≈ 0.4 ms of server time per listener per message. Not needed yet; a thinner event or batching when open tabs
+      reach the hundreds.
+
+### 27. Operations
+- [x] `HEALTHCHECK` in the Dockerfile against `/api/health` (busybox `wget`), for plain Docker / Compose; Dokku already
+      runs its startup check from `app.json`. Not built here (no Docker in the dev container): check on the next deploy.
+- [x] PocketBase's built-in backups (cron + S3) enabled or documented: already documented (README, "Backups").
+      Turning them on needs the deployment's S3 bucket and keys: the owner's to do in the admin UI.
+- [ ] Client error reporting: a rate-limited `POST /api/chat/log`, so production failures (e.g. reconnect loops in
+      `pb.ts`) are visible. **Waiting on the owner:** it adds client code, and the JS budget has 0.66 KB left
+      (38.34 of 39 KB); also what may be logged about users is a decision.
+- [x] CI: typecheck/lint, unit and integration as parallel jobs; e2e as a per-browser matrix. Done: a `static` job
+      (typecheck, lint, sinks, build), then `unit`, `integration` and `e2e` (chromium / firefox / webkit,
+      `fail-fast: false`, a report per browser) side by side; shared setup in `.github/actions/setup`. YAML checked with
+      a parser; not run on GitHub yet: watch the first run.
+
+### 28. Docs ✅
+- [x] DESIGN.md (1,872 lines) describes current behavior only; move "why BUG-xx was fixed" stories to QA.md. Section
+      numbers stay (never renumbered).
+      Checked, and the premise was overstated: DESIGN.md cites 20 bugs, each a short "why this rule exists" next to the
+      rule (design rationale, which belongs there); the stories are already in QA.md. What was missing: this round's
+      bugs. QA.md now has "QA pass 7" (BUG-68 resubmit, BUG-69 sync reload, BUG-70 previews, and the test-database
+      finding), the code and tests cite them as the earlier ones do, DESIGN §25 has the measured scale, and the file
+      tree lists `app/*.css`, the hooks modules and QA.md's scope.
+
+### 29. Realtime errors after a logout under load ✅ (QA BUG-68)
+Found while doing items 20–21: unhandled `PbError` rejections from `pb.ts` `resubmit()` → `connectError()` in full unit runs.
+- [x] **A real bug, fixed in `pb.ts`:** `resubmit()` (on every token change: session renewal, password change) failing
+      after its connection had been replaced (a logout or another user in between) called `connectError` on the new
+      connection: that rejected the new connection's subscribes and closed it, with nothing to reconnect it. A guest
+      tab could be left without live updates. Now a late failure is ignored when `es` is no longer the connection it
+      was sent for, as `initConnect` already did with `current()`. Test: `tests/unit/pb.test.ts` "realtime" (fake
+      EventSource and fetch: renew, log out, then the old answer arrives as a 404).
+- [x] `scope.sub()` attached its handler only at dispose, so a subscribe that failed before was an unhandled
+      rejection. It now catches at once (the realtime client keeps the subscription and sends it on the next
+      connection). Test: `tests/unit/scope.test.ts`.
+- Noted, not changed: if the very first connection fails (page opened offline), nothing reconnects until something
+  subscribes again. That is the SDK's own behavior, kept on purpose when `pb.ts` replaced it.
+
+### 30. Message edits and deletes failed under load in tests ("database is locked (517)") ✅
+Found while doing item 24: with the room tests split, 1–4 unit tests failed per run, a different one each time (each
+passed alone). A log dump of the test server showed a message `PATCH` answered **400 "Failed to update record."**
+with `details: "database is locked (517)"` after 7.4 s. 517 is SQLITE_BUSY_SNAPSHOT: a transaction read, another
+connection committed, and the read could not become a write.
+- **Not a production bug.** PocketBase sends every write and transaction through one connection (`nonconcurrentDB`),
+  so nothing of its own can commit inside the message-update transaction. The second writer was the test harness:
+  `releaseName` (on every sign-up of a name already taken: every room test is "Me") and `seedMessages` wrote to
+  `data.db` from other processes. Shown by a burst of updates: no errors alone; with a Node process committing small
+  writes alongside, the same 400 (and every update stalled while it ran). Production would only see it if something
+  else wrote to `data.db` (a sqlite3 shell, some replication tools).
+- [x] Fixture writes go through the server: `startPocketBase({ fixtureRoute: true })` serves a copy of `pb_hooks` with a
+      test-only, superuser-only `POST /api/test/sql` (never in the repo's hooks, never deployed), and
+      `tests/support/sql.ts` `runSql()` calls it (fetch only, so the unit project can use it). `withName` /
+      `releaseName` (unit, integration, e2e) and the unit `seedMessages` use it. Still direct: the e2e `seed`
+      (reconnect.spec.ts seeds while its server is stopped) and one-off fixture writes inside single integration tests
+      (files run one at a time).
+- [x] Also fixed, found on the way (QA BUG-70): a sent message's preview URLs were released only after `api.send` answered, and
+      not at all if the room was left in between (its realtime echo had already replaced the pending copy).
+      `controller.ts` now releases them as soon as the server has the message.
+- Result: no lock errors in the server log over several full runs (checked with a temporary log dump); 4 of 6 full unit
+  runs clean, against 1 of 5 before. All 293 integration and 45 Chromium e2e tests pass.
+
+### 31. Flakes left in the unit suite ✅
+Each looked like timing; the causes were four different things. 12 full runs since: 11 clean, 1 failure (fixed below).
+- [x] `unread.test.ts` (one more `unreadCounts` call than expected): not timing. Public rooms are everyone's, so
+      other test files' traffic reached the service, and a message deleted there rightly refreshes the counts (traced
+      with a stack per request). The two request-counting tests now filter the service's message events to their own
+      rooms (`onlyRooms()`).
+- [x] `views/access.test.ts` (a lost room "came back"): **a real bug in `sync.ts` (QA BUG-69).** A reload's answer is older than
+      the events that arrive while it is in flight, and replaced them: a room you were just taken out of was listed
+      again, an archive undone; and an older reload answering after a newer one overwrote it. Now events during a
+      reload are applied again on top of its answer, in the same store update (applied one by one, the room vanished
+      and came back, which the view took for a room let in again), and older answers are dropped. Tests:
+      `tests/unit/sync.test.ts` (both orders, and no flicker).
+- [x] `room/load.test.ts` "away from the live edge…": a test bug since §22.7: in history the button already shows
+      "Jump to latest", so waiting for it to show passed before the new message arrived. It waits for the text now.
+- [x] `room/header.test.ts` (Hide/Unhide, Archive) timing out at 5 s: gone with item 30's fix (the 517 retries made the
+      server slow for everyone; a full unit run went from ~75 s to ~52 s).
+- [x] `room-controller.test.ts` "runs one request per end at a time": a reconnect under load can refetch a page before
+      the test's own requests; it counts from just before them now.
+
+### 32. The JS budget is nearly used up
+`app.js` is 38.34 of 39 KB gzipped, so the next feature won't fit. Biggest parts of the bundle (minified):
+`views/room.ts` 9.2 KB, `room/messages.ts` 8.6, `room/controller.ts` 7.9, `api.ts` 7.1, `lib/emoji.ts` 7.0, `views/rooms.ts`
+6.2. The emoji picker and its data (`ui/emoji-picker.ts` + `lib/emoji.ts`, ~4.1 KB gzipped) are only needed once the picker
+opens.
+- [ ] **Owner's call:** load the picker as a lazy chunk on first open, as the image viewer already is (§17.7): frees
+      about a tenth of the budget, but the first open needs the network (offline, the picker wouldn't open; the viewer
+      falls back to a new tab, the picker has no such fallback). Or raise the budget on purpose, as §21 and §23 did.

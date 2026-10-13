@@ -140,3 +140,95 @@ describe("client", () => {
     expect(await pb.send("/api/x", { signal: ac.signal }).catch((e: unknown) => e)).toMatchObject({ status: 0, isAbort: true });
   });
 });
+
+describe("realtime", () => {
+  /** An EventSource the test drives: it records every connection and delivers the events the test emits. */
+  class FakeSource {
+    static all: FakeSource[] = [];
+    closed = false;
+    onerror: (() => void) | null = null;
+    private readonly listeners = new Map<string, Set<(e: Event) => void>>();
+    readonly url: string;
+    constructor(url: string) {
+      this.url = url;
+      FakeSource.all.push(this);
+    }
+    addEventListener(type: string, fn: (e: Event) => void) {
+      this.listeners.set(type, (this.listeners.get(type) ?? new Set()).add(fn));
+    }
+    removeEventListener(type: string, fn: (e: Event) => void) {
+      this.listeners.get(type)?.delete(fn);
+    }
+    close() {
+      this.closed = true;
+    }
+    emit(type: string, init: MessageEventInit) {
+      for (const fn of [...(this.listeners.get(type) ?? [])]) fn(new MessageEvent(type, init));
+    }
+  }
+
+  /** The subscription POSTs, each answered when the test says. Aborts are ignored: the answer was already on its way. */
+  function stubPosts() {
+    const posts: { respond: (status: number) => void }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      () =>
+        new Promise<Response>((resolve) =>
+          posts.push({ respond: (status) => resolve(new Response(status === 204 ? null : "{}", { status })) }),
+        ),
+    );
+    return posts;
+  }
+
+  afterEach(() => {
+    FakeSource.all = [];
+  });
+
+  it("a first connect that fails is tried again, and the connect after it says events may have been missed (QA BUG-74)", async () => {
+    vi.stubGlobal("EventSource", FakeSource);
+    const posts = stubPosts();
+    const pb = createClient("http://pb.test", createAuthStore());
+    const events: unknown[] = [];
+    const subscribed = pb.realtime.subscribe("rooms/*", (e) => events.push(e));
+    const recovered: boolean[] = [];
+    void pb.realtime.subscribe("PB_CONNECT", () => recovered.push(pb.realtime.recovered)).catch(() => {});
+    await vi.waitFor(() => expect(FakeSource.all).toHaveLength(1));
+    FakeSource.all[0]!.onerror!(); // e.g. the network dropped just as the page loaded
+    await expect(subscribed).rejects.toMatchObject({ status: 0 }); // those waiting are told
+    await vi.waitFor(() => expect(FakeSource.all).toHaveLength(2)); // ...and it tries again by itself
+    FakeSource.all[1]!.emit("PB_CONNECT", { lastEventId: "c1", data: "{}" });
+    await vi.waitFor(() => expect(posts).toHaveLength(1));
+    posts[0]!.respond(204);
+    await vi.waitFor(() => expect(recovered).toEqual([true]));
+    expect(pb.realtime.recovered).toBe(false);
+    FakeSource.all[1]!.emit("rooms/*", { data: JSON.stringify({ action: "create" }) });
+    expect(events).toEqual([{ action: "create" }]);
+  });
+
+  it("a resubmit that fails after the connection was replaced leaves the new connection alone (QA BUG-68)", async () => {
+    vi.stubGlobal("EventSource", FakeSource);
+    const posts = stubPosts();
+    const store = createAuthStore();
+    store.save(jwt({ exp: inAnHour() }), user);
+    const pb = createClient("http://pb.test", store);
+    const subscribed = pb.realtime.subscribe("rooms/*", () => {});
+    await vi.waitFor(() => expect(FakeSource.all).toHaveLength(1));
+    FakeSource.all[0]!.emit("PB_CONNECT", { lastEventId: "c1", data: "{}" });
+    await vi.waitFor(() => expect(posts).toHaveLength(1));
+    posts[0]!.respond(204);
+    await subscribed;
+
+    store.save(jwt({ exp: inAnHour() + 60 }), user); // renewed: the subscriptions go again, with the new token
+    await vi.waitFor(() => expect(posts).toHaveLength(2));
+    store.clear(); // logged out before the answer: a new connection, as a guest
+    await vi.waitFor(() => expect(FakeSource.all).toHaveLength(2));
+    posts[1]!.respond(404); // the old connection's answer, late: the server has forgotten that client
+    await new Promise((r) => setTimeout(r, 10));
+    expect(FakeSource.all[1]!.closed).toBe(false);
+
+    FakeSource.all[1]!.emit("PB_CONNECT", { lastEventId: "c2", data: "{}" });
+    await vi.waitFor(() => expect(posts).toHaveLength(3));
+    posts[2]!.respond(204);
+    await vi.waitFor(() => expect(pb.realtime.isConnected).toBe(true));
+  });
+});

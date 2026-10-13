@@ -18,6 +18,7 @@
     "test:watch": "vitest --project unit",
     "test:int": "vitest run --project integration",
     "test:e2e": "playwright test",
+    "schema:snapshot": "vitest run --project integration -u tests/integration/schema.snapshot.test.ts",
     "check": "npm run typecheck && npm run lint && npm run lint:sinks && npm test && npm run test:int && npm run build"
   },
   "devDependencies": {

@@ -1,0 +1,102 @@
+/* ---- Message states (sending, failed, highlighted) and the Edit/Delete toolbar ---- */
+
+/* Your own message pops in while it sends. */
+.msg.pending {
+  opacity: 0.6;
+  animation: pop 0.3s var(--ease);
+}
+
+.msg.failed {
+  box-shadow: inset 3px 0 0 var(--danger);
+}
+
+/* Held, then faded; the controller drops the class once it is gone (HIGHLIGHT_MS). */
+.msg.target {
+  background: var(--highlight);
+  animation: target-fade 3s ease-in forwards;
+}
+
+@keyframes target-fade {
+  0%,
+  60% {
+    background: var(--highlight);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+/* Edit/Delete: one floating pill toolbar. */
+.actions {
+  position: absolute;
+  top: -0.9rem;
+  right: 0.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 2px;
+  max-width: calc(100% - 1.5rem);
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  background: var(--raised);
+  box-shadow: var(--shadow);
+  opacity: 0; /* not visibility:hidden — the buttons must stay in the tab order */
+  /* Hidden, it must not catch the pointer: it overlaps the message above, which would light up this one's instead. */
+  pointer-events: none;
+}
+
+.actions button {
+  padding: 0.1rem 0.6rem;
+  border: 0;
+  font-size: 0.8rem;
+}
+
+.actions button.delete {
+  color: var(--danger);
+}
+
+/* Touch screens have no hover: a tapped message gets .touched instead (and the background hover gives).
+   Not :focus-within: focus stays on a clicked button (☺+, a reaction…), which would keep this message's buttons up
+   next to those of the one the mouse moved on to; keyboard focus shows them below (:focus-visible). */
+@media (hover: hover) {
+  .msg:hover .actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+.msg.touched {
+  background: var(--hover);
+}
+
+/* Only focus from the keyboard: any focus would keep the buttons up once you are done with one, as it goes back to
+   the button you clicked or tapped (React, Forward…). */
+.msg.touched .actions,
+.msg:has(:focus-visible) .actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* A phone is too narrow for the floating toolbar (it wraps over the message): there it shows below the message.
+   Hidden, it shrinks to nothing rather than going away, so screen readers still reach the buttons. */
+@media (hover: none) {
+  .actions {
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .msg.touched .actions,
+  .msg:has(:focus-visible) .actions {
+    position: static;
+    justify-content: flex-start;
+    width: fit-content;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    margin-top: 0.15rem;
+    box-shadow: none;
+  }
+}

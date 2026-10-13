@@ -1,0 +1,128 @@
+/* ---- Composer, edit box, inline errors and hints, the status line, the new-messages button ---- */
+
+.confirm,
+.send-error,
+.msg-error {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+  margin: 0.25rem 0;
+  font-size: 0.85rem;
+}
+
+.confirm button,
+.send-error button,
+.msg-error button {
+  padding: 0.1rem 0.6rem;
+  font-size: 0.8rem;
+}
+
+.edit-input {
+  display: block;
+  margin-top: 0.15rem;
+  resize: vertical;
+}
+
+.hint {
+  margin: 0.15rem 0 0;
+}
+
+.hint.error {
+  color: var(--danger);
+}
+
+.room-notice {
+  margin: 0;
+  padding: 0.4rem 1rem;
+  background: var(--tint);
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.room-notice:empty {
+  display: none;
+}
+
+.new-messages {
+  position: absolute;
+  bottom: 0.75rem;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 0;
+  animation: pop 0.3s var(--ease);
+}
+
+.new-messages:active:not(:disabled) {
+  transform: translateX(-50%) scale(0.95);
+}
+
+/* Scrolled away from the newest messages, with nothing new below (§22.7): quieter than "New messages". */
+.new-messages.jump {
+  background: var(--raised);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+
+@media (hover: hover) {
+  .new-messages.jump:hover:not(:disabled) {
+    background: var(--hover);
+    filter: none;
+  }
+}
+
+.composer {
+  padding: 0.25rem 1rem calc(0.9rem + env(safe-area-inset-bottom));
+}
+
+/* The input row is one rounded capsule: attach, text, send. */
+.composer-row {
+  display: flex;
+  gap: 0.4rem;
+  align-items: flex-end;
+  padding: 0.3rem;
+  border: 2px solid var(--border);
+  border-radius: 1.4rem;
+  background: var(--raised);
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+
+.composer-row:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--tint);
+}
+
+.composer .attach {
+  flex: none;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  border: 0;
+  background: var(--hover);
+  font-size: 1.2rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+@media (hover: hover) {
+  .composer .attach:hover:not(:disabled) {
+    background: var(--tint);
+    color: var(--accent);
+    transform: rotate(90deg);
+  }
+}
+
+.composer .emoji-button {
+  flex: none;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 1.35rem;
+  line-height: 1;
+}

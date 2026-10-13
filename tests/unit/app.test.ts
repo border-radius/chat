@@ -3,7 +3,7 @@ import { type Api, ApiError, createApi } from "../../web/src/api.ts";
 import { type App, startApp } from "../../web/src/app.ts";
 import { newId } from "../../web/src/lib/id.ts";
 import { createClient } from "../../web/src/pb.ts";
-import { instrument, newApi, signedUp, subscribed } from "../support/api.ts";
+import { instrument, intercept, newApi, signedUp, subscribed } from "../support/api.ts";
 import { visit } from "../support/dom.ts";
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -136,6 +136,22 @@ describe("app boot (§7.1)", () => {
     await api.unsubscribeAll();
   });
 
+  it("the app bar, the login page and the tab show the site's title and logo, also after logging out (§24)", async () => {
+    const { api } = await signedUp();
+    intercept(api, "site", () => async () => ({ title: "Acme", logo: "/acme.png", inviteOnly: true }));
+    app = startApp({ api, root });
+    const brand = () => root.querySelector<HTMLAnchorElement>("header.app-bar a.brand")!;
+    await vi.waitFor(() => expect(brand().textContent).toBe("Acme"));
+    expect(brand().classList.contains("has-logo")).toBe(true);
+    expect(brand().querySelector("img")!.getAttribute("src")).toBe("/acme.png");
+    expect(document.title).toMatch(/^(\(\d+\+?\) )?Acme$/); // other tests' Open Air rooms may be unread
+    app.logOut();
+    expect(brand().textContent).toBe("Acme");
+    visit("/signup");
+    await vi.waitFor(() => expect(root.querySelector(".auth h1")!.textContent).toBe("Acme"));
+    expect(root.querySelector('input[name="invite_code"]')).not.toBeNull();
+  });
+
   it("/ shows the room list as a sidebar and a greeting where the room would be", async () => {
     const { api } = await signedUp("Ada Lovelace");
     app = startApp({ api, root });
@@ -259,6 +275,21 @@ describe("app boot (§7.1)", () => {
     root.querySelector("form")!.requestSubmit();
     await vi.waitFor(() => expect(location.pathname).toBe(`/r/${room.id}`));
     await ada.api.unsubscribeAll();
+  });
+
+  it("knows when the tab is away (§22.4)", async () => {
+    const { api } = await signedUp("Ada");
+    app = startApp({ api, root });
+    expect(app.store.get().away).toBe(false);
+    try {
+      Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+      document.dispatchEvent(new Event("visibilitychange"));
+      expect(app.store.get().away).toBe(true);
+    } finally {
+      Reflect.deleteProperty(document, "visibilityState");
+    }
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(app.store.get().away).toBe(false);
   });
 
   it("QA BUG-45: an open tab renews the session halfway through its lifetime", async () => {

@@ -1,7 +1,7 @@
 /// <reference path="../../types/pocketbase.d.ts" />
 // Unread counts (DESIGN.md §18): GET /api/chat/unread and POST /api/chat/reads.
 
-const { visibleRoom } = require(`${__hooks}/lib/access.js`);
+const { SEES_SQL, visibleRoom } = require(`${__hooks}/lib/access.js`);
 
 /**
  * Unread messages per room the caller can see (§23.1): other people's, not deleted, newer than the caller's read position
@@ -23,7 +23,7 @@ SELECT room, n FROM (
     )
   ) AS n
   FROM rooms r
-  WHERE r.visibility != 'private' OR r.created_by = {:me} OR EXISTS (SELECT 1 FROM json_each(r.members) WHERE value = {:me})
+  WHERE ${SEES_SQL}
 ) WHERE n > 0`;
 
 /** @param {core.RequestEvent} e */

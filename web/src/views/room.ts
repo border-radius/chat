@@ -1,15 +1,16 @@
 // Room view (§7.5, §7.6): windowed message history, optimistic send, edit, soft delete, replies (§19), reactions and
 // the emoji picker (§20), selecting messages to forward or delete them (§21), archived mode, read state (§18.3).
 // The message window and everything that changes it live in room/controller.ts (no DOM). This module puts the
-// controller's changes on screen and wires the DOM parts in room/: header (title + actions menu), messages (the
-// list), composer, forward dialog, access dialog (§23.2). A guest reads an Open Air room without a composer (§23.3).
+// controller's changes on screen and wires the parts in room/: header (title + actions menu), messages (the list),
+// composer, selection (the bar while selecting), reply, notice (the status line), names (who reacted), forward dialog,
+// access dialog (§23.2). A guest reads an Open Air room without a composer (§23.3).
 
-import { errorMessage } from "../api.ts";
+import { errorMessage, reasonOf } from "../api.ts";
 import type { Ctx } from "../context.ts";
 import { clear, h, uniqueId } from "../dom.ts";
-import { attachmentName, isImage } from "../lib/files.ts";
-import { MAX_SELECTED } from "../lib/limits.ts";
-import { lastSaved, quoteText } from "../lib/messages.ts";
+import { newer, older, PAGE_SIZE, withFiles } from "../lib/cursor.ts";
+import { attachmentName, isMedia, isVideo } from "../lib/files.ts";
+import { emptyForward, lastSaved } from "../lib/messages.ts";
 import { isDm, otherMember, roomTitle } from "../lib/rooms.ts";
 import { isNearBottom } from "../lib/scroll.ts";
 import { formatFull, parsePb } from "../lib/time.ts";
@@ -24,10 +25,22 @@ import { createComposer, validEdit } from "./room/composer.ts";
 import { type Change, createRoomController, type Phase, type RoomController } from "./room/controller.ts";
 import { createForwardDialog } from "./room/forward.ts";
 import { createRoomHeader } from "./room/header.ts";
-import { createMessageList, reactionFocus } from "./room/messages.ts";
+import { createMessageList } from "./room/messages.ts";
+import { createNameLookup } from "./room/names.ts";
+import { createNotice } from "./room/notice.ts";
+import { reactionFocus } from "./room/reactions.ts";
+import { createReply } from "./room/reply.ts";
+import { createSelection } from "./room/selection.ts";
 
-/** How long a confirmation such as "Message forwarded." stays on screen (§22.6). */
-export const NOTICE_MS = 4000;
+/**
+ * Two changes as one: the later scroll and notice, and a render if either asked for one, keeping the anchor if either
+ * did (content changed above what is on screen).
+ */
+export function mergeChanges(a: Change, b: Change): Change {
+  const c = { ...a, ...b };
+  if (a.render?.anchor) c.render = a.render;
+  return c;
+}
 
 export function createRoomView({ api, store, unread, actions, navigate, reopen, drafts }: Ctx): View {
   const vid = uniqueId("room");
@@ -41,12 +54,6 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
   let shown: Phase = "loading";
   /** Reports what is on screen as read (unread.ts), from mount on. */
   let reader: RoomReader | null = null;
-  /** The message the composer is replying to (§19). */
-  let replyTo: Message | null = null;
-  /** The selected messages while selecting (§21.1), else null. */
-  let selected: Set<string> | null = null;
-  /** The selection bar asks "Delete these messages?". */
-  let confirmingDelete = false;
   /** The messages the forward dialog is open for. */
   let forwarding: string[] = [];
   /** Put the caret in the composer as soon as it is shown: on entering the room (§22.5). */
@@ -59,11 +66,18 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
 
   /** One emoji picker for the composer and every message's reactions. */
   const picker = createEmojiPicker({ signal });
+  const notice = createNotice(signal);
+  const nameOf = createNameLookup({
+    usersById: (ids, sig) => api.usersById(ids, sig),
+    signedIn: () => !!me(),
+    onFound: () => render({ anchor: true }),
+    signal,
+  });
   const header = createRoomHeader({
     titleId: `${vid}-title`,
     actions,
     avatarUrl: api.avatarUrl,
-    onJumpToBeginning: () => void ctl.jump("first"),
+    onJumpToBeginning: () => void now(() => ctl.jump("first")),
     onAccess: () => {
       const r = room();
       if (r) accessDialog.open(r, r.created_by === me()?.id, me());
@@ -99,29 +113,29 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
         failed: s.phase === "failed",
         beginning: beginningLabel(),
         targetId: s.targetId,
-        selected,
+        selected: selection.ids,
       };
     },
     me,
     editable: (m) => ctl.editable(m),
     deletable: (m) => ctl.deletable(m),
     repliable: (m) => ctl.repliable(m),
-    onReply: (id) => startReply(id),
+    onReply: (id) => reply.start(id),
     selectable: (m) => ctl.selectable(m),
-    onSelect: (id) => select(id),
+    onSelect: (id) => selection.toggle(id),
     onForward: (id) => openForward([id]),
     reactable: (m) => ctl.reactable(m),
     reactions: (m) => ctl.reactions(m),
     onReact: (id, emoji, on) => void react(id, emoji, on),
     onPickReaction: (id, opener) => pickReaction(id, opener),
-    nameOf: (id) => nameOf(id),
-    onOpenQuote: (id) => void ctl.goTo(id),
-    onRetryLoad: () => ctl.retry(),
+    nameOf,
+    onOpenQuote: (id) => void now(() => ctl.goTo(id)),
+    onRetryLoad: () => now(() => ctl.retry()),
     onSaveEdit: (id, text) => void saveEdit(id, text),
     onCancelEdit: () => composer.focus(),
     onDelete: (id) => void doDelete(id),
-    onRetrySend: (id) => void ctl.retrySend(id),
-    onDiscard: (id) => ctl.discard(id),
+    onRetrySend: (id) => void now(() => ctl.retrySend(id)),
+    onDiscard: (id) => now(() => ctl.discard(id)),
     fileUrl: api.fileUrl,
     refreshFileToken: () => api.fileToken(true),
     onOpenImage: (m, file, opener) => void viewImage(m, file, opener),
@@ -132,8 +146,8 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
   const composer = createComposer({
     id: `${vid}-text`,
     onSend: (text, files) => {
-      if (!ctl.send(text, files, replyTo ?? undefined)) return false;
-      setReply(null);
+      if (!now(() => ctl.send(text, files, reply.to ?? undefined))) return false;
+      reply.set(null);
       return true;
     },
     onEditLast: () => {
@@ -141,7 +155,7 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
       if (mine) messages.startEdit(mine.id);
       return !!mine;
     },
-    onCancelReply: () => setReply(null),
+    onCancelReply: () => reply.set(null),
     onEmoji: (opener, insert) => picker.open(opener, { label: "Insert emoji", onPick: insert, restoreFocus: () => composer.focus() }),
     // Kept as you type, so a reload doesn't lose it (§22.3).
     onChange: (text) => {
@@ -158,16 +172,22 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
     searchUsers: (q, sig) => api.searchUsers(q, sig),
     avatarUrl: api.avatarUrl,
     onPick: async (to) => {
+      // Not those deleted since the dialog opened: one would fail the whole forward.
+      const ids = forwarding.filter((id) => {
+        const m = ctl.find(id);
+        return !m || !(m.deleted || emptyForward(m));
+      });
+      if (!ids.length) return "Couldn't forward. A message was deleted.";
       try {
         const target = "room" in to ? to.room : await actions.openDm(to.user.id);
-        const n = (await api.forward(forwarding, target.id)).length;
+        const n = (await api.forward(ids, target.id)).length;
         if (!scope.active) return null;
-        endSelect();
+        selection.end();
         if (target.id !== roomId) navigate(`/r/${target.id}`);
-        else flash(n === 1 ? "Message forwarded." : `${n} messages forwarded.`);
+        else notice.flash(n === 1 ? "Message forwarded." : `${n} messages forwarded.`);
         return null;
       } catch (e) {
-        return `Couldn't forward. ${errorMessage(e)}`;
+        return `Couldn't forward. ${reasonOf(e)}`;
       }
     },
     signal,
@@ -183,19 +203,9 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
     h("a", { href: "/signup" }, "sign up"),
     " to join the conversation.",
   ]);
-  const notice = h("p", { class: "room-notice", role: "status" });
-  let noticeTimer: ReturnType<typeof setTimeout> | undefined;
-  /** Show a confirmation that goes away by itself (§22.6), unless something else is said meanwhile. */
-  function flash(text: string) {
-    notice.textContent = text;
-    clearTimeout(noticeTimer);
-    noticeTimer = setTimeout(() => {
-      if (notice.textContent === text) notice.textContent = "";
-    }, NOTICE_MS);
-  }
   const shell = h("section", { class: "room", "aria-labelledby": `${vid}-title` }, [
     header.el,
-    notice,
+    notice.el,
     h("div", { class: "room-body" }, [list, pill]),
     footer,
     picker.el,
@@ -203,102 +213,40 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
     accessDialog.el,
   ]);
 
+  const reply = createReply({ find: (id) => ctl.find(id), repliable: (m) => ctl.repliable(m), composer });
+
   // ---------------------------------------------------------------- selecting (§21)
 
-  const selCount = h("span", { class: "sel-count", role: "status" });
-  const selBar = h("div", { class: "selection-bar", role: "toolbar", "aria-label": "Selected messages" });
-  const barBtn = (label: string, run: () => void, cls = "") =>
-    h("button", { type: "button", class: cls, on: { click: run }, signal }, label);
-  const forwardBtn = barBtn("Forward", () => openForward([...(selected ?? [])]), "primary");
-  const deleteBtn = barBtn("Delete", () => setConfirmDelete(true), "danger");
-  const selActions = [selCount, forwardBtn, deleteBtn, barBtn("Cancel", () => endSelect(true))];
-  const confirmText = h("span");
-  const confirmActions = [
-    confirmText,
-    barBtn("Delete", () => void deleteSelected(), "danger confirm-delete"),
-    barBtn("Cancel", () => setConfirmDelete(false), "cancel"),
-  ];
+  const selection = createSelection({
+    find: (id) => ctl.find(id),
+    selectable: (m) => ctl.selectable(m),
+    deletable: (m) => ctl.deletable(m),
+    onStart: (id) => {
+      picker.close();
+      messages.focusIn(id, ["input.select"], true);
+    },
+    onChange: (list) => {
+      renderFooter();
+      if (list) render({ anchor: true });
+    },
+    focusComposer: () => composer.focus(),
+    onForward: (ids) => openForward(ids),
+    onDelete: (ids) => void deleteSelected(ids),
+    notice,
+    signal,
+  });
 
   /** Render the list, then mark what it shows as read. */
   function render(o?: { anchor?: boolean }) {
-    pruneSelection();
+    selection.prune();
     messages.render(o);
     markRead();
   }
 
-  const LIMIT_NOTICE = `You can select up to ${MAX_SELECTED} messages at a time.`;
-
-  /** Select or unselect message `id`; the first one starts selecting, unselecting the last one stops. */
-  function select(id: string) {
-    const m = ctl.find(id);
-    if (!m || !ctl.selectable(m)) return;
-    if (!selected) {
-      selected = new Set();
-      picker.close();
-      messages.focusIn(id, ["input.select"], true);
-    }
-    if (selected.has(id)) selected.delete(id);
-    else if (selected.size >= MAX_SELECTED) {
-      notice.textContent = LIMIT_NOTICE;
-      return;
-    } else selected.add(id);
-    confirmingDelete = false;
-    if (!selected.size) return endSelect(true);
-    renderFooter();
-    render({ anchor: true });
-  }
-
-  /** Stop selecting; `focus`: put the caret back in the composer. */
-  function endSelect(focus = false) {
-    if (!selected) return;
-    selected = null;
-    confirmingDelete = false;
-    if (notice.textContent === LIMIT_NOTICE) notice.textContent = "";
-    renderFooter();
-    render({ anchor: true });
-    if (focus) composer.focus();
-  }
-
-  /** Selected messages that left the window, or can't be selected any more (deleted meanwhile), are unselected. */
-  function pruneSelection() {
-    if (!selected) return;
-    for (const id of selected) {
-      const m = ctl.find(id);
-      if (!m || !ctl.selectable(m)) selected.delete(id);
-    }
-    if (selected.size) return updateBar();
-    selected = null;
-    renderFooter();
-  }
-
-  /** Deletable: every selected message is mine (and may still be deleted). */
-  const allMine = () => !!selected?.size && [...selected].every((id) => ctl.deletable(ctl.find(id)!));
-
-  function updateBar() {
-    const n = selected?.size ?? 0;
-    if (confirmingDelete && allMine()) {
-      confirmText.textContent = n === 1 ? "Delete this message? " : `Delete these ${n} messages? `;
-      if (selBar.firstChild !== confirmText) selBar.replaceChildren(...confirmActions);
-      return;
-    }
-    confirmingDelete = false;
-    selCount.textContent = `${n} selected`;
-    deleteBtn.hidden = !allMine();
-    if (selBar.firstChild !== selCount) selBar.replaceChildren(...selActions);
-  }
-
-  function setConfirmDelete(on: boolean) {
-    confirmingDelete = on;
-    updateBar();
-    selBar.querySelector<HTMLElement>(on ? ".cancel" : ".danger")?.focus();
-  }
-
-  async function deleteSelected() {
-    const ids = [...(selected ?? [])];
-    endSelect(true);
-    const failed = await ctl.removeMany(ids);
+  async function deleteSelected(ids: string[]) {
+    const failed = await now(() => ctl.removeMany(ids));
     // Say why: network trouble, rate limiting or the server's reason (QA BUG-58).
-    if (failed && scope.active) notice.textContent = `Couldn't delete those messages. ${errorMessage(failed)}`;
+    if (failed && scope.active) notice.say(`Couldn't delete those messages. ${reasonOf(failed)}`);
   }
 
   function openForward(ids: string[]) {
@@ -308,33 +256,48 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
     forwardDialog.open(ids.length);
   }
 
-  // ---------------------------------------------------------------- replies
-
-  function setReply(m: Message | null) {
-    replyTo = m;
-    composer.setReply(m && { name: m.expand?.author?.name ?? "Unknown", text: quoteText(m) });
-  }
-
-  function startReply(id: string) {
-    const m = ctl.find(id);
-    if (!m || !ctl.repliable(m)) return;
-    setReply(m);
-    composer.focus();
+  /**
+   * Changes are drawn at most once a frame. The first one is drawn right away (a message, a send or a click shows at
+   * once); those that come in before the next frame are merged and drawn together in it. A burst of realtime events
+   * then costs one render and one layout, not one each: every render ends by measuring the list (markRead,
+   * renderPill), which makes the browser lay it out again.
+   */
+  let queued: Change | null = null;
+  let frame = 0;
+  /** Set while the user's own action runs: what it changes is drawn at once, never left for the next frame. */
+  let direct = false;
+  function apply(c: Change) {
+    queued = queued ? mergeChanges(queued, c) : c;
+    if (!frame || direct) flush();
   }
 
   /**
-   * Follow the message being replied to: edited, it shows the new text; deleted (or the room archived), there is
-   * nothing left to reply to. Out of the window, it is checked against the room alone.
+   * Draw what is queued, then keep merging until the next frame. Also called when the tab comes back: a hidden tab
+   * has no frames.
    */
-  function refreshReply() {
-    if (!replyTo) return;
-    const now = ctl.find(replyTo.id) ?? replyTo;
-    if (!ctl.repliable(now)) setReply(null);
-    else if (now !== replyTo) setReply(now);
+  function flush() {
+    const q = queued;
+    queued = null;
+    if (!q || !scope.active) return;
+    draw(q);
+    frame ||= requestAnimationFrame(() => {
+      frame = 0;
+      flush();
+    });
+  }
+
+  /** Run a controller call the user made (a click, a key): its changes show right away (see apply). */
+  function now<T>(fn: () => T): T {
+    direct = true;
+    try {
+      return fn();
+    } finally {
+      direct = false;
+    }
   }
 
   /** Put a controller change on screen. */
-  function apply(c: Change) {
+  function draw(c: Change) {
     const s = ctl.state();
     if (s.phase !== shown) {
       shown = s.phase;
@@ -343,10 +306,10 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
       renderHeader();
       renderFooter();
     }
-    if (c.notice !== undefined) notice.textContent = c.notice;
+    if (c.notice !== undefined) notice.say(c.notice);
     if (c.render) {
       render(c.render);
-      refreshReply();
+      reply.refresh();
     }
     if (c.scroll === "bottom") scrollToBottom();
     else if (c.scroll === "top") list.scrollTop = 0;
@@ -400,21 +363,21 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
       const dm = await actions.openDm(userId);
       if (scope.active) navigate(`/r/${dm.id}`);
     } catch (e) {
-      if (scope.active) notice.textContent = `Couldn't open that conversation. ${errorMessage(e)}`;
+      if (scope.active) notice.say(`Couldn't open that conversation. ${errorMessage(e)}`);
     }
   }
 
   /**
-   * A thumbnail was clicked: show it in the image viewer (§17.7) with the other images in the window, oldest first.
+   * A thumbnail was clicked: show it in the viewer (§17.7) with the room's other images and videos, oldest first: the
+   * window's to start with, the viewer fetches the others when it gets near them.
    * The viewer is a lazy chunk, loaded on the first click. If it can't be (offline, or a new version was deployed),
    * the image opens in a new tab, as a thumbnail did before the viewer.
    */
   async function viewImage(m: Message, file: string, opener: HTMLElement) {
-    const images = ctl
-      .state()
-      .win.items.flatMap((x) =>
-        x.deleted || x.localFiles?.length ? [] : (x.files ?? []).filter(isImage).map((f) => ({ message: x, file: f })),
-      );
+    const media = (x: Message) => (x.files ?? []).filter(isMedia).map((f) => ({ message: x, file: f, video: isVideo(f) }));
+    const { win } = ctl.state();
+    const images = win.items.flatMap((x) => (x.deleted || x.localFiles?.length ? [] : media(x)));
+    const id = roomId;
     const start = images.findIndex((i) => i.message.id === m.id && i.file === file);
     try {
       const { openViewer } = await import("./room/viewer.ts");
@@ -422,6 +385,12 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
       await openViewer({
         images,
         start,
+        more: [win.hasOlder, win.hasNewer],
+        page: async (back, edge) => {
+          const messages = await api.page(withFiles(back ? older(id, edge) : newer(id, edge)), signal);
+          return { messages: back ? messages.reverse() : messages, done: messages.length < PAGE_SIZE };
+        },
+        media,
         h,
         name: attachmentName,
         when: (x) => formatFull(parsePb(x.created)),
@@ -440,10 +409,10 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
     // No composer while the room failed to load: you'd be writing into history you can't see.
     // (The composer element, and anything typed into it, is kept for when the load succeeds.)
     if (!r || shown === "failed") return footer.replaceChildren();
-    if (selected) {
+    if (selection.ids) {
       // The composer (and anything typed into it) comes back when selecting ends.
-      updateBar();
-      if (footer.firstChild !== selBar) footer.replaceChildren(selBar);
+      selection.refresh();
+      if (footer.firstChild !== selection.bar) footer.replaceChildren(selection.bar);
       picker.close();
     } else if (r.archived) {
       footer.replaceChildren(banner);
@@ -502,7 +471,7 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
     if (text === null) return; // the edit box says what is wrong (messages.ts)
     messages.stopEdit();
     messages.setError(id, null);
-    const saving = ctl.edit(id, text); // renders the new text right away
+    const saving = now(() => ctl.edit(id, text)); // renders the new text right away
     if (!saving) render(); // nothing to save: just close the box
     composer.focus();
     if ((await saving) !== false || !scope.active) return;
@@ -512,7 +481,7 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
 
   async function doDelete(id: string) {
     messages.setError(id, null);
-    if ((await ctl.remove(id)) !== false || !scope.active) return;
+    if ((await now(() => ctl.remove(id))) !== false || !scope.active) return;
     messages.setError(id, { text: "Couldn't delete this message.", retry: () => void doDelete(id) });
     render({ anchor: true });
   }
@@ -523,51 +492,13 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
   async function react(id: string, emoji: string, on: boolean) {
     messages.setError(id, null);
     messages.focusIn(id, reactionFocus(emoji), true);
-    const saving = ctl.react(id, emoji, on);
+    const saving = now(() => ctl.react(id, emoji, on));
     if (!saving) return render({ anchor: true });
     if ((await saving) || !scope.active) return;
     messages.setError(id, {
       text: on ? `Couldn't add your ${emoji} reaction.` : `Couldn't remove your ${emoji} reaction.`,
       retry: () => void react(id, emoji, on),
     });
-    render({ anchor: true });
-  }
-
-  /** Names of people who reacted but aren't in the window, fetched in batches (§20.3). */
-  const people = new Map<string, string>();
-  /** Ids to look up, or being looked up. */
-  const asking = new Set<string>();
-  let lookingUp = false;
-
-  function nameOf(id: string): string | undefined {
-    if (!me()) return undefined; // looking people up needs an account (§23.3): "3 people"
-    const name = people.get(id);
-    if (name !== undefined || asking.has(id)) return name;
-    asking.add(id);
-    if (!lookingUp) {
-      lookingUp = true;
-      queueMicrotask(() => void lookUpNames()); // one request for every name this render asks for
-    }
-    return undefined;
-  }
-
-  async function lookUpNames() {
-    const ids = [...asking].filter((id) => !people.has(id)).slice(0, 50);
-    let ok = true;
-    try {
-      const found = await api.usersById(ids, signal);
-      for (const u of found) people.set(u.id, u.name);
-      for (const id of ids) if (!people.has(id)) people.set(id, "Unknown"); // e.g. a deleted account
-    } catch {
-      ok = false;
-      for (const id of ids) asking.delete(id); // asked again by the next render (not this one: no retry loop offline)
-    }
-    if (!scope.active || !ok) {
-      lookingUp = false;
-      return;
-    }
-    if ([...asking].some((id) => !people.has(id))) return void lookUpNames(); // more than 50
-    lookingUp = false;
     render({ anchor: true });
   }
 
@@ -606,7 +537,7 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
         "click",
         () => {
           const s = ctl.state();
-          if (s.pill === "history" || s.win.hasNewer) return void ctl.jump("latest");
+          if (s.pill === "history" || s.win.hasNewer) return void now(() => ctl.jump("latest"));
           scrollToBottom();
           ctl.dismissPill();
           renderPill();
@@ -615,19 +546,23 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
       );
       list.addEventListener("scroll", () => isNearBottom(list) && ctl.dismissPill(), { signal });
       list.addEventListener("scroll", renderPill, { signal });
-      scope.defer(() => clearTimeout(noticeTimer));
       // Escape stops selecting (the forward dialog handles its own Escape).
       shell.addEventListener(
         "keydown",
         (e) => {
-          if (e.key !== "Escape" || !selected || e.defaultPrevented || forwardDialog.el.open) return;
-          e.preventDefault();
-          if (confirmingDelete) setConfirmDelete(false);
-          else endSelect(true);
+          if (e.key !== "Escape" || e.defaultPrevented || forwardDialog.el.open) return;
+          if (selection.escape()) e.preventDefault();
         },
         { signal },
       );
-      document.addEventListener("visibilitychange", markRead, { signal });
+      document.addEventListener(
+        "visibilitychange",
+        () => {
+          flush();
+          markRead();
+        },
+        { signal },
+      );
       // Coming back to the window: put the caret in the composer so you can just type. Only when nothing else has
       // focus (or a link does, e.g. an attachment opened in a new tab): never away from a field, menu or confirm you
       // were on. Not with text selected (you may be copying it), and not on touch screens (it pops up the keyboard).
@@ -703,7 +638,7 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
             renderFooter();
             if (roomChanged) {
               render();
-              refreshReply(); // archived: the reply bar closes
+              reply.refresh(); // archived: the reply bar closes
             }
           }
         }),

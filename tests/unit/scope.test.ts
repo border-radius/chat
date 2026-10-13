@@ -58,6 +58,13 @@ describe("createScope", () => {
     await new Promise((r) => setTimeout(r, 0)); // an unhandled rejection would fail the run
   });
 
+  it("sub() swallows a subscription that fails while the scope is still active", async () => {
+    const scope = createScope();
+    scope.sub(Promise.reject(new Error("offline")));
+    await new Promise((r) => setTimeout(r, 0)); // unhandled until dispose would fail the run here
+    scope.dispose();
+  });
+
   it("listeners registered with its signal stop on dispose", () => {
     const scope = createScope();
     const target = new EventTarget();

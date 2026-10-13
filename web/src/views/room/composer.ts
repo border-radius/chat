@@ -3,7 +3,7 @@
 // in a tray above the textarea, the message being replied to (§19) above that, and an emoji button (§20.4).
 
 import { h } from "../../dom.ts";
-import { checkFiles, formatBytes } from "../../lib/files.ts";
+import { checkFiles, formatBytes, isVideo } from "../../lib/files.ts";
 import { prepareImage } from "../../lib/image.ts";
 import { LIMITS, textLength } from "../../lib/limits.ts";
 import type { LocalFile } from "../../lib/types.ts";
@@ -12,7 +12,7 @@ const MAX_LEN = LIMITS.messageText;
 const COUNTER_FROM = 1800;
 const MAX_ROWS = 6;
 
-/** Zero-width and bidi format characters: text made only of these is blank to the server (INVISIBLE in pb_hooks/lib/chat.js). */
+/** Zero-width and bidi format characters: text made only of these is blank to the server (INVISIBLE in pb_hooks/lib/text.js). */
 const INVISIBLE = /[­᠎​-‏‪-‮⁠-⁤⁦-⁩﻿]/g;
 
 /** Does trimmed `t` show anything? The server refuses text that doesn't (QA BUG-42). */
@@ -34,7 +34,7 @@ export function validEdit(raw: string, hasFiles: boolean): string | null {
 /** Longest edge of an attached image after preparation (§15.3). */
 const IMAGE_EDGE = 2048;
 
-/** Images get a preview in the tray (never SVG: it is shown as a file). */
+/** Images get a preview in the tray (never SVG: it is shown as a file), and so do videos (their first frame). */
 const previewable = (f: File) => f.type.startsWith("image/") && f.type !== "image/svg+xml";
 
 /**
@@ -46,6 +46,12 @@ export function editProblem(raw: string, hasFiles = false): string {
   if (isBlank(raw) && !hasFiles) return "A message can't be empty. Use Delete to remove it.";
   return len > MAX_LEN ? `Too long: ${len - MAX_LEN} characters over the ${MAX_LEN} limit.` : "";
 }
+
+/**
+ * Is this key part of typing with an input method (IME)? Safari ends the composition before the keydown of the Enter
+ * that confirms it, so only its keyCode (229) says so: without it, picking a Japanese or Chinese word would send.
+ */
+export const composing = (e: KeyboardEvent) => e.isComposing || e.keyCode === 229;
 
 /** Rows for a textarea showing `text` (grows with its lines, up to 6). */
 export const rowsFor = (text: string) => Math.min(MAX_ROWS, text.split("\n").length);
@@ -167,9 +173,15 @@ export function createComposer(opts: {
     tray.replaceChildren(
       ...files.map((f) =>
         h("li", { class: "tray-item" }, [
-          f.url
-            ? h("img", { class: "tray-thumb", src: f.url, width: 40, height: 40, alt: "" })
-            : h("span", { class: "tray-icon", "aria-hidden": "true" }, "📄"),
+          !f.url
+            ? h("span", { class: "tray-icon", "aria-hidden": "true" }, "📄")
+            : h(isVideo(f.file.name) ? "video" : "img", {
+                class: "tray-thumb",
+                src: isVideo(f.file.name) ? `${f.url}#t=0.001` : f.url,
+                width: 40,
+                height: 40,
+                alt: "",
+              }),
           h("span", { class: "tray-name" }, f.file.name),
           h("span", { class: "tray-size" }, formatBytes(f.file.size)),
           h(
@@ -203,7 +215,10 @@ export function createComposer(opts: {
       files.map((f) => f.file),
       prepared,
     );
-    files = [...files, ...accepted.map((file) => ({ file, url: previewable(file) ? URL.createObjectURL(file) : "" }))];
+    files = [
+      ...files,
+      ...accepted.map((file) => ({ file, url: previewable(file) || isVideo(file.name) ? URL.createObjectURL(file) : "" })),
+    ];
     trayError.textContent = rejected.map((r) => `“${r.name}”: ${r.reason}.`).join(" ");
     renderTray();
   }
@@ -249,12 +264,12 @@ export function createComposer(opts: {
   textarea.addEventListener(
     "keydown",
     (e) => {
-      if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+      if (e.key === "Enter" && !e.shiftKey && !composing(e)) {
         e.preventDefault();
         submit();
       } else if (e.key === "ArrowUp" && textarea.value === "" && opts.onEditLast()) {
         e.preventDefault();
-      } else if (e.key === "Escape" && !e.isComposing && !replyBar.hidden) {
+      } else if (e.key === "Escape" && !composing(e) && !replyBar.hidden) {
         // (While composing, Escape belongs to the input method: it cancels the composition.)
         e.preventDefault();
         cancelReply();

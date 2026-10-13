@@ -57,6 +57,11 @@ export interface Message {
   reactions?: Reaction[];
   /** Who first wrote it, when it was forwarded (§21.3); "" or absent otherwise. */
   forwarded_from?: string;
+  /**
+   * The message a forward shows (§21.3): the server answers with its text, attachments and edit stamp, or none once
+   * it is deleted. "" or absent otherwise, and for forwards made before forwards pointed at their original.
+   */
+  forward_of?: string;
   expand?: { author?: User; reply_to?: Quoted; forwarded_from?: User };
   status?: SendStatus;
   /** Client-only: attachments of a message not (yet) on the server, with local preview URLs (§17.4). */
@@ -82,6 +87,18 @@ export interface Quoted {
 
 export interface LocalFile {
   file: File;
-  /** Object URL for an image preview, "" for other files. Revoked once the message no longer needs it. */
+  /** Object URL for an image or video preview, "" for other files. Revoked once the message no longer needs it. */
   url: string;
 }
+
+/** The site's branding and signup policy (§24), set by an admin in PocketBase. */
+export interface Site {
+  title: string;
+  /** URL of the logo image, or "" without one. */
+  logo: string;
+  /** Signing up needs an invite code. */
+  inviteOnly: boolean;
+}
+
+/** What the app shows before (or without) the site record. */
+export const DEFAULT_SITE: Site = { title: "Chat", logo: "", inviteOnly: false };

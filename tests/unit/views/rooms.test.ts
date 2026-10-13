@@ -381,6 +381,17 @@ describe("rooms view (§7.1)", () => {
       expect(row(quiet)!.querySelector("a")!.classList.contains("unread")).toBe(false);
     });
 
+    it("a new count redraws only that room's row; the others are kept as they are", async () => {
+      const a = await room();
+      const b = await room();
+      await mount();
+      const [rowA, rowB] = [row(a), row(b)];
+      store.set({ unread: new Map([[a.id, 1]]) });
+      expect(badge(a)!.textContent).toBe("1 unread");
+      expect(row(a)).not.toBe(rowA);
+      expect(row(b)).toBe(rowB);
+    });
+
     it("no badge for the room you are in, or for hidden and archived rooms", async () => {
       const active = await room();
       const hidden = await room();

@@ -1,0 +1,165 @@
+/* ---- Base: reset, elements, buttons, fields, focus, errors ---- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* Author display rules (e.g. .app-bar { display: flex }) would otherwise beat the UA [hidden] style. */
+[hidden] {
+  /* biome-ignore lint/complexity/noImportantStyles: [hidden] must win over any author display rule (see above) */
+  display: none !important;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+a {
+  color: var(--accent);
+}
+
+h1,
+h2 {
+  margin: 0;
+  line-height: 1.2;
+  font-weight: 800;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button,
+label.button {
+  padding: 0.4rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: var(--pill);
+  background: var(--raised);
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    transform 0.15s var(--ease),
+    background-color 0.15s;
+}
+
+@media (hover: hover) {
+  button:hover:not(:disabled) {
+    background: var(--hover);
+  }
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+button.primary,
+.auth-form button[type="submit"],
+.composer button[type="submit"],
+.new-room button[type="submit"],
+.new-messages {
+  border-color: transparent;
+  background: var(--grad);
+  color: #fff;
+  box-shadow: 0 3px 12px color-mix(in srgb, var(--accent-2) 30%, transparent);
+}
+
+@media (hover: hover) {
+  button.primary:hover:not(:disabled),
+  .auth-form button[type="submit"]:hover:not(:disabled),
+  .composer button[type="submit"]:hover:not(:disabled),
+  .new-room button[type="submit"]:hover:not(:disabled),
+  .new-messages:hover:not(:disabled) {
+    background: var(--grad);
+    filter: brightness(1.1) saturate(1.1);
+  }
+}
+
+button.danger {
+  color: var(--danger);
+  border-color: currentcolor;
+}
+
+button.link {
+  border: 0;
+  background: none;
+  color: var(--accent);
+  padding: 0.25rem;
+}
+
+input,
+textarea {
+  width: 100%;
+  padding: 0.55rem 0.8rem;
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--raised);
+  transition: border-color 0.15s;
+}
+
+input:focus,
+textarea:focus {
+  border-color: var(--accent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+input:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid var(--tint);
+  outline-offset: 0;
+}
+
+[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
+.field-error,
+.form-error,
+.list-error,
+.room-error,
+.send-error,
+.msg-error {
+  color: var(--danger);
+  font-size: 0.85rem;
+  margin: 0.25rem 0;
+}
+
+.field-error:empty,
+.form-error:empty,
+.list-error:empty,
+.room-error:empty {
+  display: none;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

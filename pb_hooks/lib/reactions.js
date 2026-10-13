@@ -79,8 +79,9 @@ function react(e) {
   } catch {
     throw notFound();
   }
-  const viewRule = e.app.findCollectionByNameOrId("messages").viewRule;
-  if (viewRule === null || viewRule === undefined || !e.app.canAccessRecord(msg, info, viewRule)) throw notFound();
+  // The list rule: seen in its room. The view rule would also let the readers of a forward react to its original (§21.3).
+  const rule = e.app.findCollectionByNameOrId("messages").listRule;
+  if (rule === null || rule === undefined || !e.app.canAccessRecord(msg, info, rule)) throw notFound();
 
   // Read and write in one transaction: two people reacting at once both count. (Errors are thrown after it, so
   // they keep their status.)

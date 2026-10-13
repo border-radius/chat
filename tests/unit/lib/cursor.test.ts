@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { first, latest, newer, older, PAGE_SIZE } from "../../../web/src/lib/cursor.ts";
+import { first, latest, newer, older, PAGE_SIZE, withFiles } from "../../../web/src/lib/cursor.ts";
 
 const C = { created: "2026-10-10 12:00:00.000Z", id: "abc123def456ghi" };
 
@@ -30,6 +30,11 @@ describe("cursor query builders (§6)", () => {
       params: { room: "r1", created: C.created, id: C.id },
       sort: "created,id",
     });
+  });
+
+  it("withFiles: the same page, of messages with attachments only", () => {
+    const q = older("r1", C);
+    expect(withFiles(q)).toEqual({ ...q, filter: `${q.filter} && (files:length > 0 || forward_of != "")` });
   });
 
   it("only reads created/id from the cursor message", () => {

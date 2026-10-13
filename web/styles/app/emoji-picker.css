@@ -1,0 +1,77 @@
+/* ---- Emoji picker (§20.4): a popover next to its button; on phones as wide as the screen. ---- */
+
+.emoji-picker {
+  position: fixed;
+  top: var(--y, auto);
+  left: var(--x, auto);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  width: calc(8 * 2.4rem + 1.2rem);
+  height: 20rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--raised);
+  box-shadow: var(--shadow);
+  animation: pop 0.2s var(--ease);
+}
+
+.emoji-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+}
+
+.emoji-tabs button {
+  flex: 1;
+  padding: 0.35rem 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+
+.emoji-scroll {
+  flex: 1;
+  padding: 0 0.5rem 0.5rem;
+  overflow-y: auto;
+}
+
+.emoji-heading {
+  position: sticky;
+  top: 0;
+  margin: 0;
+  padding: 0.4rem 0.1rem 0.2rem;
+  background: var(--raised);
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 2.4rem);
+}
+
+.emoji-grid button {
+  height: 2.4rem;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  font-size: 1.4rem;
+}
+
+.emoji-grid .on {
+  background: var(--tint);
+}
+
+@media (max-width: 720px) {
+  .emoji-picker {
+    right: 8px;
+    left: 8px;
+    width: auto;
+    height: min(20rem, 45vh);
+  }
+
+  .emoji-grid {
+    grid-template-columns: repeat(8, 1fr);
+  }
+}

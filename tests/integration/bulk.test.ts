@@ -1,5 +1,5 @@
 // Several messages at once (§21): POST /api/chat/delete soft-deletes the caller's own messages, POST /api/chat/forward
-// copies messages the caller can see into a room or DM they can write in. All or nothing.
+// forwards messages the caller can see into a room or DM they can write in, pointing at them. All or nothing.
 
 import type { RecordModel } from "pocketbase";
 import { describe, expect, it } from "vitest";
@@ -7,6 +7,7 @@ import { MSG_FIELDS } from "../../web/src/api.ts";
 import { MAX_SELECTED } from "../../web/src/lib/limits.ts";
 import {
   adminClient,
+  client,
   collect,
   eventually,
   expectRejected,
@@ -15,8 +16,10 @@ import {
   openDm,
   pngFile,
   post,
+  rawDb,
   status,
   type TestUser,
+  uniq,
 } from "./helpers.ts";
 
 const del = (u: TestUser, messages: unknown) => u.pb.send<RecordModel[]>("/api/chat/delete", { method: "POST", body: { messages } });
@@ -111,7 +114,16 @@ describe("delete several messages (§21.2)", () => {
 });
 
 describe("forward messages (§21.3)", () => {
-  it("copies them into the room in their order, by the caller, saying who first wrote them", async () => {
+  /** A private room of `owner`'s with these members. */
+  const privateRoom = async (owner: TestUser, members: TestUser[] = []) => {
+    const room = await owner.pb.collection("rooms").create({ name: `private-${uniq()}`, created_by: owner.user.id, visibility: "private" });
+    return owner.pb.collection("rooms").update(room.id, { members: [owner.user.id, ...members.map((m) => m.user.id)] });
+  };
+  /** What is stored for a message, not what the API shows. */
+  const stored = (id: string) =>
+    rawDb().prepare("SELECT text, files, file_names, forward_of FROM messages WHERE id = ?").get(id) as Record<string, string>;
+
+  it("points at them in their order, by the caller, showing their words and saying who first wrote them", async () => {
     const a = await newUser();
     const b = await newUser();
     const from = await newRoom(a);
@@ -122,27 +134,138 @@ describe("forward messages (§21.3)", () => {
     await b.pb.send("/api/chat/reactions", { method: "POST", body: { message: m1.id, emoji: "👍", on: true } });
 
     const res = await fwd(b, [reply.id, m1.id, m2.id], to.id);
-    expect(res.map((m) => [m.room, m.author, m.text, m.forwarded_from, m.reply_to, m.reactions, m.edited_at])).toEqual([
-      [to.id, b.user.id, "first", a.user.id, "", [], ""],
-      [to.id, b.user.id, "second", b.user.id, "", [], ""],
-      [to.id, b.user.id, "third", a.user.id, "", [], ""],
+    expect(res.map((m) => [m.room, m.author, m.text, m.forward_of, m.forwarded_from, m.reply_to, m.reactions, m.edited_at])).toEqual([
+      [to.id, b.user.id, "first", m1.id, a.user.id, "", [], ""],
+      [to.id, b.user.id, "second", m2.id, b.user.id, "", [], ""],
+      [to.id, b.user.id, "third", reply.id, a.user.id, "", [], ""],
     ]);
     expect((await roomMessages(a, to.id)).map((m) => m.text)).toEqual(["first", "second", "third"]);
-    // The originals are untouched.
-    expect(await get(a, m1.id)).toMatchObject({ room: from.id, text: "first", forwarded_from: "" });
+    // Nothing is copied: the forward stores only where it points.
+    expect(stored(res[0]!.id)).toMatchObject({ text: "", forward_of: m1.id });
+    expect(await get(a, m1.id)).toMatchObject({ room: from.id, text: "first", forwarded_from: "", forward_of: "" });
   });
 
-  it("a forward of a forward still names who first wrote it", async () => {
+  it("a forward of a forward points at the original and still names who first wrote it", async () => {
     const a = await newUser();
     const b = await newUser();
     const c = await newUser();
-    const r1 = await newRoom(a);
-    const r2 = await newRoom(b);
-    const r3 = await newRoom(c);
-    const msg = await post(a, r1.id, "origin");
-    const [once] = await fwd(b, [msg.id], r2.id);
-    const [twice] = await fwd(c, [once!.id], r3.id);
-    expect(twice).toMatchObject({ author: c.user.id, forwarded_from: a.user.id, text: "origin" });
+    const msg = await post(a, (await newRoom(a)).id, "origin");
+    const [once] = await fwd(b, [msg.id], (await newRoom(b)).id);
+    const [twice] = await fwd(c, [once!.id], (await newRoom(c)).id);
+    expect(twice).toMatchObject({ author: c.user.id, forwarded_from: a.user.id, forward_of: msg.id, text: "origin" });
+  });
+
+  it("shows the original as it is now: edits live, and nothing once it is deleted, which can't be forwarded on", async () => {
+    const a = await newUser();
+    const b = await newUser();
+    const msg = await post(a, (await newRoom(a)).id, "draft");
+    const to = await privateRoom(b);
+    const [copy] = await fwd(b, [msg.id], to.id);
+    const sub = await collect(b.pb, "messages", { filter: `room = "${to.id}"`, expand: "reply_to" });
+    try {
+      await a.pb.collection("messages").update(msg.id, { text: "final" });
+      await eventually(() => expect(sub.events.at(-1)?.record).toMatchObject({ id: copy!.id, text: "final" }));
+      expect((await get(b, copy!.id)).edited_at).not.toBe("");
+      await del(a, [msg.id]);
+      await eventually(() => expect(sub.events.at(-1)?.record).toMatchObject({ id: copy!.id, text: "", files: [], deleted: false }));
+    } finally {
+      await sub.stop();
+    }
+    expect(await status(fwd(b, [copy!.id], to.id))).toBe(400);
+    // The forward itself is still there: its author can delete it.
+    expect((await del(b, [copy!.id]))[0]).toMatchObject({ deleted: true });
+  });
+
+  it("an original removed for good (by a superuser) leaves its forwards showing nothing", async () => {
+    const a = await newUser();
+    const msg = await post(a, (await newRoom(a)).id, "soon gone");
+    const room = await newRoom(a);
+    const [copy] = await fwd(a, [msg.id], room.id);
+    await (await adminClient()).collection("messages").delete(msg.id);
+    expect(await get(a, copy!.id)).toMatchObject({ text: "", forward_of: "", forwarded_from: a.user.id, deleted: false });
+    expect(await status(fwd(a, [copy!.id], room.id))).toBe(400);
+    expect((await del(a, [copy!.id]))[0]).toMatchObject({ deleted: true });
+  });
+
+  it("copies no files: the attachments are the original's, readable wherever the forward is", async () => {
+    const a = await newUser();
+    const b = await newUser();
+    const c = await newUser();
+    const secret = await privateRoom(a);
+    const msg = await post(a, secret.id, "", { files: [pngFile("holiday.png")] });
+    const dm = await openDm(a, b);
+    const [copy] = await fwd(a, [msg.id], dm.id);
+    expect(copy!.files).toEqual(msg.files);
+    expect(Object.values(copy!.file_names)).toEqual(["holiday.png"]);
+    expect(stored(copy!.id)).toMatchObject({ files: "[]" });
+    const fileStatus = async (u: TestUser) => {
+      const token = await u.pb.files.getToken();
+      const res = await fetch(u.pb.files.getURL(msg, msg.files[0], { token }));
+      return [res.status, res.status === 200 ? res.headers.get("content-type") : null];
+    };
+    expect(await fileStatus(b)).toEqual([200, "image/png"]);
+    expect(await fileStatus(c)).toEqual([404, null]);
+
+    // In an Open Air room, guests too.
+    const open = await a.pb.collection("rooms").create({ name: `open-${uniq()}`, created_by: a.user.id, visibility: "open" });
+    const [shown] = await fwd(a, [msg.id], open.id);
+    const guest = client();
+    expect((await guest.collection("messages").getOne(shown!.id)).files).toEqual(msg.files);
+    expect((await fetch(guest.files.getURL(msg, msg.files[0]))).status).toBe(200);
+  });
+
+  it("the readers of a forward see only that message of the original's room, and only while the forward is there", async () => {
+    const a = await newUser();
+    const b = await newUser();
+    const secret = await privateRoom(a);
+    const msg = await post(a, secret.id, "just this one");
+    const other = await post(a, secret.id, "not this one");
+    const reply = await post(a, secret.id, "nor this", { reply_to: msg.id });
+    const room = await newRoom(b);
+    const [copy] = await fwd(a, [msg.id], room.id);
+
+    expect(await get(b, msg.id)).toMatchObject({ text: "just this one" });
+    expect(await status(get(b, other.id))).toBe(404);
+    expect(await status(get(b, reply.id))).toBe(404);
+    expect(await status(get(b, secret.id))).toBe(404);
+    expect(await roomMessages(b, secret.id)).toEqual([]);
+    expect((await b.pb.collection("rooms").getList(1, 50, { filter: `id = "${secret.id}"` })).items).toEqual([]);
+    // Not something to act on in a room they can't see: no reactions, no forwarding it by id, no replies there.
+    const react = b.pb.send("/api/chat/reactions", { method: "POST", body: { message: msg.id, emoji: "👍", on: true } });
+    expect(await status(react)).toBe(404);
+    expect(await status(fwd(b, [msg.id], room.id))).toBe(404);
+    await expectRejected(post(b, secret.id, "hi", { reply_to: msg.id }));
+
+    await del(a, [copy!.id]);
+    expect(await status(get(b, msg.id))).toBe(404);
+  });
+
+  it("the original, read through a forward, doesn't say who is in its room: no reactions, no reply_to", async () => {
+    const a = await newUser();
+    const c = await newUser();
+    const b = await newUser();
+    const secret = await privateRoom(a, [c]);
+    const parent = await post(c, secret.id, "earlier");
+    const msg = await post(a, secret.id, "shared", { reply_to: parent.id });
+    await c.pb.send("/api/chat/reactions", { method: "POST", body: { message: msg.id, emoji: "👍", on: true } });
+    const room = await newRoom(b);
+    await fwd(a, [msg.id], room.id);
+
+    const seen = await b.pb.collection("messages").getOne(msg.id, { expand: "reply_to" });
+    expect(seen).toMatchObject({ text: "shared", reactions: [], reply_to: "" });
+    expect(seen.expand?.reply_to).toBeUndefined();
+    // Its room's members still see them.
+    expect(await get(c, msg.id)).toMatchObject({ reactions: [{ emoji: "👍", users: [c.user.id] }], reply_to: parent.id });
+  });
+
+  it("a reply to a forward quotes the original's words", async () => {
+    const a = await newUser();
+    const room = await newRoom(a);
+    const msg = await post(a, (await newRoom(a)).id, "quote me");
+    const [copy] = await fwd(a, [msg.id], room.id);
+    const reply = await post(a, room.id, "replying", { reply_to: copy!.id });
+    const read = await a.pb.collection("messages").getOne(reply.id, { expand: "reply_to.author", fields: MSG_FIELDS });
+    expect(read.expand?.reply_to).toMatchObject({ id: copy!.id, text: "quote me" });
   });
 
   it("a forward can be deleted but not edited: its words are someone else's", async () => {
@@ -153,24 +276,7 @@ describe("forward messages (§21.3)", () => {
     const [copy] = await fwd(a, [msg.id], room.id);
     expect(await status(a.pb.collection("messages").update(copy!.id, { text: "I never said this" }))).toBe(400);
     expect(await get(b, copy!.id)).toMatchObject({ text: "I said this", edited_at: "" });
-    expect(await a.pb.collection("messages").update(copy!.id, { text: "I said this" })).toMatchObject({ edited_at: "" });
     expect((await del(a, [copy!.id]))[0]).toMatchObject({ deleted: true, text: "" });
-  });
-
-  it("copies the attachments with their names, readable in the new room", async () => {
-    const a = await newUser();
-    const b = await newUser();
-    const room = await newRoom(a);
-    const msg = await post(a, room.id, "", { files: [pngFile("holiday.png")] });
-    const dm = await openDm(a, b);
-    const [copy] = await fwd(a, [msg.id], dm.id);
-    expect(copy!.files).toHaveLength(1);
-    expect(copy!.files[0]).not.toBe(msg.files[0]);
-    expect(Object.values(copy!.file_names)).toEqual(["holiday.png"]);
-    const token = await b.pb.files.getToken();
-    const res = await fetch(b.pb.files.getURL(copy!, copy!.files[0], { token }));
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toBe("image/png");
   });
 
   it("answers expanded like a read of each message", async () => {
@@ -180,6 +286,7 @@ describe("forward messages (§21.3)", () => {
     const query = { expand: "author,reply_to.author,forwarded_from", fields: MSG_FIELDS };
     const [copy] = await fwd(a, [msg.id], room.id, query);
     expect(copy).toEqual(await a.pb.collection("messages").getOne(copy!.id, query));
+    expect(copy).toMatchObject({ text: "hello", forward_of: msg.id });
     expect(copy!.expand?.forwarded_from).toEqual({ id: a.user.id, name: a.user.name });
     expect(copy).not.toHaveProperty("expand.author.email");
   });
@@ -224,22 +331,28 @@ describe("forward messages (§21.3)", () => {
     expect(await status(fwd(c, [visible.id], room.id))).toBe(401);
   });
 
-  it("forwarded_from can't be set or changed by clients, superusers included", async () => {
+  it("forwarded_from and forward_of can't be set or changed by clients, superusers included", async () => {
     const a = await newUser();
     const b = await newUser();
     const room = await newRoom(a);
-    await expectRejected(post(a, room.id, "fake", { forwarded_from: b.user.id }));
-    await expectRejected(post(a, room.id, "fake", { "forwarded_from+": b.user.id }));
-    const msg = await post(a, room.id, "real");
-    await expectRejected(a.pb.collection("messages").update(msg.id, { forwarded_from: b.user.id }));
-    await expectRejected(a.pb.collection("messages").update(msg.id, { "forwarded_from+": b.user.id }));
-    const admin = await adminClient();
-    await expectRejected(admin.collection("messages").update(msg.id, { forwarded_from: b.user.id }));
-    const [copy] = await fwd(a, [msg.id], room.id);
-    await expectRejected(a.pb.collection("messages").update(copy!.id, { forwarded_from: "" }));
-    expect(await get(a, copy!.id)).toMatchObject({ forwarded_from: a.user.id });
-    // Deleting keeps it.
-    expect((await del(a, [copy!.id]))[0]).toMatchObject({ deleted: true, forwarded_from: a.user.id });
+    const theirs = await post(b, room.id, "theirs");
+    for (const [field, value] of [
+      ["forwarded_from", b.user.id],
+      ["forward_of", theirs.id],
+    ] as const) {
+      await expectRejected(post(a, room.id, "fake", { [field]: value }));
+      await expectRejected(post(a, room.id, "fake", { [`${field}+`]: value }));
+      const msg = await post(a, room.id, "real");
+      await expectRejected(a.pb.collection("messages").update(msg.id, { [field]: value }));
+      await expectRejected(a.pb.collection("messages").update(msg.id, { [`${field}+`]: value }));
+      const admin = await adminClient();
+      await expectRejected(admin.collection("messages").update(msg.id, { [field]: value }));
+      const [copy] = await fwd(a, [msg.id], room.id);
+      await expectRejected(a.pb.collection("messages").update(copy!.id, { [field]: "" }));
+      expect(await get(a, copy!.id)).toMatchObject({ forwarded_from: a.user.id, forward_of: msg.id });
+      // Deleting keeps it.
+      expect((await del(a, [copy!.id]))[0]).toMatchObject({ deleted: true, forwarded_from: a.user.id, forward_of: msg.id });
+    }
   });
 
   it("are rate limited (20 per minute per IP each)", async () => {

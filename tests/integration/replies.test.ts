@@ -9,7 +9,7 @@ import type { Message } from "../../web/src/lib/types.ts";
 import { createClient } from "../../web/src/pb.ts";
 import { uniq } from "../support/ids.ts";
 import { withName } from "../support/names.ts";
-import { adminClient, eventually, expectRejected, newRoom, newUser, openDm, post, rawDb } from "./helpers.ts";
+import { adminClient, eventually, expectRejected, newRoom, newUser, openDm, post } from "./helpers.ts";
 
 describe("replies: rules and hooks (§19)", () => {
   it("a message can reply to another message of the same room", async () => {
@@ -108,16 +108,8 @@ describe("replies through the client API (§19)", () => {
     const a = realClient();
     const b = realClient();
     // Display names are unique (§22.1): free them if an earlier test took them.
-    await withName(
-      () => rawDb({ write: true }),
-      "Alice",
-      () => a.signUp({ email: `a-${uniq()}@test.local`, password: "password-123", name: "Alice" }),
-    );
-    await withName(
-      () => rawDb({ write: true }),
-      "Bob",
-      () => b.signUp({ email: `b-${uniq()}@test.local`, password: "password-123", name: "Bob" }),
-    );
+    await withName(inject("pbUrl"), "Alice", () => a.signUp({ email: `a-${uniq()}@test.local`, password: "password-123", name: "Alice" }));
+    await withName(inject("pbUrl"), "Bob", () => b.signUp({ email: `b-${uniq()}@test.local`, password: "password-123", name: "Bob" }));
     return { a, b, room: await a.createRoom(`room-${uniq()}`) };
   }
 

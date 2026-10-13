@@ -1,0 +1,86 @@
+/* ---- Attachment tray (§17.4) ---- */
+
+.tray {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0 0 0.5rem;
+  padding: 0;
+  list-style: none;
+}
+
+.tray-item {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  max-width: 16rem;
+  padding: 0.25rem 0.25rem 0.25rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--raised);
+  font-size: 0.85rem;
+  animation: pop 0.25s var(--ease);
+}
+
+.tray-thumb {
+  flex: none;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.tray-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tray-size {
+  flex: none;
+  color: var(--muted);
+}
+
+.tray-item .remove {
+  flex: none;
+  padding: 0 0.45rem;
+  border: 0;
+}
+
+.tray-error {
+  margin: 0 0 0.4rem;
+  color: var(--danger);
+  font-size: 0.85rem;
+}
+
+.tray-error:empty {
+  display: none;
+}
+
+.composer textarea {
+  flex: 1;
+  min-width: 0;
+  max-height: 10rem;
+  padding: 0.4rem 0.25rem;
+  border: 0;
+  background: none;
+  resize: none;
+  outline: 0;
+}
+
+.composer textarea::placeholder {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer button[type="submit"] {
+  height: 2.25rem;
+}
+
+.counter {
+  align-self: center;
+}
+
+.counter:empty {
+  display: none;
+}

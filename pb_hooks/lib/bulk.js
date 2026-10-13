@@ -1,7 +1,7 @@
 /// <reference path="../../types/pocketbase.d.ts" />
 // Acting on several messages at once (DESIGN.md §21): POST /api/chat/delete soft-deletes the caller's own messages,
-// POST /api/chat/forward copies messages the caller can see into another room or DM. All or nothing: each runs in one
-// transaction. The saves go through the messages hooks (chat.js) like any other, so the soft delete wipes what it
+// POST /api/chat/forward forwards messages the caller can see into another room or DM, pointing at them (nothing is copied). All or nothing: each runs in one
+// transaction. The saves go through the messages hooks (messages.js) like any other, so the soft delete wipes what it
 // should, a forward is checked like a new message, and realtime tells everyone.
 
 /** Most messages one request may act on (MAX_SELECTED in web/src/lib/limits.ts). */
@@ -31,8 +31,9 @@ function messageIds(body, what) {
 }
 
 /**
- * Can the caller see `rec` (its collection's view rule)? Someone else's DM gets the same answer as a record that
- * doesn't exist.
+ * Can the caller see `rec` where it is (its collection's list rule)? Not the messages view rule, which also lets the
+ * readers of a forward view its original (§21.3), in a room they can't see. Someone else's DM gets the same answer
+ * as a record that doesn't exist.
  * @param {core.RequestEvent} e
  * @param {core.RequestInfo} info
  * @param {string} collection
@@ -46,7 +47,7 @@ function visible(e, info, collection, id) {
   } catch {
     return null;
   }
-  const rule = e.app.findCollectionByNameOrId(collection).viewRule;
+  const rule = e.app.findCollectionByNameOrId(collection).listRule;
   return rule !== null && rule !== undefined && e.app.canAccessRecord(rec, info, rule) ? rec : null;
 }
 
@@ -106,9 +107,31 @@ function deleteMessages(e) {
 }
 
 /**
- * POST /api/chat/forward { messages: [ids], room } → the new messages in `room` (§21.3): copies of the given ones,
- * oldest first, by the caller, each saying who first wrote it (`forwarded_from`, kept through forwards of forwards).
- * Text and attachments are copied; replies, reactions and edit stamps are not.
+ * What a message shows when forwarded (§21.3): itself, or for a forward, the message it shows. Null when that is
+ * deleted, or gone (a forward whose original was removed for good shows nothing).
+ * @param {core.App} app
+ * @param {core.Record} m
+ */
+function originalOf(app, m) {
+  if (m.getBool("deleted")) return null;
+  const id = m.getString("forward_of");
+  if (!id) {
+    const empty = m.getString("text") === "" && m.getStringSlice("files").length === 0;
+    return m.getString("forwarded_from") !== "" && empty ? null : m;
+  }
+  try {
+    const original = app.findRecordById("messages", id);
+    return original.getBool("deleted") ? null : original;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * POST /api/chat/forward { messages: [ids], room } → the new messages in `room` (§21.3), oldest first, by the caller:
+ * forwards pointing at the given messages (`forward_of`; a forward of a forward points at its original), showing their
+ * text and attachments as they are now, and saying who first wrote them (`forwarded_from`). Nothing is copied, so a
+ * forward costs a row however big its attachments are. Replies, reactions and edit stamps aren't forwarded.
  * @param {core.RequestEvent} e
  */
 function forward(e) {
@@ -121,41 +144,29 @@ function forward(e) {
   const room = visible(e, info, "rooms", typeof body.room === "string" ? body.room : "");
   if (!room) throw new NotFoundError("The room doesn't exist.");
   if (room.getBool("archived")) throw badRequest("room", "This room is archived and read-only.", what);
-  const msgs = visibleMessages(e, info, ids);
-  if (msgs.some((m) => m.getBool("deleted"))) throw badRequest("messages", "A message was deleted.", what);
+  const originals = visibleMessages(e, info, ids).map((m) => originalOf(e.app, m));
+  if (originals.some((m) => !m)) throw badRequest("messages", "A message was deleted.", what);
 
   const collection = e.app.findCollectionByNameOrId("messages");
-  const fsys = e.app.newFilesystem();
   /** @type {core.Record[]} */
   const saved = [];
-  try {
-    e.app.runInTransaction((tx) => {
-      // One millisecond apart, so they keep their order: messages sort by (created, id), and ids are random.
-      const now = Date.now();
-      msgs.forEach((src, i) => {
-        const rec = new Record(collection);
-        const at = new Date(now + i).toISOString().replace("T", " ");
-        rec.setRaw("created", at);
-        rec.setRaw("updated", at);
-        rec.set("room", room.id);
-        rec.set("author", me.id);
-        rec.set("text", src.getString("text"));
-        rec.set("forwarded_from", src.getString("forwarded_from") || src.getString("author"));
-        /** @type {Record<string, string>} */
-        const names = JSON.parse(src.getString("file_names") || "{}") || {};
-        const files = src.getStringSlice("files").map((name) => {
-          const f = fsys.getReuploadableFile(`${src.baseFilesPath()}/${name}`, false);
-          f.originalName = names[name] || name; // kept as the copy's file_names by beforeMessageCreate
-          return f;
-        });
-        if (files.length) rec.set("files", files);
-        tx.save(rec);
-        saved.push(rec);
-      });
+  e.app.runInTransaction((tx) => {
+    // One millisecond apart, so they keep their order: messages sort by (created, id), and ids are random.
+    const now = Date.now();
+    /** @type {core.Record[]} */ (originals).forEach((src, i) => {
+      const rec = new Record(collection);
+      const at = new Date(now + i).toISOString().replace("T", " ");
+      rec.setRaw("created", at);
+      rec.setRaw("updated", at);
+      rec.set("room", room.id);
+      rec.set("author", me.id);
+      rec.set("text", "");
+      rec.set("forward_of", src.id);
+      rec.set("forwarded_from", src.getString("forwarded_from") || src.getString("author"));
+      tx.save(rec);
+      saved.push(rec);
     });
-  } finally {
-    fsys.close();
-  }
+  });
   return answer(e, saved);
 }
 

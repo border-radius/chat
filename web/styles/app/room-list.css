@@ -1,0 +1,207 @@
+/* ---- Room list ---- */
+
+.rooms {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.sidebar .rooms {
+  padding: 0.75rem;
+}
+
+.new-room {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0 0 0.5rem;
+  padding: 0.5rem;
+  border-radius: var(--radius);
+  background: var(--raised);
+  box-shadow: var(--shadow);
+  animation: pop 0.25s var(--ease);
+}
+
+.new-room-toggle {
+  margin-top: 0.8rem;
+  font-size: 0.8rem;
+  text-decoration: none;
+}
+
+@media (hover: hover) {
+  button.new-room-toggle:hover:not(:disabled) {
+    background: var(--tint);
+  }
+}
+
+.new-room input {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+}
+
+.new-room .field-error {
+  flex-basis: 100%;
+}
+
+.room-section h2,
+.room-section > summary {
+  margin: 1.1rem 0 0.3rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.room-section ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.room-section li {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin: 2px 0;
+  border-radius: var(--radius);
+  transition: background-color 0.15s;
+}
+
+@media (hover: hover) {
+  .room-section li:hover {
+    background: var(--hover);
+  }
+}
+
+.room-section li a {
+  display: flex;
+  flex: 1;
+  gap: 0.3rem;
+  align-items: center;
+  min-width: 0;
+  padding: 0.45rem 0.6rem;
+  overflow: hidden;
+  color: inherit;
+  font-weight: 500;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.room-section li a::before {
+  content: "#";
+  color: var(--muted);
+  font-weight: 800;
+}
+
+/* DM rows (§16.5): avatar + name, no "#". */
+.room-section li.dm a {
+  gap: 0.5rem;
+}
+
+.room-section li.dm a::before {
+  content: none;
+}
+
+/* The name; the "#" and the badge stay visible however long it is. */
+.room-section li a > span:not(.avatar, .badge) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Unread (§18.4): bold name plus a count. */
+.room-section li a.unread {
+  font-weight: 700;
+}
+
+.badge {
+  flex: none;
+  min-width: 1.4rem;
+  margin-left: auto;
+  padding: 0 0.4rem;
+  border-radius: var(--pill);
+  background: var(--grad);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 800;
+  line-height: 1.4rem;
+  text-align: center;
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.new-dm {
+  margin-top: 0.75rem;
+  padding: 0 0.5rem;
+  line-height: 1.4;
+}
+
+.user-search {
+  margin: 0.25rem 0 0.5rem;
+}
+
+.search-status {
+  margin: 0.25rem 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.search-results {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.search-results button.person {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  width: 100%;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  text-align: left;
+}
+
+/* A long name ends in "…" rather than running out of the list. */
+.search-results button.person > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.room-section li a[aria-current="page"] {
+  font-weight: 700;
+}
+
+.room-section li a[aria-current="page"]::before {
+  color: var(--accent);
+}
+
+/* The current room: tinted row plus a gradient pip on the left. */
+.room-section li:has(a[aria-current="page"]) {
+  background: var(--tint);
+}
+
+.room-section li:has(a[aria-current="page"])::after {
+  content: "";
+  position: absolute;
+  top: 25%;
+  left: -0.75rem;
+  width: 4px;
+  height: 50%;
+  border-radius: 0 4px 4px 0;
+  background: var(--grad);
+}
+
+.empty {
+  color: var(--muted);
+}

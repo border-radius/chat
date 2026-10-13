@@ -3,6 +3,10 @@
 import { describe, expect, it } from "vitest";
 import { expectRejected, newRoom, newUser, openDm, pngFile, post, type TestUser } from "./helpers.ts";
 
+const utf8 = (s: string) => new TextEncoder().encode(s).length;
+
+const textFile = (name: string) => new File(["hello"], name, { type: "text/plain" });
+
 const file = (name: string, type: string, bytes: number | string = "x") =>
   new File([typeof bytes === "number" ? new Uint8Array(bytes) : bytes], name, { type });
 
@@ -155,5 +159,37 @@ describe("original file names (QA BUG-28)", () => {
     const a = await newUser();
     const room = await newRoom(a);
     expect((await post(a, room.id, "plain")).file_names).toEqual({});
+  });
+});
+
+describe("long upload names (BUG-35, BUG-36)", () => {
+  it("accepts a file whose non-Latin name is over 255 bytes, keeping a shortened name with its extension", async () => {
+    const a = await newUser();
+    const room = await newRoom(a);
+    const long = `${"Протокол совещания ".repeat(8)}.pdf`; // 152 characters, 291 bytes: PocketBase used to fail it
+    const m = await withFiles(a, room.id, [textFile(long), textFile(`${"😀".repeat(70)}.txt`)]);
+    // In upload order: file_names is keyed by the stored (randomly suffixed) name, so its own order is arbitrary.
+    const names = (m.files as string[]).map((f) => (m.file_names as Record<string, string>)[f] ?? "");
+    expect(names).toHaveLength(2);
+    for (const n of names) expect(utf8(n)).toBeLessThanOrEqual(200);
+    expect(names[0]).toMatch(/^Протокол совещания .+\.pdf$/);
+    expect(names[1]).toMatch(/^😀+\.txt$/u);
+  });
+
+  it("keeps the extension of a name cut at the length limit", async () => {
+    const a = await newUser();
+    const room = await newRoom(a);
+    const m = await withFiles(a, room.id, [textFile(`${"報告書".repeat(70)}.xlsx`)]);
+    expect(Object.values(m.file_names as Record<string, string>)[0]).toMatch(/^(報告書)+報?告?\.xlsx$/);
+  });
+});
+
+describe("attachment names keep their double quotes (BUG-54)", () => {
+  it('stores "Q&A "v2".txt", which browsers send as "Q&A %22v2%22.txt"', async () => {
+    const u = await newUser();
+    const room = await newRoom(u);
+    const name = 'Q&A "v2" notes.txt';
+    const m = await u.pb.collection("messages").create({ room: room.id, author: u.user.id, text: "", files: [new File(["x"], name)] });
+    expect(Object.values(m.file_names as Record<string, string>)).toEqual([name]);
   });
 });

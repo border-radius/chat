@@ -8,6 +8,7 @@ import {
   lastOwnEditable,
   type MessageWindow,
   merge,
+  quoteText,
   remove,
   startsGroup,
   trim,
@@ -276,5 +277,15 @@ describe("lastOwnEditable (Up-arrow edit, §7.6)", () => {
   it("returns undefined when nothing is editable", () => {
     expect(lastOwnEditable(win([msg({ author: "other" })]), "me")).toBeUndefined();
     expect(lastOwnEditable(emptyWindow(), "me")).toBeUndefined();
+  });
+});
+
+describe("quoteText", () => {
+  it("the text on one line; else its attachments; a deleted message, or a forward whose original was deleted, as deleted", () => {
+    expect(quoteText({ text: " two\n lines ", deleted: false })).toBe("two lines");
+    expect(quoteText({ text: "", deleted: false, files: ["a.png"] })).toBe("Attachment");
+    expect(quoteText({ text: "", deleted: false, files: ["a.png", "b.pdf"] })).toBe("2 attachments");
+    expect(quoteText({ text: "x", deleted: true })).toBe("Message deleted");
+    expect(quoteText({ text: "", deleted: false, files: [] })).toBe("Message deleted");
   });
 });

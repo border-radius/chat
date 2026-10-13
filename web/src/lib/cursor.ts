@@ -49,6 +49,13 @@ export function changedIn(room: string, since: string, from: Cursor, to: Cursor)
   };
 }
 
+/**
+ * Only the messages of `q` that may have attachments (the image viewer pages through those, §17.7): with files of their
+ * own, or forwards, whose files are their original's (§21.3). The filter can't look at those: the original is
+ * usually in a room the reader can't list.
+ */
+export const withFiles = (q: PageQuery): PageQuery => ({ ...q, filter: `${q.filter} && (files:length > 0 || forward_of != "")` });
+
 /** The page just after `c`, the newest loaded message (oldest-first). */
 export function newer(room: string, c: Cursor): PageQuery {
   return {

@@ -1,13 +1,15 @@
-// Login / signup screen (§7.1): /login and /signup, reached from the header (§23.3).
+// Login / signup screen (§7.1): /login and /signup, reached from the header (§23.3). Shows the site's title and logo,
+// and asks for an invite code to sign up while the site is invite-only (§24).
 
 import { type Api, ApiError, errorMessage, SIGNUP_LOGIN_FAILED } from "../api.ts";
 import { clear, h, uniqueId } from "../dom.ts";
 import { LIMITS, textLength } from "../lib/limits.ts";
-import type { User } from "../lib/types.ts";
+import { DEFAULT_SITE, type User } from "../lib/types.ts";
 import type { View } from "../router.ts";
+import type { AppState, Store } from "../store.ts";
 
 type Mode = "login" | "signup";
-type Field = "name" | "email" | "password";
+type Field = "name" | "email" | "password" | "invite_code";
 
 interface FieldSpec {
   name: Field;
@@ -30,13 +32,20 @@ const FIELDS: Record<Mode, FieldSpec[]> = {
   ],
 };
 
+/** Asked for last on signup, while the site is invite-only (§24). */
+const INVITE: FieldSpec = { name: "invite_code", label: "Invite code", type: "text", autocomplete: "off" };
+
 const TITLES: Record<Mode, string> = { login: "Log in", signup: "Sign up" };
 
-export function createLoginView(deps: { api: Api; onLogin: (user: User) => void; mode?: Mode }): View {
+/** `store`: where the site's branding and signup policy are (§24); the defaults without one. */
+export function createLoginView(deps: { api: Api; onLogin: (user: User) => void; mode?: Mode; store?: Store<AppState> }): View {
   let ac: AbortController | null = null;
   let mode: Mode = deps.mode ?? "login";
   let busy = false;
-  const values: Record<Field, string> = { name: "", email: "", password: "" };
+  const values: Record<Field, string> = { name: "", email: "", password: "", invite_code: "" };
+  const site = () => deps.store?.get().site ?? DEFAULT_SITE;
+  const fieldsOf = (m: Mode) => (m === "signup" && site().inviteOnly ? [...FIELDS.signup, INVITE] : FIELDS[m]);
+  let offStore = () => {};
   const prefix = uniqueId("login");
   let root: HTMLElement;
 
@@ -67,7 +76,7 @@ export function createLoginView(deps: { api: Api; onLogin: (user: User) => void;
 
     const submit = h("button", { type: "submit", class: "primary", disabled: busy }, TITLES[mode]);
 
-    const fields = FIELDS[mode].map((f) => {
+    const fields = fieldsOf(mode).map((f) => {
       const id = `${prefix}-${f.name}`;
       const errId = `${id}-error`;
       const error = errors.fields?.[f.name];
@@ -99,7 +108,7 @@ export function createLoginView(deps: { api: Api; onLogin: (user: User) => void;
           submit: (e) => {
             e.preventDefault();
             // Read the inputs now: autofill/password managers may not fire input events.
-            for (const f of FIELDS[mode]) values[f.name] = (form.elements.namedItem(f.name) as HTMLInputElement).value;
+            for (const f of fieldsOf(mode)) values[f.name] = (form.elements.namedItem(f.name) as HTMLInputElement).value;
             void onSubmit(submit);
           },
         },
@@ -108,10 +117,11 @@ export function createLoginView(deps: { api: Api; onLogin: (user: User) => void;
       [...fields, h("p", { role: "alert", class: "form-error" }, errors.form ?? ""), submit],
     );
 
+    const { title, logo } = site();
     clear(root);
     root.append(
       h("section", { class: "auth" }, [
-        h("h1", {}, "Chat"),
+        h("h1", {}, [logo ? h("img", { src: logo, alt: "", class: "brand-logo" }) : null, title]),
         h("div", { role: "tablist", class: "tabs" }, tabs),
         form,
         h("p", { class: "auth-skip" }, h("a", { href: "/" }, "Just looking? Read the Open Air rooms")),
@@ -131,7 +141,12 @@ export function createLoginView(deps: { api: Api; onLogin: (user: User) => void;
       const user =
         mode === "login"
           ? await deps.api.logIn(values.email, values.password)
-          : await deps.api.signUp({ name: values.name, email: values.email, password: values.password });
+          : await deps.api.signUp({
+              name: values.name,
+              email: values.email,
+              password: values.password,
+              ...(site().inviteOnly ? { inviteCode: values.invite_code } : {}),
+            });
       busy = false;
       button.disabled = false;
       deps.onLogin(user);
@@ -146,14 +161,16 @@ export function createLoginView(deps: { api: Api; onLogin: (user: User) => void;
       }
       // Errors for fields on screen go next to them; anything else (network, rate limit, …) above the button.
       const all = e instanceof ApiError ? e.fields : {};
-      const fields = Object.fromEntries(Object.entries(all).filter(([k]) => FIELDS[mode].some((f) => f.name === k)));
+      const fields = Object.fromEntries(Object.entries(all).filter(([k]) => fieldsOf(mode).some((f) => f.name === k)));
       // PocketBase says "Value must be unique." (QA BUG-49).
       if (mode === "signup" && e instanceof ApiError && e.codes.email === "validation_not_unique") {
         fields.email = "There is already an account with this email. Log in instead.";
       }
       // A refused login is a 400 without field errors; PocketBase's "Failed to authenticate." doesn't say why (QA BUG-40).
       const badLogin = mode === "login" && e instanceof ApiError && e.status === 400;
-      const form = Object.keys(fields).length ? "" : badLogin ? "Wrong email or password." : errorMessage(e);
+      // The site became invite-only after this page loaded (§24): no code field on screen to put the error next to.
+      const invite = e instanceof ApiError && !fields.invite_code ? all.invite_code : undefined;
+      const form = Object.keys(fields).length ? "" : (invite ?? (badLogin ? "Wrong email or password." : errorMessage(e)));
       render({ form, fields });
     }
   }
@@ -162,8 +179,14 @@ export function createLoginView(deps: { api: Api; onLogin: (user: User) => void;
     mount(el) {
       root = el;
       render();
+      // The site loaded (or changed) while on this page: its title, and maybe the invite code field.
+      offStore =
+        deps.store?.subscribe((s, prev) => {
+          if (s.site !== prev.site && !busy) render();
+        }) ?? (() => {});
     },
     unmount() {
+      offStore();
       ac?.abort();
       ac = null;
       clear(root);

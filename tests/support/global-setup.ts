@@ -12,7 +12,7 @@ declare module "vitest" {
 }
 
 export default async function setup(project: TestProject) {
-  const pb = await startPocketBase({ verbose: process.env.PB_VERBOSE === "1" });
+  const pb = await startPocketBase({ verbose: process.env.PB_VERBOSE === "1", fixtureRoute: true });
 
   // Record the migrated settings, then disable limits; http.test.ts re-enables them for its own test.
   const bootRateLimits = await disableRateLimits(pb.url);

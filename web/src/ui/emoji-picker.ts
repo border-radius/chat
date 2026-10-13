@@ -7,7 +7,7 @@
 import { h } from "../dom.ts";
 import { CATEGORIES, type EmojiCategory, recentEmoji, rememberEmoji } from "../lib/emoji.ts";
 
-/** Columns of the grid; app.css sizes the picker for exactly this many. */
+/** Columns of the grid; styles/app/emoji-picker.css sizes the picker for exactly this many. */
 export const COLS = 8;
 
 export interface PickerRequest {
@@ -155,7 +155,7 @@ export function createEmojiPicker(opts: { signal: AbortSignal }): EmojiPicker {
   function section(c: EmojiCategory, i: number): HTMLElement {
     // Ids by position: "Recent" is 0, the categories 1…; one picker per page at a time (a room view).
     return h("section", { class: "emoji-section", id: sectionId(i) }, [
-      h("h3", { class: "emoji-heading", id: `${sectionId(i)}-h` }, c.name),
+      h("h2", { class: "emoji-heading", id: `${sectionId(i)}-h` }, c.name),
       h("div", { class: "emoji-grid", role: "group", "aria-labelledby": `${sectionId(i)}-h` }, c.emoji.map(emojiButton)),
     ]);
   }

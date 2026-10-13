@@ -1,0 +1,22 @@
+name: Setup
+description: Node 22 with npm 11, the locked dependencies, and the pinned PocketBase binary (cached).
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: npm
+
+    - run: npm i -g npm@11.20.0
+      shell: bash
+    - run: npm ci
+      shell: bash
+
+    - name: Cache PocketBase binary
+      uses: actions/cache@v4
+      with:
+        path: bin
+        key: pocketbase-${{ runner.os }}-${{ hashFiles('scripts/fetch-pocketbase.sh') }}
+    - run: npm run setup
+      shell: bash

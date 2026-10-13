@@ -220,9 +220,11 @@ describe("room controller (§7.5, no DOM)", () => {
       const net = instrument(me.api);
       await open(room);
       const release = net.hold("page");
+      // Counted from here: under load a reconnect may already have refetched a page.
+      const before = net.calls("page");
       const a = ctl.loadEdge("top");
       const b = ctl.loadEdge("top");
-      expect(net.calls("page")).toBe(2); // the first load + one older page
+      expect(net.calls("page")).toBe(before + 1); // one older page for both
       release();
       await Promise.all([a, b]);
       expect(ids()).toHaveLength(100);

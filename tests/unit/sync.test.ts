@@ -3,7 +3,7 @@ import { ApiError } from "../../web/src/api.ts";
 import type { Room } from "../../web/src/lib/types.ts";
 import { type AppState, createStore, initialState, type Store } from "../../web/src/store.ts";
 import { createSync, type Sync } from "../../web/src/sync.ts";
-import { instrument, newApi, type SignedUp, signedUp, uniq } from "../support/api.ts";
+import { instrument, intercept, newApi, type SignedUp, signedUp, subscribed, uniq } from "../support/api.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -63,6 +63,57 @@ describe("sync (room list + hidden rows)", () => {
     await vi.waitFor(() => expect(store.get().roomsStatus).toBe("error"));
     await sync!.reload();
     expect(store.get().roomsStatus).toBe("ready");
+  });
+
+  it("events during a reload aren't undone by its answer, which is older (QA BUG-69: a lost room stayed listed)", async () => {
+    const kept = await me.api.createRoom(`room-${uniq()}`);
+    const ctl = instrument(me.api);
+    start();
+    await ready();
+    await subscribed(me.api);
+    const release = ctl.hold("listRooms");
+    const reloading = sync!.reload(); // the server answers with the list as it is now
+    await vi.waitFor(() => expect(ctl.calls("listRooms")).toBe(2));
+    await sleep(100); // answered, and held here
+    await me.api.setArchived(kept.id, true);
+    const added = await me.api.createRoom(`room-${uniq()}`);
+    await vi.waitFor(() => expect(store.get().rooms.get(kept.id)?.archived).toBe(true));
+    await vi.waitFor(() => expect(store.get().rooms.has(added.id)).toBe(true));
+    // Views take a room that comes back as a room you were let in again (§23.4): it must not even flicker.
+    let flickered = false;
+    const off = store.subscribe((st) => {
+      if (!st.rooms.has(added.id)) flickered = true;
+    });
+    release();
+    await reloading;
+    off();
+    expect(store.get().rooms.get(kept.id)?.archived).toBe(true);
+    expect(store.get().rooms.has(added.id)).toBe(true);
+    expect(flickered).toBe(false);
+  });
+
+  it("an older reload that answers after a newer one is dropped (QA BUG-69)", async () => {
+    const r = await me.api.createRoom(`room-${uniq()}`);
+    let open!: () => void;
+    const gate = new Promise<void>((resolve) => (open = resolve));
+    let calls = 0;
+    // The first reload's answer (the second listRooms) is held back until the newer one has been applied.
+    intercept(me.api, "listRooms", (original) => async (signal) => {
+      const rooms = await original(signal);
+      if (++calls === 2) await gate;
+      return rooms;
+    });
+    start();
+    await ready();
+    await me.api.unsubscribeAll(); // no events: only the newer reload can know of the archive
+    const older = sync!.reload(); // sees r unarchived
+    await vi.waitFor(() => expect(calls).toBe(2));
+    await me.api.setArchived(r.id, true);
+    await sync!.reload();
+    expect(store.get().rooms.get(r.id)?.archived).toBe(true);
+    open();
+    await older;
+    expect(store.get().rooms.get(r.id)?.archived).toBe(true);
   });
 
   it("on reconnect both lists are reloaded, without going back to 'loading'", async () => {

@@ -73,9 +73,11 @@ describe("GET /api/chat/unread (§18.2)", () => {
   });
 
   it("counts each room with a range scan on idx_messages_room_created", () => {
-    const source = readFileSync(new URL("../../pb_hooks/lib/reads.js", import.meta.url), "utf8");
+    const hook = (name: string) => readFileSync(new URL(`../../pb_hooks/lib/${name}`, import.meta.url), "utf8");
+    const sees = /const SEES_SQL = "([^"]+)"/.exec(hook("access.js"))![1]!;
     const sql = /const UNREAD_SQL = `([^`]+)`/
-      .exec(source)![1]!
+      .exec(hook("reads.js"))![1]!
+      .replace(/\$\{SEES_SQL\}/, sees)
       .replaceAll(/\{:(\w+)\}/g, ":$1")
       .replace(/\$\{UNREAD_CAP\}/, "100");
     const db = rawDb();

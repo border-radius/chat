@@ -1,0 +1,149 @@
+/* ---- App shell ---- */
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+/* No double-tap zoom on phones (a tap is a tap, without the delay). Pinch zoom stays: people who need larger text
+   rely on it (WCAG 1.4.4), and iOS ignores attempts to disable it anyway. */
+html {
+  touch-action: manipulation;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+}
+
+.app-bar {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.5rem 1rem;
+  background: var(--surface);
+}
+
+.brand {
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  gap: 0.45rem;
+  align-items: center;
+  font-size: 1.15rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+/* The logo: a gradient speech bubble. */
+.brand::before {
+  content: "";
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 50% 50% 50% 0.3rem;
+  background: var(--grad);
+  transform: rotate(-8deg);
+}
+
+/* The site's own logo (§24) replaces it. */
+.brand.has-logo::before {
+  content: none;
+}
+
+.brand-logo {
+  flex: none;
+  height: 1.75rem;
+  max-width: 6rem;
+  object-fit: contain;
+}
+
+.brand-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A long display name shrinks with an ellipsis so "Log out" stays on screen. */
+.me-link {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  min-width: 0;
+  margin-left: auto;
+  padding: 0.2rem 0.75rem 0.2rem 0.2rem;
+  border-radius: var(--pill);
+  color: var(--fg);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.me-link:hover {
+  background: var(--hover);
+}
+
+.who {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-bar button {
+  flex: none;
+}
+
+.app-main {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.layout {
+  display: flex;
+  height: 100%;
+  background: var(--surface);
+}
+
+.sidebar {
+  flex: 0 0 17rem;
+  overflow-y: auto;
+  background: var(--surface);
+}
+
+/* The pane is a rounded sheet laid on the sidebar's color. */
+.pane {
+  flex: 1;
+  min-width: 0;
+  border-top-left-radius: 1.25rem;
+  background: var(--bg);
+}
+
+/* Home: a greeting where the room would be. */
+.welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 2rem 1rem;
+  text-align: center;
+}
+
+.welcome::before {
+  content: "👋";
+  margin-bottom: 0.75rem;
+  font-size: 3.5rem;
+  animation: wave 2s ease-in-out infinite;
+}
+
+.welcome h1 {
+  margin: 0 0 0.5rem;
+  font-size: 2rem;
+}
+
+.welcome p {
+  margin: 0;
+  color: var(--muted);
+}

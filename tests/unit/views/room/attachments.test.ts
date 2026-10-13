@@ -1,0 +1,205 @@
+// Room view: attachments (§17.4, §17.5).
+
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "../../../../web/src/api.ts";
+import { newId } from "../../../../web/src/lib/id.ts";
+import { instrument, intercept, signedUp } from "../../../support/api.ts";
+import { pngFile } from "../../../support/files.ts";
+import { button, composer, key, me, mount, msgEl, msgEls, newRoom, root, setView, useRoomView, view } from "./harness.ts";
+
+describe("room view", () => {
+  useRoomView();
+
+  describe("attachments (§17.4, §17.5)", () => {
+    const pdf = (name = "doc.pdf") => new File(["%PDF"], name, { type: "application/pdf" });
+    const tiles = (id: string) => [...msgEl(id)!.querySelectorAll<HTMLElement>(".att-tile")];
+    const chips = (id: string) => [...msgEl(id)!.querySelectorAll<HTMLAnchorElement>("a.att-file")];
+    let revoked: string[];
+
+    beforeEach(() => {
+      let n = 0;
+      revoked = [];
+      vi.spyOn(URL, "createObjectURL").mockImplementation(() => `blob:local-${++n}`);
+      vi.spyOn(URL, "revokeObjectURL").mockImplementation((u) => void revoked.push(u));
+    });
+
+    function paste(files: File[]) {
+      const e = new Event("paste", { bubbles: true, cancelable: true });
+      Object.defineProperty(e, "clipboardData", { value: { files } });
+      composer()!.dispatchEvent(e);
+    }
+
+    it("a pending message shows local previews; the server version replaces them and the previews are released", async () => {
+      const room = await newRoom();
+      const ctl = instrument(me.api);
+      await mount(room);
+      const release = ctl.hold("send");
+      paste([pngFile("a.png"), pdf()]);
+      await vi.waitFor(() => expect(root.querySelectorAll(".tray-item")).toHaveLength(2));
+      key(composer()!, "Enter");
+      const pending = msgEls().at(-1)!;
+      expect(pending.classList.contains("pending")).toBe(true);
+      const preview = pending.querySelector<HTMLImageElement>(".att-tile img")!;
+      expect(preview.getAttribute("src")).toBe("blob:local-1");
+      expect(pending.querySelector(".att-file")!.textContent).toBe("doc.pdf");
+      Object.defineProperties(preview, { naturalWidth: { value: 600 }, naturalHeight: { value: 300 } });
+      preview.dispatchEvent(new Event("load"));
+      release();
+      const id = pending.dataset.id!;
+      await vi.waitFor(() => expect(msgEl(id)!.classList.contains("pending")).toBe(false));
+      const img = msgEl(id)!.querySelector<HTMLImageElement>(".att-tile img")!;
+      expect(img.getAttribute("src")).toMatch(/thumb=800x480f/);
+      expect(img.getAttribute("src")).toMatch(/token=/);
+      // Takes the preview's shape before it loads, so the tile doesn't narrow and widen again.
+      expect(img.style.aspectRatio).toBe("600 / 300");
+      expect(chips(id).map((a) => a.textContent)).toEqual(["doc.pdf"]);
+      // The realtime echo can replace the pending copy before the send itself answers, which releases the previews.
+      await vi.waitFor(() => expect(revoked).toEqual(["blob:local-1"]));
+    });
+
+    it("an image the server shows as a file is a file while sending too", async () => {
+      const room = await newRoom();
+      const ctl = instrument(me.api);
+      await mount(room);
+      const release = ctl.hold("send");
+      paste([new File(["BM"], "scan.bmp", { type: "image/bmp" }), pngFile("a.png")]);
+      await vi.waitFor(() => expect(root.querySelectorAll(".tray-item")).toHaveLength(2));
+      key(composer()!, "Enter");
+      const pending = msgEls().at(-1)!;
+      expect(pending.querySelector(".att-images")!.classList.contains("one")).toBe(true);
+      expect(pending.querySelector(".att-file")!.textContent).toBe("scan.bmp");
+      release();
+      const id = pending.dataset.id!;
+      await vi.waitFor(() => expect(msgEl(id)!.classList.contains("pending")).toBe(false));
+      expect(tiles(id)).toHaveLength(1);
+      expect(chips(id).map((a) => a.textContent)).toEqual(["scan.bmp"]);
+    });
+
+    it("a failed send keeps its files; Retry sends the same id with the same files", async () => {
+      const room = await newRoom();
+      const ctl = instrument(me.api);
+      ctl.failNext("send", new ApiError("offline", 0));
+      // Outside the failure injection, so the failed attempt is recorded too.
+      const calls: { id: string; files?: File[] }[] = [];
+      intercept(me.api, "send", (original) => (m) => {
+        calls.push({ id: m.id, ...(m.files ? { files: m.files } : {}) });
+        return original(m);
+      });
+      await mount(room);
+      paste([pngFile("a.png")]);
+      await vi.waitFor(() => expect(root.querySelectorAll(".tray-item")).toHaveLength(1));
+      key(composer()!, "Enter");
+      await vi.waitFor(() => expect(root.querySelector("li.msg.failed")).not.toBeNull());
+      const id = root.querySelector<HTMLElement>("li.msg.failed")!.dataset.id!;
+      expect(tiles(id)).toHaveLength(1);
+      button(msgEl(id), "Retry")!.click();
+      await vi.waitFor(() => expect(msgEl(id)!.classList.contains("failed")).toBe(false));
+      await vi.waitFor(() => expect(msgEl(id)!.classList.contains("pending")).toBe(false));
+      expect(calls.map((c) => c.id)).toEqual([id, id]);
+      expect(calls[1]!.files![0]).toBe(calls[0]!.files![0]);
+      expect((await me.api.getMessage(id)).files).toHaveLength(1);
+    });
+
+    it("discarding a failed send with files releases its previews", async () => {
+      const room = await newRoom();
+      const ctl = instrument(me.api);
+      ctl.failNext("send", new ApiError("offline", 0));
+      await mount(room);
+      paste([pngFile("a.png")]);
+      await vi.waitFor(() => expect(root.querySelectorAll(".tray-item")).toHaveLength(1));
+      key(composer()!, "Enter");
+      await vi.waitFor(() => expect(root.querySelector("li.msg.failed")).not.toBeNull());
+      button(root.querySelector("li.msg.failed"), "Discard")!.click();
+      expect(revoked).toEqual(["blob:local-1"]);
+    });
+
+    it("unmount releases the previews of messages still sending", async () => {
+      const room = await newRoom();
+      const ctl = instrument(me.api);
+      await mount(room);
+      ctl.hold("send");
+      paste([pngFile("a.png")]);
+      await vi.waitFor(() => expect(root.querySelectorAll(".tray-item")).toHaveLength(1));
+      key(composer()!, "Enter");
+      view!.unmount();
+      setView(undefined);
+      expect(revoked).toEqual(["blob:local-1"]);
+    });
+
+    it("one image is a large tile; several are a row of small ones; other files are download chips", async () => {
+      const other = await signedUp("Other");
+      const room = await newRoom();
+      const one = await other.api.send({ id: newId(), room: room.id, text: "one", files: [pngFile("solo.png")] });
+      const many = await other.api.send({
+        id: newId(),
+        room: room.id,
+        text: "",
+        files: [pngFile("a.png"), pngFile("b.png"), pngFile("c.png"), pdf("report.pdf")],
+      });
+      await mount(room);
+      const [solo] = tiles(one.id);
+      expect(solo!.closest(".att-images")!.classList.contains("one")).toBe(true);
+      const big = solo!.querySelector("img")!;
+      // Uncropped thumbs of any aspect ratio: CSS fixes the height, the image's own ratio sets the width.
+      expect([big.hasAttribute("width"), big.hasAttribute("height"), big.getAttribute("loading")]).toEqual([false, false, "lazy"]);
+      expect(big.getAttribute("src")).toMatch(/thumb=800x480f/);
+      expect(big.getAttribute("alt")).toBe("solo.png");
+      expect(solo!.getAttribute("target")).toBe("_blank");
+
+      const grid = tiles(many.id);
+      expect(grid).toHaveLength(3);
+      expect(grid[0]!.closest(".att-images")!.classList.contains("row")).toBe(true);
+      expect(grid.map((t) => t.querySelector("img")!.getAttribute("src"))).toEqual(Array(3).fill(expect.stringMatching(/thumb=480x240f/)));
+      const [chip] = chips(many.id);
+      expect(chip!.textContent).toBe("report.pdf");
+      expect(chip!.getAttribute("download")).toBe("report.pdf");
+      expect(chip!.getAttribute("href")).toMatch(/token=/);
+    });
+
+    it("BUG-28: files show, download and describe themselves under their original names", async () => {
+      const other = await signedUp("Other");
+      const room = await newRoom();
+      const m = await other.api.send({
+        id: newId(),
+        room: room.id,
+        text: "",
+        files: [pngFile("Beach Day!.png"), pdf("Quarterly Report (final).pdf")],
+      });
+      await mount(room);
+      expect(tiles(m.id)[0]!.querySelector("img")!.getAttribute("alt")).toBe("Beach Day!.png");
+      const [chip] = chips(m.id);
+      expect(chip!.textContent).toBe("Quarterly Report (final).pdf");
+      expect(chip!.getAttribute("download")).toBe("Quarterly Report (final).pdf");
+    });
+
+    it("a deleted message shows no attachments; editing keeps them visible", async () => {
+      const room = await newRoom();
+      const m = await me.api.send({ id: newId(), room: room.id, text: "pic", files: [pngFile()] });
+      await mount(room);
+      button(msgEl(m.id), "Edit")!.click();
+      expect(tiles(m.id)).toHaveLength(1);
+      key(root.querySelector("textarea.edit-input")!, "Escape");
+      button(msgEl(m.id), "Delete")!.click();
+      button(msgEl(m.id), "Delete message")!.click();
+      await vi.waitFor(() => expect(msgEl(m.id)!.classList.contains("deleted")).toBe(true));
+      expect(tiles(m.id)).toHaveLength(0);
+    });
+
+    it("an image that fails to load retries once with a new token, then offers Retry", async () => {
+      const room = await newRoom();
+      const m = await me.api.send({ id: newId(), room: room.id, text: "", files: [pngFile()] });
+      const ctl = instrument(me.api);
+      await mount(room);
+      const before = ctl.calls("fileToken");
+      const img = () => msgEl(m.id)!.querySelector<HTMLImageElement>(".att-tile img");
+      img()!.dispatchEvent(new Event("error"));
+      await vi.waitFor(() => expect(ctl.calls("fileToken")).toBe(before + 1));
+      img()!.dispatchEvent(new Event("error"));
+      expect(img()).toBeNull();
+      const broken = msgEl(m.id)!.querySelector(".att-broken")!;
+      expect(broken.textContent).toContain("Couldn't load image");
+      button(broken, "Retry")!.click();
+      expect(img()).not.toBeNull();
+    });
+  });
+});

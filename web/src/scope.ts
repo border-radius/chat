@@ -33,6 +33,9 @@ export function createScope(): Scope {
       else cleanups.push(fn);
     },
     sub(subscription) {
+      // A subscribe that fails (no connection) stays registered with the realtime client, which sends it again on the
+      // next connection: nothing to handle here, and not an unhandled rejection either (QA BUG-68).
+      subscription.catch(() => {});
       this.defer(() => subscription.then((off) => off()).catch(() => {}));
     },
     dispose() {

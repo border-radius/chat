@@ -24,14 +24,14 @@ test("after a dropped connection, everything missed appears in order once it rec
   const port = await freePort();
   const base = `http://127.0.0.1:${port}`;
   const start = async () => {
-    const pb = await startPocketBase({ port, dataDir, publicDir: resolve("pb_public") });
+    const pb = await startPocketBase({ port, dataDir, publicDir: resolve("pb_public"), fixtureRoute: true });
     await disableRateLimits(pb.url);
     return pb;
   };
   let server: PocketBaseServer | null = await start();
   try {
-    const ada = await apiUser("Ada", base, dataDir);
-    const bob = await apiUser("Bob", base, dataDir);
+    const ada = await apiUser("Ada", base);
+    const bob = await apiUser("Bob", base);
     const room = await apiRoom(ada, undefined, base);
     seed(room, ada, 10, { dataDir, text: (i) => `before ${i + 1}` });
     const b = await openRoom(browser, bob, room, base);

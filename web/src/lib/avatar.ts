@@ -1,7 +1,7 @@
 // Avatar fallback (§15.4): initials and a color picked from the user id. Pure, so the id → color mapping and
 // grapheme handling are unit-tested.
 
-/** Number of avatar palette colors (`.avatar.c0` … `.c7` in app.css). */
+/** Number of avatar palette colors (`.avatar.c0` … `.c7` in styles/app/avatars.css). */
 export const AVATAR_COLORS = 8;
 
 const segmenter = typeof Intl.Segmenter === "function" ? new Intl.Segmenter(undefined, { granularity: "grapheme" }) : null;

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Room } from "../../web/src/lib/types.ts";
+import { DEFAULT_SITE, type Room } from "../../web/src/lib/types.ts";
 import {
   type AppState,
   bumpUnread,
@@ -63,6 +63,8 @@ describe("initialState", () => {
       unread: new Map(),
       roomsStatus: "idle",
       activeRoomId: null,
+      away: false,
+      site: DEFAULT_SITE,
     });
   });
 });

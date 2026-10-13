@@ -13,12 +13,13 @@ A small, fast, real-time group chat. One [PocketBase](https://pocketbase.io) bin
 - Replies: answer any message with a quote of it; click the quote to jump to the original, however far back
 - Links in messages are clickable and open in a new tab (http, https and www. addresses only)
 - Emoji: a picker in the composer, and reactions on any message (as many different ones as you like), live for everyone
-- Attachments: up to 4 files per message, images shown as thumbnails; files are private to whoever can read the message
-- Image viewer: click a thumbnail to see it full size and step through the room's images (buttons, arrow keys, swipe);
+- Attachments: up to 4 files per message, images shown as thumbnails and videos as their first frame; files are private to whoever can read the message
+- Image viewer: click a thumbnail to see it full size (or a video to play it) and step through the room's images and videos (buttons, arrow keys, swipe);
   loaded only when first used, so it adds nothing to the page's first load
-- Select messages (up to 50): forward them to any room or DM, with "Forwarded from" and their attachments, or delete them together when they are yours
+- Select messages (up to 50): forward them to any room or DM, with "Forwarded from" and their attachments (forwards show the original, so nothing is copied), or delete them together when they are yours
 - Unread counts on every room and DM, live, and in sync across your tabs and devices; the total shows in the tab's favicon and title
 - What you were typing is kept per room, even across a reload; "Jump to latest" whenever you are scrolled up
+- Your own branding (title and logo) and, if you like, invite-only signups: set by the admin in PocketBase
 - Optimistic sending with safe retries, reconnect gap-fill, light/dark themes, works on phones
 
 Design: [`docs/DESIGN.md`](docs/DESIGN.md) · QA: [`docs/QA.md`](docs/QA.md) · Refactoring plan: [`docs/REFACTOR.md`](docs/REFACTOR.md) · Archived plans: [MVP build](docs/history/BUILD_PLAN.md), [avatars, DMs, attachments](docs/history/NEXT_FEATURES_PLAN.md)
@@ -53,10 +54,12 @@ The PocketBase admin UI is at http://127.0.0.1:8090/_/ (create a superuser with
 | `npm test` | Unit/view tests (Vitest + happy-dom) against a real, throwaway PocketBase |
 | `npm run test:int` | Integration tests: schema, API rules, hooks, realtime, pagination |
 | `npm run test:e2e` | Playwright end-to-end tests against the production build |
+| `npm run schema:snapshot` | Rewrite `docs/schema.snapshot.json` (every collection's API rules, fields and indexes, and the rate limits) after a migration changes them; `test:int` fails while it is out of date |
 | `npm run check` | typecheck + lint + lint:sinks + test + test:int + build (what CI runs before e2e) |
 
 Every test run starts its own PocketBase on a free port with a temp data dir — there are no fakes and nothing to
-clean up. CI (`.github/workflows/ci.yml`) runs `check`, then e2e on Chromium, Firefox and WebKit.
+clean up. CI (`.github/workflows/ci.yml`) runs typecheck, lint and build, then unit, integration and e2e side by side, e2e once
+per browser (Chromium, Firefox, WebKit).
 
 ## Project layout
 
@@ -64,7 +67,7 @@ clean up. CI (`.github/workflows/ci.yml`) runs `check`, then e2e on Chromium, Fi
 pb_migrations/   schema + API rules (the source of truth for access control)
 pb_hooks/        server-side hooks: trimming, soft delete, edit/archive stamps, DM + unread routes, guards, security headers
 web/src/         frontend: api.ts (only SDK user), router, store, views/, lib/ (pure logic)
-web/styles/      the one stylesheet
+web/styles/      app.css (bundles app/*.css, one file per part) and viewer.css
 scripts/         build, dev, fetch-pocketbase, html-sink check
 tests/           unit/, integration/, e2e/, support/ (PocketBase harness, helpers)
 ```
@@ -105,7 +108,18 @@ sudo -u chat /opt/chat/pocketbase superuser upsert you@example.com <password> --
 ```
 
 Behind an existing reverse proxy instead, use `serve --http=127.0.0.1:8090` and proxy to it (keep
-`/api/realtime` unbuffered — it is a Server-Sent Events stream).
+`/api/realtime` unbuffered — it is a Server-Sent Events stream), and start PocketBase with
+`TRUSTED_PROXY=X-Forwarded-For` (`Environment=` in the unit). The rate limits are per client IP: without it, every
+request seems to come from the proxy, and one client tripping a limit trips it for everyone. The rightmost address of
+the header is used, the one your proxy added. The Docker image sets it (Dokku always runs a proxy in front); run it
+with `-e TRUSTED_PROXY=off` if clients reach port 8090 directly, since they could then choose their own IP. Unset, the
+setting is left as configured under *Settings → Application* in the admin UI.
+
+**Branding and invite-only signups:** in the admin UI, *Collections → site*, edit the one record: `title` and `logo`
+are shown in the app bar, on the login page and in the tab's title. Tick `invite_only` and fill `invite_code` to let
+only people who have the code sign up (they enter it on the Sign up form; it is case-sensitive). Change the code to stop
+the old one working; leave it empty to close signups. Existing accounts are unaffected, and you can still create
+accounts yourself under *Collections → users*.
 
 **Backups:** in the admin UI, *Settings → Backups* — schedule automatic backups (optionally to S3-compatible
 storage). Uploaded files (avatars, attachments) live in `pb_data/storage` (or S3, under *Settings → Files storage*) and

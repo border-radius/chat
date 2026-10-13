@@ -96,7 +96,8 @@ dialog.viewer::backdrop {
   touch-action: pan-y pinch-zoom;
 }
 
-.viewer-stage img {
+.viewer-stage img,
+.viewer-stage video {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
@@ -105,7 +106,8 @@ dialog.viewer::backdrop {
   transition: opacity 0.15s;
 }
 
-.viewer-stage.loading img {
+.viewer-stage.loading img,
+.viewer-stage.loading video {
   opacity: 0;
 }
 
