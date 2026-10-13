@@ -411,3 +411,53 @@ test("a forwarded image is the original's: its thumbnail and the viewer load it 
   const img = a.getByRole("dialog", { name: "square.png" }).locator(".viewer-stage img");
   await expect.poll(() => img.evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth)).toBe(600);
 });
+
+/** Half a second of silence as an 8 kHz, 8-bit mono WAV. */
+function wav(name: string) {
+  const n = 4000;
+  const b = Buffer.alloc(44 + n, 128);
+  b.write("RIFF", 0);
+  b.writeUInt32LE(36 + n, 4);
+  b.write("WAVEfmt ", 8);
+  b.writeUInt32LE(16, 16);
+  b.writeUInt16LE(1, 20); // PCM
+  b.writeUInt16LE(1, 22); // mono
+  b.writeUInt32LE(8000, 24);
+  b.writeUInt32LE(8000, 28);
+  b.writeUInt16LE(1, 32);
+  b.writeUInt16LE(8, 34);
+  b.write("data", 36);
+  b.writeUInt32LE(n, 40);
+  return { name, mimeType: "audio/wav", buffer: b };
+}
+
+test("attachments: audio plays in the message, and a reaction doesn't stop it (§17.5)", async ({ browser }) => {
+  const ada = await apiUser("Ada");
+  const bob = await apiUser("Bob");
+  const room = await apiRoom(ada);
+  const a = await openRoom(browser, ada, room);
+  const b = await openRoom(browser, bob, room);
+  await attach(a, [wav("Voice memo.wav")]);
+  await send(a, "have a listen");
+
+  const theirs = message(b, "have a listen");
+  const player = theirs.locator("audio");
+  await expect(player).toHaveAttribute("controls", "");
+  await expect(player).toHaveAccessibleName("Voice memo.wav");
+  await expect(theirs.locator("a.att-file")).toHaveAttribute("download", "Voice memo.wav");
+  // The signed URL loads in the browser: it knows how long the file is.
+  await expect.poll(() => player.evaluate((el: HTMLAudioElement) => el.duration)).toBeCloseTo(0.5, 1);
+  await player.evaluate((el: HTMLAudioElement) => {
+    el.loop = true;
+    return el.play();
+  });
+  // Ada reacts: Bob’s copy of the message is drawn again, live.
+  const mine = message(a, "have a listen");
+  await mine.hover();
+  await mine.getByRole("button", { name: "Add reaction" }).click();
+  await a.getByRole("dialog", { name: "Add reaction" }).getByRole("button", { name: "🎉" }).click();
+  await expect(theirs.getByRole("button", { name: "🎉 1 reaction" })).toBeVisible();
+  expect(await player.evaluate((el: HTMLAudioElement) => el.paused)).toBe(false);
+  await a.close();
+  await b.close();
+});

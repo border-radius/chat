@@ -496,8 +496,8 @@ If the room's first load fails (other than "room not found"), the list shows an 
 
 | Asset | Budget (gzipped) |
 |---|---|
-| `app.js` (including the PocketBase client) | **≤ 39.80 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes and bigger attachments, see §13) |
-| `app.css` | **≤ 6 KB** (5 KB until §21, 5.5 KB until §23, see §13) |
+| `app.js` (including the PocketBase client) | **≤ 40.05 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments and audio attachments, see §13) |
+| `app.css` | **≤ 6.05 KB** (5 KB until §21, 5.5 KB until §23, 6 KB until audio attachments, see §13) |
 | `index.html` | ≤ 1.5 KB |
 | Image viewer (§17.7), loaded on first use | ≤ 4 KB script, ≤ 1.5 KB stylesheet |
 | Web fonts | **none** (system font stack) |
@@ -922,6 +922,7 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 | Bundle budget (videos) | `app.js` raised from 38 KB to 39 KB gzipped (§7.7): video attachments (§17.5) and the viewer paging through the whole room (§17.7) took it to 38.1 KB, after merging the image and video tiles. The paging itself lives in the lazy viewer chunk. |
 | Bundle budget (QA pass 8) | `app.js` raised from 39 KB to 39.25 KB gzipped (§7.7): the fixes of QA pass 8 (sends and edits in order, failed sends kept after leaving a room, realtime retrying a failed first connect, …) took it to 39.15 KB. |
 | Bundle budget (bigger attachments) | `app.js` raised from 39.35 KB to 39.80 KB gzipped (§7.7): uploads through XHR for their progress bar, the "+N" tile and `no_dms` (§16.7, §17) took it to 39.76 KB. |
+| Bundle budget (audio attachments) | `app.js` raised from 39.80 KB to 40.05 KB and `app.css` from 6 KB to 6.05 KB gzipped (§7.7): audio players in messages (§17.5) took them to 40.03 KB and 6.01 KB. |
 | Bundle budget (QA pass 9) | `app.js` raised from 39.25 KB to 39.35 KB gzipped (§7.7): the forwarding fixes of QA pass 9 (messages deleted meanwhile left out, the server's reason shown, focus kept while selecting) took it to 39.30 KB. |
 
 ### Still open
@@ -1274,6 +1275,13 @@ other files as chips with name and size, each with a remove (×) button.
   object URL (so the app CSP allows `media-src blob:`), and its aspect ratio carries over like an image's. Clicking
   plays it in the viewer (§17.7); a failed load retries once with a new token, then shows "Couldn't load video" with
   Retry (a format the browser can't play ends up there too; Ctrl/Cmd-click still gets the file).
+- **Audio** (by extension: `mp3 m4a aac ogg oga opus wav flac weba`): the download chip with an
+  `<audio controls preload="metadata">` of the full file next to it (as high as the chip, at most as wide as the
+  message), named after the file, so it plays in the message. Its token expires (§17.3), so playing or seeking long
+  after it loaded can fail: the first error after a load gets a new token, reloads the file and carries on from the
+  same time (playing again if it was). Players are kept by message and file across renders (a new reaction or an edit
+  re-renders the message without stopping one), and stopped once off the page (a deleted message, a message gone from
+  the window, unmount): a detached `<audio>` would keep playing. While sending, audio is a plain chip.
 - **Other files:** a chip with an icon, the display name and a download link (`download` attribute).
 - **Display name:** PocketBase stores `quarterly_report_final_k3j2h1g0f9.pdf` for "Quarterly Report (final).pdf". The
   create hook records each upload's original name in `file_names` (§17.1), and the list shows and downloads files

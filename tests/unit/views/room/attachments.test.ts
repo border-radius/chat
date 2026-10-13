@@ -222,6 +222,55 @@ describe("room view", () => {
       expect(tiles(m.id)).toHaveLength(0);
     });
 
+    it("audio plays in the message: a player under its download chip, kept across renders, stopped once gone", async () => {
+      const other = await signedUp("Other");
+      const room = await newRoom();
+      const m = await me.api.send({
+        id: newId(),
+        room: room.id,
+        text: "listen",
+        files: [new File(["ID3"], "Song.mp3", { type: "audio/mpeg" })],
+      });
+      await mount(room);
+      const audio = () => msgEl(m.id)!.querySelector("audio");
+      const player = audio()!;
+      expect(player.hasAttribute("controls")).toBe(true);
+      expect(player.getAttribute("aria-label")).toBe("Song.mp3");
+      expect(player.getAttribute("src")).toMatch(/token=/);
+      expect(tiles(m.id)).toHaveLength(0);
+      expect(chips(m.id).map((a) => a.getAttribute("download"))).toEqual(["Song.mp3"]);
+      const pause = vi.spyOn(player, "pause");
+      // A reaction redraws the message; the same player stays, so one that is playing goes on.
+      await other.api.react(m.id, "🎉", true);
+      await vi.waitFor(() => expect(msgEl(m.id)!.querySelector('.reaction[data-emoji="🎉"]')).not.toBeNull());
+      expect(audio()).toBe(player);
+      expect(pause).not.toHaveBeenCalled();
+      button(msgEl(m.id), "Delete")!.click();
+      button(msgEl(m.id), "Delete message")!.click();
+      await vi.waitFor(() => expect(msgEl(m.id)!.classList.contains("deleted")).toBe(true));
+      expect(audio()).toBeNull();
+      expect(pause).toHaveBeenCalled();
+    });
+
+    it("an audio file that fails to load gets a new token once and goes on where it was", async () => {
+      const room = await newRoom();
+      const m = await me.api.send({ id: newId(), room: room.id, text: "", files: [new File(["OggS"], "voice_1.ogg")] });
+      const ctl = instrument(me.api);
+      await mount(room);
+      const player = msgEl(m.id)!.querySelector("audio")!;
+      const before = ctl.calls("fileToken");
+      player.currentTime = 42;
+      player.dispatchEvent(new Event("error"));
+      await vi.waitFor(() => expect(ctl.calls("fileToken")).toBe(before + 1));
+      await vi.waitFor(() => expect(player.currentTime).toBe(42));
+      player.dispatchEvent(new Event("error"));
+      expect(ctl.calls("fileToken")).toBe(before + 1);
+      // Loading again resets it: the next expired token gets a new one too.
+      player.dispatchEvent(new Event("loadedmetadata"));
+      player.dispatchEvent(new Event("error"));
+      await vi.waitFor(() => expect(ctl.calls("fileToken")).toBe(before + 2));
+    });
+
     it("an image that fails to load retries once with a new token, then offers Retry", async () => {
       const room = await newRoom();
       const m = await me.api.send({ id: newId(), room: room.id, text: "", files: [pngFile()] });

@@ -558,6 +558,7 @@ export function createMessageList(opts: {
     // forget elements for messages no longer in the window
     const live = new Set(win.items.map((m) => m.id));
     for (const id of cache.keys()) if (!live.has(id)) cache.delete(id);
+    attachments.prune();
 
     if (focusAfter) {
       const target = find(focusAfter.id, focusAfter.selector);

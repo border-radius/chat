@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { attachmentName, checkFiles, displayName, formatBytes, isImage, isVideo } from "../../../web/src/lib/files.ts";
+import { attachmentName, checkFiles, displayName, formatBytes, isAudio, isImage, isVideo } from "../../../web/src/lib/files.ts";
 
 const f = (name: string, bytes = 1) => new File([new Uint8Array(bytes)], name);
 
@@ -22,6 +22,12 @@ describe("attachment helpers (§17.4, §17.5)", () => {
   it("isImage goes by extension", () => {
     for (const n of ["a.jpg", "a.JPEG", "a.png", "a.gif", "a.webp", "a.avif"]) expect(isImage(n), n).toBe(true);
     for (const n of ["a.svg", "a.pdf", "a.html", "png", "a.png.exe"]) expect(isImage(n), n).toBe(false);
+  });
+
+  it("isAudio goes by extension", () => {
+    for (const n of ["a.mp3", "a.MP3", "a.m4a", "a.aac", "a.ogg", "a.oga", "a.opus", "a.wav", "a.flac", "a.weba"])
+      expect(isAudio(n), n).toBe(true);
+    for (const n of ["a.ogv", "a.mid", "a.mp4", "mp3", "a.mp3.exe"]) expect(isAudio(n), n).toBe(false);
   });
 
   it("isVideo goes by extension", () => {

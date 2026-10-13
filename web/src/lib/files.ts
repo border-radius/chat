@@ -14,6 +14,11 @@ const VIDEO_EXT = new Set(["mp4", "m4v", "webm", "mov", "ogv"]);
 
 export const isVideo = (name: string): boolean => name.includes(".") && VIDEO_EXT.has(ext(name));
 
+/** Extensions played inline with an audio player (§17.5). */
+const AUDIO_EXT = new Set(["mp3", "m4a", "aac", "ogg", "oga", "opus", "wav", "flac", "weba"]);
+
+export const isAudio = (name: string): boolean => name.includes(".") && AUDIO_EXT.has(ext(name));
+
 /** Shown inline (as an image or a video) rather than as a download chip. */
 export const isMedia = (name: string): boolean => isImage(name) || isVideo(name);
 
