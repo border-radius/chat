@@ -495,6 +495,8 @@ export function createApi(client: PbClient): Api {
         fn(connected || pb.realtime.recovered);
         connected = true;
       });
+      // A failed first connect (offline, server down) rejects it, and the client keeps trying: not an error (QA BUG-85).
+      unsub.catch(() => {});
       return () => void unsub.then((off) => off()).catch(() => {});
     },
     unsubscribeAll: () => wrap(pb.realtime.unsubscribe()),

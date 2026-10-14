@@ -76,10 +76,20 @@ function ensureLink(app, chat) {
  */
 function moveLink(app, from, to) {
   const link = linkOfChat(app, from);
-  if (!link || linkOfChat(app, to)) return;
-  link.set("chat_id", to);
-  app.save(link);
-  app.db().newQuery("UPDATE tg_messages SET chat_id = {:to} WHERE chat_id = {:from}").bind({ to, from }).execute();
+  if (!link) return;
+  app.runInTransaction((tx) => {
+    // The new group heard from first (QA BUG-89) has a link of its own, unused: the old group's takes its place.
+    const there = linkOfChat(tx, to);
+    if (there) {
+      if (there.getString("room") || there.getBool("enabled")) return;
+      tx.delete(there);
+    }
+    link.set("chat_id", to);
+    tx.save(link);
+    for (const table of ["tg_messages", "tg_queue"]) {
+      tx.db().newQuery(`UPDATE ${table} SET chat_id = {:to} WHERE chat_id = {:from}`).bind({ to, from }).execute();
+    }
+  });
 }
 
 /**

@@ -173,7 +173,7 @@ describe("room access UI (§23)", () => {
       await vi.waitFor(() => expect(bobStore.get().rooms.has(room.id)).toBe(true));
 
       await me.api.setAccess(room.id, "private", []);
-      await vi.waitFor(() => expect(el.querySelector(".not-found")?.textContent).toContain("You can't see this room any more."));
+      await vi.waitFor(() => expect(el.querySelector(".not-found h1")?.textContent).toBe("You can't see this room any more."));
       expect(el.textContent).not.toContain("secret plans");
       expect(bobStore.get().activeRoomId).toBeNull();
       const reopen = vi.mocked(ctx.reopen);

@@ -2,9 +2,9 @@
 // Ctrl-C stops both. Reload the browser manually after changes.
 
 import { spawn } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import * as esbuild from "esbuild";
-import { BASE_OPTIONS, injectAssets, OUTDIR, VIEWER, viewerDefine } from "./lib/build-utils.mjs";
+import { BASE_OPTIONS, injectAssets, OUTDIR, STATIC_DIR, SW_OPTIONS, VIEWER, viewerDefine } from "./lib/build-utils.mjs";
 
 const PORT = process.env.PORT ?? "8090";
 
@@ -37,6 +37,9 @@ const ctx = await esbuild.context({
   plugins: [writeIndex],
 });
 await ctx.watch();
+await cp(STATIC_DIR, OUTDIR, { recursive: true });
+const swCtx = await esbuild.context({ ...SW_OPTIONS, logLevel: "info" });
+await swCtx.watch();
 
 const pb = spawn(
   "bin/pocketbase",
@@ -58,6 +61,7 @@ const stop = async (code = 0) => {
   stopping = true;
   pb.kill("SIGTERM");
   await ctx.dispose();
+  await swCtx.dispose();
   process.exit(code);
 };
 

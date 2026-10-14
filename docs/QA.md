@@ -726,3 +726,74 @@ deleted." and sends nothing.
   are the same message (one forward), bad bodies (400), anonymous (401); a forward's reader can't forward or react to
   the original by id.
 - Unit, integration and Chromium e2e suites, before and after the fixes.
+
+---
+
+# QA pass 10 — the installable app (PWA), then the rest of the app
+
+Exploratory testing of the PWA (§27), 2026-10-14, then of the rest of the app with a focus on what came since pass 9
+(audio attachments, bigger attachments, `no_dms`, the Telegram bridge). A production build on fresh PocketBase servers,
+in Chromium (desktop 1100×720 and a 390×844 phone, light and dark), with two users side by side, the network taken
+offline and slowed, a simulated deploy, Chrome's own installability check, axe on every main screen, and a second server
+running the bridge against the stub Bot API (`tests/support/telegram.ts`). Numbering continues from BUG-84. Each fix
+lands with a test that fails without it.
+
+| # | Severity | Area | Summary | Status |
+|---|---|---|---|---|
+| BUG-86 | Medium (impersonation) | Telegram | Anyone could sign up or rename themselves "Ann Lee (TG)" and pass for a Telegram person, here and in the groups; the real Ann then became "Ann Lee 2 (TG)" | Fixed |
+| BUG-85 | Low | Realtime | Opening the app offline (now common: §27) or with the server down threw three unhandled "Something went wrong." errors | Fixed |
+| BUG-87 | Low | Telegram | An edit that made a caption longer than Telegram's 1024 characters was refused by Telegram and lost | Fixed |
+| BUG-88 | Low | Telegram | A service message (a new group photo, a timer, a topic) made a stand-in for whoever did it, a member of a linked private room | Fixed |
+| BUG-89 | Low | Telegram | A group becoming a supergroup lost its room when the new group's notice came before the old one's | Fixed |
+| BUG-90 | Low (accessibility) | Rooms | "This room doesn't exist." (and "You can't see this room any more.") had no heading | Fixed |
+| BUG-91 | Low (security) | Telegram | The webhook secret was compared with `!==`, not in constant time | Fixed |
+
+## BUG-86 — Anyone could pass for a Telegram person (Medium, impersonation)
+
+**Steps:** with the bridge on, sign up as "Ann Lee (TG)"; Ann Lee writes in a linked Telegram group. **Expected:** only
+Telegram people are named "… (TG)". **Actual:** the signup is accepted; Ann's stand-in becomes "Ann Lee 2 (TG)", and
+what the impostor writes goes to the group as "**Ann Lee (TG)**". **Fix:** while the bridge is on, a users create or
+update request naming someone "… (TG)" (compared as names are: case, full-width forms, spaces) is refused with "Names
+ending in (TG) are for people on Telegram." under the name field, on the signup form and the profile alike. Superusers
+are not held to it, and a name already taken is kept (only a change is checked).
+
+## BUG-85 — Unhandled errors when the first connect fails (Low)
+
+**Steps:** open the installed app (or a tab) offline, or with the server down. **Expected:** "Couldn't load rooms" with
+Retry, and nothing else. **Actual:** that, plus three uncaught `PbError: Something went wrong.` in the console (one
+each from the room view, the room list and the unread counts). **Cause:** `api.onConnect()` subscribes to
+`PB_CONNECT`, which rejects when the first connect fails (QA BUG-74), and only caught that when unsubscribing.
+**Fix:** it catches it at once; the realtime client goes on trying, and the app recovers by itself once online (checked).
+
+## BUG-87 to BUG-91 (Low)
+
+- **BUG-87:** a message with files is sent with its text as their caption when it fits, but an edit could make it longer.
+  The edit's caption is now cut to 1024 characters, ending in "…".
+- **BUG-88:** `bringOver` made the sender's stand-in (and a member of a private room) before finding there was nothing
+  to bring over. It now returns first.
+- **BUG-89:** Telegram tells of a migration in both groups. Only the old group's notice moved the link, and not when
+  the new group had been heard from first (its own, unused link was in the way). Either notice now moves it, an unused
+  link in the way is replaced, and messages queued for the old id follow.
+- **BUG-90:** the not-found and gone pages are a heading and a line of links, so a screen reader's heading list finds
+  them as it finds a room's name.
+- **BUG-91:** `$security.equal`, as for the invite code (§24.2).
+
+## Checked and fine
+
+- **PWA:** Chrome finds no installability errors and parses the manifest; the site title names the app; every icon
+  loads with its type. Logged in and offline, a reload keeps the session and shows the shell; back online, rooms,
+  the open room and live messages return without Retry. A simulated deploy: the next load takes the new build, the old
+  build's assets leave the cache, and the new one opens offline. The API, the admin UI, `/_` (redirected), odd paths
+  and the manifest pass through untouched. Every phone screen has its own way back (an installed iOS app has no back
+  button).
+- **Audio:** plays on through a reaction and an edit of its message, stops once the message is deleted; a file
+  request refused mid-play (an expired token) gets a new token and carries on from the same time.
+- **Attachments:** 10 files at most (the 11th says so), over 20 MB refused by name, "+6" on the fourth tile, the viewer
+  paging through all ten.
+- axe (WCAG 2.1 AA) on the guest home, login, signup, home, a room, the emoji picker, the room menu and the profile, light
+  and dark, desktop and phone: nothing; no horizontal overflow at 390 px.
+- Telegram: a wrong secret (401), text with HTML in it, a stand-in posting in a private room (a member, as designed).
+- Unit, integration and Chromium e2e suites, before and after the fixes.
+
+Not verified: on a notched iPhone in landscape, the app bar and room list have no side safe-area padding
+(`viewport-fit=cover`), so their edges may sit under the notch. Chromium can't show it.

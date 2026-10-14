@@ -1,5 +1,5 @@
 import { ClientResponseError, type RecordModel } from "pocketbase";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, inject, it } from "vitest";
 import { adminClient, client, newUser, pngFile, status, uniq } from "./helpers.ts";
 
 const signUp = (extra: Record<string, unknown> = {}) =>
@@ -98,5 +98,21 @@ describe("site settings (§24)", () => {
       name: `user-${uniq()}`,
     });
     expect(made.id).toBeTruthy();
+  });
+
+  it("the web app manifest (§27) is named after the site, guests included", async () => {
+    const manifest = async () => {
+      const res = await fetch(`${inject("pbUrl")}/manifest.webmanifest`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toBe("application/manifest+json");
+      expect(res.headers.get("cache-control")).toBe("no-cache");
+      return res.json();
+    };
+    expect(await manifest()).toMatchObject({ name: "Chat", short_name: "Chat", start_url: "/", scope: "/", display: "standalone" });
+    await setSite({ title: "Acme chat" });
+    const m = await manifest();
+    expect(m).toMatchObject({ name: "Acme chat", short_name: "Acme chat" });
+    expect(m.icons).toContainEqual({ src: "/icons/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" });
+    expect(m.icons).toContainEqual({ src: "/icons/maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" });
   });
 });

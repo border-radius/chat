@@ -132,11 +132,14 @@ function bringOver(app, link, room, msgs) {
   if (!msgs.length) return;
   msgs.sort((a, b) => a.message_id - b.message_id);
   const first = msgs[0];
+  const parts = msgs.map(partsOf);
+  const notes = parts.flatMap((p) => p.notes);
+  // A service message (a new group photo, a timer, a topic…) has nothing to show: it makes no stand-in, and none joins
+  // a private room for it (QA BUG-88).
+  if (!notes.length && !parts.some((p) => p.files.length) && !msgs.some((m) => (m.text || m.caption || "").trim())) return;
   const author = personOf(app, first);
   ensureMember(app, room, author.id);
 
-  const parts = msgs.map(partsOf);
-  const notes = parts.flatMap((p) => p.notes);
   /** @type {any[]} */
   const files = [];
   for (const f of parts.flatMap((p) => p.files)) {
@@ -305,7 +308,9 @@ function handleUpdate(app, update) {
       call("sendMessage", { chat_id: chatId, text: "I bring messages between Telegram groups and chat rooms. Add me to a group." });
     return;
   }
+  // A group that became a supergroup: Telegram says so in both, in either order (QA BUG-89).
   if (msg.migrate_to_chat_id) return moveLink(app, chatId, String(msg.migrate_to_chat_id));
+  if (msg.migrate_from_chat_id) return moveLink(app, String(msg.migrate_from_chat_id), chatId);
   const link = ensureLink(app, msg.chat);
   if (update.message && COMMAND.test(msg.text || "")) return sayStatus(app, chatId);
   const room = activeLink(app, link);
@@ -348,7 +353,7 @@ function memberChange(app, change) {
  */
 function webhook(e) {
   const given = e.request ? e.request.header.get("X-Telegram-Bot-Api-Secret-Token") : "";
-  if (given !== config().secret) throw new UnauthorizedError("Wrong secret.");
+  if (!$security.equal(given, config().secret)) throw new UnauthorizedError("Wrong secret."); // in constant time (QA BUG-91)
   const update = e.requestInfo().body;
   try {
     handleUpdate(e.app, update);

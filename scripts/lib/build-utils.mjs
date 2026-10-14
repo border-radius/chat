@@ -14,6 +14,22 @@ export const ENTRIES = Object.freeze({ js: "web/src/main.ts", css: "web/styles/a
  */
 export const VIEWER = Object.freeze({ js: "web/src/views/room/viewer.ts", css: "web/styles/viewer.css" });
 
+/**
+ * The service worker (§27): built on its own, unhashed, to the root of the public dir (a worker controls only the paths
+ * under its own). It is a classic script, so an IIFE.
+ * @satisfies {import("esbuild").BuildOptions}
+ */
+export const SW_OPTIONS = {
+  entryPoints: ["web/src/sw.ts"],
+  bundle: true,
+  format: /** @type {const} */ ("iife"),
+  target: "es2022",
+  outfile: `${OUTDIR}/sw.js`,
+};
+
+/** Files copied as they are to the public dir: the icons the web app manifest and index.html name (§27). */
+export const STATIC_DIR = "web/public";
+
 /** @param {string} cssPath the viewer stylesheet's path relative to the public dir */
 export const viewerDefine = (cssPath) => ({ VIEWER_CSS: JSON.stringify(`/${cssPath}`) });
 
@@ -37,7 +53,7 @@ export const BASE_OPTIONS = {
 };
 
 /** Gzipped size budget in bytes (DESIGN.md §7.7). */
-export const BUDGET = Object.freeze({ js: 40.05 * 1024, css: 6.05 * 1024, html: 1536, viewerJs: 4 * 1024, viewerCss: 1.5 * 1024 });
+export const BUDGET = Object.freeze({ js: 40.1 * 1024, css: 6.05 * 1024, html: 1536, viewerJs: 4 * 1024, viewerCss: 1.5 * 1024 });
 
 /**
  * @param {Sizes} sizes

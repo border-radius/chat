@@ -1,6 +1,6 @@
 // Production build: web/ → pb_public/ (hashed assets + index.html), then enforce the size budget.
 
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { gzipSync } from "node:zlib";
 import * as esbuild from "esbuild";
 import {
@@ -12,6 +12,8 @@ import {
   injectAssets,
   OUTDIR,
   outputOf,
+  STATIC_DIR,
+  SW_OPTIONS,
   staticImports,
   VIEWER,
   viewerDefine,
@@ -47,6 +49,9 @@ if (eager.length) {
   console.error(`${assets.js} imports shared chunks (${eager.join(", ")}): lazy modules must not import its modules (DESIGN.md §17.7)`);
   process.exit(1);
 }
+await esbuild.build({ ...SW_OPTIONS, minify: true, legalComments: "none", logLevel: "warning" });
+await cp(STATIC_DIR, OUTDIR, { recursive: true });
+
 const html = injectAssets(await readFile("web/index.html", "utf8"), assets);
 await writeFile(`${OUTDIR}/index.html`, html);
 

@@ -4,6 +4,7 @@
 // password nobody knows) and take no direct messages (`no_dms`, §16.7).
 
 const { call, download } = require(`${__hooks}/telegram/api.js`);
+const { fieldError } = require(`${__hooks}/lib/records.js`);
 const { nameKey, tidy } = require(`${__hooks}/lib/text.js`);
 
 /** users.name max. */
@@ -146,4 +147,19 @@ function isStandIn(app, userId) {
   }
 }
 
-module.exports = { personOf, isStandIn, senderOf, displayName };
+/**
+ * users create/update request: a name ending in "(TG)", however written ("(tg)", full-width, spaced), is a stand-in's.
+ * Anyone else could pass for a Telegram person, here and in the groups (QA BUG-86). Superusers name anyone.
+ * @param {core.RecordRequestEvent} e
+ */
+function refuseStandInName(e) {
+  const rec = e.record;
+  if (!rec || e.hasSuperuserAuth()) return;
+  const name = rec.getString("name");
+  if (!rec.isNew() && name === rec.original().getString("name")) return;
+  if (nameKey(name).replace(/\s+/g, "").endsWith(nameKey(SUFFIX).trim())) {
+    throw fieldError("name", "Names ending in (TG) are for people on Telegram. Choose another one.");
+  }
+}
+
+module.exports = { personOf, isStandIn, senderOf, displayName, refuseStandInName };

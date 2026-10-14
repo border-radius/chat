@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { listOptions, MSG_FIELDS } from "../../web/src/api.ts";
+import { describe, expect, it, vi } from "vitest";
+import { createApi, listOptions, MSG_FIELDS } from "../../web/src/api.ts";
 import { latest } from "../../web/src/lib/cursor.ts";
 import { createClient } from "../../web/src/pb.ts";
 
@@ -55,5 +55,29 @@ describe("listOptions", () => {
       "expand.forwarded_from.name",
     ]);
     expect(MSG_FIELDS).not.toContain("email");
+  });
+});
+
+describe("onConnect", () => {
+  it("a first connect that fails is no unhandled rejection: the page started offline (QA BUG-85)", async () => {
+    /** An EventSource that fails at once, as with no network. */
+    class Offline {
+      onerror: (() => void) | null = null;
+      constructor() {
+        queueMicrotask(() => this.onerror?.());
+      }
+      addEventListener() {}
+      removeEventListener() {}
+      close() {}
+    }
+    vi.stubGlobal("EventSource", Offline);
+    try {
+      const api = createApi(createClient("http://offline.test"));
+      const off = api.onConnect(() => {});
+      await new Promise((r) => setTimeout(r, 10)); // an unhandled rejection would fail the run here
+      off();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

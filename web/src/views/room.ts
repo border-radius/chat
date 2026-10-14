@@ -440,12 +440,15 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
     });
   }
 
+  /** The page's heading says it, as a room's name would (QA BUG-90). */
+  const notFound = (title: string, rest: (Node | string)[]) => h("div", { class: "not-found" }, [h("h1", {}, title), h("p", {}, rest)]);
+
   function renderNotFound() {
     awaitReturn();
     // A guest may have followed a link to a room that needs an account (§23.3).
     const why = me() ? [] : [h("a", { href: "/login" }, "Log in"), " to see more rooms, or "];
     const back = h("a", { href: "/" }, me() ? "Back to rooms" : "go back to the Open Air rooms");
-    shell.replaceChildren(h("p", { class: "not-found" }, ["This room doesn't exist. ", ...why, back]));
+    shell.replaceChildren(notFound("This room doesn't exist.", [...why, back]));
   }
 
   /**
@@ -459,7 +462,7 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
     forwardDialog.close();
     accessDialog.close();
     const back = h("a", { href: "/" }, "Back to rooms");
-    shell.replaceChildren(h("p", { class: "not-found" }, ["You can't see this room any more. ", back]));
+    shell.replaceChildren(notFound("You can't see this room any more.", [back]));
     scope.dispose();
   }
 

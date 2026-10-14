@@ -45,7 +45,7 @@ These are left out on purpose. The design should not block them later.
 - OAuth providers (email and password only)
 - Email verification (not required to sign up or post, so no SMTP needed)
 - Message retention limits (history is never pruned)
-- Native mobile apps, offline support, service worker
+- Native mobile apps, offline support (a service worker for an installable app and an offline shell: now §27)
 - End-to-end encryption
 
 ## 3. Architecture
@@ -126,7 +126,7 @@ chat/
 │       ├── reactions.js        # POST /api/chat/reactions (§20.2)
 │       ├── bulk.js             # POST /api/chat/delete, POST /api/chat/forward (§21)
 │       ├── account.js          # POST /api/chat/password (§22.2)
-│       ├── site.js             # invite-only signups (§24)
+│       ├── site.js             # invite-only signups (§24), GET /manifest.webmanifest (§27)
 │       ├── users.js            # users hooks (§5.1, §22.1), login by email, GET /api/chat/users (§16.5)
 │       ├── emoji.js            # the emoji a reaction may be (§20.1)
 │       └── images.js           # upload image size limit (§15, QA BUG-24)
@@ -134,8 +134,10 @@ chat/
 │   ├── index.html              # template; build injects hashed asset names
 │   ├── styles/app.css          # @imports styles/app/*.css (one file per part, in cascade order) into one bundle
 │   ├── styles/viewer.css       # the image viewer's, loaded on first use (§17.7)
+│   ├── public/icons/           # the installed app's icons, copied to pb_public/icons/ (§27)
 │   └── src/
-│       ├── main.ts             # boot
+│       ├── main.ts             # boot; registers the service worker
+│       ├── sw.ts               # the service worker, built on its own to /sw.js (§27)
 │       ├── app.ts              # app shell: session, routes, app bar
 │       ├── api.ts              # the only module that talks to PocketBase (through pb.ts)
 │       ├── pb.ts               # minimal PocketBase client: requests, auth store, realtime (§6)
@@ -496,12 +498,12 @@ If the room's first load fails (other than "room not found"), the list shows an 
 
 | Asset | Budget (gzipped) |
 |---|---|
-| `app.js` (including the PocketBase client) | **≤ 40.05 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments and audio attachments, see §13) |
+| `app.js` (including the PocketBase client) | **≤ 40.10 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments and §27, see §13) |
 | `app.css` | **≤ 6.05 KB** (5 KB until §21, 5.5 KB until §23, 6 KB until audio attachments, see §13) |
 | `index.html` | ≤ 1.5 KB |
 | Image viewer (§17.7), loaded on first use | ≤ 4 KB script, ≤ 1.5 KB stylesheet |
 | Web fonts | **none** (system font stack) |
-| Requests on first load | 3 (html, js, css) + API |
+| Requests on first load | 3 (html, js, css) + API; the manifest, its icons and `sw.js` (§27) come after, off the critical path |
 
 Other rules:
 
@@ -923,6 +925,7 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 | Bundle budget (QA pass 8) | `app.js` raised from 39 KB to 39.25 KB gzipped (§7.7): the fixes of QA pass 8 (sends and edits in order, failed sends kept after leaving a room, realtime retrying a failed first connect, …) took it to 39.15 KB. |
 | Bundle budget (bigger attachments) | `app.js` raised from 39.35 KB to 39.80 KB gzipped (§7.7): uploads through XHR for their progress bar, the "+N" tile and `no_dms` (§16.7, §17) took it to 39.76 KB. |
 | Bundle budget (audio attachments) | `app.js` raised from 39.80 KB to 40.05 KB and `app.css` from 6 KB to 6.05 KB gzipped (§7.7): audio players in messages (§17.5) took them to 40.03 KB and 6.01 KB. |
+| Bundle budget (§27) | `app.js` raised from 40.05 KB to 40.10 KB gzipped (§7.7): registering the service worker (§27) took it to 40.06 KB. |
 | Bundle budget (QA pass 9) | `app.js` raised from 39.25 KB to 39.35 KB gzipped (§7.7): the forwarding fixes of QA pass 9 (messages deleted meanwhile left out, the server's reason shown, focus kept while selecting) took it to 39.30 KB. |
 
 ### Still open
@@ -932,7 +935,7 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 
 ## 14. Future work (post-MVP)
 
-Blocking users, link previews, typing and presence (custom realtime channels via `$app.subscriptionsBroker()`), OAuth2 providers, message search (SQLite FTS5 through a custom route), a service worker for an offline shell, and HttpOnly cookie auth.
+Blocking users, link previews, typing and presence (custom realtime channels via `$app.subscriptionsBroker()`), OAuth2 providers, message search (SQLite FTS5 through a custom route), and HttpOnly cookie auth. (The service worker: §27.)
 
 ---
 
@@ -2015,7 +2018,8 @@ Each Telegram sender (or chat posting as itself: an anonymous admin, a channel) 
 first message (`tg_people` maps the Telegram id to it):
 
 - Named after them with " (TG)": "Ann Lee (TG)", "Ann Lee 2 (TG)" if taken (names are unique, §22.1), within the 32
-  characters. A Telegram name change renames it.
+  characters. A Telegram name change renames it. While the bridge is on, " (TG)" is theirs alone: signing up or renaming
+  to a name ending in it ("(tg)", full-width or spaced too) is refused for anyone but a superuser (QA BUG-86).
 - Their Telegram profile picture as its avatar, checked again at most once a day.
 - `no_dms` set (§16.7): nobody can open a DM with them, and their names have no **Message** menu.
 - An address at `telegram.invalid` and a random password: nobody can log in as one.
@@ -2024,7 +2028,7 @@ first message (`tg_people` maps the Telegram id to it):
 
 ### 26.4 Telegram → chat
 
-`POST /api/telegram/webhook` (the secret checked; any update that fails is logged and answered 200, so Telegram
+`POST /api/telegram/webhook` (the secret checked, in constant time; any update that fails is logged and answered 200, so Telegram
 doesn't hold the next ones back) or polling hands each update to `inbound.js`:
 
 - **A message** in a linked group becomes a message of its sender's stand-in: the text or caption ("↪ Forwarded from
@@ -2040,7 +2044,8 @@ doesn't hold the next ones back) or polling hands each update to `inbound.js`:
 - The same update delivered twice (a webhook retry) comes over once (`tg_messages` knows it).
 - The message and what it maps to are saved in one transaction, so the worker never sees a message from a group
   without knowing it came from there.
-- Joins, leaves, pins and title changes are left out. In a private chat with the bot, it says it works in groups.
+- Joins, leaves, pins and title changes are left out, as is any service message with nothing to show (a new group
+  photo, a timer, a topic): those make no stand-in (QA BUG-88). In a private chat with the bot, it says it works in groups.
 
 ### 26.5 Linking
 
@@ -2049,7 +2054,8 @@ hears from it) it makes the row, disabled and without a room, and posts the grou
 group in the admin UI** (*Collections → tg_links*): pick the room, tick `enabled`. `/chatid` (or `/start`) in the group
 says whether it is linked. A DM can't be linked, a link can't be enabled without a room, and a group that removes the
 bot is disabled. A room may be linked to several groups: each one's messages go to the others too. A group that
-becomes a supergroup (a new chat id) keeps its link. An archived room, or a disabled link, passes nothing either way.
+becomes a supergroup (a new chat id) keeps its link and its queue, whichever of Telegram's two notices (in the old
+group, in the new) comes first (QA BUG-89). An archived room, or a disabled link, passes nothing either way.
 
 ### 26.6 Chat → Telegram
 
@@ -2064,7 +2070,8 @@ Telegram (`outbound.js`):
   item's caption when it fits (1024 characters), else a message of its own before the files. Files keep their original
   names.
 - **A reply** replies to the Telegram message of what it answers, when that is in the group.
-- **Edits** edit the Telegram message holding the text (or the caption). **Deletes** delete the Telegram messages;
+- **Edits** edit the Telegram message holding the text (or the caption, its text cut to 1024 characters with "…" when
+  the edit made it longer: QA BUG-87). **Deletes** delete the Telegram messages;
   bots can delete their own only for 48 hours, so an older one is edited to "*Message deleted*" instead.
 - A message from a group isn't sent back to it.
 - Not passed on: reactions, and a forward's later changes when its original is edited.
@@ -2087,3 +2094,46 @@ and `/chatid`; links only for rooms; a stand-in (name, picture, `no_dms`); files
 update, and once quiet), files too large; replies, edits and a repeated delivery; a stand-in joining a private room; a
 message, reply, edit and delete going out; files going out as an album with a caption plus documents; a room linked to
 two groups; retries in order and dropping; nothing while disabled or archived; polling.
+
+---
+
+## 27. Installable app (PWA)
+
+The app can be installed (Add to Home Screen, the browser's Install button) and opens offline to its shell. No push
+notifications and no offline data: what the server says is fetched as before.
+
+### 27.1 Manifest and icons
+
+- `GET /manifest.webmanifest` (`manifest()` in `pb_hooks/lib/site.js`) is built per request: `name` and `short_name`
+  are the site's title (§24), so the installed app is named like the site. `start_url` and `scope` are `/`,
+  `display: standalone`; `theme_color` is the app bar's (`--surface`) and `background_color` the page's (`--bg`),
+  light theme (a manifest has one of each). `application/manifest+json`, `no-cache`, like every page (§5.6).
+- **Icons** (`web/public/icons/`, copied to `pb_public/icons/` by `build` and `dev`): the speech bubble as `icon.svg`,
+  192 and 512 px PNGs, a 512 px maskable one (the bubble inside the safe zone, on `--surface`) and a 180 px
+  `apple-touch-icon.png` for iOS (opaque: iOS fills transparency with black). The site's logo isn't used: it may be
+  any image, an SVG or a small one, and an installed app needs square PNGs.
+- `index.html` links the manifest and the Apple icon, and sets `theme-color` for light and dark.
+
+### 27.2 Service worker
+
+`web/src/sw.ts` is built on its own (`SW_OPTIONS`, an unhashed IIFE) to `/sw.js`, which must sit at the root to
+control every page; it is served `no-cache`, so a new one is found on the next load. `main.ts` registers it. A new
+worker takes over at once (`skipWaiting`, `clients.claim`): it holds nothing an open page relies on.
+
+- **Pages** (navigations): network first, so a deploy shows on the next load. Each HTML page fetched is kept (every
+  page of the app is the same `index.html`, §7.1), and offline the last one kept is served.
+- **Content-hashed assets** (`/assets/*-HASH.js|css`): cache first; one name never changes. Keeping a new page drops
+  the cached assets it doesn't name (older builds; a lazy chunk comes back when used).
+- **Everything else** is the browser's: `/api/` (records, realtime, files, so nothing stale and nothing private
+  cached), `/_/`, other origins, anything but `GET`, and unhashed dev assets.
+
+Offline the shell boots and behaves as with the server unreachable: failed loads show their errors and **Retry** (§7.5),
+and realtime reconnects when the network is back (§6).
+
+### 27.3 Tests
+
+- **Integration:** the manifest is named after the site and lists its icons (`site.test.ts`); `/sw.js` is served
+  `no-cache` (`http.test.ts`).
+- **E2E** (`pwa.spec.ts`, Chromium): the manifest and every icon load with the right type; once the worker controls
+  the page, a page loaded offline still shows the app. Other specs run with service workers blocked
+  (`playwright.config.ts`): the worker fetches hashed assets itself, out of reach of `page.route()`.

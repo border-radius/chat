@@ -27,6 +27,16 @@ if ($os.getenv("TELEGRAM_BOT_TOKEN").trim()) {
     if (e.record) outbound.queueUpdate(e.app, e.record, change);
   }, "messages");
 
+  onRecordCreateRequest((e) => {
+    require(`${__hooks}/telegram/people.js`).refuseStandInName(e);
+    e.next();
+  }, "users");
+
+  onRecordUpdateRequest((e) => {
+    require(`${__hooks}/telegram/people.js`).refuseStandInName(e);
+    e.next();
+  }, "users");
+
   onRecordCreate((e) => {
     require(`${__hooks}/telegram/links.js`).beforeLinkSave(e);
     e.next();

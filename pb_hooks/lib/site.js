@@ -40,4 +40,40 @@ function checkOAuth2Signup(e) {
   if (e.isNewRecord && siteOf(e.app)?.getBool("invite_only")) throw new ForbiddenError("Signing up is by invitation only.");
 }
 
-module.exports = { checkInvite, checkOAuth2Signup };
+/**
+ * GET /manifest.webmanifest: the web app manifest (§27), named after the site's title. The icons stay the app's own:
+ * the logo may be any image (an SVG or a small one), and an installed app needs square PNGs.
+ * @param {core.RequestEvent} e
+ */
+function manifest(e) {
+  const name = siteOf(e.app)?.getString("title") || "Chat";
+  const icon = (/** @type {string} */ src, /** @type {string} */ sizes, purpose = "any") => ({
+    src: `/icons/${src}`,
+    sizes,
+    type: src.endsWith(".svg") ? "image/svg+xml" : "image/png",
+    purpose,
+  });
+  e.response.header().set("Content-Type", "application/manifest+json");
+  return e.string(
+    200,
+    JSON.stringify({
+      id: "/",
+      name,
+      short_name: name,
+      start_url: "/",
+      scope: "/",
+      display: "standalone",
+      // The app bar's color (--surface) and the page's (--bg), light theme: a manifest can't follow the system's.
+      theme_color: "#f1eefc",
+      background_color: "#fbfaff",
+      icons: [
+        icon("icon.svg", "any"),
+        icon("icon-192.png", "192x192"),
+        icon("icon-512.png", "512x512"),
+        icon("maskable-512.png", "512x512", "maskable"),
+      ],
+    }),
+  );
+}
+
+module.exports = { checkInvite, checkOAuth2Signup, manifest };

@@ -159,6 +159,8 @@ describe("room view", () => {
       view!.mount(root, { id: "doesnotexist123" });
       await vi.waitFor(() => expect(root.textContent).toContain("This room doesn't exist."));
       expect(composer()).toBeNull();
+      // The page's heading, as a room's name is (QA BUG-90).
+      expect(root.querySelector(".not-found h1")?.textContent).toBe("This room doesn't exist.");
     });
 
     it("unmount cancels the room's pending reads", async () => {

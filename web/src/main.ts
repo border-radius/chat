@@ -6,3 +6,6 @@ startApp({
   api: createApi(createClient(location.origin, createAuthStore(localStorage))),
   root: document.getElementById("app")!,
 });
+
+// The offline shell and installing the app (DESIGN.md §27).
+void navigator.serviceWorker?.register("/sw.js");

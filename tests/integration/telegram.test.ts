@@ -373,6 +373,69 @@ describe("Telegram bridge (§26)", () => {
     expect((await messagesOf(room.id)).map((m) => m.text)).toEqual(["unsent"]);
     expect(stub.callsOf("sendMessage").filter((c) => c.params.chat_id === String(chat))).toEqual([]);
   });
+
+  it('only stand-ins are named "… (TG)": a chat user can\'t pass for a Telegram person (QA BUG-86)', async () => {
+    for (const name of [`Ann ${uniq()} (TG)`, `Ann ${uniq()} (tg)`, `Ann ${uniq()}（ＴＧ）`, `Ann ${uniq()}(TG)`]) {
+      expect(await status(signUp(name)), name).toBe(400);
+    }
+    const u = await signUp();
+    expect(await status(u.pb.collection("users").update(u.user.id, { name: `Ann ${uniq()} (TG)` }))).toBe(400);
+    expect(await status(u.pb.collection("users").update(u.user.id, { name: `TG fan ${uniq()}` }))).toBe(200);
+    // Superusers name anyone as they like (the admin UI).
+    expect(await status(admin.collection("users").update(u.user.id, { name: `Ann ${uniq()} (TG)` }))).toBe(200);
+  });
+
+  it("an edit too long for a caption is cut to fit it, which Telegram takes (QA BUG-87)", async () => {
+    const owner = await signUp();
+    const { room, chat } = await linkedRoom(owner);
+    const sent = await owner.pb
+      .collection("messages")
+      .create({ room: room.id, author: owner.user.id, text: "short", files: [new File(["%PDF"], "Notes.pdf")] });
+    await eventually(() => expect(stub.callsOf("sendDocument").find((x) => x.params.chat_id === String(chat))).toBeDefined());
+    await owner.pb.collection("messages").update(sent.id, { text: "y".repeat(1500) });
+    const edit = await eventually(() => {
+      const c = stub.callsOf("editMessageCaption").find((x) => x.params.chat_id === String(chat));
+      expect(c).toBeDefined();
+      return c!;
+    });
+    expect([...String(edit.params.caption).replace(/<[^>]+>/g, "")].length).toBe(1024); // Telegram's limit
+    expect(edit.params.caption).toMatch(/^<b>.+<\/b>\ny+…$/);
+  });
+
+  it("a group's service messages (a new photo, a timer, a topic) make no stand-in and no member (QA BUG-88)", async () => {
+    const owner = await signUp();
+    const { room, chat } = await linkedRoom(owner, { visibility: "private" });
+    const bea = { id: 880_001, is_bot: false, first_name: "Bea" };
+    for (const fields of [
+      { new_chat_photo: [{ file_id: "x", file_unique_id: "x", width: 1, height: 1 }] },
+      { message_auto_delete_timer_changed: { message_auto_delete_time: 86400 } },
+      { forum_topic_created: { name: "Topic", icon_color: 1 } },
+    ]) {
+      expect((await deliver({ message: tgMessage(chat, { from: bea, ...fields }) })).status).toBe(200);
+    }
+    await tick();
+    expect(await admin.collection("tg_people").getList(1, 1, { filter: `tg_user_id = "${bea.id}"` })).toHaveProperty("totalItems", 0);
+    expect((await admin.collection("rooms").getOne(room.id)).members).toEqual([owner.user.id]); // its creator only
+    expect(await messagesOf(room.id)).toEqual([]);
+  });
+
+  it("a group that becomes a supergroup keeps its room, whichever notice of it comes first (QA BUG-89)", async () => {
+    for (const newFirst of [false, true]) {
+      const owner = await signUp();
+      const { room, chat: old } = await linkedRoom(owner);
+      const neu = newChat();
+      const fromOld = { from: { ...ann, id: 880_002 } }; // a service message: no stand-in either (QA BUG-88)
+      const inOld = { message: tgMessage(old, { ...fromOld, chat: { id: old, type: "group", title: "Group" }, migrate_to_chat_id: neu }) };
+      const inNew = { message: tgMessage(neu, { ...fromOld, migrate_from_chat_id: old }) };
+      for (const u of newFirst ? [inNew, inOld] : [inOld, inNew]) await deliver(u);
+      await deliver({ message: tgMessage(neu, { text: `after, new first: ${newFirst}` }) });
+      await eventually(async () => expect((await messagesOf(room.id)).map((m) => m.text)).toEqual([`after, new first: ${newFirst}`]));
+      const links = await admin
+        .collection("tg_links")
+        .getFullList({ filter: admin.filter("chat_id = {:a} || chat_id = {:b}", { a: String(old), b: String(neu) }) });
+      expect(links.map((l) => [l.chat_id, l.room, l.enabled])).toEqual([[String(neu), room.id, true]]);
+    }
+  });
 });
 
 describe("Telegram bridge without a webhook URL: polling, for development (§26.2)", () => {

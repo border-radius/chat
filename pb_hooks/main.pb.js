@@ -22,6 +22,7 @@ routerUse((e) => {
 
 // Not the app's index.html (PocketBase's fallback for any other path, §7.1) for a missing asset or API.
 routerAdd("GET", "/assets/{path...}", (e) => require(`${__hooks}/lib/http.js`).asset(e));
+routerAdd("GET", "/manifest.webmanifest", (e) => require(`${__hooks}/lib/site.js`).manifest(e));
 routerAdd("GET", "/api/{path...}", () => {
   throw new NotFoundError();
 });

@@ -12,6 +12,7 @@ describe("security and cache headers (§5.6)", () => {
     await writeFile(join(pub, "index.html"), "<!doctype html><title>Chat</title>");
     await writeFile(join(pub, "assets/app-TEST1234.js"), "console.log(1)");
     await writeFile(join(pub, "assets/app.js"), "console.log(2)"); // unhashed, as written by npm run dev
+    await writeFile(join(pub, "sw.js"), "console.log(3)");
   });
 
   it("GET / sends CSP, nosniff and referrer policy", async () => {
@@ -74,6 +75,13 @@ describe("security and cache headers (§5.6)", () => {
       expect(res.status, path).toBe(200);
       expect(await res.text(), path).toContain("<title>Chat</title>");
     }
+  });
+
+  it("the service worker (§27) is served from the root and never cached, so a new one is found on the next load", async () => {
+    const res = await fetch(url("/sw.js"));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toMatch(/javascript/);
+    expect(res.headers.get("cache-control")).toBe("no-cache");
   });
 
   it("index.html is never cached", async () => {

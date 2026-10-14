@@ -104,7 +104,19 @@ function contentOf(app, msg) {
   }
   const text = source.getString("text");
   const plain = `${header.replace(/<[^>]+>/g, "")}\n${text}`;
-  return { html: text ? `${header}\n${esc(text)}` : header, plain, source };
+  return { html: text ? `${header}\n${esc(text)}` : header, plain, source, header, text };
+}
+
+/**
+ * The caption of a message's files: its content, the text cut to fit Telegram's limit. A message is sent with its text
+ * as a caption only when it fits, but an edit can make it longer, which Telegram would refuse (QA BUG-87).
+ * @param {ReturnType<typeof contentOf>} content
+ */
+function captionOf({ html, plain, header, text }) {
+  const over = [...plain].length - MAX_CAPTION;
+  if (over <= 0) return html;
+  const chars = [...text];
+  return `${header}\n${esc(chars.slice(0, chars.length - over - 1).join(""))}…`;
 }
 
 /**
@@ -222,12 +234,13 @@ function send(app, messageId, chatId) {
 function edit(app, messageId, chatId) {
   const msg = findMessage(app, messageId);
   if (!msg || msg.getBool("deleted")) return;
-  const { html } = contentOf(app, msg);
+  const content = contentOf(app, msg);
+  const { html } = content;
   for (const row of mappings(app, messageId, chatId, " && direction = 'out' && kind != 'media'")) {
     const id = row.getInt("tg_message_id");
     try {
       if (row.getString("kind") === "text") call("editMessageText", { chat_id: chatId, message_id: id, text: html, parse_mode: "HTML" });
-      else call("editMessageCaption", { chat_id: chatId, message_id: id, caption: html, parse_mode: "HTML" });
+      else call("editMessageCaption", { chat_id: chatId, message_id: id, caption: captionOf(content), parse_mode: "HTML" });
     } catch (err) {
       const tg = asTelegram(err);
       if (!tg || tg.transient || !/not modified/i.test(tg.message)) throw err;
