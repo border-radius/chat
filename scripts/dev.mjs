@@ -51,6 +51,7 @@ const pb = spawn(
     `--publicDir=${OUTDIR}`,
     "--migrationsDir=pb_migrations",
     "--hooksDir=pb_hooks",
+    "--hooksPool=100", // as in the Dockerfile: room pages enrich messages in parallel
   ],
   { stdio: "inherit" },
 );

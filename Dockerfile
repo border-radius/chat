@@ -38,4 +38,6 @@ EXPOSE 8090
 # For plain Docker / Compose (Dokku runs its own check from app.json). busybox wget is in the base image.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD wget -q -O /dev/null http://127.0.0.1:8090/api/health || exit 1
-CMD ["/app/pocketbase", "serve", "--http=0.0.0.0:8090", "--dir=/pb_data", "--publicDir=/app/pb_public", "--migrationsDir=/app/pb_migrations", "--hooksDir=/app/pb_hooks"]
+# --hooksPool: PocketBase enriches a page of records in parallel, one JS hook call each (onRecordEnrich on messages).
+# Beyond the pool (default 15) every call builds a fresh JS runtime: a 50-message page took ~70 ms instead of ~20 ms.
+CMD ["/app/pocketbase", "serve", "--http=0.0.0.0:8090", "--hooksPool=100", "--dir=/pb_data", "--publicDir=/app/pb_public", "--migrationsDir=/app/pb_migrations", "--hooksDir=/app/pb_hooks"]

@@ -96,7 +96,7 @@ After=network-online.target
 [Service]
 User=chat
 WorkingDirectory=/opt/chat
-ExecStart=/opt/chat/pocketbase serve chat.example.com --dir=/opt/chat/pb_data --publicDir=/opt/chat/pb_public --migrationsDir=/opt/chat/pb_migrations --hooksDir=/opt/chat/pb_hooks
+ExecStart=/opt/chat/pocketbase serve chat.example.com --hooksPool=100 --dir=/opt/chat/pb_data --publicDir=/opt/chat/pb_public --migrationsDir=/opt/chat/pb_migrations --hooksDir=/opt/chat/pb_hooks
 Restart=on-failure
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 LimitNOFILE=65536
