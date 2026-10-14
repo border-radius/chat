@@ -137,7 +137,7 @@
           "minSelect": 0,
           "name": "author",
           "presentable": false,
-          "required": true,
+          "required": false,
           "system": false,
           "type": "relation",
           "collection": "users"

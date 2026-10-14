@@ -46,6 +46,11 @@ onRecordUpdate((e) => {
   e.next();
 }, "users");
 
+onRecordDelete((e) => {
+  require(`${__hooks}/lib/messages.js`).beforeUserDelete(e);
+  e.next();
+}, "users");
+
 onRecordCreateRequest((e) => {
   require(`${__hooks}/lib/site.js`).checkInvite(e);
   e.next();

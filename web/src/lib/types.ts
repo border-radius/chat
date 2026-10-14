@@ -41,6 +41,7 @@ export type SendStatus = "pending" | "failed";
 export interface Message {
   id: string;
   room: string;
+  /** "" for a service message (§5.3): the app's own notice in the room, e.g. a Telegram group disconnected. */
   author: string;
   text: string;
   /** PocketBase datetime, e.g. "2026-10-10 12:34:56.789Z". */

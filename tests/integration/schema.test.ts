@@ -85,7 +85,8 @@ describe("schema (§5)", () => {
   it("messages fields and (room, created, id) index", () => {
     const f = fieldsOf(cols.messages!);
     expect(f.room).toMatchObject({ type: "relation", required: true, maxSelect: 1, cascadeDelete: true, collectionId: cols.rooms!.id });
-    expect(f.author).toMatchObject({ type: "relation", required: true, maxSelect: 1, collectionId: cols.users!.id });
+    // Not required: a service message has none (§5.3). The create rule still requires it of every request.
+    expect(f.author).toMatchObject({ type: "relation", required: false, maxSelect: 1, collectionId: cols.users!.id });
     expect(f.text).toMatchObject({ type: "text", required: false, max: 2000 });
     expect(f.edited_at).toMatchObject({ type: "date" });
     expect(f.deleted).toMatchObject({ type: "bool" });

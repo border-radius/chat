@@ -109,7 +109,8 @@ chat/
 │   ├── 1760000015_site.js              # §24
 │   ├── 1760000017_no_dms.js            # §16.7
 │   ├── 1760000018_attachment_limits.js # §17.1
-│   └── 1760000019_telegram.js          # §26 (tg_* collections)
+│   ├── 1760000019_telegram.js          # §26 (tg_* collections)
+│   └── 1760000020_service_messages.js  # §5.3 (messages.author optional: service messages)
 ├── pb_hooks/                   # server-side JS hooks (committed)
 │   ├── main.pb.js              # registrations only
 │   ├── telegram.pb.js          # the Telegram bridge's registrations, only with TELEGRAM_BOT_TOKEN (§26)
@@ -211,7 +212,7 @@ Rooms are **never hard-deleted** through the API. "Delete room" in the UI sets `
 |---|---|---|
 | `id` | text (15) | **may be client-supplied** (see §7.5) |
 | `room` | relation → rooms | required, single, cascade delete (applies only to a superuser hard-delete from the admin UI) |
-| `author` | relation → users | required, single |
+| `author` | relation → users | single; required of every request (the create rule), empty only for a **service message** (below) |
 | `text` | text | max 2000 chars. Must be non-empty unless the message is deleted (enforced by a hook, §5.6), so not marked `required` in the schema. |
 | `edited_at` | date | empty = never edited; set by a hook when `text` changes on update |
 | `deleted` | bool | default `false`; once true it can never be set back to false |
@@ -223,6 +224,8 @@ Rooms are **never hard-deleted** through the API. "Delete room" in the UI sets `
 Clients render a deleted message as a *"Message deleted"* placeholder, with its author and time kept. This keeps conversations readable, so replies still make sense and history doesn't silently shrink. A deleted message can't be edited or undeleted.
 
 The API `DELETE` endpoint is turned off, so records are never removed. The only exception is a superuser using the admin UI.
+
+**Service messages** are the app's own notices in a room, such as "Telegram group "Friends" was disconnected from this room." (§26.5): a message with no author, only text. Only server code makes one (`postService` in `pb_hooks/lib/messages.js`, in a room that isn't archived): the create rule requires `author = @request.auth.id` from a signed-in caller, and no update rule matches an empty author, so nobody can make, edit or delete one through the API (`pb_migrations/1760000020_service_messages.js`). They can't be replied to, reacted to or forwarded (the hooks refuse it), count as unread like anyone else's message, aren't passed on to Telegram, and show as a centered grey line with their time and no buttons. A room opened at its first unread message goes to it when that is a service message, as for any other.
 
 **Indexes:** `CREATE INDEX idx_messages_room_created ON messages (room, created, id)`. This supports history pagination in both directions (§7.5) and the realtime filter. Because `id` is part of the index, the `(created, id)` cursor stays stable even when two messages share the same millisecond.
 
@@ -259,7 +262,7 @@ A separate collection was chosen over a multi-relation field on `users` for thre
 
 ¹ `NO_PUBLIC_EMAIL` = `(@request.body.emailVisibility:isset = false || @request.body.emailVisibility = false)`. Users can't make their email visible to others.
 
-² Users can't delete their own account: their messages and rooms reference them through required relations, so the delete could only fail for anyone who had posted. Removing an account (and deciding what happens to its content) is a superuser task for now.
+² Users can't delete their own account: their rooms reference them through a required relation, and a hook refuses deleting anyone who wrote a message (`messages.author` isn't required, for service messages, §5.3, so PocketBase would otherwise clear it and their words would read as the app's), so the delete could only fail for anyone who had posted. Removing an account (and deciding what happens to its content) is a superuser task for now.
 
 The source of truth for all rules is `pb_migrations/1760000000_init.js` and the migrations after it. Direct messages (§16.3) change the `rooms` and `messages` rules above; this table is the MVP version.
 
@@ -524,7 +527,7 @@ If the room's first load fails (other than "room not found"), the list shows an 
 
 | Asset | Budget (gzipped) |
 |---|---|
-| `app.js` (including the PocketBase client) | **≤ 41.20 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, see §13) |
+| `app.js` (including the PocketBase client) | **≤ 41.30 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, see §13) |
 | `app.css` | **≤ 6.10 KB** (5 KB until §21, 5.5 KB until §23, 6 KB until audio attachments, 6.05 KB until §18.5, see §13) |
 | `index.html` | ≤ 1.5 KB |
 | Image viewer (§17.7), loaded on first use | ≤ 4 KB script, ≤ 1.5 KB stylesheet |
@@ -956,6 +959,7 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 | Bundle budget (prefetching) | `app.js` raised from 40.60 KB to 40.85 KB gzipped (§7.7): fetching the latest page of rooms with unread messages into the room cache (`prefetch.ts`, §7.5) took it to 40.80 KB. |
 | Bundle budget (first unread) | `app.js` raised from 40.85 KB to 41.15 KB and `app.css` from 6.05 KB to 6.10 KB gzipped (§7.7): opening a room at its first unread message, with the "New" line (§18.5), took them to 41.09 KB and 6.09 KB. |
 | Bundle budget (QA pass 11) | `app.js` raised from 41.15 KB to 41.20 KB gzipped (§7.7): the fixes of QA pass 11 (prefetching paced and never put off, deleted messages refetched into the room cache, a room opened before the unread counts are in still opening at its first unread message) took it to 41.17 KB. |
+| Bundle budget (service messages) | `app.js` raised from 41.20 KB to 41.30 KB gzipped (§7.7): service messages (§5.3), drawn as a line of their own, took it to 41.25 KB. |
 | Bundle budget (QA pass 9) | `app.js` raised from 39.25 KB to 39.35 KB gzipped (§7.7): the forwarding fixes of QA pass 9 (messages deleted meanwhile left out, the server's reason shown, focus kept while selecting) took it to 39.30 KB. |
 
 ### Still open
@@ -2106,6 +2110,8 @@ bot is disabled. A room may be linked to several groups: each one's messages go 
 becomes a supergroup (a new chat id) keeps its link and its queue, whichever of Telegram's two notices (in the old
 group, in the new) comes first (QA BUG-89). An archived room, or a disabled link, passes nothing either way.
 
+The room says when a group starts or stops passing messages to it, in a service message (§5.3): "Telegram group "Friends" was connected to this room." when a link gets enabled with a room (created so, ticked, or moved to it), "… was disconnected from this room." when it stops (unticked, moved to another room, or deleted), and "… was disconnected from this room: the bot was removed from the group." when the group removes the bot. An archived room is told nothing. A title change or a group becoming a supergroup says nothing. The title is tidied like a name (no bidi overrides or line breaks), and a blank one reads "A Telegram group". The same news delivered twice at once (the bot removed, a link unticked) tells the room once: the link is read again in the save's transaction.
+
 ### 26.6 Chat → Telegram
 
 The messages hooks only **queue** the work (`tg_queue`, in the same transaction as the save): a new message, an edit
@@ -2123,7 +2129,7 @@ Telegram (`outbound.js`):
   the edit made it longer: QA BUG-87). **Deletes** delete the Telegram messages;
   bots can delete their own only for 48 hours, so an older one is edited to "*Message deleted*" instead.
 - A message from a group isn't sent back to it.
-- Not passed on: reactions, and a forward's later changes when its original is edited.
+- Not passed on: reactions, service messages (§5.3), and a forward's later changes when its original is edited.
 
 ### 26.7 The worker
 
@@ -2141,7 +2147,7 @@ halfway (some of its files sent) isn't sent again.
 the developer's own `TELEGRAM_*` variables to a test server. Covered: setWebhook and the secret; a new group's link
 and `/chatid`; links only for rooms; a stand-in (name, picture, `no_dms`); files, an album as one message (by the next
 update, and once quiet), files too large; replies, edits and a repeated delivery; a stand-in joining a private room; a
-message, reply, edit and delete going out; files going out as an album with a caption plus documents; a room linked to
+message, reply, edit and delete going out; service messages for a group connected, disconnected, moved, deleted and removing the bot; files going out as an album with a caption plus documents; a room linked to
 two groups; retries in order and dropping; nothing while disabled or archived; polling.
 
 ---

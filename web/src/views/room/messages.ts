@@ -446,6 +446,16 @@ export function createMessageList(opts: {
     return li;
   }
 
+  /** A service message (§5.3): one line of the app's own, nobody's, with no buttons (so no reply, reaction or select). */
+  function serviceNode(m: Message): HTMLElement {
+    const sig = `${m.text} · ${timeOf(m.created).time}`;
+    const hit = cache.get(m.id);
+    if (hit?.sig === sig) return hit.el;
+    const li = h("li", { class: "service", dataset: { id: m.id } }, sig);
+    cache.set(m.id, { sig, el: li });
+    return li;
+  }
+
   /** Message text with its links clickable (§7.6.3). They open in a new tab, which the router leaves alone. */
   function bodyText(text: string): (string | HTMLAnchorElement)[] {
     return linkify(text).map((part) =>
@@ -534,7 +544,7 @@ export function createMessageList(opts: {
       const newDay = day !== prevDay;
       if (newDay) nodes.push(divider(ms));
       if (m.id === unreadId) nodes.push(newLine);
-      nodes.push(messageNode(m, newDay || startsGroup(prev, m), targetId, quotedOf(m, win), selected));
+      nodes.push(m.author ? messageNode(m, newDay || startsGroup(prev, m), targetId, quotedOf(m, win), selected) : serviceNode(m));
       prev = m;
       prevDay = day;
     }

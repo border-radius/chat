@@ -5,7 +5,7 @@
 
 const { call, config, download } = require(`${__hooks}/telegram/api.js`);
 const { personOf } = require(`${__hooks}/telegram/people.js`);
-const { activeLink, ensureLink, linkOfChat, moveLink } = require(`${__hooks}/telegram/links.js`);
+const { activeLink, ensureLink, linkedRoom, linkOfChat, moveLink, tellLinkChange } = require(`${__hooks}/telegram/links.js`);
 
 /** The largest file the Bot API lets a bot download, and the largest attachment (§17.1). */
 const MAX_FILE = 20 * 1024 * 1024;
@@ -335,10 +335,16 @@ function memberChange(app, change) {
   const status = change.new_chat_member?.status;
   const link = ensureLink(app, change.chat);
   if (status === "left" || status === "kicked") {
-    if (link.getBool("enabled")) {
-      link.set("enabled", false);
-      app.save(link);
-    }
+    app.runInTransaction((tx) => {
+      // Read again in the transaction: the same news twice at once must tell the room once.
+      const fresh = tx.findRecordById("tg_links", link.id);
+      const was = linkedRoom(fresh);
+      if (!was) return;
+      fresh.set("enabled", false);
+      // Past the tg_links hooks, which would tell the room it was disconnected without saying why.
+      tx.unsafeWithoutHooks().save(fresh);
+      tellLinkChange(tx, fresh, was, "", ": the bot was removed from the group");
+    });
     return;
   }
   const was = change.old_chat_member?.status;

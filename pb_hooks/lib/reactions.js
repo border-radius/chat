@@ -4,6 +4,7 @@
 // the reconnect refetch (§7.5) need nothing new.
 
 const { isReactionEmoji } = require(`${__hooks}/lib/emoji.js`);
+const { isService } = require(`${__hooks}/lib/messages.js`);
 
 /**
  * @typedef {{ emoji: string, users: string[] }} Reaction
@@ -82,6 +83,7 @@ function react(e) {
   // The list rule: seen in its room. The view rule would also let the readers of a forward react to its original (§21.3).
   const rule = e.app.findCollectionByNameOrId("messages").listRule;
   if (rule === null || rule === undefined || !e.app.canAccessRecord(msg, info, rule)) throw notFound();
+  if (isService(msg)) throw badRequest("message", "Service messages take no reactions.");
 
   // Read and write in one transaction: two people reacting at once both count. (Errors are thrown after it, so
   // they keep their status.)

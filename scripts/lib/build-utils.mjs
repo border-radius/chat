@@ -53,7 +53,7 @@ export const BASE_OPTIONS = {
 };
 
 /** Gzipped size budget in bytes (DESIGN.md §7.7). */
-export const BUDGET = Object.freeze({ js: 41.2 * 1024, css: 6.1 * 1024, html: 1536, viewerJs: 4 * 1024, viewerCss: 1.5 * 1024 });
+export const BUDGET = Object.freeze({ js: 41.3 * 1024, css: 6.1 * 1024, html: 1536, viewerJs: 4 * 1024, viewerCss: 1.5 * 1024 });
 
 /**
  * @param {Sizes} sizes

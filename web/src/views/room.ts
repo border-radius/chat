@@ -317,7 +317,7 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
     else if (c.scroll === "target") {
       // A message gone to is centred; the first unread one goes near the top, with what follows it below.
       const id = s.targetId ?? s.unreadId;
-      const el = id && list.querySelector<HTMLElement>(`li.msg[data-id="${CSS.escape(id)}"]`);
+      const el = id && list.querySelector<HTMLElement>(`li[data-id="${CSS.escape(id)}"]`);
       if (el) list.scrollTop = el.offsetTop - list.clientHeight / (s.targetId ? 2 : 4);
     }
     renderPill();

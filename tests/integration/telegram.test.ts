@@ -106,8 +106,29 @@ function tgMessage(chat: number, fields: Record<string, unknown> = {}) {
   };
 }
 
+/** A room's messages, but for service messages (§5.3): those are `noticesOf`. */
 const messagesOf = (room: string) =>
-  admin.collection("messages").getFullList({ filter: admin.filter("room = {:room}", { room }), sort: "created", expand: "author" });
+  admin
+    .collection("messages")
+    .getFullList({ filter: admin.filter("room = {:room} && author != ''", { room }), sort: "created", expand: "author" });
+
+/** The texts of a room's service messages (§5.3). */
+const noticesOf = async (room: string) =>
+  (
+    await admin.collection("messages").getFullList({ filter: admin.filter("room = {:room} && author = ''", { room }), sort: "created" })
+  ).map((m) => m.text);
+
+/** The bot removed from `chat` (kicked, or left). */
+const removeBot = (chat: number, status = "kicked") =>
+  deliver({
+    my_chat_member: {
+      chat: { id: chat, type: "supergroup", title: "Group" },
+      from: ann,
+      date: 0,
+      old_chat_member: { status: "member", user: { id: 1 } },
+      new_chat_member: { status, user: { id: 1 } },
+    },
+  });
 
 describe("Telegram bridge (§26)", () => {
   it("tells Telegram where to send updates, signed, one at a time; a wrong secret is refused", async () => {
@@ -417,6 +438,86 @@ describe("Telegram bridge (§26)", () => {
     expect(await admin.collection("tg_people").getList(1, 1, { filter: `tg_user_id = "${bea.id}"` })).toHaveProperty("totalItems", 0);
     expect((await admin.collection("rooms").getOne(room.id)).members).toEqual([owner.user.id]); // its creator only
     expect(await messagesOf(room.id)).toEqual([]);
+  });
+
+  it("a room says when a group is connected to it or disconnected from it, and Telegram doesn't hear of it", async () => {
+    const owner = await signUp();
+    const { room, chat } = await linkedRoom(owner);
+    const connected = 'Telegram group "Group" was connected to this room.';
+    const disconnected = 'Telegram group "Group" was disconnected from this room.';
+    expect(await noticesOf(room.id)).toEqual([connected]);
+    const link = await admin.collection("tg_links").getFirstListItem(admin.filter("chat_id = {:c}", { c: String(chat) }));
+    await admin.collection("tg_links").update(link.id, { enabled: false });
+    await admin.collection("tg_links").update(link.id, { title: "Renamed" }); // disabled: nothing to say
+    await admin.collection("tg_links").update(link.id, { title: "Group", enabled: true });
+    // A title change (Telegram's), and the group becoming a supergroup, say nothing.
+    await deliver({ message: tgMessage(chat, { chat: { id: chat, type: "supergroup", title: "Group 2" }, text: "hi" }) });
+    await admin.collection("tg_links").update(link.id, { title: "Group" });
+    const neu = newChat();
+    await deliver({ message: tgMessage(neu, { from: { ...ann, id: 880_003 }, migrate_from_chat_id: chat }) });
+    expect(await noticesOf(room.id)).toEqual([connected, disconnected, connected]);
+
+    // Moved to another room: both say so. Deleted: its room says so.
+    const other = await owner.pb.collection("rooms").create({ name: `tg-${uniq()}`, created_by: owner.user.id });
+    await admin.collection("tg_links").update(link.id, { room: other.id });
+    expect(await noticesOf(room.id)).toEqual([connected, disconnected, connected, disconnected]);
+    await admin.collection("tg_links").delete(link.id);
+    expect(await noticesOf(other.id)).toEqual([connected, disconnected]);
+
+    // Not to Telegram, and not to an archived room.
+    await tick();
+    expect(stub.callsOf("sendMessage").filter((c) => [String(chat), String(neu)].includes(String(c.params.chat_id)))).toEqual([]);
+    await owner.pb.collection("rooms").update(other.id, { archived: true });
+    await admin.collection("tg_links").create({ chat_id: String(newChat()), title: "Late", room: other.id, enabled: true });
+    expect(await noticesOf(other.id)).toEqual([connected, disconnected]);
+  });
+
+  it("a group that removes the bot is disconnected, and its room says why", async () => {
+    for (const status of ["kicked", "left"]) {
+      const owner = await signUp();
+      const { room, chat } = await linkedRoom(owner);
+      expect((await removeBot(chat, status)).status).toBe(200);
+      await removeBot(chat, status); // said twice: told once
+      const link = await admin.collection("tg_links").getFirstListItem(admin.filter("chat_id = {:c}", { c: String(chat) }));
+      expect(link.enabled).toBe(false);
+      expect(await noticesOf(room.id)).toEqual([
+        'Telegram group "Group" was connected to this room.',
+        'Telegram group "Group" was disconnected from this room: the bot was removed from the group.',
+      ]);
+    }
+  });
+
+  it("the same news at once tells the room once: the bot removed, a link unticked", async () => {
+    const owner = await signUp();
+    const { room, chat } = await linkedRoom(owner);
+    await Promise.all([removeBot(chat), removeBot(chat), removeBot(chat)]);
+    expect(await noticesOf(room.id)).toHaveLength(2); // connected, disconnected
+    const { room: other, chat: otherChat } = await linkedRoom(owner);
+    const link = await admin.collection("tg_links").getFirstListItem(admin.filter("chat_id = {:c}", { c: String(otherChat) }));
+    await Promise.all([1, 2, 3].map(() => admin.collection("tg_links").update(link.id, { enabled: false })));
+    expect(await noticesOf(other.id)).toHaveLength(2);
+  });
+
+  it("a group's title can't break or turn around the room's line; a blank one is left out", async () => {
+    const owner = await signUp();
+    const room = await owner.pb.collection("rooms").create({ name: `tg-${uniq()}`, created_by: owner.user.id });
+    for (const title of ["x\u202Eevil\u202C\n\nreal admin says hi", "   ", "\u200b"]) {
+      await admin.collection("tg_links").create({ chat_id: String(newChat()), title, room: room.id, enabled: true });
+    }
+    expect(await noticesOf(room.id)).toEqual([
+      'Telegram group "xevil real admin says hi" was connected to this room.',
+      "A Telegram group was connected to this room.",
+      "A Telegram group was connected to this room.",
+    ]);
+  });
+
+  it("a service message edited by a superuser isn't passed on either", async () => {
+    const owner = await signUp();
+    const { room } = await linkedRoom(owner);
+    const [notice] = await admin.collection("messages").getFullList({ filter: admin.filter("room = {:r} && author = ''", { r: room.id }) });
+    await admin.collection("messages").update(notice!.id, { text: "edited" });
+    await admin.collection("messages").update(notice!.id, { deleted: true });
+    expect(await admin.collection("tg_queue").getFullList({ filter: admin.filter("message = {:m}", { m: notice!.id }) })).toEqual([]);
   });
 
   it("a group that becomes a supergroup keeps its room, whichever notice of it comes first (QA BUG-89)", async () => {

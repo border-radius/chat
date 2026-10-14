@@ -4,6 +4,8 @@
 // transaction. The saves go through the messages hooks (messages.js) like any other, so the soft delete wipes what it
 // should, a forward is checked like a new message, and realtime tells everyone.
 
+const { isService } = require(`${__hooks}/lib/messages.js`);
+
 /** Most messages one request may act on (MAX_SELECTED in web/src/lib/limits.ts). */
 const MAX_MESSAGES = 50;
 
@@ -146,6 +148,7 @@ function forward(e) {
   if (room.getBool("archived")) throw badRequest("room", "This room is archived and read-only.", what);
   const originals = visibleMessages(e, info, ids).map((m) => originalOf(e.app, m));
   if (originals.some((m) => !m)) throw badRequest("messages", "A message was deleted.", what);
+  if (originals.some((m) => m && isService(m))) throw badRequest("messages", "Service messages can't be forwarded.", what);
 
   const collection = e.app.findCollectionByNameOrId("messages");
   /** @type {core.Record[]} */

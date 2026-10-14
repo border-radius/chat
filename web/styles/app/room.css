@@ -65,7 +65,8 @@
 }
 
 .beginning,
-.load-error {
+.load-error,
+.service {
   padding: 1.5rem 0 1rem;
   color: var(--muted);
   text-align: center;
@@ -94,6 +95,12 @@
   content: "";
   flex: 1;
   border-top: 1px solid var(--border);
+}
+
+/* A service message (§5.3): the app's own line. */
+.service {
+  padding: 0.5rem;
+  font-size: 0.8rem;
 }
 
 /* Room on the left for the author's avatar, which only group starts show (§15.4). */

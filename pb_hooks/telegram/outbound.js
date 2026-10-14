@@ -29,11 +29,13 @@ function enqueue(app, op, messageId, chatId) {
 
 /**
  * messages create (saved): queue it for each group its room is linked to. A message that came from one of them is
- * queued too, for the others; the worker leaves out the group it came from.
+ * queued too, for the others; the worker leaves out the group it came from. Service messages (no author, §5.3) stay
+ * in the room.
  * @param {core.App} app
  * @param {core.Record} rec
  */
 function queueCreate(app, rec) {
+  if (!rec.getString("author")) return;
   for (const link of linksOfRoom(app, rec.getString("room"))) enqueue(app, "send", rec.id, link.getString("chat_id"));
 }
 
@@ -56,7 +58,7 @@ function changeOf(rec) {
  * @param {"" | "edit" | "delete"} change
  */
 function queueUpdate(app, rec, change) {
-  if (!change) return;
+  if (!change || !rec.getString("author")) return; // a service message never went to Telegram
   for (const link of linksOfRoom(app, rec.getString("room"))) enqueue(app, change, rec.id, link.getString("chat_id"));
 }
 

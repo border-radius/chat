@@ -56,11 +56,38 @@ const fileNames = (record) => [...record.getStringSlice("files"), ...record.getU
 const isForward = (rec) => rec.getString("forwarded_from") !== "";
 
 /**
+ * Is this a service message (§5.3): the app's own notice in a room, with no author?
+ * @param {core.Record} rec
+ */
+const isService = (rec) => rec.getString("author") === "";
+
+/**
+ * Post a service message (§5.3) in a room that isn't archived: one line of the app's own, no author. It goes through
+ * the same hooks as any message, so unread counts and realtime see it.
+ * @param {core.App} app
+ * @param {string} roomId
+ * @param {string} text
+ */
+function postService(app, roomId, text) {
+  const rec = new Record(app.findCollectionByNameOrId("messages"));
+  rec.set("room", roomId);
+  rec.set("text", text);
+  app.save(rec);
+}
+
+/**
  * messages create: trim + non-empty text, room must be active (§5.6).
  * @param {core.RecordEvent} e
  */
 function beforeMessageCreate(e) {
   const rec = recordOf(e);
+  if (isService(rec)) {
+    // Made only by postService (no request can leave out the author): text alone, in any room that isn't archived.
+    assertText(rec);
+    rec.set("reactions", []);
+    activeRoom(e.app, rec.getString("room"));
+    return;
+  }
   assertText(rec, fileNames(rec).length > 0 || isForward(rec));
   assertImagesFit(rec, "files");
   rec.set("file_names", originalNames(rec, "files")); // whatever the client sent is replaced
@@ -116,6 +143,7 @@ function assertReplyTarget(app, rec) {
     throw fieldError("reply_to", "That message isn't in this room.");
   }
   if (parent.getBool("deleted")) throw fieldError("reply_to", "That message was deleted.");
+  if (isService(parent)) throw fieldError("reply_to", "Service messages can't be replied to.");
 }
 
 /**
@@ -325,7 +353,22 @@ function keepToRoom(e) {
   rec.set("reply_to", "");
 }
 
+/**
+ * users delete (a superuser): refused while they have messages. `author` isn't required (service messages have none,
+ * §5.3), so PocketBase would otherwise clear it on their messages, which would then read as the app's own notices.
+ * @param {core.RecordEvent} e
+ */
+function beforeUserDelete(e) {
+  const id = recordOf(e).id;
+  if (e.app.findRecordsByFilter("messages", "author = {:id}", "", 1, 0, { id }).length) {
+    throw new BadRequestError("This user wrote messages, so their account can't be deleted.");
+  }
+}
+
 module.exports = {
+  isService,
+  beforeUserDelete,
+  postService,
   beforeMessageCreate,
   beforeMessageCreateRequest,
   afterMessageCreate,

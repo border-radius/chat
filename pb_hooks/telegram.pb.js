@@ -37,13 +37,32 @@ if ($os.getenv("TELEGRAM_BOT_TOKEN").trim()) {
     e.next();
   }, "users");
 
+  // A room says when a group is connected to it or disconnected from it (a service message, §26.5).
   onRecordCreate((e) => {
-    require(`${__hooks}/telegram/links.js`).beforeLinkSave(e);
+    const links = require(`${__hooks}/telegram/links.js`);
+    links.beforeLinkSave(e);
     e.next();
+    if (e.record) links.tellLinkChange(e.app, e.record, "", links.linkedRoom(e.record));
   }, "tg_links");
 
   onRecordUpdate((e) => {
-    require(`${__hooks}/telegram/links.js`).beforeLinkSave(e);
+    const links = require(`${__hooks}/telegram/links.js`);
+    links.beforeLinkSave(e);
+    const rec = e.record;
+    if (!rec) return e.next();
+    // What it was, as stored, read in the save's transaction: the same change saved twice at once tells the room once.
+    e.app.runInTransaction((tx) => {
+      e.app = tx;
+      const was = links.linkedRoom(tx.findRecordById("tg_links", rec.id));
+      e.next();
+      links.tellLinkChange(tx, rec, was, links.linkedRoom(rec));
+    });
+  }, "tg_links");
+
+  onRecordAfterDeleteSuccess((e) => {
+    const links = require(`${__hooks}/telegram/links.js`);
+    // Deleted with its room (cascade), there's no room left to tell.
+    if (e.record) links.tellLinkChange(e.app, e.record, links.linkedRoom(e.record), "");
     e.next();
   }, "tg_links");
 }
