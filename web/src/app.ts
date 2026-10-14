@@ -4,11 +4,13 @@
 
 import { createRoomActions } from "./actions.ts";
 import { type Api, ApiError } from "./api.ts";
+import { createCache } from "./cache.ts";
 import type { Ctx } from "./context.ts";
 import { clear, h } from "./dom.ts";
 import { createDrafts } from "./drafts.ts";
 import { startFavicon } from "./favicon.ts";
 import type { User } from "./lib/types.ts";
+import { createPrefetch } from "./prefetch.ts";
 import { createRouter, here, type Router, type View } from "./router.ts";
 import { startSite } from "./site.ts";
 import { type AppState, createStore, initialState, type Store } from "./store.ts";
@@ -94,12 +96,16 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
   const sync = createSync({ api, store });
   const unread = createUnread({ api, store });
   const drafts = createDrafts(() => store.get().user?.id ?? "");
-  /** Start following the rooms (and, signed in, the unread counts) as whoever is logged in now, or as a guest. */
+  const cache = createCache();
+  const prefetch = createPrefetch({ api, store, cache });
+  /** Start following the rooms (and, signed in, the unread counts and prefetching, §7.5) as whoever is logged in now, or as a guest. */
   let running = false;
   const startSession = () => {
     running = true;
     sync.start();
-    if (store.get().user) unread.start();
+    if (!store.get().user) return;
+    unread.start();
+    prefetch.start();
   };
   /** The page a guest was on before going to log in or sign up: where logging in takes them back to (§23.3). */
   let lastPage = AUTH_PAGES.has(here()) ? "/" : here();
@@ -120,9 +126,11 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     // this sends nothing: a reader only sends as the user it was opened for.
     unread.flush();
     unread.stop();
+    prefetch.stop();
     sync.stop();
     void api.unsubscribeAll().catch(() => {});
     drafts.clear(store.get().user?.id ?? "");
+    cache.clear();
     store.set({ ...initialState(), site: store.get().site });
   }
 
@@ -257,6 +265,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     navigate: (hash) => router.navigate(hash),
     reopen: () => panes.reload(),
     drafts,
+    cache,
     logOut,
   };
   const rooms = () => createRoomsView(ctx);
@@ -330,6 +339,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
       offStore();
       router.stop();
       unread.stop();
+      prefetch.stop();
       sync.stop();
       clear(root);
     },

@@ -29,7 +29,8 @@ export function useRoomView() {
     root = document.createElement("main");
     document.body.append(root);
     me = await signedUp("Me");
-    store = createStore<AppState>({ ...initialState(), user: me.user });
+    // The unread counts are in, with none (initialState's UNCOUNTED is a page just loaded: QA BUG-93).
+    store = createStore<AppState>({ ...initialState(), user: me.user, unread: new Map() });
     navigate = vi.fn();
   });
   afterEach(async () => {

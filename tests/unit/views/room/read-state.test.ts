@@ -3,9 +3,28 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type Api, ApiError } from "../../../../web/src/api.ts";
 import { newId } from "../../../../web/src/lib/id.ts";
-import { bumpUnread } from "../../../../web/src/store.ts";
+import { bumpUnread, UNCOUNTED } from "../../../../web/src/store.ts";
+import { UNREAD_LINE_MS } from "../../../../web/src/views/room/controller.ts";
 import { instrument, intercept, READ_WINDOW_MS, seedMessages, signedUp } from "../../../support/api.ts";
-import { captureHandler, layout, me, mount, newRoom, pill, setView, sleep, store, useRoomView, view } from "./harness.ts";
+import {
+  atBottom,
+  captureHandler,
+  ids,
+  layout,
+  list,
+  me,
+  mount,
+  msgEl,
+  newRoom,
+  pill,
+  root,
+  setView,
+  sleep,
+  store,
+  useRoomView,
+  VIEWPORT,
+  view,
+} from "./harness.ts";
 
 describe("room view", () => {
   useRoomView();
@@ -110,6 +129,51 @@ describe("room view", () => {
       expect(calls).toHaveLength(1);
       layout.scrollToBottom();
       await vi.waitFor(() => expect(calls.at(-1)).toEqual([room.id, m.created]), { timeout: 3000 });
+    });
+
+    it("with unread messages, the room opens at the first of them, under a New line that goes after a few seconds (§18.5)", async () => {
+      const other = await signedUp("Other");
+      const room = await newRoom(other);
+      await sleep(20);
+      const all = await seedMessages(room.id, other.user.id, 150, { stepMs: 1, startAt: Date.now() - 200 });
+      await me.api.markRead(room.id, all[69]!.created);
+      store.set({ unread: new Map([[room.id, 80]]) });
+      const calls = reads(me.api);
+      await mount(room);
+      const first = msgEl(all[70]!.id)!;
+      expect(first.previousElementSibling?.matches("li.new-line")).toBe(true);
+      expect(root.querySelectorAll("li.new-line")).toHaveLength(1);
+      expect(ids()).toContain(all[20]!.id); // a page of what was read before, above it
+      expect(ids()).not.toContain(all[149]!.id); // not at the live edge: nothing more is read
+      expect(list().scrollTop).toBe(first.offsetTop - VIEWPORT / 4);
+      await sleep(UNREAD_LINE_MS + 100);
+      expect(root.querySelector("li.new-line")).toBeNull();
+      expect(calls).toEqual([]);
+    });
+
+    it("QA BUG-93: opened before the counts are in (a reload), the room still opens at the first unread message", async () => {
+      const other = await signedUp("Other");
+      const room = await newRoom(other);
+      await sleep(20);
+      const all = await seedMessages(room.id, other.user.id, 150, { stepMs: 1, startAt: Date.now() - 200 });
+      await me.api.markRead(room.id, all[69]!.created);
+      store.set({ unread: UNCOUNTED });
+      const calls = reads(me.api);
+      await mount(room);
+      expect(msgEl(all[70]!.id)?.previousElementSibling?.matches("li.new-line")).toBe(true);
+      expect(ids()).not.toContain(all[149]!.id);
+      await sleep(READ_WINDOW_MS);
+      expect(calls).toEqual([]); // the 80 unread messages aren't taken as read
+    });
+
+    it("without unread messages, the room opens at the bottom with no New line", async () => {
+      const room = await newRoom();
+      await seedMessages(room.id, me.user.id, 80);
+      const ctl = instrument(me.api);
+      await mount(room);
+      expect(ctl.calls("firstUnread")).toBe(0);
+      expect(root.querySelector("li.new-line")).toBeNull();
+      expect(atBottom()).toBe(true);
     });
 
     it("QA: a failed read is sent again on the next render", async () => {

@@ -91,6 +91,42 @@ describe("GET /api/chat/unread (§18.2)", () => {
   });
 });
 
+describe("GET /api/chat/unread/{room} (§18.2)", () => {
+  const firstUnread = (u: TestUser, room: string) =>
+    u.pb.send<{ id: string; created: string }>(`/api/chat/unread/${room}`, { method: "GET" });
+
+  it("finds the oldest unread message: other people's, not deleted, after the read position", async () => {
+    const a = await newUser();
+    const room = await newRoom(a);
+    await post(a, room.id, "before b signed up");
+    const b = await newUser();
+    expect(await firstUnread(b, room.id)).toEqual({ id: "", created: "" });
+
+    await post(b, room.id, "mine");
+    const one = await post(a, room.id, "one");
+    const two = await post(a, room.id, "two");
+    const three = await post(a, room.id, "three");
+    expect(await firstUnread(b, room.id)).toEqual({ id: one.id, created: one.created });
+
+    await a.pb.collection("messages").update(one.id, { deleted: true });
+    expect((await firstUnread(b, room.id)).id).toBe(two.id);
+    await markRead(b, { room: room.id, at: two.created });
+    expect((await firstUnread(b, room.id)).id).toBe(three.id);
+    await markRead(b, { room: room.id });
+    expect((await firstUnread(b, room.id)).id).toBe("");
+  });
+
+  it("404s for an unknown room and for someone else's DM; 401 when anonymous", async () => {
+    const a = await newUser();
+    const b = await newUser();
+    const c = await newUser();
+    const dm = await openDm(a, b);
+    expect(await status(firstUnread(c, dm.id))).toBe(404);
+    expect(await status(firstUnread(c, "nosuchroom12345"))).toBe(404);
+    expect(await status(client().send(`/api/chat/unread/${dm.id}`, { method: "GET" }))).toBe(401);
+  });
+});
+
 describe("POST /api/chat/reads (§18.2)", () => {
   async function busyRoom() {
     const a = await newUser();

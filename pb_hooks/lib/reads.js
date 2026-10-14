@@ -26,6 +26,16 @@ SELECT room, n FROM (
   WHERE ${SEES_SQL}
 ) WHERE n > 0`;
 
+/** The oldest unread message in one room, by the same rule as UNREAD_SQL (§18.2). */
+const FIRST_UNREAD_SQL = `
+SELECT m.id, m.created FROM messages m
+WHERE m.room = {:room}
+  AND m.created > MAX(COALESCE((SELECT rr.last_read_at FROM room_reads rr WHERE rr.user = {:me} AND rr.room = {:room}), ''), {:since})
+  AND m.author != {:me}
+  AND m.deleted = FALSE
+ORDER BY m.created, m.id
+LIMIT 1`;
+
 /** @param {core.RequestEvent} e */
 function me(e) {
   if (!e.auth) throw new UnauthorizedError("The request requires a logged-in user.");
@@ -55,6 +65,28 @@ function unread(e) {
   const out = {};
   for (const row of rows) out[row.room] = row.n;
   return e.json(200, { at, rooms: out });
+}
+
+/**
+ * GET /api/chat/unread/{room} → { id, created } of the oldest message in `room` that is unread for the caller, or
+ * { id: "", created: "" } when there is none. The room view opens there (§18.5).
+ * @param {core.RequestEvent} e
+ */
+function firstUnread(e) {
+  const user = me(e);
+  const roomId = e.request?.pathValue("room") ?? "";
+  if (!visibleRoom(e.app, roomId, user.id)) throw new NotFoundError("The room doesn't exist.");
+  const row = new DynamicModel({ id: "", created: "" });
+  try {
+    e.app
+      .db()
+      .newQuery(FIRST_UNREAD_SQL)
+      .bind({ me: user.id, room: roomId, since: user.getString("created") })
+      .one(row);
+  } catch {
+    // No rows: nothing unread.
+  }
+  return e.json(200, { id: row.id, created: row.created });
 }
 
 /**
@@ -118,4 +150,4 @@ function markRead(e) {
   return e.json(200, { room: roomId, last_read_at: row.getString("last_read_at") });
 }
 
-module.exports = { unread, markRead };
+module.exports = { unread, firstUnread, markRead };

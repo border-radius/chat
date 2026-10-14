@@ -400,8 +400,11 @@ function createRealtime(url: string, send: PbClient["send"]): Realtime & { resub
       const fns = subs.get(key) ?? [];
       subs.set(key, [...fns, listener]);
       if (!es || !clientId || pending.length) await connect();
-      else if (!fns.length) await submit();
-      else es.addEventListener(key, listener);
+      else {
+        // Bound now: a key dropped and taken again before the submits ran is no change to them, and they bind nothing.
+        es.addEventListener(key, listener);
+        if (!fns.length) await submit();
+      }
 
       return async () => {
         const left = (subs.get(key) ?? []).filter((f) => f !== listener);

@@ -42,7 +42,7 @@ export function mergeChanges(a: Change, b: Change): Change {
   return c;
 }
 
-export function createRoomView({ api, store, unread, actions, navigate, reopen, drafts }: Ctx): View {
+export function createRoomView({ api, store, unread, actions, navigate, reopen, drafts, cache }: Ctx): View {
   const vid = uniqueId("room");
   const scope = createScope();
   const { signal } = scope;
@@ -113,6 +113,7 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
         failed: s.phase === "failed",
         beginning: beginningLabel(),
         targetId: s.targetId,
+        unreadId: s.unreadId,
         selected: selection.ids,
       };
     },
@@ -313,9 +314,11 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
     }
     if (c.scroll === "bottom") scrollToBottom();
     else if (c.scroll === "top") list.scrollTop = 0;
-    else if (c.scroll === "target" && s.targetId) {
-      const el = list.querySelector<HTMLElement>(`li.msg[data-id="${CSS.escape(s.targetId)}"]`);
-      if (el) list.scrollTop = el.offsetTop - list.clientHeight / 2;
+    else if (c.scroll === "target") {
+      // A message gone to is centred; the first unread one goes near the top, with what follows it below.
+      const id = s.targetId ?? s.unreadId;
+      const el = id && list.querySelector<HTMLElement>(`li.msg[data-id="${CSS.escape(id)}"]`);
+      if (el) list.scrollTop = el.offsetTop - list.clientHeight / (s.targetId ? 2 : 4);
     }
     renderPill();
   }
@@ -535,6 +538,7 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
         nearBottom: () => isNearBottom(list),
         onChange: apply,
         onUpload: (id, fraction) => messages.setUpload(id, fraction),
+        cache,
       });
 
       pill.addEventListener(
@@ -631,7 +635,8 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
       scope.defer(() => store.set({ activeRoomId: null }));
       const r = unread.open(roomId);
       reader = r;
-      scope.defer(() => r.close(atLiveEdge()));
+      // Left before the first page was in, the server may have more than the kept window showed: it says what is unread.
+      scope.defer(() => r.close(atLiveEdge() && !ctl.state().stale));
       scope.defer(
         store.subscribe((s, prev) => {
           // Lost while you were in it (§23.4). Not on logging out: the views start over then anyway.

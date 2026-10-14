@@ -4,6 +4,7 @@
 import { inject, vi } from "vitest";
 import { createRoomActions } from "../../web/src/actions.ts";
 import { type Api, createApi } from "../../web/src/api.ts";
+import type { Cache, Kept } from "../../web/src/cache.ts";
 import type { Ctx } from "../../web/src/context.ts";
 import { createDrafts } from "../../web/src/drafts.ts";
 import { newId } from "../../web/src/lib/id.ts";
@@ -231,7 +232,33 @@ export function viewContext(api: Api, store: Store<AppState>, navigate: (hash: s
   contexts.add(sync);
   contexts.add(unread);
   const drafts = createDrafts(() => store.get().user?.id ?? "");
-  return { api, store, sync, unread, actions: createRoomActions({ api, store }), navigate, reopen: vi.fn(), drafts, logOut: vi.fn() };
+  const cache = memoryCache();
+  return {
+    api,
+    store,
+    sync,
+    unread,
+    actions: createRoomActions({ api, store }),
+    navigate,
+    reopen: vi.fn(),
+    drafts,
+    cache,
+    logOut: vi.fn(),
+  };
+}
+
+/** cache.ts without IndexedDB (happy-dom has none): the same contract, in a Map. */
+export function memoryCache(): Cache & { rooms: Map<string, Kept & { user: string }> } {
+  const rooms = new Map<string, Kept & { user: string }>();
+  return {
+    rooms,
+    async get(user, roomId) {
+      const kept = rooms.get(roomId);
+      return kept?.user === user ? { items: kept.items, hasOlder: kept.hasOlder } : undefined;
+    },
+    put: (user, roomId, kept) => void rooms.set(roomId, { user, ...structuredClone(kept) }),
+    clear: () => rooms.clear(),
+  };
 }
 
 const contexts = new Set<{ stop(): void }>();

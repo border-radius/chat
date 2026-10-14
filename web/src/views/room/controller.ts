@@ -3,7 +3,8 @@
 // (render, keep the anchor, scroll), and the room view (views/room.ts) applies it to the list.
 
 import { type Action, type Api, ApiError } from "../../api.ts";
-import { changedIn, first, latest, newer, older, PAGE_SIZE } from "../../lib/cursor.ts";
+import type { Cache } from "../../cache.ts";
+import { type Cursor, changedIn, first, latest, newer, older, PAGE_SIZE } from "../../lib/cursor.ts";
 import { newId } from "../../lib/id.ts";
 import {
   applyPage,
@@ -21,11 +22,13 @@ import { setReaction } from "../../lib/reactions.ts";
 import { parsePb, toPb } from "../../lib/time.ts";
 import type { LocalFile, Message, Reaction, Room } from "../../lib/types.ts";
 import type { Scope } from "../../scope.ts";
-import { type AppState, type Store, upsertRoom } from "../../store.ts";
+import { type AppState, type Store, UNCOUNTED, upsertRoom } from "../../store.ts";
 
 /** "loading" until the first page is in; "failed" offers Retry; "not-found": no such room (or not yours). */
 /** How long a message gone to (a quote, a link) stays highlighted; styles/app/messages.css fades it out over this time. */
 export const HIGHLIGHT_MS = 3000;
+/** How long the line over the first unread message shows; styles/app/messages.css fades it out before then. */
+export const UNREAD_LINE_MS = 5000;
 
 /**
  * Sends that failed after their room view had gone (another room was opened while they were on their way), by room.
@@ -43,14 +46,18 @@ export interface RoomState {
   phase: Phase;
   /** The message the route asked for, once it is in the window (highlighted). */
   targetId: string | null;
+  /** The first message that was unread when the room was opened (§18.5): a line over it, for UNREAD_LINE_MS. */
+  unreadId: string | null;
   pill: Pill;
+  /** Showing the room as it was last time (cache.ts) until its first page is in: there may be newer messages. */
+  stale: boolean;
 }
 
 /** What a change asks of the view. Pill and phase are read from `state()`, and every change may have changed them. */
 export interface Change {
   /** The window changed. `anchor`: keep what is on screen in place (content changed above it). */
   render?: { anchor?: boolean };
-  /** "target": centre `targetId`. */
+  /** "target": bring `targetId` (else `unreadId`) into view. */
   scroll?: "bottom" | "top" | "target";
   /** Replace the notice above the list ("" clears it). */
   notice?: string;
@@ -118,6 +125,8 @@ export function createRoomController(opts: {
   onChange: (change: Change) => void;
   /** A sending message's attachments are this far uploaded, 0 to 1 (§17.4). */
   onUpload?: (id: string, fraction: number) => void;
+  /** Where the room's latest messages are kept between visits (§7.5). */
+  cache?: Cache;
 }): RoomController {
   const { api, store, roomId, msgId, scope, nearBottom } = opts;
   const { signal } = scope;
@@ -126,10 +135,16 @@ export function createRoomController(opts: {
   let phase: Phase = "loading";
   let targetId: string | null = null;
   let targetTimer: ReturnType<typeof setTimeout> | undefined;
+  let unreadId: string | null = null;
   let pill: Pill = null;
+  /** The window is the one kept from last time (cache.ts), until the first page replaces it. */
+  let stale = false;
+  /** An end the list asked to extend while stale: extended once the first page is in. */
+  let wanted: "top" | "bottom" | null = null;
+  let keepTimer: ReturnType<typeof setTimeout> | undefined;
   /** Bumped whenever the window is replaced (a jump): pages requested before that are stale. */
   let gen = 0;
-  /** Realtime events that arrive before the first page; replayed once it is in. */
+  /** Realtime events that arrive before the first page (even while a stale window shows); replayed once it is in. */
   let buffer: [Action, Message][] = [];
   /**
    * Unsent (pending or failed) messages the window dropped, e.g. when a reply's quote took it back in history (§19).
@@ -144,6 +159,8 @@ export function createRoomController(opts: {
   const ready = () => phase === "ready";
   const room = (): Room | undefined => store.get().rooms.get(roomId);
   const me = () => store.get().user;
+  /** Whom the window was loaded for: after a logout or a user switch, nothing of it may be kept for the next one. */
+  const owner = me()?.id ?? "";
   const find = (id: string) => win.items.find((m) => m.id === id);
   const deletable = (m: Message) => {
     const r = room();
@@ -175,7 +192,17 @@ export function createRoomController(opts: {
   };
   let reactSeq = 0;
   const emit = (change: Change = {}) => {
-    if (scope.active) opts.onChange(change);
+    if (!scope.active) return;
+    opts.onChange(change);
+    clearTimeout(keepTimer);
+    keepTimer = setTimeout(keep, 1000);
+  };
+  /** Keep the latest page for next time: only a fresh window at the live edge, only for whom it was loaded for. */
+  const keep = () => {
+    if (stale || !ready() || win.hasNewer || (me()?.id ?? "") !== owner) return;
+    const saved = win.items.filter((m) => !m.status);
+    const items = saved.slice(-PAGE_SIZE);
+    opts.cache?.put(owner, roomId, { items, hasOlder: win.hasOlder || items.length < saved.length });
   };
   /** Local optimistic change that must win regardless of `updated` (edit/delete/revert). */
   const patchLocal = (id: string, patch: Partial<Message>) => {
@@ -204,6 +231,16 @@ export function createRoomController(opts: {
       emit({ render: { anchor: true } });
     }, HIGHLIGHT_MS);
   };
+  /** Show the line over message `id` (§18.5) until UNREAD_LINE_MS from now. */
+  const setUnread = (id?: string) => {
+    if (!id || id === unreadId) return;
+    unreadId = id;
+    setTimeout(() => {
+      if (unreadId !== id) return;
+      unreadId = null;
+      emit({ render: { anchor: true } });
+    }, UNREAD_LINE_MS);
+  };
   /** Release a local message's preview URLs (sent, discarded, or the room is going away). */
   const revokeLocal = (m: Message | undefined) => {
     for (const f of m?.localFiles ?? []) if (f.url) URL.revokeObjectURL(f.url);
@@ -220,7 +257,8 @@ export function createRoomController(opts: {
 
   async function loadEdge(side: "top" | "bottom") {
     const more = side === "top" ? win.hasOlder : win.hasNewer;
-    if (!ready() || !more || loading[side] || !win.items.length) return;
+    if (stale) wanted = side; // the window is about to be replaced: what it would load now could be out of date
+    if (!ready() || stale || !more || loading[side] || !win.items.length) return;
     loading[side] = true;
     const g = gen;
     try {
@@ -276,13 +314,13 @@ export function createRoomController(opts: {
       throw e;
     });
     if (!target || target.room !== roomId) return null;
-    const [before, after] = await Promise.all([api.page(older(roomId, target), signal), api.page(newer(roomId, target), signal)]);
-    const win = merge({ items: [], hasOlder: before.length >= PAGE_SIZE, hasNewer: after.length >= PAGE_SIZE }, [
-      ...before,
-      target,
-      ...after,
-    ]);
-    return { win, target: target.id };
+    return { win: await windowAt(target), target: target.id };
+  }
+
+  /** The page before message `c`, and `c` with the page after it. */
+  async function windowAt(c: Cursor): Promise<MessageWindow> {
+    const [before, after] = await Promise.all([api.page(older(roomId, c), signal), api.page(newer(roomId, { ...c, id: "" }), signal)]);
+    return merge({ items: [], hasOlder: before.length >= PAGE_SIZE, hasNewer: after.length >= PAGE_SIZE }, [...before, ...after]);
   }
 
   async function open() {
@@ -290,17 +328,27 @@ export function createRoomController(opts: {
     const roomP = api.getRoom(roomId, signal).then((r) => store.set(upsertRoom(r)));
     // Attachment URLs need a file token: have one before the first render, so images don't fail first.
     const tokenP = api.fileToken().catch(() => "");
+    // With unread messages (the room list showed a badge), the room opens at the first of them (§18.5). Before the
+    // counts are in (a reload), only the server knows.
+    const { unread } = store.get();
+    const firstP =
+      msgId || !me() || (unread !== UNCOUNTED && !unread.get(roomId)) ? null : api.firstUnread(roomId, signal).catch(() => null);
     // Loaders only return a window; it is committed below, and only if nothing (a jump) replaced it meanwhile.
-    const pageP = (async () => {
+    const pageP = (async (): Promise<{ win: MessageWindow; target: string | null; unread?: string }> => {
       const around = msgId ? await windowAround(msgId) : null;
-      return around ?? { win: applyPage(emptyWindow(), await api.page(latest(roomId), signal), "latest").win, target: null };
+      if (around) return around;
+      const f = firstP && (await firstP); // no await without one: the latest page is asked for at once
+      if (f?.id) return { win: await windowAt(f), target: null, unread: f.id };
+      return { win: applyPage(emptyWindow(), await api.page(latest(roomId), signal), "latest").win, target: null };
     })();
     pageP.catch(() => {}); // handled below; but we may return early (room not found) without awaiting it
+    if (!msgId) void showKept(g, roomP, tokenP, firstP);
     try {
       await roomP;
     } catch (e) {
       if (!scope.active) return;
       phase = e instanceof ApiError && e.status === 404 ? "not-found" : "failed";
+      stale = false;
       return emit({ render: {} });
     }
     const loaded = await pageP.catch(() => null);
@@ -310,25 +358,48 @@ export function createRoomController(opts: {
     // Never show a failed load as an empty room ("Beginning of #room"): say so and offer Retry.
     if (current && !loaded) {
       phase = "failed";
+      stale = false;
       return emit({ render: {} });
     }
     const change: Change = { render: {} };
     if (current && loaded) {
       setWin(loaded.win); // keeps a message sent (or adopted) while loading
       setTarget(loaded.target);
+      setUnread(loaded.unread);
       change.notice = msgId && !loaded.target ? "That message isn't in this room. Showing the latest messages instead." : "";
-      // Otherwise the jump has positioned the list.
-      change.scroll = targetId ? "target" : "bottom";
+      // Otherwise the jump has positioned the list. A stale window was already shown at the first unread message, or
+      // you scrolled it: stay there (QA BUG-96), unless it was at the bottom and there is nothing unread.
+      if (targetId || !stale) change.scroll = targetId || loaded.unread ? "target" : "bottom";
+      else if (nearBottom() && !loaded.unread) change.scroll = "bottom";
+      else change.render = { anchor: true };
     }
     // Ready either way: a jump made during the load already owns the window, but still needs the view live.
     phase = "ready";
+    stale = false;
     emit(change);
+    if (wanted) void loadEdge(wanted);
     const pending = buffer;
     buffer = [];
     for (const [action, m] of pending) onMessage(action, m);
     // The page and the subscription are set up side by side. A message sent after the page was read but before the
     // server had the subscription reaches neither (QA BUG-61): once the subscription is there, fetch what is newer.
     if (!liveReady) void live.then(catchUp);
+  }
+
+  /** Show the room as it was last time while its first page loads, if that is still to come. */
+  async function showKept(g: number, roomP: Promise<unknown>, token: Promise<unknown>, firstP: Promise<Cursor | null> | null) {
+    const kept = await opts.cache?.get(owner, roomId);
+    await token; // attachment URLs need it, as for the first page
+    if (!room()) await roomP.catch(() => {}); // just after a reload, the room list may not be in yet
+    // Opening at the first unread message: only if it was kept too (no jump once the first page is in).
+    const f = (await firstP)?.id;
+    if (!kept?.items.length || g !== gen || phase !== "loading" || !room() || !scope.active) return;
+    if (f && !kept.items.some((m) => m.id === f)) return;
+    setWin(merge({ items: [], hasOlder: kept.hasOlder, hasNewer: false }, kept.items));
+    setUnread(f);
+    stale = true;
+    phase = "ready";
+    emit({ render: {}, scroll: f ? "target" : "bottom" });
   }
 
   /** Messages newer than the window's that realtime may have missed while it was being set up (QA BUG-61). */
@@ -401,10 +472,8 @@ export function createRoomController(opts: {
 
   function onMessage(action: Action, m: Message) {
     if (!scope.active || m.room !== roomId) return;
-    if (!ready()) {
-      buffer.push([action, m]);
-      return;
-    }
+    if (!ready() || stale) buffer.push([action, m]); // the first page may be older than this event
+    if (!ready()) return;
     if (action === "delete") {
       win = remove(win, m.id);
       return emit({ render: { anchor: true } });
@@ -629,9 +698,11 @@ export function createRoomController(opts: {
   // ---------------------------------------------------------------- lifecycle
 
   return {
-    state: () => ({ win, phase, targetId, pill }),
+    state: () => ({ win, phase, targetId, unreadId, pill, stale }),
     start() {
       scope.defer(() => {
+        clearTimeout(keepTimer);
+        keep();
         for (const m of [...win.items, ...unsent.values()]) revokeLocal(m);
       });
       // Keep a fresh file token for attachment URLs (§17.3); it only fetches when the cached one is old.

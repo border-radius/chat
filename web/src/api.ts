@@ -1,6 +1,6 @@
 // The only module that talks to PocketBase (§6). Views depend on the `Api` interface, never on the client.
 
-import { PAGE_SIZE, type PageQuery } from "./lib/cursor.ts";
+import { type Cursor, PAGE_SIZE, type PageQuery } from "./lib/cursor.ts";
 import { createTokenCache } from "./lib/token.ts";
 import { DEFAULT_SITE, type Message, type Room, type Site, type User, type Visibility } from "./lib/types.ts";
 import { type AuthRecord, type PbClient, PbError, type Query, type RequestOptions } from "./pb.ts";
@@ -109,6 +109,8 @@ export interface Api {
   // unread counts (§18)
   /** Unread messages per room, at most 100 each. */
   unreadCounts(signal?: AbortSignal): Promise<UnreadCounts>;
+  /** The oldest unread message in a room; its id is "" when there is none. */
+  firstUnread(room: string, signal?: AbortSignal): Promise<Cursor>;
   /** You have read `room` up to `at` (a message's `created`). The server never moves it back. */
   markRead(room: string, at: string): Promise<void>;
 
@@ -439,6 +441,7 @@ export function createApi(client: PbClient): Api {
     },
 
     unreadCounts: (signal) => wrap(pb.send<UnreadCounts>("/api/chat/unread", { signal })),
+    firstUnread: (room, signal) => wrap(pb.send<Cursor>(`/api/chat/unread/${room}`, { signal })),
     markRead: async (room, at) => {
       await wrap(pb.send("/api/chat/reads", { method: "POST", body: { room, at } }));
     },

@@ -797,3 +797,70 @@ each from the room view, the room list and the unread counts). **Cause:** `api.o
 
 Not verified: on a notched iPhone in landscape, the app bar and room list have no side safe-area padding
 (`viewport-fit=cover`), so their edges may sit under the notch. Chromium can't show it.
+
+---
+
+# QA pass 11 — the room cache, prefetching and opening at the first unread message
+
+Exploratory testing of what came since pass 10 (§7.5 room cache, its prefetching, §18.5 opening at the first unread
+message), 2026-10-14, then a sweep of the rest. A production build on a fresh PocketBase server, in Chromium (desktop
+1100×720 and a 390×844 phone), with two users side by side, several tabs of one browser, held and slowed requests,
+rapid room switching, a user switch in another tab, the rate limiter turned on, and up to 320 rooms with unread
+messages. Numbering continues from BUG-91. Each fix lands with a test that fails without it.
+
+| # | Severity | Area | Summary | Status |
+|---|---|---|---|---|
+| BUG-93 | Medium | Unread | Loading the app straight into a room (a reload, a restored tab, a link) opened it at the bottom and took every unread message as read | Fixed |
+| BUG-94 | Medium | Prefetching | With many rooms unread at login, prefetching used up the per-IP request limit: rooms opened meanwhile said "Couldn't load this room. Check your connection." | Fixed |
+| BUG-95 | Medium (privacy) | Room cache | A message deleted while you were in another room showed its full text again when you opened the room, until the first page was in | Fixed |
+| BUG-92 | Low | Prefetching | While any room got a message at least once a second, no room was ever prefetched | Fixed |
+| BUG-96 | Low | Room cache | Scrolled to the bottom of a kept window that opened at the "New" line, the first page pulled you back up to the line | Fixed |
+
+## BUG-93 — A reload skipped the unread messages (Medium)
+
+**Steps:** Bob reads a room and closes the tab; Ada writes 80 messages; Bob opens the room's address (or reloads it,
+or the browser restores the tab). **Expected:** the room opens at the first of the 80, under the "New" line (§18.5).
+**Actual:** it opened at the bottom, with no line, and the read went out at once: 60 of the 80 were never on screen and
+the room showed nothing unread. **Cause:** the room only asks where its unread messages start when the store has a
+count for it, and just after a page load the counts aren't in yet. **Fix:** the store's `unread` starts as
+`UNCOUNTED`; while it is, a logged-in room view asks the server. That is one more request before the first page on
+such a load (as for any room opened with a badge).
+
+## BUG-94 — Prefetching used up the rate limit (Medium)
+
+**Steps:** with the rate limiter on, log in as someone with 320 rooms with unread messages, and open rooms from the list.
+**Expected:** they open. **Actual:** prefetching fetched all 320 back to back; 46 requests were refused with 429, and
+9 of 15 rooms opened meanwhile showed "Couldn't load this room. Check your connection." PocketBase's limit for
+`/api/` is per IP (300 per 10 s), so it is shared with everyone behind the same address. **Fix:** rooms are fetched 250 ms
+apart (at most 40 per 10 s), and a refused fetch ends the run; the rest is fetched when their counts next go up.
+
+## BUG-95 — The cache showed deleted messages (Medium, privacy)
+
+**Steps:** Bob is in another room; Ada writes "my password is hunter2" in a room Bob has kept (or that was prefetched
+for him), then deletes it; Bob opens that room on a slow network. **Expected:** "Message deleted" (a deleted message
+must never show its text, §7.5). **Actual:** the text, until the first page replaced the window. **Fix:** prefetching
+also follows message deletes (the unread service's text-free events, §18.3) and refetches the room, so the cache holds
+it deleted. A delete made while the app was closed still shows until the first page is in: nothing could tell it.
+
+## BUG-92 and BUG-96 (Low)
+
+- **BUG-92:** each count going up restarted prefetching's one-second wait, for every room together, so a room with a
+  message every 600 ms kept every room from being fetched (none was kept in 8 s). The wait now starts with the first
+  count and isn't restarted; messages meanwhile join the run, and a busy room is fetched about once a second.
+- **BUG-96:** the first page scrolled a stale window to the first unread message whenever it was at the bottom, which is
+  where you were if you had scrolled down to read. It now stays where it is; a kept window shown at the bottom with
+  nothing unread still follows to the newest message.
+
+## Checked and fine
+
+- **Opening at the first unread message:** 120 unread under 70 read lands on the first, a quarter of the way down,
+  and nothing is read until the bottom is on screen; then older and newer history load with no duplicates. With 1 or 3
+  unread (also on a phone) everything is on screen and read at once. 99+ badges.
+- **Room cache:** sending, a live message and a delete while the kept window shows; rapid switching through 8 rooms 3
+  times (no message of another room shown, every room right afterwards); a guest's cache cleared at login; a user
+  switched in another tab (nothing of the previous user kept, the tab follows); a deleted message's text never kept.
+- Typecheck, lint, unit, integration and Chromium e2e suites, before and after the fixes.
+
+Not fixed: a room's first load that fails for any reason (also 429 or 500) says "Check your connection", as the room
+list does; with BUG-94 fixed it is rare. A message edited while you were away shows its old text until the first page
+is in (the cache is "as it was last time"; edits can't be told from reactions in the text-free events).

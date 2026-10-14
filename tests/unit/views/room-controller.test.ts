@@ -5,7 +5,7 @@ import type { Message, Room } from "../../../web/src/lib/types.ts";
 import { createScope, type Scope } from "../../../web/src/scope.ts";
 import { type AppState, createStore, initialState, type Store, upsertRoom } from "../../../web/src/store.ts";
 import { type Change, createRoomController, type RoomController } from "../../../web/src/views/room/controller.ts";
-import { instrument, intercept, type SignedUp, seedMessages, signedUp, subscribed, uniq } from "../../support/api.ts";
+import { instrument, intercept, memoryCache, type SignedUp, seedMessages, signedUp, subscribed, uniq } from "../../support/api.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -17,11 +17,15 @@ describe("room controller (§7.5, no DOM)", () => {
   let changes: Change[];
   /** What the view would answer to "is the list at the bottom?". */
   let nearBottom: boolean;
+  /** The room cache, for the tests that use one. */
+  let cache: ReturnType<typeof memoryCache> | undefined;
 
   beforeEach(async () => {
     me = await signedUp("Me");
-    store = createStore<AppState>({ ...initialState(), user: me.user });
+    // The unread counts are in, with none (initialState's UNCOUNTED is a page just loaded: QA BUG-93).
+    store = createStore<AppState>({ ...initialState(), user: me.user, unread: new Map() });
     nearBottom = true;
+    cache = undefined;
   });
   afterEach(async () => {
     scope?.dispose();
@@ -49,6 +53,7 @@ describe("room controller (§7.5, no DOM)", () => {
       scope,
       nearBottom: () => nearBottom,
       onChange: (c) => changes.push(c),
+      ...(cache && { cache }),
     });
     ctl.start();
   }
@@ -167,6 +172,18 @@ describe("room controller (§7.5, no DOM)", () => {
       release();
       await ready();
       expect(ids().filter((id) => id === early.id)).toHaveLength(1);
+    });
+
+    it("opened again at once (the same room remounted), it still gets live messages", async () => {
+      const room = await newRoom();
+      await open(room);
+      // The next view subscribes once the old one has unsubscribed, before that was sent: to the server nothing changed,
+      // yet the new listener must still be bound.
+      scope.dispose();
+      await Promise.resolve();
+      await open(room);
+      const m = await say(me, room, "still live");
+      await vi.waitFor(() => expect(ctl.find(m.id)).toBeDefined());
     });
 
     it("after the scope ends, nothing changes and nothing is reported", async () => {
@@ -601,6 +618,125 @@ describe("room controller (§7.5, no DOM)", () => {
       expect(await ctl.react(m.id, "👍", true)).toBe(true);
       expect(ctl.find(m.id)).toMatchObject({ text: "after", reactions: [{ emoji: "👍", users: [me.user.id] }] });
       expect(ctl.find(m.id)!.expand?.author?.name).toBe("Other");
+    });
+  });
+
+  describe("room cache (§7.5)", () => {
+    beforeEach(() => {
+      cache = memoryCache();
+    });
+
+    /** Visit the room once, so its latest page is kept. */
+    async function visit(room: Room) {
+      await open(room);
+      scope.dispose();
+    }
+
+    it("shows the room as it was last time while the first page loads, then the page", async () => {
+      const room = await newRoom();
+      const before = await seedMessages(room.id, me.user.id, 60);
+      await visit(room);
+      expect(cache!.rooms.get(room.id)).toMatchObject({ user: me.user.id, hasOlder: true });
+      expect(cache!.rooms.get(room.id)!.items.map((m) => m.id)).toEqual(before.slice(10).map((m) => m.id));
+      const later = await say(me, room, "later");
+      const release = instrument(me.api).hold("page");
+      start(room);
+      await vi.waitFor(() => expect(state()).toMatchObject({ phase: "ready", stale: true }));
+      expect(ids()).toEqual(before.slice(10).map((m) => m.id));
+      expect(changes.at(-1)).toEqual({ render: {}, scroll: "bottom" });
+      release();
+      await vi.waitFor(() => expect(state().stale).toBe(false));
+      expect(ids().at(-1)).toBe(later.id);
+      expect(ids()).toHaveLength(50);
+    });
+
+    it("scrolled up over the kept window, the page doesn't take you to the bottom", async () => {
+      const room = await newRoom();
+      await seedMessages(room.id, me.user.id, 60);
+      await visit(room);
+      const release = instrument(me.api).hold("page");
+      start(room);
+      await vi.waitFor(() => expect(state().stale).toBe(true));
+      nearBottom = false;
+      release();
+      await vi.waitFor(() => expect(state().stale).toBe(false));
+      expect(changes.at(-1)).toEqual({ render: { anchor: true }, notice: "" });
+    });
+
+    it("QA BUG-96: shown at the first unread message, the page leaves the list where it is, even at the bottom", async () => {
+      const other = await signedUp("Other");
+      const room = await newRoom(other);
+      await sleep(20);
+      const all = await seedMessages(room.id, other.user.id, 60, { stepMs: 1, startAt: Date.now() - 100 });
+      await me.api.markRead(room.id, all[49]!.created);
+      cache!.put(me.user.id, room.id, { items: all.slice(10), hasOlder: true });
+      store.set({ unread: new Map([[room.id, 10]]) });
+      const release = instrument(me.api).hold("page");
+      start(room);
+      await vi.waitFor(() => expect(state()).toMatchObject({ stale: true, unreadId: all[50]!.id }));
+      expect(changes.at(-1)).toEqual({ render: {}, scroll: "target" });
+      nearBottom = true; // scrolled down to the end meanwhile
+      release();
+      await vi.waitFor(() => expect(state().stale).toBe(false));
+      expect(changes.at(-1)).toEqual({ render: { anchor: true }, notice: "" });
+    });
+
+    it("a message that arrives while the kept window shows survives the page", async () => {
+      const room = await newRoom();
+      await seedMessages(room.id, me.user.id, 5);
+      await visit(room);
+      const release = instrument(me.api).hold("page");
+      start(room);
+      await vi.waitFor(() => expect(state().stale).toBe(true));
+      await subscribed(me.api);
+      const m = await say(me, room, "meanwhile");
+      await vi.waitFor(() => expect(ctl.find(m.id)).toBeDefined());
+      release();
+      await vi.waitFor(() => expect(state().stale).toBe(false));
+      expect(ctl.find(m.id)).toMatchObject({ text: "meanwhile" });
+    });
+
+    it("older history waits for the page, then loads", async () => {
+      const room = await newRoom();
+      const all = await seedMessages(room.id, me.user.id, 120);
+      await visit(room);
+      const release = instrument(me.api).hold("page");
+      start(room);
+      await vi.waitFor(() => expect(state().stale).toBe(true));
+      await ctl.loadEdge("top");
+      expect(ids()).toHaveLength(50);
+      release();
+      await vi.waitFor(() => expect(ids()).toHaveLength(100));
+      contiguous(all);
+    });
+
+    it("another user's room isn't shown", async () => {
+      const room = await newRoom();
+      await seedMessages(room.id, me.user.id, 5);
+      cache!.put("someoneelse123", room.id, { items: [await say(me, room)], hasOlder: false });
+      const release = instrument(me.api).hold("page");
+      start(room);
+      await sleep(200);
+      expect(state()).toMatchObject({ phase: "loading", stale: false });
+      release();
+    });
+
+    it("nothing is kept once the user has changed (a logout, another user)", async () => {
+      const room = await newRoom();
+      await seedMessages(room.id, me.user.id, 5);
+      await open(room);
+      store.set({ user: null });
+      scope.dispose();
+      expect(cache!.rooms.size).toBe(0);
+    });
+
+    it("a window back in history isn't kept", async () => {
+      const room = await newRoom();
+      await seedMessages(room.id, me.user.id, 120);
+      await open(room);
+      await ctl.jump("first");
+      scope.dispose();
+      expect(cache!.rooms.size).toBe(0);
     });
   });
 });

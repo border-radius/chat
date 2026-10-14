@@ -37,7 +37,7 @@ export interface AppState {
   rooms: Map<string, Room>;
   /** roomId → hidden_rooms row id (needed to unhide). */
   hidden: Map<string, string>;
-  /** roomId → unread messages (§18); rooms without any are absent. */
+  /** roomId → unread messages (§18); rooms without any are absent. UNCOUNTED until the counts are first in. */
   unread: Map<string, number>;
   roomsStatus: LoadStatus;
   activeRoomId: string | null;
@@ -47,11 +47,14 @@ export interface AppState {
   site: Site;
 }
 
+/** `unread` before the counts are in (just after a reload): a room opened then asks where its unread messages start (QA BUG-93). */
+export const UNCOUNTED: Map<string, number> = new Map();
+
 export const initialState = (): AppState => ({
   user: null,
   rooms: new Map(),
   hidden: new Map(),
-  unread: new Map(),
+  unread: UNCOUNTED,
   roomsStatus: "idle",
   activeRoomId: null,
   away: false,

@@ -1,0 +1,122 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "../../web/src/api.ts";
+import { newId } from "../../web/src/lib/id.ts";
+import type { Room } from "../../web/src/lib/types.ts";
+import { createPrefetch, type Prefetch } from "../../web/src/prefetch.ts";
+import { type AppState, bumpUnread, clearUnread, createStore, initialState, type Store } from "../../web/src/store.ts";
+import { type Controls, instrument, memoryCache, type SignedUp, seedMessages, signedUp, uniq } from "../support/api.ts";
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+describe("prefetching rooms with unread messages (§7.5)", () => {
+  let me: SignedUp;
+  let store: Store<AppState>;
+  let cache: ReturnType<typeof memoryCache>;
+  let net: Controls;
+  let prefetch: Prefetch;
+  let room: Room;
+
+  beforeEach(async () => {
+    me = await signedUp("Me");
+    room = await me.api.createRoom(`room-${uniq()}`);
+    store = createStore<AppState>({ ...initialState(), user: me.user });
+    cache = memoryCache();
+    net = instrument(me.api);
+    prefetch = createPrefetch({ api: me.api, store, cache, delayMs: 20, gapMs: 0 });
+    prefetch.start();
+  });
+  afterEach(() => prefetch.stop());
+
+  it("keeps the latest page of a room whose unread count went up", async () => {
+    const all = await seedMessages(room.id, me.user.id, 60);
+    store.set(bumpUnread(room.id));
+    await vi.waitFor(() => expect(cache.rooms.get(room.id)).toBeDefined());
+    const kept = cache.rooms.get(room.id)!;
+    expect(kept).toMatchObject({ user: me.user.id, hasOlder: true });
+    expect(new Set(kept.items.map((m) => m.id))).toEqual(new Set(all.slice(10).map((m) => m.id)));
+  });
+
+  it("a burst of messages in a room is one fetch", async () => {
+    await seedMessages(room.id, me.user.id, 3);
+    for (let i = 0; i < 5; i++) store.set(bumpUnread(room.id));
+    await vi.waitFor(() => expect(cache.rooms.get(room.id)).toBeDefined());
+    await sleep(100);
+    expect(net.calls("page")).toBe(1);
+  });
+
+  it("leaves the open room alone, and a count going down", async () => {
+    store.set({ activeRoomId: room.id });
+    store.set(bumpUnread(room.id));
+    await sleep(100);
+    expect(net.calls("page")).toBe(0);
+    store.set({ activeRoomId: null, unread: new Map([[room.id, 3]]) });
+    await vi.waitFor(() => expect(net.calls("page")).toBe(1));
+    store.set({ unread: new Map([[room.id, 2]]) });
+    store.set(clearUnread(room.id));
+    await sleep(100);
+    expect(net.calls("page")).toBe(1);
+  });
+
+  it("keeps nothing once stopped (the session ended), even what was on its way", async () => {
+    await seedMessages(room.id, me.user.id, 3);
+    const release = net.hold("page");
+    store.set(bumpUnread(room.id));
+    await vi.waitFor(() => expect(net.calls("page")).toBe(1));
+    prefetch.stop();
+    release();
+    await sleep(100);
+    expect(cache.rooms.size).toBe(0);
+  });
+
+  it("QA BUG-92: a room that keeps getting messages doesn't put the fetch off (nor the other rooms')", async () => {
+    const quiet = await me.api.createRoom(`room-${uniq()}`);
+    store.set(bumpUnread(quiet.id));
+    // A message every 10 ms (half of DELAY_MS), for ten times DELAY_MS: fetching starts meanwhile.
+    for (let i = 0; i < 20; i++) {
+      store.set(bumpUnread(room.id));
+      await sleep(10);
+    }
+    expect(net.calls("page")).toBeGreaterThan(0);
+    await vi.waitFor(() => expect([...cache.rooms.keys()].sort()).toEqual([quiet.id, room.id].sort()));
+    // ...but not once per message.
+    expect(net.calls("page")).toBeLessThan(10);
+  });
+
+  it("QA BUG-94: rooms are fetched GAP_MS apart, and a refused fetch leaves the rest", async () => {
+    prefetch.stop();
+    prefetch = createPrefetch({ api: me.api, store, cache, delayMs: 20, gapMs: 200 });
+    prefetch.start();
+    const rooms = [room.id, ...(await Promise.all([1, 2, 3].map(() => me.api.createRoom(`room-${uniq()}`)))).map((r) => r.id)];
+    store.set({ unread: new Map(rooms.map((id) => [id, 1])) });
+    await vi.waitFor(() => expect(net.calls("page")).toBe(1));
+    await sleep(100);
+    expect(net.calls("page")).toBe(1);
+    await vi.waitFor(() => expect(net.calls("page")).toBe(2));
+    // The server refuses one (429): the run stops there.
+    net.failNext("page", new ApiError("Too many requests.", 429));
+    await vi.waitFor(() => expect(net.calls("page")).toBe(3));
+    await sleep(500);
+    expect(net.calls("page")).toBe(3);
+    expect(cache.rooms.size).toBe(2);
+  });
+
+  it("QA BUG-95: a message deleted in a room fetches it again, so the cache doesn't show its text", async () => {
+    const other = await signedUp("Other");
+    const theirs = await other.api.createRoom(`room-${uniq()}`);
+    const m = await other.api.send({ id: newId(), room: theirs.id, text: "my password is hunter2" });
+    await vi.waitFor(() => expect(net.calls("subscribeAllMessages")).toBe(1));
+    await sleep(200); // the server has the subscription
+    await other.api.softDelete(m.id);
+    await vi.waitFor(() => expect(cache.rooms.get(theirs.id)?.items).toEqual([expect.objectContaining({ id: m.id, deleted: true })]));
+    expect(JSON.stringify(cache.rooms.get(theirs.id))).not.toContain("hunter2");
+  });
+
+  it("doesn't run without a user", async () => {
+    prefetch.stop();
+    store.set({ user: null });
+    prefetch.start();
+    store.set(bumpUnread(room.id));
+    await sleep(100);
+    expect(net.calls("page")).toBe(0);
+  });
+});

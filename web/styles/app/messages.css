@@ -100,3 +100,28 @@
     box-shadow: none;
   }
 }
+
+/* Over the first unread message (§18.5). No height of its own, so nothing moves when it goes; faded out before the
+   controller drops it (UNREAD_LINE_MS). */
+.new-line {
+  height: 0;
+  margin: 0 0.75rem;
+  border-top: 1px solid var(--danger);
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 0;
+  color: var(--danger);
+  text-align: right;
+  animation: fade-out 1s 4s forwards;
+}
+
+.new-line span {
+  padding: 0 0.25rem;
+  background: var(--bg);
+}
+
+@keyframes fade-out {
+  to {
+    opacity: 0;
+  }
+}

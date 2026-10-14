@@ -32,6 +32,8 @@ export interface ListState {
   beginning: string;
   /** Highlighted message (/r/:id/m/:msgId). */
   targetId: string | null;
+  /** The first unread message: a "New" line goes over it (§18.5). */
+  unreadId: string | null;
   /** The selected messages while selecting (§21.1), else null. */
   selected: ReadonlySet<string> | null;
 }
@@ -114,6 +116,7 @@ export function createMessageList(opts: {
   const topSentinel = h("li", { class: "sentinel", dataset: { sentinel: "top" }, "aria-hidden": "true" });
   const bottomSentinel = h("li", { class: "sentinel", dataset: { sentinel: "bottom" }, "aria-hidden": "true" });
   const beginning = h("li", { class: "beginning" });
+  const newLine = h("li", { class: "new-line" }, h("span", {}, "New"));
   const loadError = h("li", { class: "load-error", role: "alert" }, [
     "Couldn't load this room. Check your connection. ",
     h("button", { type: "button", class: "link", on: { click: () => opts.onRetryLoad() }, signal }, "Retry"),
@@ -494,7 +497,7 @@ export function createMessageList(opts: {
 
   function render(o: { anchor?: boolean } = {}) {
     if (signal.aborted) return;
-    const { win, ready, failed, beginning: beginningText, targetId, selected } = opts.state();
+    const { win, ready, failed, beginning: beginningText, targetId, unreadId, selected } = opts.state();
     el.classList.toggle("selecting", !!selected);
     if (failed) {
       reconcile(el, [loadError]);
@@ -530,6 +533,7 @@ export function createMessageList(opts: {
       const { ms, day } = timeOf(m.created);
       const newDay = day !== prevDay;
       if (newDay) nodes.push(divider(ms));
+      if (m.id === unreadId) nodes.push(newLine);
       nodes.push(messageNode(m, newDay || startsGroup(prev, m), targetId, quotedOf(m, win), selected));
       prev = m;
       prevDay = day;
