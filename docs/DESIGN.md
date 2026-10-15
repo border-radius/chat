@@ -456,15 +456,22 @@ In both cases it also refetches the messages *already in the window* that change
 
 If the room's first load fails (other than "room not found"), the list shows an error with **Retry** instead of an empty history, the composer is hidden, and the load is retried by itself on the next reconnect.
 
-**Room cache (`cache.ts`):** switching rooms shows the room at once, as it was last time, while its first page loads.
+**Room cache (`cache.ts`):** switching rooms, and reloading the page, shows the room at once, as it was last time,
+while its first page loads.
 
 - **What is kept:** per room, in IndexedDB (database `chat`, store `rooms`, keyed by room id), the latest page
-  (at most 50 saved messages, never pending or failed ones) and whether there is older history, tagged with the user
-  it was loaded for ("" for a guest). Saved a second after the window last changed and when the view goes, and only
-  while the window is at the live edge, fresh (not itself from the cache) and the user is still the one it was loaded
-  for: after a logout or a user switch nothing more is written.
-- **Shown:** on opening a room without a message in the route, if the cache answers before the first page and the room
-  is in the room list (so access you have lost isn't shown, §23.4). The window is `stale` until the page is in: the page
+  (at most 50 saved messages, never pending or failed ones), whether there is older history and the room record,
+  tagged with the user it was loaded for ("" for a guest). Saved a second after the window last changed, when the view
+  goes and when the page is left (`pagehide`: a reload, the tab closed; QA BUG-97), and only while the window is at the
+  live edge, fresh (not itself from the cache) and the user is still the one it was loaded for: after a logout or a
+  user switch nothing more is written. A room that turns out not to be there (not found, or gone from the loaded room
+  list: access lost, §23.4) is saved empty, so it isn't shown again (QA BUG-98).
+- **Shown:** on opening a room without a message in the route, if the cache answers before the first page. Nothing
+  else is waited for, except a file token when the kept messages have attachments (§17.3): the room is in the room
+  list, or, before the list is in (a reload), the kept room record stands in for it in the store until the list
+  replaces it. A room that a loaded list lacks waits for the server's answer (so access you have lost isn't shown,
+  §23.4). What you send, edit or react to while it shows stays when the page comes: the page was asked for before,
+  and realtime may not have told the room yet (QA BUG-100). A reconnect meanwhile does nothing: the page is on its way. The window is `stale` until the page is in: the page
   then replaces it (pending sends are kept as usual), staying where you scrolled unless you were at the bottom;
   realtime events received meanwhile are replayed on top of it; and loading older history waits for it. What it shows
   counts as read (§18.3), up to its newest message; leaving before the page is in, the unread counts are fetched again
@@ -527,7 +534,7 @@ If the room's first load fails (other than "room not found"), the list shows an 
 
 | Asset | Budget (gzipped) |
 |---|---|
-| `app.js` (including the PocketBase client) | **≤ 41.30 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, see §13) |
+| `app.js` (including the PocketBase client) | **≤ 41.65 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, the room cache without waiting for the network, the QA pass 12 fixes, see §13) |
 | `app.css` | **≤ 6.10 KB** (5 KB until §21, 5.5 KB until §23, 6 KB until audio attachments, 6.05 KB until §18.5, see §13) |
 | `index.html` | ≤ 1.5 KB |
 | Image viewer (§17.7), loaded on first use | ≤ 4 KB script, ≤ 1.5 KB stylesheet |
@@ -960,6 +967,8 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 | Bundle budget (first unread) | `app.js` raised from 40.85 KB to 41.15 KB and `app.css` from 6.05 KB to 6.10 KB gzipped (§7.7): opening a room at its first unread message, with the "New" line (§18.5), took them to 41.09 KB and 6.09 KB. |
 | Bundle budget (QA pass 11) | `app.js` raised from 41.15 KB to 41.20 KB gzipped (§7.7): the fixes of QA pass 11 (prefetching paced and never put off, deleted messages refetched into the room cache, a room opened before the unread counts are in still opening at its first unread message) took it to 41.17 KB. |
 | Bundle budget (service messages) | `app.js` raised from 41.20 KB to 41.30 KB gzipped (§7.7): service messages (§5.3), drawn as a line of their own, took it to 41.25 KB. |
+| Bundle budget (cache without waiting) | `app.js` raised from 41.30 KB to 41.50 KB gzipped (§7.7): showing the room cache without waiting for the network (after a reload, with unread messages) and asking for the latest page beside the first unread message (§7.5, §18.5) took it to 41.46 KB. |
+| Bundle budget (QA pass 12) | `app.js` raised from 41.50 KB to 41.65 KB gzipped (§7.7): the room cache fixes of QA pass 12 (BUG-97 to BUG-100) took it to 41.58 KB. |
 | Bundle budget (QA pass 9) | `app.js` raised from 39.25 KB to 39.35 KB gzipped (§7.7): the forwarding fixes of QA pass 9 (messages deleted meanwhile left out, the server's reason shown, focus kept while selecting) took it to 39.30 KB. |
 
 ### Still open
@@ -1479,17 +1488,25 @@ No row means "read up to your signup" (`users.created`): history from before you
 ### 18.5 Opening at the first unread message
 
 - Opening a room that has unread messages in the store (the room list showed a badge; not with `/m/:msgId`, which
-  wins) asks `GET /api/chat/unread/{room}` where the first unread message is. The first window is then the page
-  before it plus it and the page after (`windowAt` in the controller), scrolled so that it sits a quarter of the way
-  down the list. Without unread messages nothing extra is fetched: the latest page is asked for at once, as before.
+  wins) asks `GET /api/chat/unread/{room}` where the first unread message is, beside the latest page. The first window
+  is then the latest page if it holds that message, else the page before it plus it and the page after (`windowAt` in
+  the controller), scrolled so that it sits a quarter of the way down the list. Without unread messages nothing extra
+  is fetched.
   Before the counts are in (the store's `unread` is still `UNCOUNTED`: a reload, a restored tab, a link to the room)
   the server is asked too: the room would otherwise open at the bottom and take every unread message as read
   (QA BUG-93).
 - **The "New" line:** a red line with "New" (`li.new-line`) over that message, for `UNREAD_LINE_MS` (5 s); it fades
   out in its last second. It has no height, so nothing moves when it goes.
-- **Room cache (§7.5):** the kept window is shown first only when it holds the first unread message (prefetching
-  usually makes sure of that), already scrolled to it; otherwise the room waits for the server's window. When it comes,
-  the list stays where it is, even if you scrolled to the bottom meanwhile (QA BUG-96).
+- **Room cache (§7.5):** the server isn't waited for. With the counts in, the first unread message is worked out from
+  the kept window by the server's rule (the room's count of other people's messages that aren't deleted, counted
+  back from the newest); the kept window is shown at once scrolled to it if it holds them all and was prefetched with
+  that very count (`Kept.unread`; a message that came since, or a prefetch not run yet, would put the line on one
+  already read: QA BUG-99), and otherwise the room waits for the server's window. Before the counts are in (a reload) it
+  is shown at the bottom, and when the server says where they start it goes there (unless you scrolled away), or, if
+  they weren't kept, the first page does. When the page comes, the list otherwise stays where it is, even if you
+  scrolled to the bottom meanwhile (QA BUG-96).
+- **One round trip:** the latest page is asked for beside the first unread message, not after it. When it holds that
+  message (a few unread), it is the first window; only with more does the room fetch the pages around it.
 - Reading is unchanged (§18.3): the room is marked read only once its newest messages are on screen.
 
 ### 18.6 Tests

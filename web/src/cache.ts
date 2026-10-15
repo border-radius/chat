@@ -3,11 +3,15 @@
 // someone else's rooms), and a room kept for another user is never shown. A convenience, never an error: without
 // IndexedDB (a private window, a browser that refuses it) nothing is kept.
 
-import type { Message } from "./lib/types.ts";
+import type { Message, Room } from "./lib/types.ts";
 
 export interface Kept {
   items: Message[];
   hasOlder: boolean;
+  /** The room itself: after a reload, its header shows before the room list is in. */
+  room?: Room | undefined;
+  /** Prefetched (prefetch.ts): the room's unread count when the page was asked for. */
+  unread?: number | undefined;
 }
 
 export interface Cache {
@@ -47,10 +51,10 @@ export function createCache(name = "chat"): Cache {
   return {
     async get(user, roomId) {
       const kept = await run<(Kept & { user: string }) | undefined>("readonly", (s) => s.get(roomId));
-      return kept?.user === user ? { items: kept.items, hasOlder: kept.hasOlder } : undefined;
+      return kept?.user === user ? kept : undefined;
     },
-    put(user, roomId, { items, hasOlder }) {
-      void run("readwrite", (s) => s.put({ user, items, hasOlder }, roomId));
+    put(user, roomId, kept) {
+      void run("readwrite", (s) => s.put({ ...kept, user }, roomId));
     },
     clear() {
       void run("readwrite", (s) => s.clear());

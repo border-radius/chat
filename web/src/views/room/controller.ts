@@ -8,6 +8,7 @@ import { type Cursor, changedIn, first, latest, newer, older, PAGE_SIZE } from "
 import { newId } from "../../lib/id.ts";
 import {
   applyPage,
+  compare,
   emptyWindow,
   lastOwnEditable,
   lastSaved,
@@ -139,6 +140,11 @@ export function createRoomController(opts: {
   let pill: Pill = null;
   /** The window is the one kept from last time (cache.ts), until the first page replaces it. */
   let stale = false;
+  /**
+   * The kept window was shown before the server said where the unread messages start, and they turned out not to be
+   * in it: the first page goes to them (unless you scrolled away from the bottom, where it was shown).
+   */
+  let retarget = false;
   /** An end the list asked to extend while stale: extended once the first page is in. */
   let wanted: "top" | "bottom" | null = null;
   let keepTimer: ReturnType<typeof setTimeout> | undefined;
@@ -197,12 +203,18 @@ export function createRoomController(opts: {
     clearTimeout(keepTimer);
     keepTimer = setTimeout(keep, 1000);
   };
-  /** Keep the latest page for next time: only a fresh window at the live edge, only for whom it was loaded for. */
+  /**
+   * Keep the latest page for next time: only a fresh window at the live edge, only for whom it was loaded for. A room
+   * that isn't there (any more, §23.4) is forgotten, so that it doesn't show again before the server says so.
+   */
   const keep = () => {
-    if (stale || !ready() || win.hasNewer || (me()?.id ?? "") !== owner) return;
+    if ((me()?.id ?? "") !== owner) return;
+    if (phase === "not-found" || (!room() && store.get().roomsStatus === "ready"))
+      return opts.cache?.put(owner, roomId, { items: [], hasOlder: false });
+    if (stale || !ready() || win.hasNewer) return;
     const saved = win.items.filter((m) => !m.status);
     const items = saved.slice(-PAGE_SIZE);
-    opts.cache?.put(owner, roomId, { items, hasOlder: win.hasOlder || items.length < saved.length });
+    opts.cache?.put(owner, roomId, { items, hasOlder: win.hasOlder || items.length < saved.length, room: room() });
   };
   /** Local optimistic change that must win regardless of `updated` (edit/delete/revert). */
   const patchLocal = (id: string, patch: Partial<Message>) => {
@@ -334,12 +346,16 @@ export function createRoomController(opts: {
     const firstP =
       msgId || !me() || (unread !== UNCOUNTED && !unread.get(roomId)) ? null : api.firstUnread(roomId, signal).catch(() => null);
     // Loaders only return a window; it is committed below, and only if nothing (a jump) replaced it meanwhile.
-    const pageP = (async (): Promise<{ win: MessageWindow; target: string | null; unread?: string }> => {
+    const pageP = (async (): Promise<{ win: MessageWindow; target: string | null; unread?: string | undefined }> => {
       const around = msgId ? await windowAround(msgId) : null;
       if (around) return around;
-      const f = firstP && (await firstP); // no await without one: the latest page is asked for at once
-      if (f?.id) return { win: await windowAt(f), target: null, unread: f.id };
-      return { win: applyPage(emptyWindow(), await api.page(latest(roomId), signal), "latest").win, target: null };
+      // The latest page is asked for at once, beside the first unread message: with only a few unread, it has them.
+      const latestP = api.page(latest(roomId), signal);
+      latestP.catch(() => {});
+      const f = (firstP && (await firstP))?.id;
+      const page = await (f ? latestP.catch(() => []) : latestP);
+      if (f && !page.some((m) => m.id === f)) return { win: await windowAt((await firstP)!), target: null, unread: f };
+      return { win: applyPage(emptyWindow(), page, "latest").win, target: null, unread: f };
     })();
     pageP.catch(() => {}); // handled below; but we may return early (room not found) without awaiting it
     if (!msgId) void showKept(g, roomP, tokenP, firstP);
@@ -363,13 +379,17 @@ export function createRoomController(opts: {
     }
     const change: Change = { render: {} };
     if (current && loaded) {
-      setWin(loaded.win); // keeps a message sent (or adopted) while loading
+      // The page was asked for before what was sent, edited or reacted to while the kept window showed (QA BUG-100), and
+      // realtime may not have told it: the newer copies stay. Pending sends are kept by setWin.
+      const [a, z] = [loaded.win.items[0], loaded.win.items.at(-1)];
+      const meanwhile = win.items.filter((m) => !m.status && (!a || compare(m, a) >= 0) && (!loaded.win.hasNewer || compare(m, z!) <= 0));
+      setWin(merge(loaded.win, meanwhile));
       setTarget(loaded.target);
       setUnread(loaded.unread);
       change.notice = msgId && !loaded.target ? "That message isn't in this room. Showing the latest messages instead." : "";
       // Otherwise the jump has positioned the list. A stale window was already shown at the first unread message, or
       // you scrolled it: stay there (QA BUG-96), unless it was at the bottom and there is nothing unread.
-      if (targetId || !stale) change.scroll = targetId || loaded.unread ? "target" : "bottom";
+      if (targetId || !stale || retarget) change.scroll = targetId || loaded.unread ? "target" : "bottom";
       else if (nearBottom() && !loaded.unread) change.scroll = "bottom";
       else change.render = { anchor: true };
     }
@@ -386,20 +406,40 @@ export function createRoomController(opts: {
     if (!liveReady) void live.then(catchUp);
   }
 
-  /** Show the room as it was last time while its first page loads, if that is still to come. */
+  /**
+   * Show the room as it was last time while its first page loads, if that is still to come. Nothing is waited for but
+   * the file token, and that only for attachments: just after a reload, the kept room stands in for the room list. A
+   * room the list lacks waits for the server to say it is yours to see.
+   */
   async function showKept(g: number, roomP: Promise<unknown>, token: Promise<unknown>, firstP: Promise<Cursor | null> | null) {
     const kept = await opts.cache?.get(owner, roomId);
-    await token; // attachment URLs need it, as for the first page
-    if (!room()) await roomP.catch(() => {}); // just after a reload, the room list may not be in yet
-    // Opening at the first unread message: only if it was kept too (no jump once the first page is in).
-    const f = (await firstP)?.id;
+    if (kept?.items.some((m) => m.files?.length)) await token; // attachment URLs need it, as for the first page
+    if (!room() && kept?.room && store.get().roomsStatus !== "ready") store.set(upsertRoom(kept.room));
+    if (!room()) await roomP.catch(() => {});
     if (!kept?.items.length || g !== gen || phase !== "loading" || !room() || !scope.active) return;
-    if (f && !kept.items.some((m) => m.id === f)) return;
-    setWin(merge({ items: [], hasOlder: kept.hasOlder, hasNewer: false }, kept.items));
-    setUnread(f);
+    const shown = merge({ items: [], hasOlder: kept.hasOlder, hasNewer: false }, kept.items);
+    // Opening at the first unread message (§18.5): the count says which one, by the server's rule (reads.js), if they
+    // were all prefetched with that count; else the first page opens there. Before the counts are in (a reload), the
+    // server says.
+    const { unread } = store.get();
+    const n = firstP && unread !== UNCOUNTED ? (unread.get(roomId) ?? 0) : 0;
+    const theirs = shown.items.filter((m) => m.author !== owner && !m.deleted);
+    const guess = n ? theirs[theirs.length - n] : undefined;
+    if (n && (!guess || kept.unread !== n)) return;
+    setWin(shown);
+    setUnread(guess?.id);
     stale = true;
     phase = "ready";
-    emit({ render: {}, scroll: f ? "target" : "bottom" });
+    emit({ render: {}, scroll: guess ? "target" : "bottom" });
+    const f = (await firstP)?.id;
+    if (!f || f === unreadId || g !== gen || !stale || !scope.active) return;
+    // Shown at the bottom (or the count was out of step): go where the server says, unless you scrolled away.
+    const follow = !!guess || nearBottom();
+    if (!find(f)) retarget = follow;
+    else {
+      setUnread(f);
+      emit(follow ? { render: {}, scroll: "target" } : { render: { anchor: true } });
+    }
   }
 
   /** Messages newer than the window's that realtime may have missed while it was being set up (QA BUG-61). */
@@ -463,7 +503,7 @@ export function createRoomController(opts: {
   function onReconnect() {
     if (!scope.active) return;
     if (phase === "failed") return retry(); // back online: try the first load again
-    if (!ready()) return;
+    if (!ready() || stale) return; // the first page is on its way
     void refreshWindow();
     if (!win.hasNewer) void gapFill();
   }
@@ -708,6 +748,8 @@ export function createRoomController(opts: {
       // Keep a fresh file token for attachment URLs (§17.3); it only fetches when the cached one is old.
       const keepToken = setInterval(() => void api.fileToken().catch(() => {}), 30_000);
       scope.defer(() => clearInterval(keepToken));
+      // Leaving the page (a reload, the tab closed) before the timer: kept now.
+      addEventListener("pagehide", keep, { signal });
       scope.defer(() => clearTimeout(targetTimer));
       for (const m of strays.get(roomId) ?? []) if (m.author === me()?.id) unsent.set(m.id, m); // not from before a logout
       strays.delete(roomId);

@@ -49,6 +49,7 @@ export function createPrefetch({
         // Rooms due again meanwhile wait for the next run: a busy room is fetched about once per DELAY_MS.
         for (const id of [...due]) {
           due.delete(id);
+          const unread = store.get().unread.get(id);
           const page = await api.page(latest(id), s.signal).catch(() => null);
           if (!s.active) return;
           // Refused (the rate limit, offline): the rest waits for their counts to go up again.
@@ -58,7 +59,7 @@ export function createPrefetch({
           }
           // The open room keeps its own page (and gets every message live).
           if (store.get().user?.id === user && store.get().activeRoomId !== id) {
-            cache.put(user, id, { items: page, hasOlder: page.length >= PAGE_SIZE });
+            cache.put(user, id, { items: page, hasOlder: page.length >= PAGE_SIZE, room: store.get().rooms.get(id), unread });
           }
           await new Promise((r) => setTimeout(r, gapMs));
         }

@@ -32,7 +32,8 @@ describe("prefetching rooms with unread messages (§7.5)", () => {
     store.set(bumpUnread(room.id));
     await vi.waitFor(() => expect(cache.rooms.get(room.id)).toBeDefined());
     const kept = cache.rooms.get(room.id)!;
-    expect(kept).toMatchObject({ user: me.user.id, hasOlder: true });
+    // With the count it was fetched for: the room view works out the first unread message from it only while it holds.
+    expect(kept).toMatchObject({ user: me.user.id, hasOlder: true, unread: 1 });
     expect(new Set(kept.items.map((m) => m.id))).toEqual(new Set(all.slice(10).map((m) => m.id)));
   });
 

@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type Api, ApiError } from "../../../web/src/api.ts";
+import { latest } from "../../../web/src/lib/cursor.ts";
 import { newId } from "../../../web/src/lib/id.ts";
 import type { Message, Room } from "../../../web/src/lib/types.ts";
 import { createScope, type Scope } from "../../../web/src/scope.ts";
-import { type AppState, createStore, initialState, type Store, upsertRoom } from "../../../web/src/store.ts";
+import { type AppState, createStore, initialState, type Store, UNCOUNTED, upsertRoom } from "../../../web/src/store.ts";
 import { type Change, createRoomController, type RoomController } from "../../../web/src/views/room/controller.ts";
 import { instrument, intercept, memoryCache, type SignedUp, seedMessages, signedUp, subscribed, uniq } from "../../support/api.ts";
 
@@ -669,7 +670,7 @@ describe("room controller (§7.5, no DOM)", () => {
       await sleep(20);
       const all = await seedMessages(room.id, other.user.id, 60, { stepMs: 1, startAt: Date.now() - 100 });
       await me.api.markRead(room.id, all[49]!.created);
-      cache!.put(me.user.id, room.id, { items: all.slice(10), hasOlder: true });
+      cache!.put(me.user.id, room.id, { items: all.slice(10), hasOlder: true, unread: 10 });
       store.set({ unread: new Map([[room.id, 10]]) });
       const release = instrument(me.api).hold("page");
       start(room);
@@ -679,6 +680,166 @@ describe("room controller (§7.5, no DOM)", () => {
       release();
       await vi.waitFor(() => expect(state().stale).toBe(false));
       expect(changes.at(-1)).toEqual({ render: { anchor: true }, notice: "" });
+    });
+
+    it("with the count in, opens the kept window at the first unread message without waiting for the server", async () => {
+      const other = await signedUp("Other");
+      const room = await newRoom(other);
+      await sleep(20);
+      const all = await seedMessages(room.id, other.user.id, 30, { stepMs: 1, startAt: Date.now() - 100 });
+      await me.api.markRead(room.id, all[26]!.created);
+      store.set({ ...upsertRoom(room)(store.get()), unread: new Map([[room.id, 3]]) });
+      cache!.put(me.user.id, room.id, { items: all, hasOlder: false, unread: 3 });
+      const net = instrument(me.api);
+      const release = [net.hold("firstUnread"), net.hold("page"), net.hold("getRoom")];
+      start(room);
+      await vi.waitFor(() => expect(state()).toMatchObject({ stale: true, unreadId: all[27]!.id }));
+      expect(changes.at(-1)).toEqual({ render: {}, scroll: "target" });
+      for (const r of release) r();
+      await vi.waitFor(() => expect(state().stale).toBe(false));
+      expect(state().unreadId).toBe(all[27]!.id);
+      // A few unread: the latest page has them, so it is the only page asked for (not the pages around the first).
+      expect(net.calls("page")).toBe(1);
+    });
+
+    it("after a reload (no counts, no room list yet), the kept window and room show at once, then the server's first unread", async () => {
+      const other = await signedUp("Other");
+      const room = await newRoom(other);
+      await sleep(20);
+      const all = await seedMessages(room.id, other.user.id, 30, { stepMs: 1, startAt: Date.now() - 100 });
+      await me.api.markRead(room.id, all[26]!.created);
+      store.set({ unread: UNCOUNTED });
+      cache!.put(me.user.id, room.id, { items: all, hasOlder: false, room });
+      const net = instrument(me.api);
+      const unreadAt = net.hold("firstUnread");
+      const rest = [net.hold("page"), net.hold("getRoom")];
+      start(room);
+      await vi.waitFor(() => expect(state()).toMatchObject({ stale: true, unreadId: null }));
+      expect(store.get().rooms.get(room.id)?.name).toBe(room.name);
+      expect(changes.at(-1)).toEqual({ render: {}, scroll: "bottom" });
+      unreadAt();
+      await vi.waitFor(() => expect(state().unreadId).toBe(all[27]!.id));
+      expect(changes.at(-1)).toEqual({ render: {}, scroll: "target" });
+      for (const r of rest) r();
+      await vi.waitFor(() => expect(state().stale).toBe(false));
+    });
+
+    it("after a reload with more unread than were kept, the page goes to the first of them", async () => {
+      const other = await signedUp("Other");
+      const room = await newRoom(other);
+      await sleep(20);
+      const all = await seedMessages(room.id, other.user.id, 120, { stepMs: 1, startAt: Date.now() - 200 });
+      await me.api.markRead(room.id, all[9]!.created);
+      store.set({ unread: UNCOUNTED });
+      cache!.put(me.user.id, room.id, { items: all.slice(-50), hasOlder: true, room });
+      const release = instrument(me.api).hold("page");
+      start(room);
+      await vi.waitFor(() => expect(state().stale).toBe(true));
+      await sleep(50); // the server has said where they start
+      release();
+      await vi.waitFor(() => expect(state().stale).toBe(false));
+      expect(state().unreadId).toBe(all[10]!.id);
+      expect(changes.at(-1)).toMatchObject({ render: {}, scroll: "target" });
+    });
+
+    it("QA BUG-99: a count the kept page wasn't prefetched with (a message just came) waits for the server", async () => {
+      const other = await signedUp("Other");
+      const room = await newRoom(other);
+      await sleep(20);
+      const all = await seedMessages(room.id, other.user.id, 30, { stepMs: 1, startAt: Date.now() - 100 });
+      await me.api.markRead(room.id, all[26]!.created);
+      store.set({ ...upsertRoom(room)(store.get()), unread: new Map([[room.id, 3]]) });
+      // Kept when only one was unread (or when you left, with none): the count would point at a message already read.
+      cache!.put(me.user.id, room.id, { items: all.slice(0, 28), hasOlder: false, unread: 1 });
+      const release = instrument(me.api).hold("page");
+      start(room);
+      await sleep(100);
+      expect(state()).toMatchObject({ phase: "loading", unreadId: null });
+      release();
+      await vi.waitFor(() => expect(state()).toMatchObject({ phase: "ready", unreadId: all[27]!.id }));
+    });
+
+    it("QA BUG-98: a room that isn't there any more is forgotten, so it isn't shown again", async () => {
+      // Not found (a reload, access lost while the app was closed): shown from the cache until the server says so.
+      const gone = await newRoom();
+      await seedMessages(gone.id, me.user.id, 3);
+      cache!.put(me.user.id, "nosuchroom00000", {
+        items: (await me.api.page(latest(gone.id))).map((m) => ({ ...m, room: "nosuchroom00000" })),
+        hasOlder: false,
+        room: { ...gone, id: "nosuchroom00000" },
+      });
+      start("nosuchroom00000");
+      await vi.waitFor(() => expect(state().phase).toBe("not-found"));
+      scope.dispose();
+      expect(cache!.rooms.get("nosuchroom00000")!.items).toEqual([]);
+      // Lost while in it (§23.4): the room list no longer has it.
+      const room = await newRoom();
+      await seedMessages(room.id, me.user.id, 3);
+      await open(room);
+      store.set({ rooms: new Map(), roomsStatus: "ready" });
+      scope.dispose();
+      expect(cache!.rooms.get(room.id)!.items).toEqual([]);
+    });
+
+    it("QA BUG-97: leaving the page keeps the window at once, not a second later", async () => {
+      const room = await newRoom();
+      await open(room);
+      await say(me, room, "just now");
+      await vi.waitFor(() => expect(ids()).toHaveLength(1));
+      dispatchEvent(new Event("pagehide"));
+      expect(cache!.rooms.get(room.id)!.items.map((m) => m.text)).toEqual(["just now"]);
+    });
+
+    it("QA BUG-100: what I send or edit while the kept window shows survives the page asked for before it", async () => {
+      const room = await newRoom();
+      await seedMessages(room.id, me.user.id, 5);
+      await visit(room);
+      const gate = gateRealtime(me.api); // no echo: the subscription isn't there yet
+      gate.offline = true;
+      const release = instrument(me.api).hold("page");
+      start(room);
+      await vi.waitFor(() => expect(state().stale).toBe(true));
+      const old = state().win.items[2]!;
+      expect(ctl.send("sent meanwhile")).toBe(true);
+      await vi.waitFor(() =>
+        expect(state().win.items.at(-1)).toMatchObject({ text: "sent meanwhile", updated: expect.stringMatching(/./) }),
+      );
+      await vi.waitFor(() => expect(state().win.items.at(-1)!.status).toBeUndefined());
+      expect(await ctl.edit(old.id, "edited meanwhile")).toBe(true);
+      release();
+      await vi.waitFor(() => expect(state().stale).toBe(false));
+      expect(state().win.items.at(-1)!.text).toBe("sent meanwhile");
+      expect(ctl.find(old.id)!.text).toBe("edited meanwhile");
+      expect(ids()).toHaveLength(6);
+    });
+
+    it("a reconnect while the kept window shows leaves it to the first page", async () => {
+      const room = await newRoom();
+      await seedMessages(room.id, me.user.id, 5);
+      await visit(room);
+      const net = instrument(me.api);
+      const release = net.hold("page");
+      start(room);
+      await vi.waitFor(() => expect(state().stale).toBe(true));
+      net.reconnect();
+      await sleep(50);
+      expect(net.calls("page")).toBe(1);
+      expect(net.calls("changes")).toBe(0);
+      release();
+      await vi.waitFor(() => expect(state().stale).toBe(false));
+    });
+
+    it("a room the loaded room list lacks waits for the server, kept room or not", async () => {
+      const room = await newRoom();
+      await seedMessages(room.id, me.user.id, 5);
+      await visit(room);
+      store.set({ rooms: new Map(), roomsStatus: "ready" });
+      const release = instrument(me.api).hold("getRoom");
+      start(room);
+      await sleep(50);
+      expect(state()).toMatchObject({ phase: "loading", stale: false });
+      release();
+      await ready();
     });
 
     it("a message that arrives while the kept window shows survives the page", async () => {

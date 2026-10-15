@@ -96,3 +96,38 @@ test("a room with unread messages is prefetched: opening it shows them at once (
   release();
   await page.close();
 });
+
+test("after a reload, a kept room shows before the server has answered anything, then goes to its first unread message (§7.5, §18.5)", async ({
+  browser,
+}) => {
+  const ada = await apiUser("Ada");
+  const room = await apiRoom(ada);
+  for (let i = 1; i <= 30; i++) await apiSend(ada, room, `older ${i}`);
+  const bob = await apiUser("Bob"); // nothing is unread for him yet (counts start at signup)
+  const page = await openRoom(browser, bob, room);
+  await expect(message(page, "older 30")).toBeVisible();
+  // Bob reads elsewhere while Ada writes: the room is prefetched with what she wrote.
+  const lobby = await apiRoom(ada);
+  await page.locator(`a[href="/r/${lobby.id}"]`).click();
+  await expect(page.locator("header.room-header h1")).toHaveText(`#${lobby.name}`);
+  await apiSend(ada, room, "unread one");
+  await apiSend(ada, room, "unread two");
+  await expect.poll(() => kept(page, room.id)).toContain("unread two");
+
+  // Every API request is held: the room, its header and its messages come from the cache alone.
+  let release!: () => void;
+  const held = new Promise<void>((r) => (release = r));
+  await page.route("**/api/**", async (route) => {
+    await held;
+    await route.continue().catch(() => {});
+  });
+  await apiSend(ada, room, "unread three");
+  await page.goto(`/r/${room.id}`);
+  await expect(message(page, "unread two")).toBeVisible();
+  await expect(page.locator("header.room-header h1")).toHaveText(`#${room.name}`);
+  await expect(message(page, "unread three")).toHaveCount(0);
+  release();
+  await expect(message(page, "unread three")).toBeVisible();
+  await expect(page.locator("li.new-line + li.msg .body")).toHaveText("unread one");
+  await page.close();
+});

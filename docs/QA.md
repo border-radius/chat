@@ -864,3 +864,67 @@ it deleted. A delete made while the app was closed still shows until the first p
 Not fixed: a room's first load that fails for any reason (also 429 or 500) says "Check your connection", as the room
 list does; with BUG-94 fixed it is rare. A message edited while you were away shows its old text until the first page
 is in (the cache is "as it was last time"; edits can't be told from reactions in the text-free events).
+
+---
+
+# QA pass 12 — the room cache without waiting, service messages and the Telegram bridge
+
+Exploratory testing of what changed on 2026-10-15 (the room cache shown without waiting for the network, §7.5, §18.5;
+service messages, §5.3) and of the Telegram bridge (§26) in a browser, then a sweep. A production build on a fresh
+PocketBase server with the bridge on against the stub Bot API (updates delivered to the webhook as Telegram does), in
+Chromium (desktop 1100×720 and a 390×844 phone): every API request held or slowed, private rooms losing a member,
+archived rooms, Telegram albums, edits, replies, oversize files and HTML in names, and a randomized run of two users
+(one on a phone) sending, editing, deleting, reacting, switching rooms and reloading with 0–250 ms on every request,
+then each client's view compared with the server. Numbering continues from BUG-96. Each fix lands with a test that fails
+without it.
+
+| # | Severity | Area | Summary | Status |
+|---|---|---|---|---|
+| BUG-100 | Medium | Room cache | A message sent (or edited) while a kept window showed vanished from your screen when the first page came | Fixed |
+| BUG-98 | Medium (privacy) | Room cache | A room you lost access to showed its kept messages again on every load, until the server said no | Fixed |
+| BUG-99 | Low | Room cache | Opening a room right after its badge went up put the "New" line on a message already read, then jumped | Fixed |
+| BUG-97 | Low | Room cache | A room left (reload, tab closed) within a second of its last change wasn't kept, or was kept without that change | Fixed |
+
+## BUG-100 — A message sent while the kept window showed vanished (Medium)
+
+**Steps:** open a room that shows from the cache on a slow network, and send a message before its first page is in.
+**Expected:** the message stays. **Actual:** it went from the list when the page came, though the server had it (a
+reload showed it); an edit made meanwhile went back to the old text. Found by the randomized run (Ada's own edited
+message missing from her view). **Cause:** the first page replaces the window and was asked for before the send; only
+pending sends were carried over. The realtime echo puts a message back when it comes, but not when it was created
+before the room's subscription was set up, and the catch-up fetch for that runs only when the subscription is set up
+after the page. **Fix:** the newer copies of messages in the page's range (and after it, at the live edge) are kept over
+the page's.
+
+## BUG-98 — A room you lost access to kept showing from the cache (Medium, privacy)
+
+**Steps:** Bob reads a private room; Ada takes him out of it; Bob reloads the room (or opens it from history).
+**Expected:** "You can't see this room any more", and its messages not shown again. **Actual:** its kept messages and
+name showed until the server answered, on every load. Came with showing the cache before the room list is in (the room
+record is kept with it). **Fix:** a room that turns out not to be there, or that leaves the loaded room list, is saved
+empty. What was kept shows at most once, for a moment, after access is lost while the app is closed.
+
+## BUG-97, BUG-99 (Low)
+
+- **BUG-97:** the window is saved a second after it last changed, so reloading, closing the tab or following a link
+  sooner lost it (a room seen for the first time wasn't kept at all). It is now also saved on `pagehide`.
+- **BUG-99:** with the counts in, the first unread message is worked out from the kept window, which was wrong when it
+  hadn't been prefetched with that count (opened within the second before prefetching runs, or prefetching refused):
+  the "New" line showed over a message already read until the server's answer moved it. Prefetching now saves the count
+  it fetched for, and the kept window opens at the line only when that count is still the room's.
+
+## Checked and fine
+
+- **Service messages:** a centred line with no buttons, not selectable; reply, reaction, forward, delete, edit and a
+  made-up one refused by the API; shown live to a private room's members only, and counted unread only for them.
+- **Telegram bridge in the app:** an album of 4 photos as one message with its caption, a 47.7 MB file as a line of
+  text, an edit and a reply from Telegram, a stand-in joining a private room; out to Telegram: names and text with
+  `<b>` and `&amp;` escaped, a reply, an edit, a delete and a forward.
+- **Layout:** a 1500-character word, a 520-character link, bidi overrides, 200 emoji and 40 lines on desktop and
+  phone: nothing wider than the screen, long names cut short. Drafts survive a reload.
+- **Randomized run** (120 steps each): before the fix, seed 3 found BUG-100 (seeds 2 and 4 were clean); after it, seeds 3 and 12 were consistent with the server in every room for both users.
+- Typecheck, lint, unit, integration and Chromium e2e suites, before and after the fixes.
+
+Not fixed: just after a reload, a kept room's record stands in until the room list is in, so a room archived meanwhile
+shows its composer for that moment, and a message sent then fails with **Retry**. The sidebar lists only the kept room
+until the room list is in.
