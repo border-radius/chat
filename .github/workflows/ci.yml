@@ -19,6 +19,28 @@ jobs:
       - run: npm run lint:sinks
       - run: npm run build
 
+  # The Android app (mobile/): typecheck, then the release JS bundle Metro builds into the APK, which also proves it
+  # resolves what it shares from web/src. Native builds run on EAS (mobile/README.md).
+  mobile:
+    name: Android app
+    needs: static
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm i -g npm@11.20.0
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npx expo export --platform android --output-dir dist
+
   unit:
     name: Unit tests
     needs: static

@@ -14,6 +14,8 @@ export default defineConfig({
       {
         // What the build defines (scripts/lib/build-utils.mjs).
         define: { VIEWER_CSS: JSON.stringify("/assets/viewer.css") },
+        // The Android app's core (mobile/src/core) is tested here too, with a stand-in for React Native.
+        resolve: { alias: { "react-native": new URL("tests/support/react-native.ts", import.meta.url).pathname } },
         test: {
           name: "unit",
           include: ["tests/unit/**/*.test.ts"],
