@@ -71,7 +71,7 @@
       "name": "messages",
       "type": "base",
       "listRule": "((room.visibility = \"open\" && room.archived = false) || (@request.auth.id != \"\" && (room.visibility != \"private\" || room.members.id ?= @request.auth.id || room.created_by = @request.auth.id)))",
-      "viewRule": "(((room.visibility = \"open\" && room.archived = false) || (@request.auth.id != \"\" && (room.visibility != \"private\" || room.members.id ?= @request.auth.id || room.created_by = @request.auth.id)))) || (@collection.messages:fwd.forward_of ?= id && @collection.messages:fwd.deleted ?= false && ((@collection.messages:fwd.room.visibility ?= \"open\" && @collection.messages:fwd.room.archived ?= false) || (@request.auth.id != \"\" && (@collection.messages:fwd.room.visibility ?!= \"private\" || @collection.messages:fwd.room.members.id ?= @request.auth.id || @collection.messages:fwd.room.created_by ?= @request.auth.id))))",
+      "viewRule": "(((room.visibility = \"open\" && room.archived = false) || (@request.auth.id != \"\" && (room.visibility != \"private\" || room.members.id ?= @request.auth.id || room.created_by = @request.auth.id)))) || (messages_via_forward_of.id ?!= \"\" && messages_via_forward_of.deleted ?= false && ((messages_via_forward_of.room.visibility ?= \"open\" && messages_via_forward_of.room.archived ?= false) || (@request.auth.id != \"\" && (messages_via_forward_of.room.visibility ?!= \"private\" || messages_via_forward_of.room.members.id ?= @request.auth.id || messages_via_forward_of.room.created_by ?= @request.auth.id))))",
       "createRule": [
         "@request.auth.id != \"\"",
         "@request.body.author = @request.auth.id",
@@ -283,7 +283,8 @@
         }
       ],
       "indexes": [
-        "CREATE INDEX `idx_messages_room_created` ON `messages` (`room`, `created`, `id`)"
+        "CREATE INDEX `idx_messages_room_created` ON `messages` (`room`, `created`, `id`)",
+        "CREATE INDEX `idx_messages_forward_of` ON `messages` (`forward_of`)"
       ]
     },
     {
