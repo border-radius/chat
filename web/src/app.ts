@@ -4,7 +4,7 @@
 
 import { createRoomActions } from "./actions.ts";
 import { type Api, ApiError } from "./api.ts";
-import { createCache } from "./cache.ts";
+import { createCache, forgetGone } from "./cache.ts";
 import type { Ctx } from "./context.ts";
 import { clear, h } from "./dom.ts";
 import { createDrafts } from "./drafts.ts";
@@ -97,6 +97,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
   const unread = createUnread({ api, store });
   const drafts = createDrafts(() => store.get().user?.id ?? "");
   const cache = createCache();
+  const offGone = forgetGone(cache, store);
   const prefetch = createPrefetch({ api, store, cache });
   /** Start following the rooms (and, signed in, the unread counts and prefetching, §7.5) as whoever is logged in now, or as a guest. */
   let running = false;
@@ -337,6 +338,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
       stopFavicon();
       stopSite();
       offStore();
+      offGone();
       router.stop();
       unread.stop();
       prefetch.stop();

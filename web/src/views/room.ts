@@ -341,7 +341,7 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
    */
   const atLiveEdge = () => {
     const s = ctl.state();
-    return s.phase === "ready" && !s.win.hasNewer && isNearBottom(list) && document.visibilityState !== "hidden";
+    return s.phase === "ready" && !s.win.hasNewer && !s.unsure && isNearBottom(list) && document.visibilityState !== "hidden";
   };
 
   /** The newest message the server has, if it is on screen. */

@@ -717,10 +717,31 @@ describe("room controller (§7.5, no DOM)", () => {
       await vi.waitFor(() => expect(state()).toMatchObject({ stale: true, unreadId: null }));
       expect(store.get().rooms.get(room.id)?.name).toBe(room.name);
       expect(changes.at(-1)).toEqual({ render: {}, scroll: "bottom" });
+      // QA BUG-102: shown at the bottom, but the unread messages may start further up: nothing is read yet.
+      expect(state().unsure).toBe(true);
       unreadAt();
       await vi.waitFor(() => expect(state().unreadId).toBe(all[27]!.id));
+      expect(state().unsure).toBe(false);
       expect(changes.at(-1)).toEqual({ render: {}, scroll: "target" });
       for (const r of rest) r();
+      await vi.waitFor(() => expect(state().stale).toBe(false));
+    });
+
+    it("QA BUG-102: after a reload with nothing unread, the kept window is read once the server says so", async () => {
+      const room = await newRoom();
+      const all = await seedMessages(room.id, me.user.id, 3);
+      store.set({ unread: UNCOUNTED });
+      cache!.put(me.user.id, room.id, { items: all, hasOlder: false, room });
+      const net = instrument(me.api);
+      const unreadAt = net.hold("firstUnread");
+      const page = net.hold("page");
+      start(room);
+      await vi.waitFor(() => expect(state()).toMatchObject({ stale: true, unsure: true }));
+      const before = changes.length;
+      unreadAt();
+      await vi.waitFor(() => expect(state().unsure).toBe(false));
+      expect(changes.slice(before)).toContainEqual({ render: { anchor: true } }); // the view reports what it shows now
+      page();
       await vi.waitFor(() => expect(state().stale).toBe(false));
     });
 
@@ -811,6 +832,21 @@ describe("room controller (§7.5, no DOM)", () => {
       expect(state().win.items.at(-1)!.text).toBe("sent meanwhile");
       expect(ctl.find(old.id)!.text).toBe("edited meanwhile");
       expect(ids()).toHaveLength(6);
+    });
+
+    it("QA BUG-103: the first page's copies replace the kept ones that are no newer: an author's new name or avatar shows", async () => {
+      const room = await newRoom();
+      await seedMessages(room.id, me.user.id, 5);
+      await visit(room);
+      const kept = cache!.rooms.get(room.id)!;
+      for (const m of kept.items) m.expand = { author: { ...me.user, name: "Old name" } };
+      const release = instrument(me.api).hold("page");
+      start(room);
+      await vi.waitFor(() => expect(state().stale).toBe(true));
+      expect(state().win.items[0]!.expand?.author?.name).toBe("Old name");
+      release();
+      await vi.waitFor(() => expect(state().stale).toBe(false));
+      expect(state().win.items.map((m) => m.expand?.author?.name)).toEqual(Array(5).fill(me.user.name));
     });
 
     it("a reconnect while the kept window shows leaves it to the first page", async () => {

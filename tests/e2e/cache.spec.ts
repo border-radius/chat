@@ -61,7 +61,7 @@ test("a room opens at once from the cache, after switching and after a reload, a
 
   // After a reload too, before the room list is in (the window is saved a second after it last changed: a reload
   // sooner may show it without its newest message, which the first page then brings).
-  await expect.poll(() => kept(page)).toBe(2);
+  await expect.poll(() => kept(page, first.id)).toContain("sent meanwhile");
   release = await holdMessages(page);
   await page.reload();
   await expect(message(page, "kept from last time")).toBeVisible();
@@ -129,5 +129,45 @@ test("after a reload, a kept room shows before the server has answered anything,
   release();
   await expect(message(page, "unread three")).toBeVisible();
   await expect(page.locator("li.new-line + li.msg .body")).toHaveText("unread one");
+  await page.close();
+});
+
+test("QA BUG-104: leaving the page right after a message keeps the room with it (§7.5)", async ({ page }) => {
+  const ada = await apiUser("Ada");
+  const room = await apiRoom(ada);
+  await apiSend(ada, room, "first");
+  await login(page, ada);
+  await page.goto(`/r/${room.id}`);
+  await expect(message(page, "first")).toBeVisible();
+  await apiSend(ada, room, "just now");
+  await expect(message(page, "just now")).toBeVisible();
+  await page.goto("/"); // within the second after which it would be kept anyway
+  await expect.poll(() => kept(page, room.id)).toContain("just now");
+});
+
+test("QA BUG-102: a reload into a prefetched room with many unread messages leaves unread what was never on screen (§18.5)", async ({
+  browser,
+}) => {
+  const ada = await apiUser("Ada");
+  const bob = await apiUser("Bob");
+  const room = await apiRoom(ada);
+  const lobby = await apiRoom(ada);
+  await apiSend(ada, room, "read already");
+  const page = await openRoom(browser, bob, room);
+  await page.locator(`a[href="/r/${lobby.id}"]`).click();
+  await expect(page.locator("header.room-header h1")).toHaveText(`#${lobby.name}`);
+  for (let i = 1; i <= 60; i++) await apiSend(ada, room, `unread ${i}`);
+  await expect.poll(() => kept(page, room.id), { timeout: 10_000 }).toContain("unread 60");
+
+  // Where the unread messages start comes late: the kept window shows at the bottom meanwhile.
+  await page.route("**/api/chat/unread/**", async (route) => {
+    await new Promise((r) => setTimeout(r, 1000));
+    await route.continue().catch(() => {});
+  });
+  await page.goto(`/r/${room.id}`);
+  await expect(page.locator("li.new-line + li.msg .body")).toHaveText("unread 1");
+  await page.waitForTimeout(1500); // reads go out a second after they are seen
+  await page.locator(`a[href="/r/${lobby.id}"]`).click();
+  await expect(page.locator(`a[href="/r/${room.id}"] .badge`)).toBeVisible();
   await page.close();
 });

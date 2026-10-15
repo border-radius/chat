@@ -462,19 +462,21 @@ while its first page loads.
 - **What is kept:** per room, in IndexedDB (database `chat`, store `rooms`, keyed by room id), the latest page
   (at most 50 saved messages, never pending or failed ones), whether there is older history and the room record,
   tagged with the user it was loaded for ("" for a guest). Saved a second after the window last changed, when the view
-  goes and when the page is left (`pagehide`: a reload, the tab closed; QA BUG-97), and only while the window is at the
+  goes and when the page is left (`pagehide`: a reload, the tab closed; QA BUG-97; written at once and committed, QA BUG-104), and only while the window is at the
   live edge, fresh (not itself from the cache) and the user is still the one it was loaded for: after a logout or a
   user switch nothing more is written. A room that turns out not to be there (not found, or gone from the loaded room
-  list: access lost, §23.4) is saved empty, so it isn't shown again (QA BUG-98).
+  list: access lost, §23.4) is saved empty, so it isn't shown again (QA BUG-98); so is any kept room that leaves the
+  loaded room list while the app is open, open or not (`forgetGone`, QA BUG-101).
 - **Shown:** on opening a room without a message in the route, if the cache answers before the first page. Nothing
   else is waited for, except a file token when the kept messages have attachments (§17.3): the room is in the room
   list, or, before the list is in (a reload), the kept room record stands in for it in the store until the list
   replaces it. A room that a loaded list lacks waits for the server's answer (so access you have lost isn't shown,
   §23.4). What you send, edit or react to while it shows stays when the page comes: the page was asked for before,
-  and realtime may not have told the room yet (QA BUG-100). A reconnect meanwhile does nothing: the page is on its way. The window is `stale` until the page is in: the page
+  and realtime may not have told the room yet (QA BUG-100); a kept copy no newer than the page's gives way to it, so an author's new name or avatar shows (QA BUG-103). A reconnect meanwhile does nothing: the page is on its way. The window is `stale` until the page is in: the page
   then replaces it (pending sends are kept as usual), staying where you scrolled unless you were at the bottom;
   realtime events received meanwhile are replayed on top of it; and loading older history waits for it. What it shows
-  counts as read (§18.3), up to its newest message; leaving before the page is in, the unread counts are fetched again
+  counts as read (§18.3), up to its newest message, except while it shows at the bottom before the server has said
+  where the unread messages start (after a reload): they may start further up (QA BUG-102); leaving before the page is in, the unread counts are fetched again
   rather than taken as zero, since the server may have had more. A first load that fails still shows the error and **Retry**, not the stale window.
 - **Prefetched** (`prefetch.ts`): the unread events of other rooms carry no text (§18.3), so when a room's unread count
   goes up (a live message, or the counts loaded at start), its latest page is fetched in the background and kept, and
@@ -484,8 +486,11 @@ while its first page loads.
   them: a busy room is fetched about once a second and never puts the others off (QA BUG-92). Rooms are fetched one
   at a time, 250 ms apart, and a refused fetch (the rate limit, offline) ends the run: hundreds of rooms with unread
   messages at login must not use up the per-IP request limit (QA BUG-94). The open room is left alone (it gets every
-  message live and keeps its own page). Only while someone is logged in; stopped before the cache is cleared when the
-  session ends.
+  message live and keeps its own page). Once the room list is in, the rooms not kept yet (the first 30 it lists: DMs,
+  then rooms) are fetched the same way after those, so a room never opened on this device opens at once too. Only
+  while someone is logged in; stopped before the cache is cleared when the session ends.
+- **In memory** too, what was kept since the page loaded: switching back to a room shows it in the same task as the
+  click, without waiting for IndexedDB (and without an empty room for a frame). Without IndexedDB, that is all there is.
 - **Cleared** whenever the session ends (logout, another user, a guest logging in), as drafts are (§22.3). A room kept
   for another user is never shown, even if a clear was missed. Without IndexedDB (a private window) nothing is kept.
 
@@ -534,7 +539,7 @@ while its first page loads.
 
 | Asset | Budget (gzipped) |
 |---|---|
-| `app.js` (including the PocketBase client) | **≤ 41.65 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, the room cache without waiting for the network, the QA pass 12 fixes, see §13) |
+| `app.js` (including the PocketBase client) | **≤ 41.90 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, the room cache without waiting for the network, the QA pass 12 fixes, prefetching rooms not yet kept, the QA pass 13 fixes, see §13) |
 | `app.css` | **≤ 6.10 KB** (5 KB until §21, 5.5 KB until §23, 6 KB until audio attachments, 6.05 KB until §18.5, see §13) |
 | `index.html` | ≤ 1.5 KB |
 | Image viewer (§17.7), loaded on first use | ≤ 4 KB script, ≤ 1.5 KB stylesheet |
@@ -969,6 +974,8 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 | Bundle budget (service messages) | `app.js` raised from 41.20 KB to 41.30 KB gzipped (§7.7): service messages (§5.3), drawn as a line of their own, took it to 41.25 KB. |
 | Bundle budget (cache without waiting) | `app.js` raised from 41.30 KB to 41.50 KB gzipped (§7.7): showing the room cache without waiting for the network (after a reload, with unread messages) and asking for the latest page beside the first unread message (§7.5, §18.5) took it to 41.46 KB. |
 | Bundle budget (QA pass 12) | `app.js` raised from 41.50 KB to 41.65 KB gzipped (§7.7): the room cache fixes of QA pass 12 (BUG-97 to BUG-100) took it to 41.58 KB. |
+| Bundle budget (room switching) | `app.js` raised from 41.65 KB to 41.75 KB gzipped (§7.7): prefetching the rooms not kept yet and holding the room cache in memory (§7.5) took it to 41.71 KB. |
+| Bundle budget (QA pass 13) | `app.js` raised from 41.75 KB to 41.90 KB gzipped (§7.7): the room cache fixes of QA pass 13 (BUG-101 to BUG-104) took it to 41.87 KB. |
 | Bundle budget (QA pass 9) | `app.js` raised from 39.25 KB to 39.35 KB gzipped (§7.7): the forwarding fixes of QA pass 9 (messages deleted meanwhile left out, the server's reason shown, focus kept while selecting) took it to 39.30 KB. |
 
 ### Still open

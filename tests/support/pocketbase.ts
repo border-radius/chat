@@ -80,7 +80,9 @@ export async function startPocketBase(opts: StartOptions = {}): Promise<PocketBa
 
   const port = opts.port ?? (await freePort());
   const url = `http://127.0.0.1:${port}`;
-  const proc = spawn(bin, ["serve", `--http=127.0.0.1:${port}`, `--publicDir=${publicDir}`, "--hooksWatch=false", ...dirArgs], {
+  // --hooksPool as in the Dockerfile: room pages enrich their messages in parallel, and prefetching asks for many.
+  const args = ["serve", `--http=127.0.0.1:${port}`, `--publicDir=${publicDir}`, "--hooksWatch=false", "--hooksPool=100", ...dirArgs];
+  const proc = spawn(bin, args, {
     stdio: opts.verbose ? "inherit" : "pipe",
     // Never a Telegram bot from the developer's own environment: only what a test passes (the bridge, §26).
     env: { ...withoutTelegram(process.env), ...opts.env },

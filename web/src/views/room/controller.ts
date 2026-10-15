@@ -52,6 +52,11 @@ export interface RoomState {
   pill: Pill;
   /** Showing the room as it was last time (cache.ts) until its first page is in: there may be newer messages. */
   stale: boolean;
+  /**
+   * The stale window shows at the bottom before the server has said where the unread messages start: nothing counts as
+   * read until it has, since they may begin further up (QA BUG-102).
+   */
+  unsure: boolean;
 }
 
 /** What a change asks of the view. Pill and phase are read from `state()`, and every change may have changed them. */
@@ -145,6 +150,8 @@ export function createRoomController(opts: {
    * in it: the first page goes to them (unless you scrolled away from the bottom, where it was shown).
    */
   let retarget = false;
+  /** Waiting for the server's first unread message while a kept window shows at the bottom (`unsure`). */
+  let asking = false;
   /** An end the list asked to extend while stale: extended once the first page is in. */
   let wanted: "top" | "bottom" | null = null;
   let keepTimer: ReturnType<typeof setTimeout> | undefined;
@@ -380,10 +387,11 @@ export function createRoomController(opts: {
     const change: Change = { render: {} };
     if (current && loaded) {
       // The page was asked for before what was sent, edited or reacted to while the kept window showed (QA BUG-100), and
-      // realtime may not have told it: the newer copies stay. Pending sends are kept by setWin.
+      // realtime may not have told it: the newer copies stay. Of the same age, the page's (an author's new name or
+      // avatar comes with it). Pending sends are kept by setWin.
       const [a, z] = [loaded.win.items[0], loaded.win.items.at(-1)];
       const meanwhile = win.items.filter((m) => !m.status && (!a || compare(m, a) >= 0) && (!loaded.win.hasNewer || compare(m, z!) <= 0));
-      setWin(merge(loaded.win, meanwhile));
+      setWin(merge(merge(loaded.win, meanwhile), loaded.win.items));
       setTarget(loaded.target);
       setUnread(loaded.unread);
       change.notice = msgId && !loaded.target ? "That message isn't in this room. Showing the latest messages instead." : "";
@@ -428,11 +436,15 @@ export function createRoomController(opts: {
     if (n && (!guess || kept.unread !== n)) return;
     setWin(shown);
     setUnread(guess?.id);
+    asking = !!firstP && !guess;
     stale = true;
     phase = "ready";
     emit({ render: {}, scroll: guess ? "target" : "bottom" });
     const f = (await firstP)?.id;
-    if (!f || f === unreadId || g !== gen || !stale || !scope.active) return;
+    const asked = asking;
+    asking = false;
+    if (g !== gen || !stale || !scope.active) return;
+    if (!f || f === unreadId) return void (asked && emit({ render: { anchor: true } })); // read now
     // Shown at the bottom (or the count was out of step): go where the server says, unless you scrolled away.
     const follow = !!guess || nearBottom();
     if (!find(f)) retarget = follow;
@@ -738,7 +750,7 @@ export function createRoomController(opts: {
   // ---------------------------------------------------------------- lifecycle
 
   return {
-    state: () => ({ win, phase, targetId, unreadId, pill, stale }),
+    state: () => ({ win, phase, targetId, unreadId, pill, stale, unsure: stale && asking }),
     start() {
       scope.defer(() => {
         clearTimeout(keepTimer);

@@ -928,3 +928,72 @@ empty. What was kept shows at most once, for a moment, after access is lost whil
 Not fixed: just after a reload, a kept room's record stands in until the room list is in, so a room archived meanwhile
 shows its composer for that moment, and a message sent then fails with **Retry**. The sidebar lists only the kept room
 until the room list is in.
+
+---
+
+# QA pass 13 — the room cache after the room-switching speedups
+
+Exploratory testing of the room cache (§7.5) after 2026-10-15's changes (rooms not yet kept prefetched once the room
+list is in, the cache held in memory too, the first page winning ties over kept copies), 2026-10-16. A production
+build on a fresh PocketBase server, in Chromium (desktop 1100×720 and a 390×844 phone): two and three users, several
+tabs of one browser, logouts and user switches, private rooms losing members, archived rooms, DMs, attachments,
+every message request held or slowed (0–400 ms jitter), offline, back/forward cache, the rate limiter on with 80
+rooms unread and 110 rooms in all, and a randomized run (Ada by API sending, editing, deleting and reacting in five
+rooms; Bob in the browser switching, reloading, going back and sending, 0–250 ms per request), Bob's room compared
+with the server after every step. Each scenario records every message text ever drawn, so a flash of the wrong text
+counts. Numbering continues from BUG-100. Each fix lands with a test that fails without it.
+
+| # | Severity | Area | Summary | Status |
+|---|---|---|---|---|
+| BUG-101 | Medium (privacy) | Room cache | A private room you lost access to while the app was open, but weren't in, kept its messages: the next load straight into it showed them until the server said no | Fixed |
+| BUG-102 | Medium | Unread | Reloading into a room whose kept window held its unread messages (prefetched) marked all of them read, though only the newest were on screen | Fixed |
+| BUG-103 | Low | Room cache | After a reload, an author's new avatar or name never showed in a kept room: the kept copies beat the page's (and were kept again) | Fixed |
+| BUG-104 | Low | Room cache | Leaving the page (a reload, a link, closing the tab) within a second of a room's last change often didn't keep it: the BUG-97 save on `pagehide` didn't reach IndexedDB | Fixed (mostly) |
+
+## BUG-101 — A room you lost access to stayed in the cache (Medium, privacy)
+
+**Steps:** Bob is in a private room's member list and has it kept (opened earlier, or prefetched); he is in another
+room when Ada takes him out; later he reloads straight into the room (a bookmark, a restored tab). **Expected:**
+"You can't see this room any more", and nothing of it. **Actual:** its messages showed until the server answered.
+BUG-98 saved a room empty only when it was the open one; with prefetching of rooms not yet kept, most kept rooms are
+never opened. **Fix:** any room that leaves the loaded room list while the app is open is saved empty
+(`forgetGone`, cache.ts), for guests too.
+
+## BUG-102 — A reload into a prefetched room read what was never on screen (Medium)
+
+**Steps:** Bob is in the lobby; Ada writes 80 messages in a room, which is prefetched for him; Bob reloads straight
+into that room. **Expected:** it opens at the first of the 80 under the "New" line, and they stay unread until he
+reaches the bottom (§18.5, as BUG-93). **Actual:** the line was right, but all 80 were read: before the counts are
+in, the kept window shows at the bottom, and what shows at the bottom counts as read. **Fix:** while a kept window
+shows at the bottom before the server has said where the unread messages start (`unsure`), nothing counts as read;
+with nothing unread, it is read as soon as the server says so.
+
+## BUG-103 and BUG-104 (Low)
+
+- **BUG-103:** the first page's copy of a message replaced a kept one only when it was newer (`updated`), so a kept
+  room never picked up an author's new avatar or name, and kept the old one again. Found by avatar.spec.ts under
+  load. Of the same age, the page's copy now wins; copies changed meanwhile (BUG-100) still stay.
+- **BUG-104:** the window saved on `pagehide` (BUG-97, which had only a unit test) was put in a transaction made
+  after a promise, and left to commit when the page next ran; when it was going, that often never came. Seen 3 times
+  in exploratory runs and then not for ~70 tries alone, but a new e2e test failed 10 of 20 times at 4 workers (with
+  IndexedDB calls logged: the put was made, and neither completed nor aborted). The transaction is now made at once
+  once the database is open, and committed explicitly: 0 of 12 and 2 of 24 lost in the same setup. A write made as
+  the page goes can still be lost under load; the room is then kept as it was a second earlier, or not at all.
+
+## Checked and fine
+
+- **Sessions:** logging out and another user logging in in the same tab, a user switch or a logout in another tab, a
+  guest logging in: nothing of the previous user drawn, ever, and nothing of theirs kept.
+- **Cached rooms:** rapid switching through 8 rooms 40 times with jitter (never another room's message); sending,
+  replying, editing, deleting, deleting several, reacting, jumping to the beginning, scrolling into history and
+  following a quote while the kept window shows; a message deleted while away (prefetched or warm-up kept) never
+  shows its text; a deleted message can't be forwarded from a stale window; the "New" line opened before and after
+  prefetching; DMs; images of a kept window after a reload; an archived room opened from the cache has no composer;
+  two tabs of one user; back/forward cache; rate limiter on with prefetching (no 429, every room opened loads).
+- **Randomized run** (seeds 1, 3, 5 on desktop, 2 and 6 on a phone; 40–60 steps each): Bob's room matched the server
+  after every step, no page errors.
+- Typecheck, lint, unit, integration and Chromium e2e suites, before and after the fixes.
+
+Not changed, by design: a room whose first
+load fails (offline) shows the error and **Retry**, not its kept window. A message edited (or reacted to) while you
+were away still shows as kept until the first page is in.

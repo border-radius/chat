@@ -112,6 +112,37 @@ describe("prefetching rooms with unread messages (§7.5)", () => {
     expect(JSON.stringify(cache.rooms.get(theirs.id))).not.toContain("hunter2");
   });
 
+  it("once the room list is in, fetches the rooms not kept yet: not the kept ones, nor the open one", async () => {
+    const kept = await me.api.createRoom(`room-${uniq()}`);
+    const open = await me.api.createRoom(`room-${uniq()}`);
+    await seedMessages(room.id, me.user.id, 3);
+    cache.put(me.user.id, kept.id, { items: [], hasOlder: false });
+    store.set({ activeRoomId: open.id, rooms: new Map([room, kept, open].map((r) => [r.id, r])), roomsStatus: "ready" });
+    await vi.waitFor(() => expect(cache.rooms.get(room.id)?.items).toHaveLength(3));
+    await sleep(100);
+    expect(net.calls("page")).toBe(1);
+    expect(cache.rooms.has(open.id)).toBe(false);
+    // Once per start: the list loading again fetches nothing more.
+    store.set({ roomsStatus: "loading" });
+    store.set({ roomsStatus: "ready" });
+    await sleep(100);
+    expect(net.calls("page")).toBe(1);
+  });
+
+  it("a room whose count goes up meanwhile is fetched before the rest of the rooms not kept yet", async () => {
+    prefetch.stop();
+    prefetch = createPrefetch({ api: me.api, store, cache, delayMs: 20, gapMs: 100 });
+    prefetch.start();
+    const cold = await Promise.all([1, 2, 3, 4, 5].map(() => me.api.createRoom(`room-${uniq()}`)));
+    store.set({ rooms: new Map(cold.map((r) => [r.id, r])), roomsStatus: "ready" });
+    await vi.waitFor(() => expect(cache.rooms.size).toBe(1));
+    store.set(bumpUnread(room.id));
+    // Next after the one on its way (and DELAY_MS), not after all five.
+    await vi.waitFor(() => expect(cache.rooms.has(room.id)).toBe(true));
+    expect(cache.rooms.size).toBeLessThan(4);
+    await vi.waitFor(() => expect(cache.rooms.size).toBe(6));
+  });
+
   it("doesn't run without a user", async () => {
     prefetch.stop();
     store.set({ user: null });
