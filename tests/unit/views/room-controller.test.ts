@@ -340,6 +340,20 @@ describe("room controller (§7.5, no DOM)", () => {
       expect(changes.at(-1)?.scroll).toBe("bottom");
     });
 
+    it("in a background tab, a new message (even my own from another tab) keeps the view in place and shows 'below'", async () => {
+      const other = await signedUp("Other");
+      const room = await newRoom();
+      await open(room);
+      store.set({ away: true });
+      const a = await say(other, room);
+      await vi.waitFor(() => expect(ids()).toEqual([a.id]));
+      expect(changes.at(-1)).toEqual({ render: { anchor: true } });
+      const b = await say(me, room);
+      await vi.waitFor(() => expect(ids()).toEqual([a.id, b.id]));
+      expect(changes.at(-1)).toEqual({ render: { anchor: true } });
+      expect(state().pill).toBe("below");
+    });
+
     it("away from the live edge, a new message is not appended: the pill says 'history' until a jump", async () => {
       const other = await signedUp("Other");
       const room = await newRoom();

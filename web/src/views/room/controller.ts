@@ -136,6 +136,8 @@ export function createRoomController(opts: {
 }): RoomController {
   const { api, store, roomId, msgId, scope, nearBottom } = opts;
   const { signal } = scope;
+  /** New messages scroll into view only in a visible tab at the bottom: a background tab stays put, with the pill. */
+  const follows = () => nearBottom() && !store.get().away;
 
   let win: MessageWindow = emptyWindow();
   let phase: Phase = "loading";
@@ -463,7 +465,7 @@ export function createRoomController(opts: {
     if (!page || g !== gen || !scope.active || win.hasNewer) return;
     const missed = page.filter((m) => !find(m.id));
     if (!missed.length) return;
-    const follow = nearBottom();
+    const follow = follows();
     setWin(applyPage(win, page, last ? "newer" : "latest").win);
     if (!follow) pill = "below";
     emit(follow ? { render: {}, scroll: "bottom" } : { render: { anchor: true } });
@@ -500,7 +502,7 @@ export function createRoomController(opts: {
   /** At the live edge after a reconnect: fetch everything newer than what we have (§7.5). */
   async function gapFill() {
     const g = gen;
-    const wasNear = nearBottom();
+    const wasNear = follows();
     for (;;) {
       const last = lastSaved(win);
       const page = await api.page(last ? newer(roomId, last) : latest(roomId), signal).catch(() => null);
@@ -544,7 +546,7 @@ export function createRoomController(opts: {
       pill = "history";
       return emit();
     }
-    const follow = nearBottom() || m.author === me()?.id;
+    const follow = !store.get().away && (nearBottom() || m.author === me()?.id);
     win = trim(merge(win, [m]), "top").win;
     if (!follow && pill !== "history") pill = "below";
     emit(follow ? { render: {}, scroll: "bottom" } : { render: { anchor: true } });
