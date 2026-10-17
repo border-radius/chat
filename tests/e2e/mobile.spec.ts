@@ -1,6 +1,6 @@
-import { expect, test } from "@playwright/test";
+import { expect } from "@playwright/test";
 import { PNG } from "../support/files.ts";
-import { apiRoom, apiSend, apiUser, atPath, attach, login, message, send } from "./fixtures.ts";
+import { apiRoom, apiSend, apiUser, atPath, attach, login, message, send, test } from "./fixtures.ts";
 
 // No isMobile: Firefox does not support it, and CI runs all three engines. Viewport + touch is what matters here.
 test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });

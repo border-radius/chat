@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
-import { atPath } from "./fixtures.ts";
+import { expect } from "@playwright/test";
+import { atPath, test } from "./fixtures.ts";
 
 test("app boots to the guest home (Open Air rooms) without console errors; Log in is one click away", async ({ page }) => {
   const errors: string[] = [];

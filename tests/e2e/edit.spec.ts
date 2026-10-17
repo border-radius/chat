@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
-import { apiRoom, apiUser, composer, message, openRoom, send } from "./fixtures.ts";
+import { expect } from "@playwright/test";
+import { apiRoom, apiUser, composer, message, openRoom, send, test } from "./fixtures.ts";
 
 test("an edit shows live for others with (edited); Up arrow edits my last message", async ({ browser }) => {
   const ada = await apiUser("Ada");

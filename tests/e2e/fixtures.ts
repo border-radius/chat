@@ -3,7 +3,7 @@
 
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { type Browser, expect, type Locator, type Page } from "@playwright/test";
+import { type Browser, type BrowserContext, test as base, expect, type Locator, type Page } from "@playwright/test";
 import { newId } from "../../web/src/lib/id.ts";
 import { uniq } from "../support/ids.ts";
 import { withName } from "../support/names.ts";
@@ -121,9 +121,30 @@ export async function logOut(page: Page): Promise<void> {
   await page.getByRole("button", { name: "Log out" }).click();
 }
 
-/** A new browser context logged in as `user`, opened on `room`. */
+/** The contexts openRoom() made in the running test. */
+const opened = new Set<BrowserContext>();
+
+/**
+ * Playwright's `test`, which closes the contexts openRoom() made once the test is over. The worker's browser outlives
+ * the test, and so did they: by the end of a run each worker had ~20 earlier users online, all fetching a busy room's
+ * page at once on each of its messages, which made later specs time out (QA pass 14). Specs import `test` from here.
+ */
+export const test = base.extend<{ closeOpened: undefined }>({
+  closeOpened: [
+    // biome-ignore lint/correctness/noEmptyPattern: Playwright reads a fixture's dependencies from this pattern
+    async ({}, use) => {
+      await use(undefined);
+      await Promise.all([...opened].map((ctx) => ctx.close().catch(() => {})));
+      opened.clear();
+    },
+    { auto: true },
+  ],
+});
+
+/** A new browser context logged in as `user`, opened on `room` (closed after the test). */
 export async function openRoom(browser: Browser, user: User, room: Room, base = ""): Promise<Page> {
   const ctx = await browser.newContext({ viewport: { width: 1100, height: 720 } });
+  opened.add(ctx);
   const page = await ctx.newPage();
   await login(page, user, base);
   await page.goto(`${base}/r/${room.id}`);

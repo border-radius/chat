@@ -1,6 +1,6 @@
-import { expect, test } from "@playwright/test";
+import { expect } from "@playwright/test";
 import { PNG } from "../support/files.ts";
-import { apiRoom, apiUser, login, message, openRoom, send } from "./fixtures.ts";
+import { apiRoom, apiUser, login, message, openRoom, send, test } from "./fixtures.ts";
 
 test("an avatar set on the profile page shows next to your messages for others (§15)", async ({ browser, page }) => {
   const ada = await apiUser("Ada Lovelace");

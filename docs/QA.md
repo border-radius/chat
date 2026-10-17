@@ -997,3 +997,101 @@ with nothing unread, it is read as soon as the server says so.
 Not changed, by design: a room whose first
 load fails (offline) shows the error and **Retry**, not its kept window. A message edited (or reacted to) while you
 were away still shows as kept until the first page is in.
+
+# QA pass 14 — thumbnails kept by the service worker, then the rest of the app
+
+Exploratory testing after attachment thumbnails began to be kept by the service worker (§27.2), 2026-10-17. A
+production build on a fresh PocketBase server, in Chromium (desktop 1100×720 and a 390×844 phone, light and dark),
+**with the service worker on**, as users have it (the e2e suite blocks it outside `pwa.spec.ts`). Server requests
+were counted from PocketBase's request log. Covered: room switches, reloads and token rotation (2 min+), logout and
+the next user in the same tab, a logout while thumbnails load, offline, the viewer, forwards and their deleted
+originals; API edge cases (blank, invisible, over-long and control-character text, duplicate ids, someone else's
+edit, parallel reactions, odd file names, 11 files, empty files, room and display names, bulk delete and forward
+limits); UI edge cases (a reply whose message is deleted before sending, over-long text, 11 files, a room archived
+or access lost while typing); a screenshot sweep of every page; randomized runs (seeds 11, 21 and 23 on desktop, 12
+on a phone, with images); and the whole e2e suite run again with the service worker allowed. Numbering continues
+from BUG-104. Each fix lands with a test that fails without it.
+
+| # | Severity | Area | Summary | Status |
+|---|---|---|---|---|
+| BUG-106 | Low | Unread | Under load, a room's badge (and the tab's total) could show one unread message more than there was, until the room was opened | Fixed |
+| BUG-107 | Low | Room list | A room you had just created, or a DM just opened, vanished from the list for a moment when a room list reload (a page load, a reconnect) answered before its live event came; a room just hidden showed again | Fixed |
+| BUG-108 | Medium (performance) | Prefetching | While a public room is busy, every online user who has it unread refetches its latest page about once a second: 20 idle tabs made each fetch take ~2 s | Open: needs a decision |
+| BUG-105 | Low | Messages | Control characters (NUL, bell, terminal escape codes from pasted output) were kept in message text: shown as nothing or boxes, and refused by Telegram | Fixed |
+
+## BUG-106 — One unread message too many (Low)
+
+**Steps:** Bob is in one room; Ada sends 25 messages to another while Bob's counts are being fetched (a page load, a
+reconnect, coming back to the tab). **Expected:** "25 unread". **Actual:** "26 unread", 1 in 10 runs of
+`unread.spec.ts` at 6 workers. The counts' answer (taken at `at`) and the live events race: a message counted by
+the answer could be added again, either because its event came after the answer (SSE behind the HTTP response) or
+because it was created just after `at` but committed before the count ran (and `created > at` was the client's test
+for "not counted"). Comparing times can't settle it: a message is committed some time after its `created`.
+**Fix:** `GET /api/chat/unread` also returns `ids`, the messages of the last 30 s it accounts for, from the same SQL
+statement (one snapshot) as the counts; the client adds a live message only when it isn't among them. 0 of 60 at 6
+workers after.
+
+## BUG-107 — A room just created or DM just opened vanished for a moment (Low)
+
+**Steps:** open a DM (or create a room, or hide one) while the room list is reloading: right after a page load, or
+after a reconnect. **Expected:** it stays listed. **Actual:** when the reload's answer (taken before) came back
+before the room's live event, the room left the list until that event came; a room just hidden showed again. Found
+by `people.test.ts`, which failed now and then in full unit runs: the DM it had just opened wasn't in the store. The
+reload replayed the live events received meanwhile on its answer (BUG-69), but what the tab itself put in the store
+(`actions.ts`) isn't an event. **Fix:** while a reload is out, `sync.ts` notes every room, and every hidden row,
+that changes in the store, whatever changed it; the answer takes those from the store as it is then, or leaves them
+out if gone from it (the list of events is gone). Comparing only the store before and after wasn't enough: a room
+added and then taken away meanwhile (§23.4) came back with the answer, which `access.test.ts` caught.
+
+## BUG-108 — Busy rooms are prefetched by everyone, every second (Medium, performance; open)
+
+**Steps:** ~20 users online with a public room unread but not open; someone writes in it every second or so.
+**Actual:** each of their tabs fetches the room's latest page (50 messages, authors expanded) once per message
+burst (`DELAY_MS`, 1 s): ~20 page requests per second for one room, each taking ~2 s instead of ~10 ms (seen in an
+e2e trace, where tabs leaked by earlier tests did exactly this). It grows with users × busy rooms, and every user who
+can see a public room is a candidate. **Not changed yet:** the fix trades the room cache's freshness for load, so it
+needs a decision. Options: refetch a room at most every 30–60 s while it stays unread (the first unread message is
+still fetched at once); or only at its first unread message, and again when the pointer rests on it in the list.
+
+## BUG-105 — Control characters in messages (Low)
+
+**Steps:** paste text holding control characters (terminal output with colour codes, a stray NUL) and send it.
+**Actual:** kept as is: shown as nothing or as boxes, and Telegram refuses such text, so the bridge couldn't pass
+the message on. Names were already cleaned (BUG-38). **Fix:** message text keeps tabs and line breaks (CR LF, a lone
+CR and U+2028/2029 become `\n`) and loses every other control character, on create and edit.
+
+## Checked and fine
+
+- **Thumbnails (§27.2):** each fetched once; then none from the server on switching back, reloading, or after the
+  file token changed (130 s); the next user in the same tab fetches their own, and never gets the previous user's
+  (kept per user, and the cache is deleted on logout, also during loading); a forward's images for someone outside
+  the original's room, from the cache after a reload, and gone once the original is deleted; the viewer.
+- **API edges:** blank, invisible-only and over-long text refused (2000 code points, emoji included); a message id
+  can't be reused; someone else's edit is a 404; an edit to the same text isn't an edit; parallel reactions all
+  land; only offered emoji react; `../` and bidi overrides leave file names; 10 files at most; names unique across
+  case, width (NFKC) and invisible characters; a bulk delete of someone else's message changes nothing.
+- **UI edges:** a reply whose message is deleted before sending is sent as a plain message; over-long text shows
+  "N over" and can't be sent; the 11th file is refused with a reason; a room archived while typing hides the
+  composer and keeps the text for when it's back; losing a private room while typing shows "You can't see this room
+  any more" and nothing of it.
+- **Randomized runs** (desktop seeds 11, 21, 23; phone seed 12; 60 steps, Ada sending images 30% of the time): the
+  room matched the server after every step, every image on screen loaded, no page errors.
+- **The e2e suite with the service worker allowed:** all pass but BUG-106 and two specs that `route()` requests the
+  worker makes itself (a thumbnail held, the viewer's stylesheet held), which is why the suite blocks it.
+- Typecheck, lint, unit (645, twice) and integration (336) suites pass; the Chromium e2e suite passes in full at 1, 2
+  (twice) and 4 workers (55/55), in ~2.7 min at 2 workers instead of ~4.4 (see the e2e change below). Before that
+  change, 1–2 specs timed out in most full runs at 2 workers, a different one each time.
+
+Not changed, by design: offline, a reload shows the shell and "Couldn't load this room" with Retry (§7.5), not the
+kept window. A thumbnail kept by the worker outlives the message's deletion on that device, until the logout or
+until 1000 newer ones push it out; nothing asks for it (a deleted message is never drawn).
+
+Test changes:
+- `replies.spec.ts` is marked slow. It takes ~9 s alone (two axe scans) and went over 30 s with the rest of the
+  suite running, in several local full runs since 2026-10-12.
+- The contexts `openRoom()` makes are closed after each test, by an automatic fixture of the `test` that
+  `tests/e2e/fixtures.ts` now exports (specs import `test` from there). They lived as long as the worker's browser: by
+  the end of a run each worker had ~20 earlier users online, all fetching a busy room's page on each of its messages
+  (BUG-108), so later specs timed out. It is the likely cause of the "load flakes" in local full runs since 2026-10-12.
+- `prefetch.test.ts` only hears its own rooms' message events. A message deleted by another test file in a public
+  room meanwhile fetched that room too, one `page` call more than the tests count (3 of 6 full unit runs).

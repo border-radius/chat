@@ -174,6 +174,43 @@ describe("unread counts (§18.3)", () => {
       expect(ctl.calls("unreadCounts")).toBe(2);
     });
 
+    it("QA BUG-106: a message the counts include isn't counted again when its live event comes after them", async () => {
+      const { other, r } = await unreadRoom(2);
+      // Every event of the room reaches the service 400 ms late, as SSE can under load.
+      intercept(
+        me.api,
+        "subscribeAllMessages",
+        (original) => (fn) => original((action, m) => m.room === r.id && void setTimeout(() => fn(action, m), 400)),
+      );
+      start();
+      await vi.waitFor(() => expect(count(r.id)).toBe(2));
+      await subscribed(me.api);
+      await say(other, r.id);
+      unread!.refresh(); // answered (with 3) before the event arrives
+      await vi.waitFor(() => expect(count(r.id)).toBe(3));
+      await sleep(600);
+      expect(count(r.id)).toBe(3);
+    });
+
+    it("QA BUG-106: a +1 during the request that the answer accounts for isn't added on top, whatever its time", async () => {
+      const { other, r } = await unreadRoom(2);
+      onlyRooms(r.id);
+      start();
+      await vi.waitFor(() => expect(count(r.id)).toBe(2));
+      await subscribed(me.api);
+      // The answer counts the new message, whose event arrives while the answer is on its way. Its `at` says nothing
+      // reliable about it (a message is committed some time after its `created`): only `ids` does.
+      intercept(me.api, "unreadCounts", (original) => async (signal) => {
+        const m = await say(other, r.id);
+        const res = await original(signal);
+        await vi.waitFor(() => expect(count(r.id)).toBe(3));
+        return { ...res, at: m.created.replace(/Z$/, "") }; // just before it, after the previous answer
+      });
+      unread!.refresh();
+      await sleep(TEST_TIMING.refreshMs * 4 + 300);
+      expect(count(r.id)).toBe(3);
+    });
+
     it("QA: counts still load in a room that never stops (a message during every count request)", async () => {
       const { other, r } = await unreadRoom(3);
       const real = me.api.unreadCounts.bind(me.api);

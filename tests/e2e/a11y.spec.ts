@@ -1,7 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { PNG } from "../support/files.ts";
-import { apiRoom, apiSend, apiUser, attach, login, send } from "./fixtures.ts";
+import { apiRoom, apiSend, apiUser, attach, login, send, test } from "./fixtures.ts";
 
 async function seriousViolations(page: Page) {
   const { violations } = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();

@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
-import { apiRoom, apiUser, headerAction, messages, openRoom, seed } from "./fixtures.ts";
+import { expect } from "@playwright/test";
+import { apiRoom, apiUser, headerAction, messages, openRoom, seed, test } from "./fixtures.ts";
 
 test("the creator archives a room: read-only for everyone, history still scrolls; unarchive restores", async ({ browser }) => {
   const ada = await apiUser("Ada");

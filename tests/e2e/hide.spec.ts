@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
-import { apiRoom, apiUser, headerAction, openRoom } from "./fixtures.ts";
+import { expect } from "@playwright/test";
+import { apiRoom, apiUser, headerAction, openRoom, test } from "./fixtures.ts";
 
 test("hiding a room is personal; a hidden room still opens by URL; unhide restores it", async ({ browser }) => {
   const ada = await apiUser("Ada");

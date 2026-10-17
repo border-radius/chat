@@ -1,5 +1,5 @@
-import { expect, type Page, test } from "@playwright/test";
-import { apiRoom, apiSend, apiUser, login, logOut, message, openRoom } from "./fixtures.ts";
+import { expect, type Page } from "@playwright/test";
+import { apiRoom, apiSend, apiUser, login, logOut, message, openRoom, test } from "./fixtures.ts";
 
 /** Hold every message list request until the returned function is called (a slow network). */
 async function holdMessages(page: Page): Promise<() => void> {

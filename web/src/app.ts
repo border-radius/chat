@@ -132,6 +132,8 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     void api.unsubscribeAll().catch(() => {});
     drafts.clear(store.get().user?.id ?? "");
     cache.clear();
+    // The thumbnails the service worker kept (sw.ts, FILES).
+    void globalThis.caches?.delete("chat-files").catch(() => {});
     store.set({ ...initialState(), site: store.get().site });
   }
 

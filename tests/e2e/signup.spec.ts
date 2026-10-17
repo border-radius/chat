@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
-import { atPath, composer, message, send, uniq } from "./fixtures.ts";
+import { expect } from "@playwright/test";
+import { atPath, composer, message, send, test, uniq } from "./fixtures.ts";
 
 test("sign up, create a room, send the first message", async ({ page }) => {
   const errors: string[] = [];

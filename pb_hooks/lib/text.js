@@ -87,4 +87,16 @@ const stripHashes = (name) => name.replace(/^[#\s]+/, "");
  */
 const unescapeUploadName = (name) => name.replace(/%22/g, '"').replace(/%0[AD]/gi, " ");
 
-module.exports = { isBlank, tidy, clipFileName, nameKey, stripHashes, unescapeUploadName };
+/** Control characters a message has no use for: all but tab and line feed (QA BUG-105). */
+// biome-ignore lint/suspicious/noControlCharactersInRegex: finding control characters is the point
+const TEXT_CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g;
+
+/**
+ * Message text as it should be kept: line breaks as "\n" (CR LF, a lone CR and the line/paragraph separators), and
+ * no other control characters. Pasted terminal output brought NUL, bell and escape codes, which show as nothing or as
+ * boxes, and which Telegram refuses (QA BUG-105).
+ * @param {string} s
+ */
+const cleanText = (s) => s.replace(/\r\n?|[\u2028\u2029]/g, "\n").replace(TEXT_CONTROL, "");
+
+module.exports = { isBlank, tidy, clipFileName, nameKey, stripHashes, unescapeUploadName, cleanText };

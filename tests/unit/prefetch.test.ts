@@ -4,7 +4,7 @@ import { newId } from "../../web/src/lib/id.ts";
 import type { Room } from "../../web/src/lib/types.ts";
 import { createPrefetch, type Prefetch } from "../../web/src/prefetch.ts";
 import { type AppState, bumpUnread, clearUnread, createStore, initialState, type Store } from "../../web/src/store.ts";
-import { type Controls, instrument, memoryCache, type SignedUp, seedMessages, signedUp, uniq } from "../support/api.ts";
+import { type Controls, instrument, intercept, memoryCache, type SignedUp, seedMessages, signedUp, uniq } from "../support/api.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -15,9 +15,21 @@ describe("prefetching rooms with unread messages (§7.5)", () => {
   let net: Controls;
   let prefetch: Prefetch;
   let room: Room;
+  /**
+   * The rooms whose message events reach prefetching: this test's. Public rooms are everyone's, so a message deleted by
+   * another test file meanwhile would fetch its room too, one more `page` call than a test counts (QA pass 14).
+   */
+  let ours: Set<string>;
 
   beforeEach(async () => {
     me = await signedUp("Me");
+    ours = new Set();
+    intercept(me.api, "createRoom", (original) => async (...args) => {
+      const r = await original(...args);
+      ours.add(r.id);
+      return r;
+    });
+    intercept(me.api, "subscribeAllMessages", (original) => (fn) => original((action, m) => ours.has(m.room) && fn(action, m)));
     room = await me.api.createRoom(`room-${uniq()}`);
     store = createStore<AppState>({ ...initialState(), user: me.user });
     cache = memoryCache();
@@ -104,6 +116,7 @@ describe("prefetching rooms with unread messages (§7.5)", () => {
   it("QA BUG-95: a message deleted in a room fetches it again, so the cache doesn't show its text", async () => {
     const other = await signedUp("Other");
     const theirs = await other.api.createRoom(`room-${uniq()}`);
+    ours.add(theirs.id);
     const m = await other.api.send({ id: newId(), room: theirs.id, text: "my password is hunter2" });
     await vi.waitFor(() => expect(net.calls("subscribeAllMessages")).toBe(1));
     await sleep(200); // the server has the subscription

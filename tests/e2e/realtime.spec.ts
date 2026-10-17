@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
-import { apiRoom, apiUser, message, openRoom, send } from "./fixtures.ts";
+import { expect } from "@playwright/test";
+import { apiRoom, apiUser, message, openRoom, send, test } from "./fixtures.ts";
 
 test("two users chat live; a delete becomes a placeholder for everyone and stays after reload", async ({ browser }) => {
   const ada = await apiUser("Ada");

@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
-import { apiRoom, apiSend, apiUser, atPath, login, message } from "./fixtures.ts";
+import { expect } from "@playwright/test";
+import { apiRoom, apiSend, apiUser, atPath, login, message, test } from "./fixtures.ts";
 
 const title = (page: import("@playwright/test").Page) => page.locator("header.room-header h1");
 

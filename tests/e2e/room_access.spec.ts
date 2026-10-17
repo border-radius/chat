@@ -1,8 +1,8 @@
 // Room access (§23): private rooms with chosen members, Open Air rooms that guests read without an account.
 import AxeBuilder from "@axe-core/playwright";
-import { type Browser, expect, type Page, test } from "@playwright/test";
+import { type Browser, expect, type Page } from "@playwright/test";
 import { PNG } from "../support/files.ts";
-import { apiRoom, apiSend, apiUser, atPath, attach, composer, headerAction, login, message, send, uniq } from "./fixtures.ts";
+import { apiRoom, apiSend, apiUser, atPath, attach, composer, headerAction, login, message, send, test, uniq } from "./fixtures.ts";
 
 const newPage = async (browser: Browser): Promise<Page> => (await browser.newContext({ viewport: { width: 1100, height: 720 } })).newPage();
 

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../web/src/api.ts";
 import type { Room } from "../../web/src/lib/types.ts";
-import { type AppState, createStore, initialState, type Store } from "../../web/src/store.ts";
+import { type AppState, createStore, initialState, markHidden, type Store, upsertRoom } from "../../web/src/store.ts";
 import { createSync, type Sync } from "../../web/src/sync.ts";
 import { instrument, intercept, newApi, type SignedUp, signedUp, subscribed, uniq } from "../support/api.ts";
 
@@ -90,6 +90,31 @@ describe("sync (room list + hidden rows)", () => {
     expect(store.get().rooms.get(kept.id)?.archived).toBe(true);
     expect(store.get().rooms.has(added.id)).toBe(true);
     expect(flickered).toBe(false);
+  });
+
+  it("what this tab did during a reload stays, its event or not (QA BUG-107: a DM just opened vanished)", async () => {
+    const shown = await me.api.createRoom(`room-${uniq()}`);
+    const ctl = instrument(me.api);
+    start();
+    await ready();
+    await me.api.unsubscribeAll(); // no events: their part is the test above
+    const release = ctl.hold("listRooms");
+    const reloading = sync!.reload(); // the server answers with the list as it is now
+    await vi.waitFor(() => expect(ctl.calls("listRooms")).toBe(2));
+    await sleep(100); // answered, and held here
+    // As actions.ts does: the room, the DM and the hidden row go into the store when the server says yes.
+    const created = await me.api.createRoom(`room-${uniq()}`);
+    store.set(upsertRoom(created));
+    const other = await signedUp("Other");
+    const dm = await me.api.openDm(other.user.id);
+    store.set(upsertRoom(dm));
+    const row = await me.api.hideRoom(shown.id);
+    store.set(markHidden(shown.id, row.id));
+    release();
+    await reloading;
+    expect(store.get().rooms.get(created.id)).toEqual(created);
+    expect(store.get().rooms.get(dm.id)).toEqual(dm);
+    expect(store.get().hidden.get(shown.id)).toBe(row.id);
   });
 
   it("an older reload that answers after a newer one is dropped (QA BUG-69)", async () => {

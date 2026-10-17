@@ -1,5 +1,5 @@
-import { expect, type Page, test } from "@playwright/test";
-import { apiRoom, apiUser, headerAction, message, messages, openRoom, seed, send } from "./fixtures.ts";
+import { expect, type Page } from "@playwright/test";
+import { apiRoom, apiUser, headerAction, message, messages, openRoom, seed, send, test } from "./fixtures.ts";
 
 const TOTAL = 2000;
 

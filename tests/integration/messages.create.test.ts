@@ -12,6 +12,14 @@ describe("messages create (§5.3, §5.5, §5.6)", () => {
       expect(m).toMatchObject({ room: room.id, author: a.user.id, text: "hello", deleted: false, edited_at: "", deleted_at: "" });
     });
 
+    it("control characters are dropped and line breaks become \\n; text of only control characters is blank (QA BUG-105)", async () => {
+      const a = await newUser();
+      const room = await newRoom(a);
+      const m = await post(a, room.id, "bell\u0007 \u001b[31mred\u001b[0m nul\u0000end\r\nnext\rlast\u2028tab\tok\u0085");
+      expect(m.text).toBe("bell [31mred[0m nulend\nnext\nlast\ntab\tok");
+      await expectRejected(a.pb.collection("messages").create({ room: room.id, author: a.user.id, text: "\u0000\u0007\u001b" }));
+    });
+
     it("cannot post as someone else", async () => {
       const a = await newUser();
       const b = await newUser();

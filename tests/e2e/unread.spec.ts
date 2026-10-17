@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
-import { apiRoom, apiSend, apiUser, openRoom, seed } from "./fixtures.ts";
+import { expect } from "@playwright/test";
+import { apiRoom, apiSend, apiUser, openRoom, seed, test } from "./fixtures.ts";
 
 test("unread badges (§18): live count, cleared by opening the room, kept across reloads and tabs", async ({ browser }) => {
   const ada = await apiUser("Ada");

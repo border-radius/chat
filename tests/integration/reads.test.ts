@@ -5,7 +5,8 @@ import type { RecordModel } from "pocketbase";
 import { describe, expect, inject, it } from "vitest";
 import { client, collect, eventually, expectRejected, newRoom, newUser, openDm, post, rawDb, status, type TestUser } from "./helpers.ts";
 
-const counts = (u: TestUser) => u.pb.send<{ at: string; rooms: Record<string, number> }>("/api/chat/unread", { method: "GET" });
+const counts = (u: TestUser) =>
+  u.pb.send<{ at: string; rooms: Record<string, number>; ids: string[] }>("/api/chat/unread", { method: "GET" });
 const unread = async (u: TestUser) => (await counts(u)).rooms;
 const markRead = (u: TestUser, body: Record<string, unknown>) =>
   u.pb.send<{ room: string; last_read_at: string }>("/api/chat/reads", { method: "POST", body });
@@ -26,6 +27,24 @@ describe("GET /api/chat/unread (§18.2)", () => {
     await a.pb.collection("messages").update(two.id, { deleted: true });
     expect((await unread(b))[room.id]).toBe(1);
     expect((await unread(a))[room.id]).toBe(1); // b's message; a's own never count
+  });
+
+  it("lists the recent messages it accounts for: other people's in rooms you see, read or not (QA BUG-106)", async () => {
+    const a = await newUser();
+    const b = await newUser();
+    const c = await newUser();
+    const room = await newRoom(a);
+    const dm = await openDm(a, c);
+    const seen = await post(a, room.id, "read already");
+    await markRead(b, { room: room.id });
+    const fresh = await post(a, room.id, "unread");
+    const mine = await post(b, room.id, "mine");
+    const hidden = await post(a, dm.id, "not b's to see");
+    const { ids, rooms } = await counts(b);
+    expect(rooms[room.id]).toBe(1);
+    expect(ids).toEqual(expect.arrayContaining([seen.id, fresh.id]));
+    expect(ids).not.toContain(mine.id);
+    expect(ids).not.toContain(hidden.id);
   });
 
   it("counts a DM only for its members", async () => {
@@ -85,6 +104,32 @@ describe("GET /api/chat/unread (§18.2)", () => {
       const plan = (db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all({ me: "x", since: "x" }) as { detail: string }[]).map((r) => r.detail);
       expect(plan.join(" | ")).toMatch(/SEARCH m USING INDEX idx_messages_room_created \(room=\? AND created>\?\)/);
       expect(plan.join(" | ")).toContain("idx_room_reads_user_room");
+    } finally {
+      db.close();
+    }
+  });
+
+  it("lists the recent messages with range scans too, never a scan of every message (QA BUG-106)", () => {
+    const hook = (name: string) => readFileSync(new URL(`../../pb_hooks/lib/${name}`, import.meta.url), "utf8");
+    const sees = /const SEES_SQL = "([^"]+)"/.exec(hook("access.js"))![1]!;
+    const unreadSql = /const UNREAD_SQL = `([^`]+)`/.exec(hook("reads.js"))![1]!;
+    const sql = /const COUNTS_SQL = `([^`]+)`/
+      .exec(hook("reads.js"))![1]!
+      .replace(/\$\{UNREAD_SQL\}/, unreadSql)
+      .replaceAll(/\$\{SEES_SQL\}/g, sees)
+      .replaceAll(/\{:(\w+)\}/g, ":$1")
+      .replace(/\$\{UNREAD_CAP\}/, "100");
+    const db = rawDb();
+    try {
+      const plan = (db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all({ me: "x", since: "x", from: "x" }) as { detail: string }[]).map(
+        (r) => r.detail,
+      );
+      const ids = plan.slice(plan.indexOf("UNION ALL")).join("\n");
+      expect(ids).toMatch(/SEARCH m USING INDEX idx_messages_room_created \(room=\? AND created>\?\)/);
+      expect(
+        plan.some((d) => /^SCAN m\b/.test(d)),
+        plan.join("\n"),
+      ).toBe(false);
     } finally {
       db.close();
     }

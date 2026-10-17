@@ -12,6 +12,15 @@ describe("messages edit (§5.3, §5.6, §7.6.1)", () => {
     expect(Date.now() - Date.parse(edited.edited_at)).toBeLessThan(60_000);
   });
 
+  it("an edit loses control characters too, and only they changing is no edit (QA BUG-105)", async () => {
+    const a = await newUser();
+    const room = await newRoom(a);
+    const m = await post(a, room.id, "a\nb");
+    const res = await a.pb.collection("messages").update(m.id, { text: "a\r\nb\u0000" });
+    expect(res.text).toBe("a\nb");
+    expect(res.edited_at).toBe("");
+  });
+
   it("an update with unchanged text leaves edited_at empty", async () => {
     const a = await newUser();
     const room = await newRoom(a);

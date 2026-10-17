@@ -1,7 +1,7 @@
 import { deflateSync } from "node:zlib";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { PNG } from "../support/files.ts";
-import { apiRoom, apiUser, attach, composer, login, message, openRoom, seed, send, uniq } from "./fixtures.ts";
+import { apiRoom, apiUser, attach, composer, login, message, openRoom, seed, send, test, uniq } from "./fixtures.ts";
 
 const png = (name: string) => ({ name, mimeType: "image/png", buffer: Buffer.from(PNG) });
 /** A w×h PNG (a horizontal gradient). */

@@ -279,7 +279,7 @@ In plain terms:
 
 The hooks are kept small. They only do things the rules can't express:
 
-- **Normalize text:** trim `messages.text`, `rooms.name` and `users.name` on create and update, and reject values that are empty after trimming or made only of invisible characters (zero-width spaces, bidi controls, BOM…). Names also lose bidi overrides and zero-width spaces, so they can't be used to spoof another name. The one exception is message text on a delete (next bullet).
+- **Normalize text:** trim `messages.text`, `rooms.name` and `users.name` on create and update, and reject values that are empty after trimming or made only of invisible characters (zero-width spaces, bidi controls, BOM…). Names also lose bidi overrides and zero-width spaces, so they can't be used to spoof another name. Message text keeps tabs and line breaks (stored as `\n`: CR LF, a lone CR and U+2028/2029 become one) and loses every other control character (NUL, bell, escape codes from pasted terminal output; QA BUG-105). The one exception is message text on a delete (next bullet).
 - **Unique room names:** on `rooms` create and update, set `name_key` and reject a name whose key another room already has (`validation_not_unique` on `name`, like the index error it replaces).
 - **Soft delete:** on a `messages` update where `deleted` becomes true:
   - set `deleted_at = now` and `text = ""`;
@@ -387,7 +387,7 @@ h("div", {class: "msg", dataset: {id}}, [h("b", {}, name), text]) // returns HTM
 
 ### 7.4 State (`store.ts`)
 
-This is a typed event emitter around a plain object: `{ user, rooms: Map, hidden: Map<roomId, hiddenRowId>, roomsStatus, activeRoomId }`. Updates such as `upsertRoom(r)` and `markHidden(roomId, rowId)` live next to the store and replace maps rather than mutating them. `sync.ts` owns `rooms`, `hidden` and `roomsStatus` while someone is logged in: it loads both lists, holds the only `rooms` and `hidden_rooms` subscriptions, and reloads after each reconnect. The selector `roomSections(state)` splits rooms into Rooms, Hidden and Archived. It is a pure function and is unit-tested. Message lists are **not** kept in global state. Each room view owns its own `MessageList` model (§7.5) and throws it away on unmount, which keeps memory bounded. Only each room's latest page outlives it, in IndexedDB (§7.5, room cache).
+This is a typed event emitter around a plain object: `{ user, rooms: Map, hidden: Map<roomId, hiddenRowId>, roomsStatus, activeRoomId }`. Updates such as `upsertRoom(r)` and `markHidden(roomId, rowId)` live next to the store and replace maps rather than mutating them. `sync.ts` owns `rooms`, `hidden` and `roomsStatus` while someone is logged in: it loads both lists, holds the only `rooms` and `hidden_rooms` subscriptions, and reloads after each reconnect. A reload's answer is older than whatever changed in the store while it was out (live events, and what this tab did itself: a room created, a DM opened, a room hidden or shown, which may have no event yet), so while a reload is out, `sync.ts` notes every room (and every hidden row) that changes in the store, and its answer takes those from the store as it is then, or leaves them out if gone (QA BUG-69, BUG-107). The selector `roomSections(state)` splits rooms into Rooms, Hidden and Archived. It is a pure function and is unit-tested. Message lists are **not** kept in global state. Each room view owns its own `MessageList` model (§7.5) and throws it away on unmount, which keeps memory bounded. Only each room's latest page outlives it, in IndexedDB (§7.5, room cache).
 
 ### 7.5 Message list (hot path)
 
@@ -539,7 +539,7 @@ while its first page loads.
 
 | Asset | Budget (gzipped) |
 |---|---|
-| `app.js` (including the PocketBase client) | **≤ 41.90 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, the room cache without waiting for the network, the QA pass 12 fixes, prefetching rooms not yet kept, the QA pass 13 fixes, see §13) |
+| `app.js` (including the PocketBase client) | **≤ 42.05 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, the room cache without waiting for the network, the QA pass 12 fixes, prefetching rooms not yet kept, the QA pass 13 fixes, thumbnail caching, the QA pass 14 fixes, see §13) |
 | `app.css` | **≤ 6.10 KB** (5 KB until §21, 5.5 KB until §23, 6 KB until audio attachments, 6.05 KB until §18.5, see §13) |
 | `index.html` | ≤ 1.5 KB |
 | Image viewer (§17.7), loaded on first use | ≤ 4 KB script, ≤ 1.5 KB stylesheet |
@@ -976,6 +976,8 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 | Bundle budget (QA pass 12) | `app.js` raised from 41.50 KB to 41.65 KB gzipped (§7.7): the room cache fixes of QA pass 12 (BUG-97 to BUG-100) took it to 41.58 KB. |
 | Bundle budget (room switching) | `app.js` raised from 41.65 KB to 41.75 KB gzipped (§7.7): prefetching the rooms not kept yet and holding the room cache in memory (§7.5) took it to 41.71 KB. |
 | Bundle budget (QA pass 13) | `app.js` raised from 41.75 KB to 41.90 KB gzipped (§7.7): the room cache fixes of QA pass 13 (BUG-101 to BUG-104) took it to 41.87 KB. |
+| Bundle budget (thumbnail caching) | `app.js` raised from 41.90 KB to 41.95 KB gzipped (§7.7): deleting the service worker's thumbnail cache when a session ends (§27.2) took it to 41.92 KB. |
+| Bundle budget (QA pass 14) | `app.js` raised from 41.95 KB to 42.05 KB gzipped (§7.7): the QA pass 14 fixes (BUG-106, then BUG-107) took it to 42.03 KB. |
 | Bundle budget (QA pass 9) | `app.js` raised from 39.25 KB to 39.35 KB gzipped (§7.7): the forwarding fixes of QA pass 9 (messages deleted meanwhile left out, the server's reason shown, focus kept while selecting) took it to 39.30 KB. |
 
 ### Still open
@@ -1286,8 +1288,9 @@ click never uses a stale token. Already-rendered images keep their URLs (the bro
 expired token fails; its `error` handler asks for a fresh URL **once** and retries, then falls back to a "Couldn't
 load image" box with a Retry button.
 
-Tokens change the URL, so the browser cache can't reuse a thumbnail across token refreshes. This is accepted: each
-thumbnail is ~20–40 KB and the window holds at most 300 messages.
+Tokens change the URL, so the browser cache can't reuse a thumbnail across token refreshes. The service worker
+(§27.2) keeps thumbnails under their URL without the token instead, so switching rooms or reloading doesn't download
+them again. Full files (the viewer, downloads, video and audio) still go to the server with their token.
 
 ### 17.4 Sending (optimistic, retry-safe)
 
@@ -1443,8 +1446,10 @@ No row means "read up to your signup" (`users.created`): history from before you
 
 ### 18.2 Routes (`pb_hooks/lib/reads.js`)
 
-- **`GET /api/chat/unread`** → `{ at, rooms: { "<roomId>": count } }` for the rooms with anything unread, where `at`
-  is the server time the counts were taken (§18.3 uses it). One SQL query: for each room you can see (public, or a DM
+- **`GET /api/chat/unread`** → `{ at, rooms: { "<roomId>": count }, ids }` for the rooms with anything unread, where `at`
+  is the server time the counts were taken (answers older than the counts shown are dropped), and `ids` the other
+  people's messages of the last 30 s in rooms you can see, read or not: the ones these counts account for (§18.3,
+  QA BUG-106). One SQL statement, so the counts and `ids` come from one snapshot: for each room you can see (public, or a DM
   you are in), count the messages that are not yours, not deleted, and newer than `max(last_read_at, your signup)`,
   **stopping at 100** (the badge shows `99+`; without the cap a 50k backlog took ~200 ms per request). Each count is
   a correlated subquery, so it is a range scan on `idx_messages_room_created` (an integration test pins the query
@@ -1464,13 +1469,15 @@ No row means "read up to your signup" (`users.created`): history from before you
   and everything about telling the server what was read. Views only read the store and report what they show.
 - **State:** `AppState.unread` (room id → count). Loaded at login and on every reconnect; `refresh()` refetches,
   debounced. A failed count never affects the room list.
-- **Live +1:** the service subscribes to **all** message events (`fields: id,room,author,created,deleted`, never the
+- **Live +1:** the service subscribes to **all** message events (`fields: id,room,author,deleted`, never the
   text), which the messages list rule already limits to rooms you can see. A create from someone else in a room
   other than the active one is +1. A soft delete in a room with unread messages refetches the counts (was the
   deleted message unread?). A count request in flight may or may not include a +1 that arrives meanwhile: the +1s
-  received during it are kept with their message's `created`, and those newer than the answer's `at` are added on
-  top. (Refetching instead starved the counts in a busy room: QA.) An answer older than the counts in the store is
-  dropped.
+  received during it are kept, and those whose message isn't in the answer's `ids` are added on top. (Refetching
+  instead starved the counts in a busy room: QA.) A +1 whose message is in the `ids` of the counts shown is skipped:
+  its event came after them (SSE can trail the HTTP answer). Times can't decide this: a message is committed some
+  time after its `created`, so one created before `at` may be missing from the counts and one created after it
+  included (QA BUG-106). An answer older than the counts in the store is dropped.
 - **Other tabs and devices:** `room_reads` events (your own rows only) refetch the counts, debounced (250 ms).
 - **Marking read:** the room view opens a `RoomReader` (`unread.open(roomId)`) on mount. After every render, scroll
   and visibility change, if the newest messages are on screen (the window reaches the live edge, §7.5, the list is
@@ -2204,8 +2211,15 @@ worker takes over at once (`skipWaiting`, `clients.claim`): it holds nothing an 
   page of the app is the same `index.html`, §7.1), and offline the last one kept is served.
 - **Content-hashed assets** (`/assets/*-HASH.js|css`): cache first; one name never changes. Keeping a new page drops
   the cached assets it doesn't name (older builds; a lazy chunk comes back when used).
-- **Everything else** is the browser's: `/api/` (records, realtime, files, so nothing stale and nothing private
-  cached), `/_/`, other origins, anything but `GET`, and unhashed dev assets.
+- **Attachment thumbnails** (`GET /api/files/messages/{id}/{file}?thumb=…&token=…`): cache first, in their own cache
+  (`chat-files`), kept under the URL without the token plus the token's user id (read from the JWT, not verified:
+  the server checks a miss). A file name never changes its content, so a kept thumbnail is never stale. Only
+  successes are kept, at most 1000 (oldest out first, trimmed every 50th put). A request with no file token (a
+  guest) is left to the browser. When the session ends (logout, a user switch, an expired session), `app.ts`
+  deletes the cache, like the room cache (§7.5): a shared computer doesn't keep the last user's pictures. Losing
+  access to a room doesn't evict its thumbnails, but the app no longer lists its messages, so nothing asks for them.
+- **Everything else** is the browser's: `/api/` (records, realtime, full files: nothing stale and nothing else
+  private cached), `/_/`, other origins, anything but `GET`, and unhashed dev assets.
 
 Offline the shell boots and behaves as with the server unreachable: failed loads show their errors and **Retry** (§7.5),
 and realtime reconnects when the network is back (§6).
@@ -2215,5 +2229,6 @@ and realtime reconnects when the network is back (§6).
 - **Integration:** the manifest is named after the site and lists its icons (`site.test.ts`); `/sw.js` is served
   `no-cache` (`http.test.ts`).
 - **E2E** (`pwa.spec.ts`, Chromium): the manifest and every icon load with the right type; once the worker controls
-  the page, a page loaded offline still shows the app. Other specs run with service workers blocked
+  the page, a page loaded offline still shows the app. A thumbnail is kept once and then served for another token of
+  the same user (one the server refuses), not for another user's; logging out deletes the cache. Other specs run with service workers blocked
   (`playwright.config.ts`): the worker fetches hashed assets itself, out of reach of `page.route()`.

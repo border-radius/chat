@@ -42,10 +42,15 @@ export function createUnread({ api, store, timing = TIMING }: { api: Api; store:
   /** The current run; callbacks hold on to theirs, so a restart can't revive them. */
   let scope: Scope | null = null;
   /**
-   * The live +1s received while a count request is in flight. Its answer counts only the messages created up to its
-   * `at`, so the later ones are added back on top (never refetched: a busy room would starve the counts, QA).
+   * The live +1s received while a count request is in flight. Those its answer doesn't account for (`ids`) are added
+   * back on top (never refetched: a busy room would starve the counts, QA).
    */
-  let recent: { room: string; created: string }[] = [];
+  let recent: { room: string; id: string }[] = [];
+  /**
+   * The recent messages the counts in the store account for: their live events, late, are already counted (QA BUG-106).
+   * Not reset by start(): a new session's events are all of messages newer than any of these.
+   */
+  let accounted = new Set<string>();
   let inFlight = 0;
   /** `at` of the counts in the store: an older answer that arrives late is dropped. */
   let countedAt = "";
@@ -59,8 +64,9 @@ export function createUnread({ api, store, timing = TIMING }: { api: Api; store:
       const res = await api.unreadCounts(s.signal).catch(() => null);
       if (!res || !s.active || res.at < countedAt) return;
       countedAt = res.at;
+      accounted = new Set(res.ids);
       const unread = new Map(Object.entries(res.rooms));
-      for (const b of recent) if (b.created > res.at) unread.set(b.room, (unread.get(b.room) ?? 0) + 1);
+      for (const b of recent) if (!accounted.has(b.id)) unread.set(b.room, (unread.get(b.room) ?? 0) + 1);
       // The active room is the room view's to clear; the server may not have its latest read yet. Not while the tab
       // is away: then the room view reads nothing, and the server's count is the one to show.
       if (!store.get().away) unread.delete(store.get().activeRoomId ?? "");
@@ -138,8 +144,8 @@ export function createUnread({ api, store, timing = TIMING }: { api: Api; store:
           const { user, activeRoomId, away, unread } = store.get();
           // The room you are in is read as it arrives (the room view reports it), unless the tab is away; your own
           // messages never count.
-          if (action === "create" && m.author !== user?.id && (m.room !== activeRoomId || away)) {
-            if (inFlight) recent.push({ room: m.room, created: m.created });
+          if (action === "create" && m.author !== user?.id && (m.room !== activeRoomId || away) && !accounted.has(m.id)) {
+            if (inFlight) recent.push({ room: m.room, id: m.id });
             store.set(bumpUnread(m.room));
           } else if (action === "update" && m.deleted && unread.has(m.room)) refresh(); // was it unread?
         }),

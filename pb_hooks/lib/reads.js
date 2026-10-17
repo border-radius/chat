@@ -26,6 +26,28 @@ SELECT room, n FROM (
   WHERE ${SEES_SQL}
 ) WHERE n > 0`;
 
+/** How far back GET /api/chat/unread lists the messages its counts already account for (QA BUG-106). */
+const ACCOUNTED_MS = 30_000;
+
+/**
+ * UNREAD_SQL's rows (`id` "") and, in the same statement so from the same snapshot, the ids of other people's
+ * messages in the rooms the caller sees created since {:from} (`room` ""): whatever its read position, the counts
+ * account for each of them. Their live events arrive late (or during the request), so the client skips those instead
+ * of guessing from `created`, which says nothing about when a message was committed (QA BUG-106). CROSS JOIN keeps
+ * rooms the outer loop (SQLite doesn't reorder it), so each room is a range scan on idx_messages_room_created, not a
+ * scan of every message (an integration test pins the plan).
+ */
+const COUNTS_SQL = `
+SELECT room, n, '' AS id FROM (${UNREAD_SQL})
+UNION ALL
+SELECT * FROM (
+  SELECT '' AS room, 0 AS n, m.id AS id FROM rooms r CROSS JOIN messages m ON m.room = r.id
+  WHERE ${SEES_SQL}
+    AND m.created > {:from}
+    AND m.author != {:me}
+  LIMIT 1000
+)`;
+
 /** The oldest unread message in one room, by the same rule as UNREAD_SQL (§18.2). */
 const FIRST_UNREAD_SQL = `
 SELECT m.id, m.created FROM messages m
@@ -47,24 +69,30 @@ const badRequest = (message) =>
   new BadRequestError("Failed to mark the room as read.", { at: new ValidationError("validation_invalid_value", message) });
 
 /**
- * GET /api/chat/unread → { at, rooms: { "<roomId>": count } } for every room with unread messages (at most
- * UNREAD_CAP each). `at` is when the counts were taken: the client adds the live messages created after it, which
- * these counts may not include (§18.3).
+ * GET /api/chat/unread → { at, rooms: { "<roomId>": count }, ids } for every room with unread messages (at most
+ * UNREAD_CAP each). `at` is when the counts were taken. `ids` are the recent messages (ACCOUNTED_SQL) the counts
+ * account for: the client adds the live ones it gets that aren't among them, and only those (§18.3, QA BUG-106).
  * @param {core.RequestEvent} e
  */
 function unread(e) {
   const user = me(e);
   const at = new DateTime().string();
-  const rows = arrayOf(new DynamicModel({ room: "", n: 0 }));
+  const rows = arrayOf(new DynamicModel({ room: "", n: 0, id: "" }));
   e.app
     .db()
-    .newQuery(UNREAD_SQL)
-    .bind({ me: user.id, since: user.getString("created") })
+    .newQuery(COUNTS_SQL)
+    // {:from} in PocketBase's format, "2006-01-02 15:04:05.000Z".
+    .bind({ me: user.id, since: user.getString("created"), from: new Date(Date.now() - ACCOUNTED_MS).toISOString().replace("T", " ") })
     .all(rows);
   /** @type {Record<string, number>} */
   const out = {};
-  for (const row of rows) out[row.room] = row.n;
-  return e.json(200, { at, rooms: out });
+  /** @type {string[]} */
+  const ids = [];
+  for (const row of rows) {
+    if (row.id) ids.push(row.id);
+    else out[row.room] = row.n;
+  }
+  return e.json(200, { at, rooms: out, ids });
 }
 
 /**

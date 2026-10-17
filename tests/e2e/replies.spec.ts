@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, type Page, test } from "@playwright/test";
-import { apiRoom, apiUser, composer, message, openRoom, seed, send } from "./fixtures.ts";
+import { expect, type Page } from "@playwright/test";
+import { apiRoom, apiUser, composer, message, openRoom, seed, send, test } from "./fixtures.ts";
 
 async function seriousViolations(page: Page) {
   const { violations } = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
@@ -11,6 +11,8 @@ async function seriousViolations(page: Page) {
 
 for (const colorScheme of ["light", "dark"] as const) {
   test(`replies (§19), ${colorScheme}: a reply quotes the original live for others; its quote goes back to it`, async ({ browser }) => {
+    // ~9 s alone, ~4 s of it the two axe scans; with the rest of the suite running it went over 30 s (QA pass 14).
+    test.slow();
     const ada = await apiUser("Ada");
     const bob = await apiUser("Bob");
     const room = await apiRoom(ada);

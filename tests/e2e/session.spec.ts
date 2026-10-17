@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
-import { apiRoom, apiUser, atPath, login, logOut } from "./fixtures.ts";
+import { expect } from "@playwright/test";
+import { apiRoom, apiUser, atPath, login, logOut, test } from "./fixtures.ts";
 
 test("a reload keeps the session; logging out guards rooms even via the back button (§23.3)", async ({ page }) => {
   const ada = await apiUser("Ada");

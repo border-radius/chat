@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
-import { apiRoom, apiUser, composer, message, openRoom, send } from "./fixtures.ts";
+import { expect } from "@playwright/test";
+import { apiRoom, apiUser, composer, message, openRoom, send, test } from "./fixtures.ts";
 
 const IMG = `<img src=x onerror="window.__pwned=1">`;
 const SVG = `<svg onload="window.__pwned=2"></svg><script>window.__pwned=3</script>`;

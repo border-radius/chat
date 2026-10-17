@@ -5,9 +5,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect } from "@playwright/test";
 import { disableRateLimits, type PocketBaseServer, startPocketBase } from "../support/pocketbase.ts";
-import { apiRoom, apiUser, messages, openRoom, seed } from "./fixtures.ts";
+import { apiRoom, apiUser, messages, openRoom, seed, test } from "./fixtures.ts";
 
 const freePort = () =>
   new Promise<number>((ok) => {

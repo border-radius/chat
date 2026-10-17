@@ -7,7 +7,7 @@ const { accessOf, canSee, visibleRoom } = require(`${__hooks}/lib/access.js`);
 const { fieldError, originalNames, recordOf } = require(`${__hooks}/lib/records.js`);
 const { dmRefusal } = require(`${__hooks}/lib/dms.js`);
 const { isDm } = require(`${__hooks}/lib/rooms.js`);
-const { isBlank } = require(`${__hooks}/lib/text.js`);
+const { cleanText, isBlank } = require(`${__hooks}/lib/text.js`);
 
 /**
  * Trim a text field in place (required/min validation then rejects blanks).
@@ -31,11 +31,13 @@ function activeRoom(app, roomId) {
 }
 
 /**
- * Trimmed text that isn't blank, unless `blankOk` (a message with attachments may have no text, §17.1).
+ * Clean (no control characters, QA BUG-105), trimmed text that isn't blank, unless `blankOk` (a message with
+ * attachments may have no text, §17.1).
  * @param {core.Record} record
  * @param {boolean} [blankOk]
  */
 function assertText(record, blankOk = false) {
+  record.set("text", cleanText(record.getString("text")));
   trim(record, "text");
   const text = record.getString("text");
   if (!isBlank(text)) return;

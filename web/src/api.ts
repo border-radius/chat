@@ -22,10 +22,12 @@ export type ReadRow = HiddenRow;
 export interface UnreadCounts {
   at: string;
   rooms: Record<string, number>;
+  /** The recent messages these counts account for (QA BUG-106); missing from servers before it. */
+  ids?: string[];
 }
 
 /** What the unread counter needs to know about a message event in any room (§18.3). */
-export type MessageActivity = Pick<Message, "id" | "room" | "author" | "created" | "deleted">;
+export type MessageActivity = Pick<Message, "id" | "room" | "author" | "deleted">;
 
 export interface NewMessage {
   /** Client-generated (lib/id.ts) so retries can't duplicate (§7.5). */
@@ -212,7 +214,7 @@ interface SiteRow {
   logo?: string;
   invite_only?: boolean;
 }
-const ACTIVITY_FIELDS = "id,room,author,created,deleted";
+const ACTIVITY_FIELDS = "id,room,author,deleted";
 
 function toApiError(e: unknown): ApiError {
   if (e instanceof ApiError) return e;

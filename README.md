@@ -2,7 +2,7 @@
 
 A small, fast, real-time group chat. One [PocketBase](https://pocketbase.io) binary is the whole backend
 (auth, data, realtime, static files); the frontend is vanilla TypeScript bundled by esbuild — no framework,
-~40 KB of JS gzipped.
+~42 KB of JS and ~6 KB of CSS gzipped (`npm run build` fails over its budget: 42.05 KB of JS, 6.10 KB of CSS).
 
 - Public rooms anyone can create; hide rooms you don't care about; creators archive rooms (read-only, history kept)
 - Room access, chosen by each room's creator: **Private** (only the people they add), **Public** (everyone with an account) or **Open Air** (anyone can read it, no account needed; the home page shows these rooms to guests, who log in or sign up to join in)
@@ -17,10 +17,15 @@ A small, fast, real-time group chat. One [PocketBase](https://pocketbase.io) bin
 - Image viewer: click a thumbnail to see it full size (or a video to play it) and step through the room's images and videos (buttons, arrow keys, swipe);
   loaded only when first used, so it adds nothing to the page's first load
 - Select messages (up to 50): forward them to any room or DM, with "Forwarded from" and their attachments (forwards show the original, so nothing is copied), or delete them together when they are yours
-- Unread counts on every room and DM, live, and in sync across your tabs and devices; the total shows in the tab's favicon and title
+- Unread counts on every room and DM, live, and in sync across your tabs and devices; the total shows in the tab's favicon and title;
+  a room with unread messages opens at the first of them, under a "New" line
 - What you were typing is kept per room, even across a reload; "Jump to latest" whenever you are scrolled up
 - Your own branding (title and logo) and, if you like, invite-only signups: set by the admin in PocketBase
 - Telegram bridge (optional): link rooms to Telegram groups through a bot; messages, replies, edits and files go both ways (deletes from the chat to Telegram), Telegram people show under stand-in accounts with their names and pictures — see [Telegram integration](#telegram-integration)
+- Fast room switching: each room's latest messages are kept in the browser (IndexedDB) and shown at once while the
+  server answers; unread rooms are fetched ahead. Attachment thumbnails are kept by the service worker, so going back
+  to a room (or reloading) doesn't download them again. All of it is cleared on logout
+- Installable as an app (PWA: Add to Home Screen, the browser's Install button); it opens offline to its shell
 - Optimistic sending with safe retries, reconnect gap-fill, light/dark themes, works on phones
 - An Android app (React Native, Expo) with the same features, for any server: you add servers by their address and switch between them — see [`mobile/`](mobile/README.md)
 
@@ -70,7 +75,7 @@ pb_migrations/   schema + API rules (the source of truth for access control)
 pb_hooks/        server-side hooks: trimming, soft delete, edit/archive stamps, DM + unread routes, guards, security headers;
                  telegram.pb.js + telegram/: the optional Telegram bridge
 web/src/         frontend: api.ts (the only module that talks to PocketBase, through pb.ts, a minimal client), router,
-                 store, views/, lib/ (pure logic)
+                 store, cache.ts (the room cache), sw.ts (the service worker), views/, lib/ (pure logic)
 web/styles/      app.css (bundles app/*.css, one file per part) and viewer.css
 scripts/         build, dev, fetch-pocketbase, pb-types (PocketBase's types for the hooks), html-sink check
 mobile/          the Android app (Expo): its own screens on the web client's api.ts, store and room controller

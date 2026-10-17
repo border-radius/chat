@@ -1,7 +1,22 @@
 // §22: unique display names, changing your password, drafts across reloads, the unread favicon, focus on entering a
 // room, "Jump to latest", and the forward confirmation going away.
-import { expect, test } from "@playwright/test";
-import { apiRoom, apiSend, apiUser, atPath, composer, login, logOut, message, messages, openRoom, seed, send, uniq } from "./fixtures.ts";
+import { expect } from "@playwright/test";
+import {
+  apiRoom,
+  apiSend,
+  apiUser,
+  atPath,
+  composer,
+  login,
+  logOut,
+  message,
+  messages,
+  openRoom,
+  seed,
+  send,
+  test,
+  uniq,
+} from "./fixtures.ts";
 
 test("change your password on the profile page, then log in with the new one", async ({ page }) => {
   const ada = await apiUser(`Ada ${uniq()}`);
