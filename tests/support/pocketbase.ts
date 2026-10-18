@@ -84,8 +84,9 @@ export async function startPocketBase(opts: StartOptions = {}): Promise<PocketBa
   const args = ["serve", `--http=127.0.0.1:${port}`, `--publicDir=${publicDir}`, "--hooksWatch=false", "--hooksPool=100", ...dirArgs];
   const proc = spawn(bin, args, {
     stdio: opts.verbose ? "inherit" : "pipe",
-    // Never a Telegram bot from the developer's own environment: only what a test passes (the bridge, §26).
-    env: { ...withoutTelegram(process.env), ...opts.env },
+    // Never a Telegram bot from the developer's own environment: only what a test passes (the bridge, §26). No link
+    // previews either (§28), which would fetch whatever the tests link to, unless a test turns them on.
+    env: { ...withoutTelegram(process.env), LINK_PREVIEWS: "off", ...opts.env },
   });
 
   let output = "";

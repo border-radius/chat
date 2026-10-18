@@ -168,6 +168,11 @@ are part of the backups, so plan disk space for them. **Rate limits** (per IP: m
 per 10 s, reactions 30 per 10 s, forwarding and deleting several messages 20 requests per minute each, password changes 5 per minute, new rooms 5 per minute, opening DMs 10 per minute, marking rooms read 120 per minute, signups 20 per minute; PocketBase defaults for the rest)
 are set by the migrations and adjustable under *Settings → Rate limits*.
 
+## Link previews
+
+Messages show a line under them for each link: the page's favicon and title ([`docs/DESIGN.md` §28](docs/DESIGN.md)).
+The server fetches them, only from public addresses. Set `LINK_PREVIEWS=off` to turn it off.
+
 ## Telegram integration
 
 An optional bridge between rooms and Telegram groups ([`docs/DESIGN.md` §26](docs/DESIGN.md)). A bot sits in your

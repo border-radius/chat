@@ -68,6 +68,56 @@
       ]
     },
     {
+      "name": "link_queue",
+      "type": "base",
+      "listRule": null,
+      "viewRule": null,
+      "createRule": null,
+      "updateRule": null,
+      "deleteRule": null,
+      "fields": [
+        {
+          "autogeneratePattern": "[a-z0-9]{15}",
+          "help": "",
+          "hidden": false,
+          "max": 15,
+          "min": 15,
+          "name": "id",
+          "pattern": "^[a-z0-9]+$",
+          "presentable": false,
+          "primaryKey": true,
+          "required": true,
+          "system": true,
+          "type": "text"
+        },
+        {
+          "cascadeDelete": true,
+          "help": "",
+          "hidden": false,
+          "maxSelect": 1,
+          "minSelect": 0,
+          "name": "message",
+          "presentable": false,
+          "required": true,
+          "system": false,
+          "type": "relation",
+          "collection": "messages"
+        },
+        {
+          "hidden": false,
+          "name": "created",
+          "onCreate": true,
+          "onUpdate": false,
+          "presentable": false,
+          "system": false,
+          "type": "autodate"
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_link_queue_created ON link_queue (created)"
+      ]
+    },
+    {
       "name": "messages",
       "type": "base",
       "listRule": "((room.visibility = \"open\" && room.archived = false) || (@request.auth.id != \"\" && (room.visibility != \"private\" || room.members.id ?= @request.auth.id || room.created_by = @request.auth.id)))",
@@ -82,7 +132,8 @@
         "@request.body.edited_at:isset = false",
         "@request.body.reactions:isset = false",
         "@request.body.forwarded_from:isset = false",
-        "@request.body.forward_of:isset = false"
+        "@request.body.forward_of:isset = false",
+        "@request.body.previews:isset = false"
       ],
       "updateRule": [
         "author = @request.auth.id",
@@ -98,7 +149,8 @@
         "@request.body.reactions:isset = false",
         "@request.body.forwarded_from:isset = false",
         "(@request.auth.id != \"\" && (room.visibility != \"private\" || room.members.id ?= @request.auth.id || room.created_by = @request.auth.id))",
-        "@request.body.forward_of:isset = false"
+        "@request.body.forward_of:isset = false",
+        "@request.body.previews:isset = false"
       ],
       "deleteRule": null,
       "fields": [
@@ -280,6 +332,16 @@
           "system": false,
           "type": "relation",
           "collection": "messages"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "maxSize": 131072,
+          "name": "previews",
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "json"
         }
       ],
       "indexes": [

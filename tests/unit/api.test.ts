@@ -34,6 +34,7 @@ describe("listOptions", () => {
       "files",
       "file_names",
       "reactions",
+      "previews",
       "author",
       "expand.author.id",
       "expand.author.name",

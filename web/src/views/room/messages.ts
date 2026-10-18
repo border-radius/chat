@@ -9,7 +9,7 @@ import { emptyForward, type MessageWindow, quoteText, startsGroup } from "../../
 import { reactors } from "../../lib/reactions.ts";
 import { captureAnchor, restoreAnchor } from "../../lib/scroll.ts";
 import { dayLabel, formatFull, formatTime, parsePb } from "../../lib/time.ts";
-import type { Message, Quoted, Reaction, User } from "../../lib/types.ts";
+import type { LinkPreview, Message, Quoted, Reaction, User } from "../../lib/types.ts";
 import { type AvatarUrl, avatar } from "../../ui/avatar.ts";
 import { createActionMenu } from "../../ui/menu.ts";
 import { createAttachments } from "./attachments.ts";
@@ -325,6 +325,7 @@ export function createMessageList(opts: {
       m.expand?.author?.name ?? "",
       m.expand?.author?.avatar ?? "",
       (m.files ?? []).join("/"),
+      (m.previews ?? []).map((p) => [p.url, p.title, p.icon.length]),
       (m.localFiles ?? []).map((f) => f.url || f.file.name).join("/"),
     ]);
     const hit = cache.get(m.id);
@@ -381,6 +382,7 @@ export function createMessageList(opts: {
         parts.push(h("span", { class: "edited", title: `Edited ${formatFull(parsePb(m.edited_at))}` }, "(edited)"));
     }
     if (!m.deleted) parts.push(attachments(m));
+    if (!m.deleted && m.previews?.length) parts.push(previewList(m.previews));
     if (reactions.length) parts.push(reactionParts.row(m, reactions, reactable, me?.id ?? ""));
     if (m.status === "failed") {
       // The original went away while this reply was sending: Retry sends it without the quote (§19).
@@ -460,6 +462,26 @@ export function createMessageList(opts: {
   function bodyText(text: string): (string | HTMLAnchorElement)[] {
     return linkify(text).map((part) =>
       typeof part === "string" ? part : h("a", { href: part.href, target: "_blank", rel: "noopener noreferrer nofollow" }, part.text),
+    );
+  }
+
+  /** A line for each link (§28): its favicon and title, opening it like the link in the text. Only http(s), data: icons. */
+  function previewList(previews: readonly LinkPreview[]): HTMLElement {
+    return h(
+      "ul",
+      { class: "previews" },
+      previews
+        .filter((p) => /^https?:\/\//i.test(p.url))
+        .map((p) =>
+          h(
+            "li",
+            {},
+            h("a", { href: p.url, target: "_blank", rel: "noopener noreferrer nofollow", title: p.url }, [
+              p.icon.startsWith("data:image/") ? h("img", { src: p.icon, alt: "", width: 16, height: 16 }) : null,
+              h("span", {}, p.title),
+            ]),
+          ),
+        ),
     );
   }
 

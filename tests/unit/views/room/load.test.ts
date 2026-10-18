@@ -1,6 +1,6 @@
 // Room view: loading, live updates, history windows and reconnects (§7.5, §7.6).
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, inject, it, vi } from "vitest";
 import { ApiError } from "../../../../web/src/api.ts";
 import { newId } from "../../../../web/src/lib/id.ts";
 import { dayLabel, parsePb } from "../../../../web/src/lib/time.ts";
@@ -8,6 +8,7 @@ import type { Message } from "../../../../web/src/lib/types.ts";
 import { createRoomView } from "../../../../web/src/views/room.ts";
 import { instrument, intercept, seedMessages, signedUp, viewContext } from "../../../support/api.ts";
 import { fakeLayout } from "../../../support/dom.ts";
+import { runSql } from "../../../support/sql.ts";
 import {
   atBottom,
   beginning,
@@ -88,6 +89,34 @@ describe("room view", () => {
       ]);
       expect(body.textContent).toBe("docs at https://example.com/a. not javascript:alert(1) or <b>x</b>");
       expect(body.querySelector("b")).toBeNull();
+    });
+
+    it("link previews show under the message, a line each: favicon and title; only http(s) links, data: icons (§28)", async () => {
+      const room = await newRoom();
+      const [m] = await seedMessages(room.id, me.user.id, 1, { text: () => "https://example.com/a https://example.org" });
+      const icon = "data:image/png;base64,iVBORw0KGgo=";
+      const previews = [
+        { url: "https://example.com/a", title: "Example <b>A</b>", icon },
+        { url: "https://example.org", title: "No icon", icon: "https://tracker.example/i.png" },
+        { url: "javascript:alert(1)", title: "Bad", icon: "" },
+      ];
+      await runSql(inject("pbUrl"), [
+        { sql: "UPDATE messages SET previews = {:p} WHERE id = {:id}", params: { p: JSON.stringify(previews), id: m!.id } },
+      ]);
+      await mount(room);
+      const lines = [...msgEls()[0]!.querySelectorAll(".previews li a")];
+      expect(
+        lines.map((a) => [
+          a.getAttribute("href"),
+          a.getAttribute("target"),
+          a.textContent,
+          a.querySelector("img")?.getAttribute("src") ?? null,
+        ]),
+      ).toEqual([
+        ["https://example.com/a", "_blank", "Example <b>A</b>", icon],
+        ["https://example.org", "_blank", "No icon", null],
+      ]);
+      expect(msgEls()[0]!.querySelector(".previews b")).toBeNull();
     });
 
     it("inserts a date divider between days", async () => {

@@ -1,5 +1,5 @@
 /// <reference path="../types/pocketbase.d.ts" />
-// Server-side hooks (DESIGN.md §5.6, §16, §18, §20, §21, §22, §23, §24). Logic lives in lib/, one module per collection
+// Server-side hooks (DESIGN.md §5.6, §16, §18, §20, §21, §22, §23, §24, §28). Logic lives in lib/, one module per collection
 // or route: PocketBase hook handlers can't see top-level variables, so each handler require()s its module.
 
 onBootstrap((e) => {
@@ -26,6 +26,7 @@ routerAdd("GET", "/manifest.webmanifest", (e) => require(`${__hooks}/lib/site.js
 routerAdd("GET", "/api/{path...}", () => {
   throw new NotFoundError();
 });
+routerAdd("POST", "/api/previews/tick", (e) => require(`${__hooks}/lib/previews.js`).tick(e), $apis.requireSuperuserAuth());
 routerAdd("POST", "/api/chat/dms", (e) => require(`${__hooks}/lib/dms.js`).openDm(e), $apis.requireAuth("users"));
 routerAdd("GET", "/api/chat/unread", (e) => require(`${__hooks}/lib/reads.js`).unread(e), $apis.requireAuth("users"));
 routerAdd("GET", "/api/chat/unread/{room}", (e) => require(`${__hooks}/lib/reads.js`).firstUnread(e), $apis.requireAuth("users"));
@@ -98,6 +99,7 @@ onRecordCreateRequest((e) => {
 onRecordCreate((e) => {
   require(`${__hooks}/lib/messages.js`).beforeMessageCreate(e);
   e.next();
+  if (e.record) require(`${__hooks}/lib/previews.js`).queue(e.app, e.record);
 }, "messages");
 
 onRecordAfterCreateSuccess((e) => {
@@ -109,9 +111,11 @@ onRecordUpdate((e) => {
   const messages = require(`${__hooks}/lib/messages.js`);
   messages.beforeMessageUpdate(e);
   const touch = !!e.record && messages.changesForwards(e.record);
+  const edited = !!e.record && e.record.getString("text") !== e.record.original().getString("text");
   e.next();
   // Saved: forwards of it tell their readers (§21.3).
   if (touch && e.record) messages.touchForwards(e.app, e.record);
+  if (edited && e.record) require(`${__hooks}/lib/previews.js`).queue(e.app, e.record);
 }, "messages");
 
 onRecordEnrich((e) => {
@@ -129,3 +133,8 @@ onRecordUpdateRequest((e) => {
     e.next();
   });
 }, "messages");
+
+// Link previews (§28): fetched by a worker, a minute's run at a time.
+if (require(`${__hooks}/lib/previews.js`).enabled()) {
+  cronAdd("previews", "* * * * *", () => require(`${__hooks}/lib/previews.js`).run($app));
+}

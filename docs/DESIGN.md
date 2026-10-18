@@ -533,14 +533,15 @@ while its first page loads.
   is an `<a>` made with `h()` around a text node.
 - **Not inside other words:** a `www.` right after `@`, `.` or `-` (`bob@www.example.com`, `my.www.example.com`) isn't
   linked.
+- Under the message, a line per link with its favicon and title (§28).
 - Only message bodies: reply quotes are buttons (a link can't go in one), and the edit box shows the raw text.
 
 ### 7.7 Performance budget (enforced in CI, §9.4)
 
 | Asset | Budget (gzipped) |
 |---|---|
-| `app.js` (including the PocketBase client) | **≤ 42.25 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, the room cache without waiting for the network, the QA pass 12 fixes, prefetching rooms not yet kept, the QA pass 13 fixes, thumbnail caching, the QA pass 14 fixes, Ctrl+Up/Down to pick the reply, see §13) |
-| `app.css` | **≤ 6.10 KB** (5 KB until §21, 5.5 KB until §23, 6 KB until audio attachments, 6.05 KB until §18.5, see §13) |
+| `app.js` (including the PocketBase client) | **≤ 42.40 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, the room cache without waiting for the network, the QA pass 12 fixes, prefetching rooms not yet kept, the QA pass 13 fixes, thumbnail caching, the QA pass 14 fixes, Ctrl+Up/Down to pick the reply, link previews, see §13) |
+| `app.css` | **≤ 6.15 KB** (5 KB until §21, 5.5 KB until §23, 6 KB until audio attachments, 6.05 KB until §18.5, 6.10 KB until §28, see §13) |
 | `index.html` | ≤ 1.5 KB |
 | Image viewer (§17.7), loaded on first use | ≤ 4 KB script, ≤ 1.5 KB stylesheet |
 | Web fonts | **none** (system font stack) |
@@ -822,6 +823,7 @@ Playwright traces are uploaded when a test fails. The job runs on every push and
 | Filter injection | `pb.filter()` with bound params everywhere. |
 | Email harvesting | `emailVisibility = false`, and `fields` requests never include email. |
 | Spam and flooding | PocketBase rate limits, the 2000-char cap, and signup rate limiting. The limits are per client IP: behind a reverse proxy, `TRUSTED_PROXY=X-Forwarded-For` (applied on start by `trustProxy` in `http.js`, set in the Docker image) makes them per client rather than one for everyone; the rightmost address is used, so clients can't choose theirs. |
+| Server-side request forgery (link previews) | The previews worker fetches only http(s) on default ports from public-looking hosts (§28.1): no local names, private IPv4, IPv6 literals or userinfo. Names aren't resolved, so DNS pointing inward or a redirect still gets through, and only a title and a small icon are kept. `LINK_PREVIEWS=off` turns it off. |
 | Filling the disk | Uploads are capped per file, per message and by the message rate limit; forwards copy nothing (§21.3). |
 | Token theft | The token is stored in `localStorage` by the client (`pb.ts`). The CSP greatly lowers XSS risk. Moving to HttpOnly cookies is noted as future work. |
 | Admin UI exposure | Strong superuser password. In production, optionally restrict `/_/` by IP using a hook. |
@@ -979,6 +981,7 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 | Bundle budget (thumbnail caching) | `app.js` raised from 41.90 KB to 41.95 KB gzipped (§7.7): deleting the service worker's thumbnail cache when a session ends (§27.2) took it to 41.92 KB. |
 | Bundle budget (QA pass 14) | `app.js` raised from 41.95 KB to 42.05 KB gzipped (§7.7): the QA pass 14 fixes (BUG-106, then BUG-107) took it to 42.03 KB. |
 | Bundle budget (reply stepping) | `app.js` raised from 42.05 KB to 42.25 KB gzipped (§7.7): Ctrl+Up / Ctrl+Down to move the reply between messages (§19.3) took it to 42.21 KB. |
+| Bundle budget (link previews) | `app.js` raised from 42.25 KB to 42.40 KB and `app.css` from 6.10 KB to 6.15 KB gzipped (§7.7): link previews (§28) took them to 42.38 KB and 6.13 KB. |
 | Bundle budget (QA pass 9) | `app.js` raised from 39.25 KB to 39.35 KB gzipped (§7.7): the forwarding fixes of QA pass 9 (messages deleted meanwhile left out, the server's reason shown, focus kept while selecting) took it to 39.30 KB. |
 
 ### Still open
@@ -2236,3 +2239,53 @@ and realtime reconnects when the network is back (§6).
   the page, a page loaded offline still shows the app. A thumbnail is kept once and then served for another token of
   the same user (one the server refuses), not for another user's; logging out deletes the cache. Other specs run with service workers blocked
   (`playwright.config.ts`): the worker fetches hashed assets itself, out of reach of `page.route()`.
+
+---
+
+## 28. Link previews
+
+Under a message, a line for each link in its text: the page's favicon and title, opening the link in a new tab like
+the link in the text (§7.6.3). Web app only for now; the mobile app ignores the field.
+
+### 28.1 Data and the worker
+
+- **`messages.previews`**: `[{ url, title, icon }]`, in the order the links come in the text. `icon` is a `data:` URL
+  ("" when there is none), so nothing is hotlinked (the CSP allows only `data:` and the app's own images) and nobody's
+  browser tells a site who reads the room. Set by the server only: create and update rules refuse it in a body, the
+  hooks set `[]` on create, on an edit of the text and on delete, and an edit keeps the stored ones otherwise (as for
+  reactions, §20.2). A forward shows its original's (`showOriginal`), and gets saved again when they arrive, like an
+  edit of its original (§21.3).
+- **Queue:** a new message with links, or an edit of the text, adds a `link_queue` row in the save's transaction.
+  A cron job (`* * * * *`) runs `pb_hooks/lib/previews.js` for 57 s, once a second (one run at a time, a lock in the
+  app store); `POST /api/previews/tick` (superusers) runs it at once. Each message: its links (found as `linkify`
+  finds them, each once, at most 5), fetched one at a time; the previews are saved in a transaction unless the text
+  changed meanwhile (the edit queued it again). Everyone sees them live, as an update. A link that fails gets no line
+  and isn't tried again.
+- **Fetching:** the page with `Range: bytes=0-262143` (4 s timeout), `text/html` only, its UTF-8 or Latin-1 text.
+  The title is `og:title`, else `<title>`, entities decoded, whitespace collapsed, at most 200 characters; no title,
+  no line. The icon is the first `<link rel="… icon …">`, else `/favicon.ico` (3 s), an image of at most 16 KB, its
+  type as served or sniffed (PNG, ICO, GIF, JPEG, SVG).
+- **Where the server may go** (server-side request forgery): http(s) on the default port, a public IPv4 address or a
+  name with a dot whose last label is letters and isn't a local one (`localhost`, `.local`, `.internal`, `.lan`,
+  `.home.arpa`…); no userinfo, no IPv6 literals, no single-label names (Docker service names). The JSVM can't resolve
+  names, so a public name pointing at a private address, or a redirect to one, gets through: what could come back is a
+  page's title and a small image, never its body. `$http.send` reads a whole response, so a server that ignores
+  `Range` is read until the timeout.
+- **Settings:** `LINK_PREVIEWS=off` turns it off (test servers default to off, so tests never fetch what they link
+  to). `LINK_PREVIEWS_ALLOW_HOSTS` (comma-separated `host` or `host:port`) lets hosts through the checks: tests.
+
+### 28.2 Frontend
+
+`MSG_FIELDS` asks for `previews`. Under the text and attachments, `ul.previews`: per line an `<a>` (same `target` and
+`rel` as text links, the URL as its title) with a 16 px `<img alt="">` and the title, one line cut with an ellipsis.
+Only `http(s)` URLs and `data:image/` icons are shown. An edit clears them at once (optimistic), until the new ones
+come.
+
+### 28.3 Tests
+
+- **Integration** (`previews.test.ts`, its own PocketBase with previews on, a stub site): titles (og:title first,
+  entities, Latin-1) and icons (the page's, `/favicon.ico`, too big); each link once; no line for an untitled page or a
+  PDF, none past the 5th link; clients can't set them; an edit replaces them and a delete clears them; a forward shows
+  its original's; local and private addresses are never fetched.
+- **Unit** (room view): lines with favicon and title; a `javascript:` URL and a non-`data:` icon left out; titles as
+  text.

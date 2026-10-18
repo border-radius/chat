@@ -3,7 +3,7 @@ import { BUDGET, checkBudget, formatSizes } from "../../../scripts/lib/build-uti
 
 describe("checkBudget", () => {
   it("matches the design doc budget (§7.7)", () => {
-    expect(BUDGET).toEqual({ js: 42.25 * 1024, css: 6.1 * 1024, html: 1536, viewerJs: 4 * 1024, viewerCss: 1.5 * 1024 });
+    expect(BUDGET).toEqual({ js: 42.4 * 1024, css: 6.15 * 1024, html: 1536, viewerJs: 4 * 1024, viewerCss: 1.5 * 1024 });
   });
 
   it("returns no violations when every asset is under budget", () => {
@@ -26,9 +26,9 @@ describe("checkBudget", () => {
 describe("formatSizes", () => {
   it("prints gzipped KB against the budget and flags violations", () => {
     const out = formatSizes({ js: 2048, css: 6.5 * 1024, html: 512, viewerJs: 1024, viewerCss: 512 });
-    expect(out).toContain("js          2.00 KB / 42.25 KB");
+    expect(out).toContain("js          2.00 KB / 42.40 KB");
     expect(out).toContain("viewerJs    1.00 KB / 4.00 KB");
-    expect(out).toMatch(/css\s+6\.50 KB \/ 6\.10 KB\s+OVER/);
+    expect(out).toMatch(/css\s+6\.50 KB \/ 6\.15 KB\s+OVER/);
     expect(out).not.toMatch(/js .*OVER/);
   });
 });

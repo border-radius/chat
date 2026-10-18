@@ -198,3 +198,23 @@
   font-style: italic;
   color: var(--muted);
 }
+
+/* Link previews (§28): a line per link under the message, its favicon and title. */
+.previews {
+  margin: 0.25rem 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.85rem;
+}
+
+.previews a {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.previews span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

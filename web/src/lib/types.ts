@@ -65,10 +65,19 @@ export interface Message {
    * it is deleted. "" or absent otherwise, and for forwards made before forwards pointed at their original.
    */
   forward_of?: string;
+  /** What its links show (§28), set by the server once it has fetched them; empty or absent until then. */
+  previews?: LinkPreview[];
   expand?: { author?: User; reply_to?: Quoted; forwarded_from?: User };
   status?: SendStatus;
   /** Client-only: attachments of a message not (yet) on the server, with local preview URLs (§17.4). */
   localFiles?: LocalFile[];
+}
+
+/** A link's line under a message (§28): the page's title, and its favicon as a data: URL ("" when it has none). */
+export interface LinkPreview {
+  url: string;
+  title: string;
+  icon: string;
 }
 
 /** One emoji on a message and who reacted with it (§20.1). */

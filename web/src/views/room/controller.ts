@@ -674,7 +674,9 @@ export function createRoomController(opts: {
     const m = find(id);
     // Deleted elsewhere or the room was archived while the edit box was open: nothing left to save.
     if (!m || !editable(m) || text === m.text) return null;
-    return optimistic(id, { text }, { text: m.text, edited_at: m.edited_at }, () => api.edit(id, text));
+    return optimistic(id, { text, previews: [] }, { text: m.text, edited_at: m.edited_at, previews: m.previews ?? [] }, () =>
+      api.edit(id, text),
+    );
   }
 
   function removeMessage(id: string) {

@@ -1,5 +1,5 @@
 /// <reference path="../../types/pocketbase.d.ts" />
-// messages hooks (DESIGN.md §5.6, §17, §19, §20, §21): text, attachments, replies, forwards, soft delete, edit stamps.
+// messages hooks (DESIGN.md §5.6, §17, §19, §20, §21, §28): text, attachments, replies, forwards, soft delete, edit stamps.
 // A forward (§21.3) has no text or files of its own: it shows those of the message in `forward_of` (showOriginal).
 
 const { assertImagesFit } = require(`${__hooks}/lib/images.js`);
@@ -87,6 +87,7 @@ function beforeMessageCreate(e) {
     // Made only by postService (no request can leave out the author): text alone, in any room that isn't archived.
     assertText(rec);
     rec.set("reactions", []);
+    rec.set("previews", []);
     activeRoom(e.app, rec.getString("room"));
     return;
   }
@@ -94,6 +95,7 @@ function beforeMessageCreate(e) {
   assertImagesFit(rec, "files");
   rec.set("file_names", originalNames(rec, "files")); // whatever the client sent is replaced
   rec.set("reactions", []); // only POST /api/chat/reactions adds them (§20.2)
+  rec.set("previews", []); // only the previews worker sets them (§28)
   const room = activeRoom(e.app, rec.getString("room"));
   // Defense in depth for the members-only create rule (§16.3, §23.1): DMs and private rooms.
   if (room && !canSee(accessOf(room), rec.getString("author"))) {
@@ -258,6 +260,7 @@ function beforeMessageUpdate(e) {
     rec.set("files", []); // PocketBase deletes the stored files once the update commits (§17.1)
     rec.set("file_names", {});
     rec.set("reactions", []);
+    rec.set("previews", []);
     rec.set("deleted_at", new DateTime());
     rec.set("edited_at", orig.get("edited_at"));
     return;
@@ -274,6 +277,12 @@ function beforeMessageUpdate(e) {
   if (files.join("/") !== orig.getStringSlice("files").join("/")) throw fieldError("files", "Attachments can't be changed.");
   assertText(rec, files.length > 0 || isForward(rec));
   if (rec.getString("text") !== orig.getString("text")) {
+    rec.set("previews", []); // the worker looks at the new text's links (§28)
+  } else if (rec.getString("previews") === orig.getString("previews")) {
+    // As for reactions: the ones stored now, not those loaded with the record (the worker may have saved meanwhile).
+    rec.set("previews", e.app.findRecordById("messages", rec.id).get("previews"));
+  }
+  if (rec.getString("text") !== orig.getString("text")) {
     // A forward's words are someone else's: "Forwarded from Bob" must stay true (§21.3). It can still be deleted.
     if (orig.getString("forwarded_from") !== "") throw fieldError("text", "Forwarded messages can't be edited.");
     rec.set("edited_at", new DateTime());
@@ -287,7 +296,9 @@ function beforeMessageUpdate(e) {
  */
 function beforeMessageUpdateRequest(e) {
   const rec = recordOf(e);
-  if (rec.getString("reactions") !== rec.original().getString("reactions")) throw fieldError("reactions", "This field can't be changed.");
+  for (const f of ["reactions", "previews"]) {
+    if (rec.getString(f) !== rec.original().getString(f)) throw fieldError(f, "This field can't be changed.");
+  }
 }
 
 /**
@@ -296,7 +307,11 @@ function beforeMessageUpdateRequest(e) {
  */
 function changesForwards(rec) {
   const orig = rec.original();
-  return rec.getString("text") !== orig.getString("text") || rec.getBool("deleted") !== orig.getBool("deleted");
+  return (
+    rec.getString("text") !== orig.getString("text") ||
+    rec.getBool("deleted") !== orig.getBool("deleted") ||
+    rec.getString("previews") !== orig.getString("previews")
+  );
 }
 
 /**
@@ -335,6 +350,7 @@ function showOriginal(e) {
   rec.set("text", gone ? "" : original.getString("text"));
   rec.set("files", gone ? [] : original.getStringSlice("files"));
   rec.set("file_names", gone ? {} : original.get("file_names"));
+  rec.set("previews", gone ? [] : original.get("previews"));
   rec.set("edited_at", gone ? "" : original.get("edited_at"));
 }
 
