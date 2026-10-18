@@ -156,6 +156,7 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
       if (mine) messages.startEdit(mine.id);
       return !!mine;
     },
+    onStepReply: (dir) => reply.step(dir),
     onCancelReply: () => reply.set(null),
     onEmoji: (opener, insert) => picker.open(opener, { label: "Insert emoji", onPick: insert, restoreFocus: () => composer.focus() }),
     // Kept as you type, so a reload doesn't lose it (§22.3).
@@ -214,7 +215,13 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
     accessDialog.el,
   ]);
 
-  const reply = createReply({ find: (id) => ctl.find(id), repliable: (m) => ctl.repliable(m), composer });
+  const reply = createReply({
+    find: (id) => ctl.find(id),
+    list: () => ctl.state().win.items,
+    repliable: (m) => ctl.repliable(m),
+    composer,
+    reveal: (id) => list.querySelector(`li[data-id="${CSS.escape(id)}"]`)?.scrollIntoView?.({ block: "nearest" }),
+  });
 
   // ---------------------------------------------------------------- selecting (§21)
 

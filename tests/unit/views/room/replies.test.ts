@@ -156,6 +156,29 @@ describe("room view", () => {
       expect(replyBar().hidden).toBe(false);
     });
 
+    it("Ctrl+Up and Ctrl+Down step the reply through the messages; past the newest it ends", async () => {
+      const room = await newRoom();
+      await me.api.send({ id: newId(), room: room.id, text: "one" });
+      await me.api.send({ id: newId(), room: room.id, text: "two" });
+      await mount(room);
+      const ctrl = (k: string) => key(composer()!, k, { ctrlKey: true });
+      ctrl("ArrowDown");
+      expect(replyBar().hidden).toBe(true);
+      ctrl("ArrowUp");
+      expect(replyBar().textContent).toContain("two");
+      ctrl("ArrowUp");
+      expect(replyBar().textContent).toContain("one");
+      ctrl("ArrowUp");
+      expect(replyBar().textContent).toContain("one");
+      ctrl("ArrowDown");
+      expect(replyBar().textContent).toContain("two");
+      ctrl("ArrowDown");
+      expect(replyBar().hidden).toBe(true);
+      send("plain");
+      await vi.waitFor(() => expect(msgEls().at(-1)!.classList.contains("pending")).toBe(false));
+      expect(quoteOf(msgEls().at(-1)!.dataset.id!)).toBeNull();
+    });
+
     it("a message sent while a quote loads history isn't put after the old messages; it is there at the latest", async () => {
       const other = await signedUp("Other");
       const room = await newRoom();

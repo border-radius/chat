@@ -1,5 +1,5 @@
 // Message composer (§7.6, §17.4): auto-growing textarea, character counter, Enter to send, Shift+Enter for a
-// newline, Up arrow in an empty composer to edit your last message, attachments (picker, paste, drop) shown
+// newline, Up arrow in an empty composer to edit your last message, Ctrl+Up/Down to pick the message replied to, attachments (picker, paste, drop) shown
 // in a tray above the textarea, the message being replied to (§19) above that, and an emoji button (§20.4).
 
 import { h } from "../../dom.ts";
@@ -91,6 +91,8 @@ export function createComposer(opts: {
   onSend: (text: string, files: LocalFile[]) => boolean;
   /** Up arrow in an empty composer. Return true if it was handled (an edit started). */
   onEditLast: () => boolean;
+  /** Ctrl+Up / Ctrl+Down: reply to an older (-1) or newer (1) message. Return true if it was handled. */
+  onStepReply?: (dir: -1 | 1) => boolean;
   /** The reply bar's × (or Escape in the textarea while replying). */
   onCancelReply: () => void;
   /** The emoji button: open the picker next to it; `insert` puts the chosen emoji at the caret. */
@@ -267,7 +269,14 @@ export function createComposer(opts: {
       if (e.key === "Enter" && !e.shiftKey && !composing(e)) {
         e.preventDefault();
         submit();
-      } else if (e.key === "ArrowUp" && textarea.value === "" && opts.onEditLast()) {
+      } else if (
+        (e.key === "ArrowUp" || e.key === "ArrowDown") &&
+        e.ctrlKey &&
+        !(e.altKey || e.metaKey || e.shiftKey) &&
+        opts.onStepReply?.(e.key === "ArrowUp" ? -1 : 1)
+      ) {
+        e.preventDefault();
+      } else if (e.key === "ArrowUp" && !e.ctrlKey && textarea.value === "" && opts.onEditLast()) {
         e.preventDefault();
       } else if (e.key === "Escape" && !composing(e) && !replyBar.hidden) {
         // (While composing, Escape belongs to the input method: it cancels the composition.)

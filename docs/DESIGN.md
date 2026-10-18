@@ -539,7 +539,7 @@ while its first page loads.
 
 | Asset | Budget (gzipped) |
 |---|---|
-| `app.js` (including the PocketBase client) | **≤ 42.05 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, the room cache without waiting for the network, the QA pass 12 fixes, prefetching rooms not yet kept, the QA pass 13 fixes, thumbnail caching, the QA pass 14 fixes, see §13) |
+| `app.js` (including the PocketBase client) | **≤ 42.25 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, the room cache without waiting for the network, the QA pass 12 fixes, prefetching rooms not yet kept, the QA pass 13 fixes, thumbnail caching, the QA pass 14 fixes, Ctrl+Up/Down to pick the reply, see §13) |
 | `app.css` | **≤ 6.10 KB** (5 KB until §21, 5.5 KB until §23, 6 KB until audio attachments, 6.05 KB until §18.5, see §13) |
 | `index.html` | ≤ 1.5 KB |
 | Image viewer (§17.7), loaded on first use | ≤ 4 KB script, ≤ 1.5 KB stylesheet |
@@ -978,6 +978,7 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 | Bundle budget (QA pass 13) | `app.js` raised from 41.75 KB to 41.90 KB gzipped (§7.7): the room cache fixes of QA pass 13 (BUG-101 to BUG-104) took it to 41.87 KB. |
 | Bundle budget (thumbnail caching) | `app.js` raised from 41.90 KB to 41.95 KB gzipped (§7.7): deleting the service worker's thumbnail cache when a session ends (§27.2) took it to 41.92 KB. |
 | Bundle budget (QA pass 14) | `app.js` raised from 41.95 KB to 42.05 KB gzipped (§7.7): the QA pass 14 fixes (BUG-106, then BUG-107) took it to 42.03 KB. |
+| Bundle budget (reply stepping) | `app.js` raised from 42.05 KB to 42.25 KB gzipped (§7.7): Ctrl+Up / Ctrl+Down to move the reply between messages (§19.3) took it to 42.21 KB. |
 | Bundle budget (QA pass 9) | `app.js` raised from 39.25 KB to 39.35 KB gzipped (§7.7): the forwarding fixes of QA pass 9 (messages deleted meanwhile left out, the server's reason shown, focus kept while selecting) took it to 39.30 KB. |
 
 ### Still open
@@ -1569,6 +1570,9 @@ always true for someone who can see the reply. `NewMessage.replyTo` sends `reply
   that isn't archived (`ctl.repliable`). It shows "Replying to *name* *text*" above the composer (×, or Escape in the
   textarea, cancels) and focuses the textarea. The next send is the reply; the optimistic message quotes the
   original at once (`quoteOf` in `lib/messages.ts`).
+- **Ctrl+Up / Ctrl+Down** in the textarea move the reply to the previous / next repliable message in the window and
+  scroll it into view; Ctrl+Up while not replying starts a reply to the newest one, and Ctrl+Down past the newest ends
+  the reply.
 - The reply bar follows the original: edited, it shows the new text; deleted (or the room archived), it closes.
 - **The quote** is a one-line button above the reply's text: author name, then the text on one line (or
   "Attachment", "Message deleted"). It uses the window's copy of the original when there is one, so edits and
@@ -1592,7 +1596,7 @@ always true for someone who can see the reply. `NewMessage.replyTo` sends `reply
   or deleted messages; `reply_to` never changes; a deleted original stays quoted as deleted; the quote comes back
   through send, page, getMessage and realtime with only its fields; field modifiers can't touch `reply_to`; a
   superuser can delete an original or a room holding replies.
-- **Unit** (room view): reply bar and send; cancel with × and Escape; quotes that go to an original on screen and
+- **Unit** (room view): reply bar and send; cancel with × and Escape; stepping with Ctrl+Up/Down; quotes that go to an original on screen and
   one far back in history; a quote and the reply bar following an edit and a delete; no Reply when archived, deleted
   or still sending; archiving ends the reply, and unarchiving doesn't bring it back; Escape while composing; a send
   or a failed message during a quote's history load; a reply to an original deleted unseen; the quote's name.
