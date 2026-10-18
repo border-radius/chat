@@ -137,7 +137,7 @@ describe("Telegram bridge (§26)", () => {
       url: "https://chat.example/api/telegram/webhook",
       secret_token: SECRET,
       max_connections: 1,
-      allowed_updates: ["message", "edited_message", "my_chat_member"],
+      allowed_updates: ["message", "edited_message", "channel_post", "edited_channel_post", "my_chat_member"],
     });
     expect((await deliver({}, "wrong")).status).toBe(401);
     expect((await deliver({})).status).toBe(200);
@@ -192,6 +192,23 @@ describe("Telegram bridge (§26)", () => {
     // Not sent back to the group it came from.
     await tick();
     expect(stub.callsOf("sendMessage").filter((c) => c.params.chat_id === String(chat))).toEqual([]);
+  });
+
+  it("a channel's posts and their edits come over under the channel's stand-in", async () => {
+    const owner = await signUp();
+    const { room, chat } = await linkedRoom(owner);
+    const channel = { id: chat, type: "channel", title: "News" };
+    const post = { message_id: tgMessageSeq++, date: Math.floor(Date.now() / 1000), chat: channel, sender_chat: channel };
+    await deliver({ channel_post: { ...post, text: "first post" } });
+    const [m] = await eventually(async () => {
+      const list = await messagesOf(room.id);
+      expect(list).toHaveLength(1);
+      return list;
+    });
+    expect(m!.text).toBe("first post");
+    expect(m!.expand!.author.name).toBe("News (TG)");
+    await deliver({ edited_channel_post: { ...post, text: "first post, fixed", edit_date: post.date + 1 } });
+    await eventually(async () => expect((await messagesOf(room.id)).map((x) => x.text)).toEqual(["first post, fixed"]));
   });
 
   it("brings files over, an album as one message, and says what it can't bring", async () => {

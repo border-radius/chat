@@ -2143,9 +2143,12 @@ All from the environment (`telegram/api.js`):
 | `TELEGRAM_API_BASE` | the Bot API server, `https://api.telegram.org` by default (tests point it at a stub) |
 
 On `serve`, the bridge calls `setWebhook` (the URL, the secret, `max_connections: 1` so updates come one at a time
-and in order, and only `message`, `edited_message` and `my_chat_member`), or, without a URL, `deleteWebhook` (a bot
+and in order, and only `message`, `edited_message`, `channel_post`, `edited_channel_post` and `my_chat_member`), or, without a URL, `deleteWebhook` (a bot
 with a webhook can't poll). The bot needs **privacy mode off** (@BotFather → `/setprivacy` → Disable) or to be a group
 admin, or it sees only commands.
+
+A **channel** links like a group. The bot must be one of its admins (with *Post messages*, to send to it). Its posts
+and their edits come as `channel_post` / `edited_channel_post` and show under the channel's stand-in.
 
 ### 26.3 Telegram people in the chat
 

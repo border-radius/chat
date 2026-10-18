@@ -18,8 +18,8 @@ function config() {
   };
 }
 
-/** The updates the bridge asks for. */
-const UPDATES = ["message", "edited_message", "my_chat_member"];
+/** The updates the bridge asks for: a channel's posts come as channel_post, not message. */
+const UPDATES = ["message", "edited_message", "channel_post", "edited_channel_post", "my_chat_member"];
 
 /** A refused or failed call. `retryAfter`: seconds Telegram asks to wait (429). `status` 0: no answer. */
 class TelegramError extends Error {

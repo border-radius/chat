@@ -305,11 +305,14 @@ function sayStatus(app, chatId) {
  */
 function handleUpdate(app, update) {
   if (update.my_chat_member) return memberChange(app, update.my_chat_member);
-  const msg = update.message || update.edited_message;
+  // A channel's posts and their edits come as channel_post and edited_channel_post, sent as the channel itself.
+  const posted = update.message || update.channel_post;
+  const edited = update.edited_message || update.edited_channel_post;
+  const msg = posted || edited;
   if (!msg?.chat) return;
   const chatId = String(msg.chat.id);
   if (msg.chat.type === "private") {
-    if (update.message)
+    if (posted)
       call("sendMessage", { chat_id: chatId, text: "I bring messages between Telegram groups and chat rooms. Add me to a group." });
     return;
   }
@@ -317,16 +320,16 @@ function handleUpdate(app, update) {
   if (msg.migrate_to_chat_id) return moveLink(app, chatId, String(msg.migrate_to_chat_id));
   if (msg.migrate_from_chat_id) return moveLink(app, String(msg.migrate_from_chat_id), chatId);
   const link = ensureLink(app, msg.chat);
-  if (update.message && COMMAND.test(msg.text || "")) return sayStatus(app, chatId);
+  if (posted && COMMAND.test(msg.text || "")) return sayStatus(app, chatId);
   const room = activeLink(app, link);
   if (!room) return;
-  if (update.message && msg.media_group_id) {
+  if (posted && msg.media_group_id) {
     flushAlbums(app, chatId, msg.media_group_id);
     queueAlbumItem(app, msg);
     return;
   }
   flushAlbums(app, chatId); // what came before this must show before it
-  if (update.edited_message) editOver(app, msg);
+  if (edited) editOver(app, msg);
   else if (!msg.new_chat_members && !msg.left_chat_member && !msg.pinned_message && !msg.new_chat_title) bringOver(app, link, room, [msg]);
 }
 
