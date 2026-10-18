@@ -2,7 +2,7 @@
 
 A small, fast, real-time group chat. One [PocketBase](https://pocketbase.io) binary is the whole backend
 (auth, data, realtime, static files); the frontend is vanilla TypeScript bundled by esbuild — no framework,
-~43 KB of JS and ~6 KB of CSS gzipped (`npm run build` fails over its budget: 43.25 KB of JS, 6.20 KB of CSS).
+~43 KB of JS and ~6 KB of CSS gzipped (`npm run build` fails over its budget: 43.45 KB of JS, 6.35 KB of CSS).
 
 - Public rooms anyone can create; hide rooms you don't care about; creators archive rooms (read-only, history kept)
 - Room access, chosen by each room's creator: **Private** (only the people they add), **Public** (everyone with an account) or **Open Air** (anyone can read it, no account needed; the home page shows these rooms to guests, who log in or sign up to join in); and who can post: everyone who can read it, or only the people they choose (the others read and react)
@@ -10,6 +10,7 @@ A small, fast, real-time group chat. One [PocketBase](https://pocketbase.io) bin
 - Full history: scroll back to the very first message of any room (windowed, ≤300 messages in the DOM)
 - Direct messages between any two users, private to them; close a conversation and it comes back on the next message
 - Avatars (or colored initials) and a profile page to change your picture, display name (unique) and password, and to log out
+- Search in any room or DM: every word you type, in any case ("привет" finds "Привет"), newest first; pick a result to go to it, however far back
 - Replies: answer any message with a quote of it; click the quote to jump to the original, however far back
 - Links in messages are clickable and open in a new tab (http, https and www. addresses only)
 - Emoji: a picker in the composer, and reactions on any message (as many different ones as you like), live for everyone

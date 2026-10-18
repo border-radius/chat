@@ -4,7 +4,9 @@
   position: relative;
 }
 
-.menu > summary {
+/* The room header's search button (§29) looks the same. */
+.menu > summary,
+.search-toggle {
   padding: 0.15rem 0.5rem;
   border-radius: var(--pill);
   list-style: none;
@@ -17,7 +19,8 @@
 }
 
 .menu > summary:hover,
-.menu[open] > summary {
+.menu[open] > summary,
+.search-toggle:hover {
   background: var(--hover);
 }
 

@@ -65,7 +65,7 @@ function clipFileName(name, max = MAX_FILE_NAME_BYTES) {
 /**
  * Uniqueness key for room and display names: NFKC + full case folding (via upper→lower, so "ß" matches "SS" and "Ü"
  * "ü"), without invisible characters. Keep in sync with pb_migrations/1760000001_qa_fixes.js and
- * 1760000012_accounts.js.
+ * 1760000012_accounts.js. Message search folds text the same way (messages.text_key, §29; 1760000024_message_search.js).
  * @param {string} name
  */
 function nameKey(name) {

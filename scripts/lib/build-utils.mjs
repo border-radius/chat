@@ -1,6 +1,6 @@
 // Pure helpers for scripts/build.mjs. Kept side-effect free so they can be unit-tested.
 
-/** @typedef {{ js: number, css: number, html: number, viewerJs: number, viewerCss: number }} Sizes gzipped byte sizes */
+/** @typedef {{ js: number, css: number, html: number, viewerJs: number, viewerCss: number, searchJs: number }} Sizes gzipped byte sizes */
 
 /** Where builds go: PocketBase serves this directory. */
 export const OUTDIR = "pb_public";
@@ -13,6 +13,9 @@ export const ENTRIES = Object.freeze({ js: "web/src/main.ts", css: "web/styles/a
  * file of its own, which the script links when it first opens. It finds that file through the `VIEWER_CSS` define.
  */
 export const VIEWER = Object.freeze({ js: "web/src/views/room/viewer.ts", css: "web/styles/viewer.css" });
+
+/** Message search (§29): a lazy chunk too. Its few styles are in app.css. */
+export const SEARCH = Object.freeze({ js: "web/src/views/room/search.ts" });
 
 /**
  * The service worker (§27): built on its own, unhashed, to the root of the public dir (a worker controls only the paths
@@ -53,7 +56,14 @@ export const BASE_OPTIONS = {
 };
 
 /** Gzipped size budget in bytes (DESIGN.md §7.7). */
-export const BUDGET = Object.freeze({ js: 43.25 * 1024, css: 6.2 * 1024, html: 1536, viewerJs: 4 * 1024, viewerCss: 1.5 * 1024 });
+export const BUDGET = Object.freeze({
+  js: 43.45 * 1024,
+  css: 6.35 * 1024,
+  html: 1536,
+  viewerJs: 4 * 1024,
+  viewerCss: 1.5 * 1024,
+  searchJs: 2 * 1024,
+});
 
 /**
  * @param {Sizes} sizes

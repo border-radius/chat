@@ -344,6 +344,20 @@
           "required": false,
           "system": false,
           "type": "json"
+        },
+        {
+          "autogeneratePattern": "",
+          "help": "",
+          "hidden": false,
+          "max": 40000,
+          "min": 0,
+          "name": "text_key",
+          "pattern": "",
+          "presentable": false,
+          "primaryKey": false,
+          "required": false,
+          "system": false,
+          "type": "text"
         }
       ],
       "indexes": [

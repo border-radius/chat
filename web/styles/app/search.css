@@ -1,0 +1,58 @@
+/* ---- Message search (§29): a bar under the room header, its results over the top of the list ---- */
+
+.search-toggle {
+  border: 0;
+  background: none;
+}
+
+.room-search {
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.search-bar {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.search-bar .link {
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.search-status:not(:empty) {
+  margin: 0.4rem 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.search-results {
+  max-height: 45vh;
+  overflow-y: auto;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.search-result {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  text-align: left;
+  font-weight: 400;
+}
+
+.search-result .body {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
+}
+
+.search-result mark {
+  background: var(--highlight);
+  color: inherit;
+}

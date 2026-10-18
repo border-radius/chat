@@ -12,6 +12,7 @@ import {
   injectAssets,
   OUTDIR,
   outputOf,
+  SEARCH,
   STATIC_DIR,
   SW_OPTIONS,
   staticImports,
@@ -62,6 +63,7 @@ const sizes = {
   html: gzipSync(html, { level: 9 }).length,
   viewerJs: await gz(`${OUTDIR}/${outputOf(result.metafile, OUTDIR, VIEWER.js)}`),
   viewerCss: await gz(`${OUTDIR}/${viewerCssPath}`),
+  searchJs: await gz(`${OUTDIR}/${outputOf(result.metafile, OUTDIR, SEARCH.js)}`),
 };
 
 console.log(`built ${OUTDIR}/ (gzipped):\n${formatSizes(sizes)}`);

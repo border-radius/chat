@@ -1,4 +1,4 @@
-// Room header (§7.1, §16.5): back link, room title and the room actions menu (hide, archive, room access, jump to
+// Room header (§7.1, §16.5): back link, room title, the search button (§29) and the room actions menu (hide, archive, room access, jump to
 // beginning). A DM shows the other member's avatar and name, and can be closed but never archived. A private or Open
 // Air room says so next to its name (§23.1); a guest only gets "Jump to beginning" (§23.3).
 
@@ -20,6 +20,8 @@ export function createRoomHeader(opts: {
   actions: RoomActions;
   avatarUrl: AvatarUrl;
   onJumpToBeginning: () => void;
+  /** Search the room's messages (§29). */
+  onSearch: () => void;
   /** "Room access…" (the creator) or "Members" (the others, in a private room): open the access dialog (§23.2). */
   onAccess: () => void;
   /** A DM was closed from this menu. */
@@ -30,9 +32,22 @@ export function createRoomHeader(opts: {
   const title = h("h1", { id: opts.titleId });
   const error = h("p", { class: "room-error", role: "alert" });
   const menu = createActionMenu({ label: "Room actions", signal });
+  const search = h(
+    "button",
+    {
+      type: "button",
+      class: "search-toggle",
+      "aria-label": "Search messages",
+      title: "Search messages",
+      on: { click: opts.onSearch },
+      signal,
+    },
+    "🔍",
+  );
   const el = h("header", { class: "room-header" }, [
     h("a", { href: "/", class: "back", "aria-label": "Back to rooms" }, "← Rooms"),
     title,
+    search,
     menu.el,
     error,
   ]);

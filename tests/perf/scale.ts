@@ -11,6 +11,7 @@ import { latest } from "../../web/src/lib/cursor.ts";
 import { newId } from "../../web/src/lib/id.ts";
 import { toPb } from "../../web/src/lib/time.ts";
 import { createClient } from "../../web/src/pb.ts";
+import { searchQuery } from "../../web/src/views/room/search.ts";
 import { disableRateLimits, startPocketBase } from "../support/pocketbase.ts";
 import { runSql } from "../support/sql.ts";
 
@@ -45,8 +46,8 @@ try {
     for (let i = from; i < Math.min(from + BATCH, MESSAGES); i++) {
       const ts = toPb(start + i);
       statements.push({
-        sql: "INSERT INTO messages (id, room, author, text, edited_at, deleted, deleted_at, created, updated) VALUES ({:id}, {:room}, {:author}, {:text}, '', 0, '', {:ts}, {:ts})",
-        params: { id: newId(), room: rooms[i % ROOMS]!, author: users[(i * 7) % USERS]!.id, text: `message ${i}`, ts },
+        sql: "INSERT INTO messages (id, room, author, text, text_key, edited_at, deleted, deleted_at, created, updated) VALUES ({:id}, {:room}, {:author}, {:text}, {:key}, '', 0, '', {:ts}, {:ts})",
+        params: { id: newId(), room: rooms[i % ROOMS]!, author: users[(i * 7) % USERS]!.id, text: `message ${i}`, key: `message ${i}`, ts },
       });
     }
     await runSql(pb.url, statements);
@@ -71,6 +72,10 @@ try {
   await time(`unread counts (${ROOMS} rooms, all ≥ 100 unread)`, () => me.unreadCounts());
   await time(`list rooms (${ROOMS})`, () => me.listRooms());
   await time("latest page of a room (50 messages)", () => me.page(latest(rooms[0]!)));
+  const perRoom = Math.round(MESSAGES / ROOMS);
+  // §29: no match reads every message of the room; a common word stops at the first page.
+  await time(`search a room (${perRoom} messages), no match`, () => me.page(searchQuery(rooms[0]!, ["nothing-matches"])));
+  await time(`search a room (${perRoom} messages), 50 matches`, () => me.page(searchQuery(rooms[0]!, ["message"])));
   await time("send a message (no listeners)", () => me.send({ id: newId(), room: rooms[1]!, text: "hello" }));
 
   // ---- realtime fan-out: every listener gets every message event of every room it can see

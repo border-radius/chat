@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { type Browser, type BrowserContext, test as base, expect, type Locator, type Page } from "@playwright/test";
 import { newId } from "../../web/src/lib/id.ts";
+import { foldKey } from "../../web/src/views/room/search.ts";
 import { uniq } from "../support/ids.ts";
 import { withName } from "../support/names.ts";
 import { E2E_BASE, E2E_DATA_DIR } from "./paths.ts";
@@ -85,12 +86,12 @@ export function seed(
   try {
     db.exec("PRAGMA busy_timeout = 5000; BEGIN IMMEDIATE");
     const ins = db.prepare(
-      "INSERT INTO messages (id, room, author, text, edited_at, deleted, deleted_at, created, updated) VALUES (?, ?, ?, ?, '', 0, '', ?, ?)",
+      "INSERT INTO messages (id, room, author, text, text_key, edited_at, deleted, deleted_at, created, updated) VALUES (?, ?, ?, ?, ?, '', 0, '', ?, ?)",
     );
     const start = opts.startAt ?? Date.now() - (n + 1) * stepMs;
     for (let i = 0; i < n; i++) {
       const ts = new Date(start + i * stepMs).toISOString().replace("T", " ");
-      ins.run(newId(), room.id, author.id, text(i), ts, ts);
+      ins.run(newId(), room.id, author.id, text(i), foldKey(text(i)), ts, ts);
       out.push(text(i));
     }
     db.exec("COMMIT");
@@ -141,14 +142,14 @@ export const test = base.extend<{ closeOpened: undefined }>({
   ],
 });
 
-/** A new browser context logged in as `user`, opened on `room` (closed after the test). */
+/** A new browser context logged in as `user`, opened on `room` or a DM (no name) (closed after the test). */
 export async function openRoom(browser: Browser, user: User, room: Room, base = ""): Promise<Page> {
   const ctx = await browser.newContext({ viewport: { width: 1100, height: 720 } });
   opened.add(ctx);
   const page = await ctx.newPage();
   await login(page, user, base);
   await page.goto(`${base}/r/${room.id}`);
-  await expect(page.locator("header.room-header h1")).toHaveText(`#${room.name}`);
+  if (room.name) await expect(page.locator("header.room-header h1")).toHaveText(`#${room.name}`);
   await expect(page.locator("ol.messages")).toHaveAttribute("aria-busy", "false");
   return page;
 }

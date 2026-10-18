@@ -1,7 +1,7 @@
 // Room view (§7.5, §7.6): windowed message history, optimistic send, edit, soft delete, replies (§19), reactions and
 // the emoji picker (§20), selecting messages to forward or delete them (§21), archived mode, read state (§18.3).
 // The message window and everything that changes it live in room/controller.ts (no DOM). This module puts the
-// controller's changes on screen and wires the parts in room/: header (title + actions menu), messages (the list),
+// controller's changes on screen and wires the parts in room/: header (title + actions menu), search (§29), messages (the list),
 // composer, selection (the bar while selecting), reply, notice (the status line), names (who reacted), forward dialog,
 // access dialog (§23.2). A guest reads an Open Air room without a composer (§23.3).
 
@@ -13,7 +13,7 @@ import { attachmentName, isMedia, isVideo } from "../lib/files.ts";
 import { emptyForward, lastSaved } from "../lib/messages.ts";
 import { canPost, isDm, otherMember, roomTitle } from "../lib/rooms.ts";
 import { isNearBottom } from "../lib/scroll.ts";
-import { formatFull, parsePb } from "../lib/time.ts";
+import { formatFull, formatTime, parsePb } from "../lib/time.ts";
 import type { Message } from "../lib/types.ts";
 import type { View } from "../router.ts";
 import { createScope } from "../scope.ts";
@@ -78,6 +78,7 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
     actions,
     avatarUrl: api.avatarUrl,
     onJumpToBeginning: () => void now(() => ctl.jump("first")),
+    onSearch: () => void openSearch(),
     onAccess: () => {
       const r = room();
       if (r) accessDialog.open(r, r.created_by === me()?.id, me());
@@ -483,6 +484,40 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
     const back = h("a", { href: "/" }, "Back to rooms");
     shell.replaceChildren(notFound("You can't see this room any more.", [back]));
     scope.dispose();
+  }
+
+  /** The search bar (§29), while open. */
+  let search: { el: HTMLElement; focus(): void } | null = null;
+
+  /**
+   * Open the search bar under the header, or focus it when open. A lazy chunk, loaded the first time; if it can't be
+   * (offline, or a new version was deployed), say so.
+   */
+  async function openSearch() {
+    if (search) return search.focus();
+    try {
+      const { createSearch } = await import("./room/search.ts");
+      if (!scope.active || search) return; // opened meanwhile (it has focus)
+      const r = room();
+      search = createSearch({
+        room: roomId,
+        label: r ? roomTitle(r, me()) : "this room",
+        page: (q, sig) => api.page(q, sig),
+        pageSize: PAGE_SIZE,
+        h,
+        when: (m) => formatTime(parsePb(m.created)),
+        onPick: (id) => void now(() => ctl.goTo(id)),
+        onClose: () => {
+          search = null;
+          shell.querySelector<HTMLElement>(".search-toggle")?.focus();
+        },
+        signal,
+      });
+      header.el.after(search.el);
+      search.focus();
+    } catch {
+      if (scope.active) notice.say("Couldn't open search. Check your connection.");
+    }
   }
 
   // ---------------------------------------------------------------- edit / delete

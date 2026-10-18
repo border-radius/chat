@@ -14,6 +14,7 @@ import { createClient } from "../../web/src/pb.ts";
 import type { AppState, Store } from "../../web/src/store.ts";
 import { createSync } from "../../web/src/sync.ts";
 import { createUnread, type UnreadTiming } from "../../web/src/unread.ts";
+import { foldKey } from "../../web/src/views/room/search.ts";
 import { uniq } from "./ids.ts";
 import { withName } from "./names.ts";
 import { runSql } from "./sql.ts";
@@ -122,8 +123,8 @@ export async function seedMessages(
   await runSql(
     inject("pbUrl"),
     out.map((m) => ({
-      sql: "INSERT INTO messages (id, room, author, text, edited_at, deleted, deleted_at, created, updated) VALUES ({:id}, {:room}, {:author}, {:text}, '', 0, '', {:ts}, {:ts})",
-      params: { id: m.id, room, author, text: m.text, ts: m.created },
+      sql: "INSERT INTO messages (id, room, author, text, text_key, edited_at, deleted, deleted_at, created, updated) VALUES ({:id}, {:room}, {:author}, {:text}, {:key}, '', 0, '', {:ts}, {:ts})",
+      params: { id: m.id, room, author, text: m.text, key: foldKey(m.text), ts: m.created },
     })),
   );
   return out;

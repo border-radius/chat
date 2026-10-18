@@ -41,7 +41,7 @@ These are left out on purpose. The design should not block them later.
 - Reactions, threads, replies, mentions (replies: now designed in §19; reactions: §20)
 - Typing indicators, presence, read receipts
 - Push notifications, email notifications
-- Message search
+- Message search (now designed in §29)
 - OAuth providers (email and password only)
 - Email verification (not required to sign up or post, so no SMTP needed)
 - Message retention limits (history is never pruned)
@@ -163,7 +163,7 @@ chat/
 │           ├── room.ts         # puts the controller's changes on screen, wires the parts
 │           └── room/           # controller.ts (message window, loading, realtime, sending; no DOM),
 │                               # header.ts, messages.ts (the list), composer.ts, forward.ts (§21.3),
-│                               # viewer.ts (image viewer, a lazy chunk: §17.7)
+│                               # viewer.ts (image viewer, a lazy chunk: §17.7), search.ts (message search, a lazy chunk: §29)
 ├── tests/
 │   ├── unit/                   # Vitest + happy-dom, against a real throwaway PocketBase
 │   ├── integration/            # Vitest against a real PocketBase process
@@ -540,10 +540,11 @@ while its first page loads.
 
 | Asset | Budget (gzipped) |
 |---|---|
-| `app.js` (including the PocketBase client) | **≤ 43.25 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, the room cache without waiting for the network, the QA pass 12 fixes, prefetching rooms not yet kept, the QA pass 13 fixes, thumbnail caching, the QA pass 14 fixes, Ctrl+Up/Down to pick the reply, link previews, the room access dialog fix, who can post, see §13) |
-| `app.css` | **≤ 6.20 KB** (5 KB until §21, 5.5 KB until §23, 6 KB until audio attachments, 6.05 KB until §18.5, 6.10 KB until §28, 6.15 KB until the room access dialog fix, see §13) |
+| `app.js` (including the PocketBase client) | **≤ 43.45 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, the room cache without waiting for the network, the QA pass 12 fixes, prefetching rooms not yet kept, the QA pass 13 fixes, thumbnail caching, the QA pass 14 fixes, Ctrl+Up/Down to pick the reply, link previews, the room access dialog fix, who can post, message search, see §13) |
+| `app.css` | **≤ 6.35 KB** (5 KB until §21, 5.5 KB until §23, 6 KB until audio attachments, 6.05 KB until §18.5, 6.10 KB until §28, 6.15 KB until the room access dialog fix, 6.20 KB until §29, see §13) |
 | `index.html` | ≤ 1.5 KB |
 | Image viewer (§17.7), loaded on first use | ≤ 4 KB script, ≤ 1.5 KB stylesheet |
+| Message search (§29), loaded on first use | ≤ 2 KB script (its styles are in `app.css`) |
 | Web fonts | **none** (system font stack) |
 | Requests on first load | 3 (html, js, css) + API; the manifest, its icons and `sw.js` (§27) come after, off the critical path |
 
@@ -984,6 +985,7 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 | Bundle budget (link previews) | `app.js` raised from 42.25 KB to 42.40 KB and `app.css` from 6.10 KB to 6.15 KB gzipped (§7.7): link previews (§28) took them to 42.38 KB and 6.13 KB. |
 | Bundle budget (room access dialog) | `app.js` raised from 42.40 KB to 42.55 KB and `app.css` from 6.15 KB to 6.20 KB gzipped (§7.7): the access dialog (§23.2) scrolling its body, search results as toggles, and Telegram stand-ins left out took them to 42.52 KB and 6.18 KB. |
 | Bundle budget (who can post) | `app.js` raised from 42.55 KB to 43.25 KB gzipped (§7.7): choosing who can post (§23.6), with a second people list in the access dialog, the reader banner and the checks behind replying, editing and forwarding, took it to 43.21 KB. |
+| Bundle budget (message search) | `app.js` raised from 43.25 KB to 43.45 KB and `app.css` from 6.20 KB to 6.35 KB gzipped (§7.7): message search (§29), the header button, loading its chunk and going to a result, and its styles took them to 43.40 KB and 6.32 KB. The search itself is a lazy chunk of 1.58 KB. |
 | Bundle budget (QA pass 9) | `app.js` raised from 39.25 KB to 39.35 KB gzipped (§7.7): the forwarding fixes of QA pass 9 (messages deleted meanwhile left out, the server's reason shown, focus kept while selecting) took it to 39.30 KB. |
 
 ### Still open
@@ -993,7 +995,7 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 
 ## 14. Future work (post-MVP)
 
-Blocking users, link previews, typing and presence (custom realtime channels via `$app.subscriptionsBroker()`), OAuth2 providers, message search (SQLite FTS5 through a custom route), and HttpOnly cookie auth. (The service worker: §27.)
+Blocking users, link previews, typing and presence (custom realtime channels via `$app.subscriptionsBroker()`), OAuth2 providers, and HttpOnly cookie auth. Message search (§29) could move to SQLite FTS5 (a custom route) if rooms grow past a few hundred thousand messages. (The service worker: §27.)
 
 ---
 
@@ -2336,3 +2338,51 @@ come.
   its original's; local and private addresses are never fetched.
 - **Unit** (room view): lines with favicon and title; a `javascript:` URL and a non-`data:` icon left out; titles as
   text.
+
+## 29. Message search
+
+A search button (🔍, "Search messages") in the header of every room and DM opens a bar under it: type, and the
+room's messages containing **every word** typed show newest first, 50 at a time ("Show older results"). Picking one
+goes to it in the room, highlighted and centred, loading the history around it like a reply's quote (§19.3); the
+results make way, and come back when the field gets focus again. Escape or × closes the bar and gives focus back to
+the button. Guests can search the Open Air rooms they read.
+
+### 29.1 Data and query
+
+- **`messages.text_key`**: the text folded like names are compared (§22.1: `nameKey`: no invisible characters, NFKC,
+  upper then lower case), so "привет" finds "Привет", "strasse" "Straße" and "abc" "ＡＢＣ"; SQLite's `LIKE` alone only
+  ignores the case of ASCII letters (QA BUG-55). Set by the hooks after every other change on create and update
+  (`setTextKey`), whatever a client sent: empty once deleted. Not hidden, so the list API can filter on it with its
+  rules applied (nobody can search a room they can't read); `MSG_FIELDS` never asks for it. Max 40,000 characters (NFKC
+  can make a 2,000-character text longer). Migration `1760000024_message_search.js` backfills it with raw SQL.
+- **Query** (`searchQuery` in `views/room/search.ts`): `room = {:room} && text_key ~ {:w0} && …`, newest first, from a
+  `(created, id)` cursor for the next page, as history pages are (§7.5). Up to 5 distinct words, folded the same way on
+  the client (`foldKey`). `%` is escaped (QA BUG-34; `_` already is).
+- **Not found:** forwards (their text is their original's, shown in the answer only, §21.3), attachment names and
+  link titles.
+- **Cost:** `LIKE '%…%'` can't use an index, so a search reads the room's messages through
+  `idx_messages_room_created` until it has a page: a common word stops early; a word in no message reads them all.
+  Measured 2026-10-18: a no-match search of a 20,000-message room takes 12 ms in SQLite itself, 30–150 ms through the
+  API on the dev machine; a search with a page of matches costs as much as a history page. Past a few hundred thousand
+  messages a room, FTS5 behind a custom route (it would have to apply the list rule itself) is the next step.
+
+### 29.2 Frontend
+
+`views/room/search.ts` is a lazy chunk like the viewer (§17.7): imported on the first click, types only, and given
+`h`, `api.page`, the time format and `goTo` by the room view; if it can't load, the notice says so. Typing searches
+300 ms after the last key (Enter at once); a new search aborts the one in flight. A result is a button: author, time,
+and the text on two lines starting shortly before the first match, matches in `<mark>` (built with `h`, never HTML).
+The field is `type=search` in a `role=search` region, the count in a `role=status` line ("3 messages found.",
+"50+ messages found.", "No messages found.", "Couldn't search. Check your connection."). Results don't follow live
+changes; searching again does.
+
+### 29.3 Tests
+
+- **Integration** (`search.test.ts`): `text_key` follows create, edits and deletes and ignores what a client sends;
+  every word in any case, Unicode included, newest first, one room only; paging from a cursor; `%` and `_` literal;
+  deleted messages not found; nothing found in a DM or private room you aren't in, guests only in Open Air rooms.
+- **Unit** (`views/room/search.test.ts`): folding, words, the query, snippets; in the room view, results, going to
+  one far back in history, the empty state, "Show older results", Escape.
+- **E2E** (`search.spec.ts`): a Cyrillic search in any case goes to a message 200 back (axe: no serious violations);
+  a DM's search finds only its own messages.
+- **Perf** (`tests/perf/scale.ts`): a room searched for a word in none of its messages, and for one in all.

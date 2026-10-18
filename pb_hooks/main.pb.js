@@ -97,7 +97,9 @@ onRecordCreateRequest((e) => {
 }, "messages");
 
 onRecordCreate((e) => {
-  require(`${__hooks}/lib/messages.js`).beforeMessageCreate(e);
+  const messages = require(`${__hooks}/lib/messages.js`);
+  messages.beforeMessageCreate(e);
+  if (e.record) messages.setTextKey(e.record);
   e.next();
   if (e.record) require(`${__hooks}/lib/previews.js`).queue(e.app, e.record);
 }, "messages");
@@ -110,6 +112,7 @@ onRecordAfterCreateSuccess((e) => {
 onRecordUpdate((e) => {
   const messages = require(`${__hooks}/lib/messages.js`);
   messages.beforeMessageUpdate(e);
+  if (e.record) messages.setTextKey(e.record);
   const touch = !!e.record && messages.changesForwards(e.record);
   const edited = !!e.record && e.record.getString("text") !== e.record.original().getString("text");
   e.next();
