@@ -4,6 +4,11 @@ A small, fast, real-time group chat. One [PocketBase](https://pocketbase.io) bin
 (auth, data, realtime, static files); the frontend is vanilla TypeScript bundled by esbuild — no framework,
 ~43 KB of JS and ~6 KB of CSS gzipped (`npm run build` fails over its budget: 43.45 KB of JS, 6.35 KB of CSS).
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshot-dark.png">
+  <img alt="A room in Chat: the room list with unread counts on the left; messages with avatars, a reply, a photo and emoji reactions on the right" src="docs/screenshot-light.png">
+</picture>
+
 - Public rooms anyone can create; hide rooms you don't care about; creators archive rooms (read-only, history kept)
 - Room access, chosen by each room's creator: **Private** (only the people they add), **Public** (everyone with an account) or **Open Air** (anyone can read it, no account needed; the home page shows these rooms to guests, who log in or sign up to join in); and who can post: everyone who can read it, or only the people they choose (the others read and react)
 - Live messages, edits and deletes (deleted messages leave a placeholder)
@@ -62,6 +67,7 @@ The PocketBase admin UI is at http://127.0.0.1:8090/_/ (create a superuser with
 | `npm run test:int` | Integration tests: schema, API rules, hooks, realtime, pagination |
 | `npm run test:e2e` | Playwright end-to-end tests against the production build |
 | `npm run schema:snapshot` | Rewrite `docs/schema.snapshot.json` (every collection's API rules, fields and indexes, and the rate limits) after a migration changes them; `test:int` fails while it is out of date |
+| `npm run screenshots` | Rewrite the README screenshots (`docs/screenshot-*.png`): a throwaway server with made-up people and messages, photographed in Chromium after `npm run build` |
 | `npm run check` | typecheck + lint + lint:sinks + test + test:int + build (what CI runs before e2e) |
 
 Every test run starts its own PocketBase on a free port with a temp data dir — nothing to clean up, and no fakes
@@ -194,3 +200,7 @@ the bot posts chat messages with the author's name above them.
 
 The bridge is self-contained: `pb_hooks/telegram.pb.js`, `pb_hooks/telegram/` and its own `tg_*` collections. Delete
 the first two to remove it.
+
+## License
+
+[GNU General Public License v3.0](LICENSE) or later.
