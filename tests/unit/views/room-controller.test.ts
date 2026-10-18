@@ -340,6 +340,24 @@ describe("room controller (§7.5, no DOM)", () => {
       expect(changes.at(-1)?.scroll).toBe("bottom");
     });
 
+    it("a message changed in place keeps the list at the bottom, or in place when scrolled up (QA BUG-109)", async () => {
+      const other = await signedUp("Other");
+      const room = await newRoom();
+      await open(room);
+      const m = await say(other, room, "see https://example.com");
+      await vi.waitFor(() => expect(ids()).toEqual([m.id]));
+      // Growing (a reaction row, a longer text, link previews) must not slide it under the composer.
+      await other.api.react(m.id, "👍", true);
+      await vi.waitFor(() => expect(ctl.find(m.id)?.reactions).toHaveLength(1));
+      expect(changes.at(-1)).toEqual({ render: {}, scroll: "bottom" });
+      expect(ctl.react(m.id, "👍", true)).not.toBeNull();
+      expect(changes.at(-1)).toEqual({ render: {}, scroll: "bottom" });
+      nearBottom = false;
+      await other.api.edit(m.id, "see https://example.com\nand more");
+      await vi.waitFor(() => expect(ctl.find(m.id)?.text).toContain("and more"));
+      expect(changes.at(-1)).toEqual({ render: { anchor: true } });
+    });
+
     it("in a background tab, a new message (even my own from another tab) keeps the view in place and shows 'below'", async () => {
       const other = await signedUp("Other");
       const room = await newRoom();
@@ -375,6 +393,7 @@ describe("room controller (§7.5, no DOM)", () => {
       const typo = await say(other, room, "tpyo");
       const gone = await say(other, room, "gone");
       await open(room);
+      nearBottom = false; // scrolled up: what is on screen stays put (at the bottom it stays at the bottom)
       await other.api.edit(typo.id, "typo");
       await other.api.softDelete(gone.id);
       await vi.waitFor(() => expect(ctl.find(gone.id)?.deleted).toBe(true));
@@ -526,6 +545,7 @@ describe("room controller (§7.5, no DOM)", () => {
       const m = await say(me, room, "original");
       const net = instrument(me.api);
       await open(room);
+      nearBottom = false;
       net.failNext("edit", new ApiError("Failed to fetch", 0));
       const saving = ctl.edit(m.id, "changed");
       expect(ctl.find(m.id)?.text).toBe("changed");

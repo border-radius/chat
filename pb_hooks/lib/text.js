@@ -65,13 +65,21 @@ function clipFileName(name, max = MAX_FILE_NAME_BYTES) {
 /**
  * Uniqueness key for room and display names: NFKC + full case folding (via upper→lower, so "ß" matches "SS" and "Ü"
  * "ü"), without invisible characters. Keep in sync with pb_migrations/1760000001_qa_fixes.js and
- * 1760000012_accounts.js. Message search folds text the same way (messages.text_key, §29; 1760000024_message_search.js).
+ * 1760000012_accounts.js. Message search folds text the same way, and a little more (`searchKey`).
  * @param {string} name
  */
 function nameKey(name) {
   const s = name.replace(INVISIBLE, "");
   return (typeof s.normalize === "function" ? s.normalize("NFKC") : s).toUpperCase().toLowerCase();
 }
+
+/**
+ * What message search matches (§29, messages.text_key): the text folded as names are (`nameKey`), and "İ" as "i".
+ * Lowercased, "İ" is "i" and a combining dot, so "istanbul" as typed found no "İstanbul" (QA BUG-113). Keep in sync
+ * with foldKey() in web/src/views/room/search.ts and pb_migrations/1760000025_search_dotted_i.js.
+ * @param {string} text
+ */
+const searchKey = (text) => nameKey(text).replace(/i\u0307/g, "i");
 
 /**
  * Leading "#"s of a room name: rooms are shown as "#name", so "#general" would read "##general", next to a
@@ -99,4 +107,4 @@ const TEXT_CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g;
  */
 const cleanText = (s) => s.replace(/\r\n?|[\u2028\u2029]/g, "\n").replace(TEXT_CONTROL, "");
 
-module.exports = { isBlank, tidy, clipFileName, nameKey, stripHashes, unescapeUploadName, cleanText };
+module.exports = { isBlank, tidy, clipFileName, nameKey, searchKey, stripHashes, unescapeUploadName, cleanText };

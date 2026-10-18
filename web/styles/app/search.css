@@ -1,4 +1,6 @@
 /* ---- Message search (§29): a bar under the room header, its results over the top of the list ---- */
+/* Its status and results go by the people search's class names (room-list.css): only those in .room-search here
+   (QA BUG-115: the forward dialog's list and the new-DM search got a 45vh scroll box of their own). */
 
 .search-toggle {
   border: 0;
@@ -20,13 +22,13 @@
   line-height: 1;
 }
 
-.search-status:not(:empty) {
+.room-search .search-status:not(:empty) {
   margin: 0.4rem 0 0;
   font-size: 0.8rem;
   color: var(--muted);
 }
 
-.search-results {
+.room-search .search-results {
   max-height: 45vh;
   overflow-y: auto;
   margin: 0.4rem 0 0;

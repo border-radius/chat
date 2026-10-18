@@ -9,6 +9,7 @@ describe("search helpers", () => {
   it("fold like the server's nameKey: NFKC, full case folding, no invisible characters", () => {
     expect(foldKey("Straße ＡＢＣ Ü​ber")).toBe("strasse abc über");
     expect(foldKey("ПРИВЕТ")).toBe("привет");
+    expect(foldKey("İSTANBUL İzmir")).toBe("istanbul izmir"); // not "i̇stanbul" (QA BUG-113)
   });
 
   it("split into folded words, each once, at most five", () => {
@@ -23,6 +24,7 @@ describe("search helpers", () => {
       params: { room: "r1", w0: "100\\%", w1: "x" },
       sort: "-created,-id",
     });
+    expect(searchQuery("r1", ["a\\%b"]).params.w0).toBe("a\\\\\\%b"); // the escape character too (QA BUG-112)
     const q = searchQuery("r1", ["x"], { created: "2026-10-18 10:00:00.000Z", id: "abc" });
     expect(q.filter).toBe("room = {:room} && text_key ~ {:w0} && (created < {:created} || (created = {:created} && id < {:id}))");
     expect(q.params).toMatchObject({ created: "2026-10-18 10:00:00.000Z", id: "abc" });
@@ -59,6 +61,8 @@ describe("room view: search (§29)", () => {
     toggle().click();
     await vi.waitFor(() => expect(document.activeElement).toBe(field()));
     expect(field()!.placeholder).toBe(`Search #${room.name}`);
+    // A search box, without the browser's own clear "×" of type=search next to Close (QA BUG-114).
+    expect([field()!.type, field()!.getAttribute("role")]).toEqual(["text", "searchbox"]);
     search("NEEDLE");
     await vi.waitFor(() => expect(status()).toBe("3 messages found."));
     expect(results().map((r) => r.querySelector(".body")!.textContent)).toEqual([

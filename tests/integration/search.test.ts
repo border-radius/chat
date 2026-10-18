@@ -1,10 +1,12 @@
 // Message search (§29): messages.text_key follows the text on every save, and the search filter (search.ts) finds a
 // room's messages by it, case-insensitively beyond ASCII, through the list rules like any page.
 
+import { readFileSync } from "node:fs";
 import type PocketBase from "pocketbase";
-import { describe, expect, it } from "vitest";
+import { describe, expect, inject, it } from "vitest";
 import { listOptions } from "../../web/src/api.ts";
 import { searchQuery, searchWords } from "../../web/src/views/room/search.ts";
+import { runSql } from "../support/sql.ts";
 import { adminClient, client, newRoom, newUser, openDm, post, uniq } from "./helpers.ts";
 
 /** The texts of the messages `pb` finds in `room` for `q`, newest first. */
@@ -64,6 +66,35 @@ describe("message search (§29)", () => {
     expect(await search(a.pb, room.id, "100%")).toEqual(["done 100%"]);
     expect(await search(a.pb, room.id, "%")).toEqual(["done 100%"]);
     expect(await search(a.pb, room.id, "snake_case")).toEqual(["snake_case"]);
+  });
+
+  it("so is \\, the escape character (QA BUG-112)", async () => {
+    const a = await newUser();
+    const room = await newRoom(a);
+    for (const t of ["a\\%b", "\\\\server", "a\\_b", "a_b", "C:\\dir"]) await post(a, room.id, t);
+    expect(await search(a.pb, room.id, "\\%")).toEqual(["a\\%b"]);
+    expect(await search(a.pb, room.id, "\\_")).toEqual(["a\\_b"]);
+    expect(await search(a.pb, room.id, "\\\\")).toEqual(["\\\\server"]);
+    expect(await search(a.pb, room.id, "\\")).toEqual(["C:\\dir", "a\\_b", "\\\\server", "a\\%b"]);
+  });
+
+  it("finds İ as typed with i, both ways, also in keys stored before (QA BUG-113)", async () => {
+    const a = await newUser();
+    const room = await newRoom(a);
+    const tag = uniq();
+    const m = await post(a, room.id, `${tag} İstanbul`);
+    await post(a, room.id, `${tag} izmir`);
+    expect(await keyOf(m.id)).toBe(`${tag} istanbul`);
+    expect(await search(a.pb, room.id, "istanbul")).toEqual([`${tag} İstanbul`]);
+    expect(await search(a.pb, room.id, "İZMİR")).toEqual([`${tag} izmir`]);
+    // A key as 1760000024 stored it is fixed by the migration's statement.
+    const migration = readFileSync("pb_migrations/1760000025_search_dotted_i.js", "utf8");
+    const sql = /newQuery\("(UPDATE messages[^"]+)"\)/.exec(migration)![1]!;
+    await runSql(inject("pbUrl"), [
+      { sql: "UPDATE messages SET text_key = {:key} WHERE id = {:id}", params: { key: `${tag} i\u0307stanbul`, id: m.id } },
+      { sql },
+    ]);
+    expect(await keyOf(m.id)).toBe(`${tag} istanbul`);
   });
 
   it("deleted messages aren't found", async () => {

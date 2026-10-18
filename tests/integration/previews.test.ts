@@ -23,6 +23,8 @@ const PAGES: Record<string, [string, string | Uint8Array]> = {
   "/latin1": ["text/html; charset=iso-8859-1", Uint8Array.from([...Buffer.from("<title>Caf"), 0xe9, ...Buffer.from("</title>")])],
   "/big-icon": ["text/html", `<title>Big icon</title><link rel="icon" href="big.png">`],
   "/untitled": ["text/html", "<p>no title</p>"],
+  // Terminal colours, a bell, a right-to-left override, a tab: what a page's title can hold (QA BUG-110).
+  "/junk": ["text/html", "<title>Bell&#7; esc&#27;[31m red &#x202E;desrever&#x202C; tab&#9;x\u200b</title>"],
   "/doc.pdf": ["application/pdf", "%PDF-1.4"],
   "/i.png": ["image/png", PNG],
   "/big.png": ["image/png", new Uint8Array(20 * 1024)],
@@ -31,6 +33,8 @@ const PAGES: Record<string, [string, string | Uint8Array]> = {
 
 let site: Server;
 let base = "";
+/** Answered only after the worker's page timeout: a site that never answers. */
+const NEVER_MS = 6_000;
 /** Hosts the stub was asked for, as the Host header says, and the paths. */
 const asked: string[] = [];
 const paths: string[] = [];
@@ -41,6 +45,10 @@ beforeAll(async () => {
   site = createServer((req, res) => {
     asked.push(req.headers.host ?? "");
     paths.push(req.url ?? "");
+    if (req.url?.startsWith("/never")) {
+      setTimeout(() => res.writeHead(200, { "content-type": "text/html" }).end("<title>Late</title>"), NEVER_MS);
+      return;
+    }
     const page = PAGES[(req.url ?? "/").split("?")[0]!];
     if (!page) return res.writeHead(404).end();
     res.writeHead(200, { "content-type": page[0] }).end(page[1]);
@@ -57,6 +65,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await server?.stop();
+  site?.closeAllConnections();
   await new Promise((r) => site?.close(r));
 });
 
@@ -161,6 +170,29 @@ describe("link previews", () => {
     await eventually(async () => expect(await previewsOf(me, m.id)).toHaveLength(1));
     const [fwd] = await me.pb.send("/api/chat/forward", { method: "POST", body: { messages: [m.id], room: other.id } });
     expect(await previewsOf(me, fwd.id)).toMatchObject([{ title: "Tom & Jerry's page" }]);
+  });
+
+  it("a title keeps no control or bidi characters (QA BUG-110)", async () => {
+    const me = await signUp();
+    const room = await roomOf(me);
+    const m = await send(me, room.id, `${base}/junk`);
+    const [p] = await eventually(async () => {
+      const p = await previewsOf(me, m.id);
+      expect(p).toHaveLength(1);
+      return p as { title: string }[];
+    });
+    expect(p!.title).toBe("Bell esc [31m red desrever tab x");
+  });
+
+  it("a site that never answers costs one timeout, and doesn't hold up the next message (QA BUG-111)", async () => {
+    const me = await signUp();
+    const room = await roomOf(me);
+    const tag = uniq();
+    await send(me, room.id, [1, 2, 3, 4, 5].map((n) => `${base}/never?${tag}-${n}`).join(" "));
+    const next = await send(me, room.id, `${base}/plain?${tag}`);
+    // Five timeouts in a row (4 s each) held it up for 20 s; now the first one tells the worker to stop asking.
+    await eventually(async () => expect(await previewsOf(me, next.id)).toMatchObject([{ title: "Plain title" }]), 12_000);
+    expect(paths.filter((p) => p.startsWith(`/never?${tag}`)).length).toBeLessThanOrEqual(2); // the cron's worker may take it too
   });
 
   it("never fetches local or private addresses", async () => {

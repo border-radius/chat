@@ -20,6 +20,9 @@ test("search (§29): finds a room's messages in any case and goes to the one pic
   const { violations } = await new AxeBuilder({ page }).include(".room-search").withTags(["wcag2a", "wcag2aa"]).analyze();
   expect(violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => v.id)).toEqual([]);
 
+  // The people search (forward dialog, new DM) shares its class names, not its 45vh scroll box (QA BUG-115).
+  expect(await page.locator(".forward-list").evaluate((el) => getComputedStyle(el).maxHeight)).toBe("none");
+
   await results.first().click();
   await expect(message(page, "Встреча в ПЯТНИЦУ")).toHaveClass(/target/);
   await expect(message(page, "Встреча в ПЯТНИЦУ")).toBeInViewport();

@@ -10,6 +10,8 @@
 // so a public name pointing at a private address, or a redirect to one, still gets through: only a page's title and
 // icon are ever kept from it.
 
+const { tidy } = require(`${__hooks}/lib/text.js`);
+
 /** Links looked at in one message. */
 const MAX_LINKS = 5;
 /** Of a page, only the start is read for its title and icon: the rest is never asked for (Range). */
@@ -19,10 +21,16 @@ const MAX_ICON = 16 * 1024;
 const MAX_TITLE = 200;
 const PAGE_TIMEOUT = 4;
 const ICON_TIMEOUT = 3;
+/**
+ * A message's links are looked at for this long (ms) at most: links after it get no line. A message linking to sites
+ * that never answer would otherwise hold up everyone's previews behind it, for minutes.
+ */
+const MESSAGE_MS = 12_000;
 const UA = "Mozilla/5.0 (compatible; ChatLinkPreview/1.0)";
 
 const LOCK = "previews.worker";
 const RUN_MS = 57_000;
+/** A lock not renewed for this long (ms) is a worker that died. Renewed after every message, which takes under 30 s. */
 const STALE_MS = 120_000;
 const BATCH = 10;
 
@@ -144,17 +152,22 @@ function resolve(ref, base) {
 // ---------------------------------------------------------------- pages and icons
 
 /**
- * GET `url`, null on any failure or a status other than 200/206.
+ * GET `url`, null on any failure or a status other than 200/206. A host that didn't answer (a timeout, a refused
+ * connection) goes in `dead` and isn't asked again for this message: its links to a site that never answers cost one
+ * timeout, not one each.
  * @param {string} url
  * @param {Record<string, string>} headers
  * @param {number} timeout
+ * @param {Set<string>} dead
  */
-function get(url, headers, timeout) {
-  if (!fetchable(url)) return null;
+function get(url, headers, timeout, dead) {
+  const host = fetchable(url) ? parse(url)?.host : "";
+  if (!host || dead.has(host)) return null;
   try {
     const res = $http.send({ url, method: "GET", headers: { "User-Agent": UA, ...headers }, timeout });
     return res.statusCode === 200 || res.statusCode === 206 ? res : null;
   } catch {
+    dead.add(host);
     return null;
   }
 }
@@ -177,9 +190,13 @@ function decode(s) {
   });
 }
 
-/** @param {string} s */
+/**
+ * A title as shown: entities decoded, no control or bidi characters (a page's title is anyone's text: "‮" would
+ * turn the rest of the line around, QA BUG-110), whitespace collapsed, cut at MAX_TITLE.
+ * @param {string} s
+ */
 function clean(s) {
-  const t = decode(s).replace(/\s+/g, " ").trim();
+  const t = tidy(decode(s));
   const chars = [...t];
   return chars.length > MAX_TITLE
     ? `${chars
@@ -250,9 +267,10 @@ function imageType(res, b) {
 /**
  * An icon as a data: URL, or "".
  * @param {string} url
+ * @param {Set<string>} dead
  */
-function icon(url) {
-  const res = url ? get(url, { Accept: "image/*" }, ICON_TIMEOUT) : null;
+function icon(url, dead) {
+  const res = url ? get(url, { Accept: "image/*" }, ICON_TIMEOUT, dead) : null;
   const b = res?.body;
   if (!b?.length || b.length > MAX_ICON) return "";
   const type = imageType(res, b);
@@ -262,10 +280,11 @@ function icon(url) {
 /**
  * What a link shows: the page's title (og:title, else <title>) and its icon. null when there is no title to show.
  * @param {string} url
+ * @param {Set<string>} dead
  * @returns {{ url: string, title: string, icon: string } | null}
  */
-function preview(url) {
-  const res = get(url, { Accept: "text/html,application/xhtml+xml", Range: `bytes=0-${PAGE_BYTES - 1}` }, PAGE_TIMEOUT);
+function preview(url, dead) {
+  const res = get(url, { Accept: "text/html,application/xhtml+xml", Range: `bytes=0-${PAGE_BYTES - 1}` }, PAGE_TIMEOUT, dead);
   if (!res || !/html/i.test(header(res, "content-type"))) return null;
   const html = pageText(res);
   if (html === null) return null;
@@ -279,8 +298,8 @@ function preview(url) {
   if (!title) title = clean((/<title[^>]*>([\s\S]*?)<\/title>/i.exec(html) || ["", ""])[1]);
   if (!title) return null;
   const page = parse(url);
-  const found = iconRef ? icon(resolve(decode(iconRef), url)) : "";
-  return { url, title, icon: found || (page ? icon(`${page.origin}/favicon.ico`) : "") };
+  const found = iconRef ? icon(resolve(decode(iconRef), url), dead) : "";
+  return { url, title, icon: found || (page ? icon(`${page.origin}/favicon.ico`, dead) : "") };
 }
 
 // ---------------------------------------------------------------- the queue and the worker
@@ -311,9 +330,16 @@ function fill(app, id) {
   }
   if (msg.getBool("deleted")) return;
   const text = msg.getString("text");
-  const previews = linksOf(text)
-    .map(preview)
-    .filter((p) => !!p);
+  const until = Date.now() + MESSAGE_MS;
+  /** @type {Set<string>} */
+  const dead = new Set();
+  /** @type {{ url: string, title: string, icon: string }[]} */
+  const previews = [];
+  for (const url of linksOf(text)) {
+    if (Date.now() > until) break;
+    const p = preview(url, dead);
+    if (p) previews.push(p);
+  }
   if (!previews.length) return;
   app.runInTransaction((tx) => {
     const now = tx.findRecordById("messages", id);
@@ -324,10 +350,11 @@ function fill(app, id) {
 }
 
 /**
- * One pass: the oldest queued messages.
+ * One pass: the oldest queued messages. `beat`, if given, is called after each one (the worker renews its lock).
  * @param {core.App} app
+ * @param {() => void} [beat]
  */
-function pass(app) {
+function pass(app, beat) {
   const rows = app.findRecordsByFilter("link_queue", "", "created,id", BATCH, 0);
   for (const row of rows) {
     if (!row) continue;
@@ -341,6 +368,7 @@ function pass(app) {
     } catch {
       // gone with its message
     }
+    beat?.();
   }
   return rows.length;
 }
@@ -357,16 +385,19 @@ function run(app) {
     return Date.now();
   });
   if (!mine) return;
+  // Renewed after every message, not every pass: a pass of slow sites can outlast STALE_MS, and the next minute's run
+  // took the lock as stale and fetched the same messages alongside (QA BUG-111).
+  const beat = () => app.store().set(LOCK, Date.now());
   try {
     const until = Date.now() + RUN_MS;
     while (Date.now() < until) {
       try {
-        if (!pass(app)) sleep(1000);
+        if (!pass(app, beat)) sleep(1000);
       } catch (err) {
         app.logger().error("previews: worker", "error", String(err));
         sleep(1000);
       }
-      app.store().set(LOCK, Date.now());
+      beat();
     }
   } finally {
     app.store().remove(LOCK);

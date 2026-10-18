@@ -508,7 +508,7 @@ while its first page loads.
 - **Edit mode:** the message text is replaced in place by a textarea pre-filled with the current text. **Enter** saves, **Esc** cancels, and Shift+Enter inserts a newline. Saving unchanged text is a no-op and makes no request.
 - **Optimistic save:** the new text shows immediately. If the save fails, the old text comes back and an inline error appears with a Retry option.
 - **"(edited)" label:** shown after the time when `edited_at` is set. Its tooltip gives the edit time.
-- **Edits by others:** these arrive as realtime `update` events and replace the message text in place. The scroll position stays anchored.
+- **Edits by others:** these arrive as realtime `update` events and replace the message text in place. The scroll position stays anchored. At the live bottom (no newer page, within 80px of the end) the list stays at the bottom instead: a message changed in place, by anyone (an edit, a reaction, its link previews, §28), may have grown, and anchored it would slide under the composer (QA BUG-109).
 - **Archived rooms:** Edit and Delete are hidden, and the server rejects them anyway.
 - **No edit time limit** in the MVP. Earlier versions of a message are not stored.
 
@@ -2308,13 +2308,15 @@ the link in the text (§7.6.3).
   edit of its original (§21.3).
 - **Queue:** a new message with links, or an edit of the text, adds a `link_queue` row in the save's transaction.
   A cron job (`* * * * *`) runs `pb_hooks/lib/previews.js` for 57 s, once a second (one run at a time, a lock in the
-  app store); `POST /api/previews/tick` (superusers) runs it at once. Each message: its links (found as `linkify`
-  finds them, each once, at most 5), fetched one at a time; the previews are saved in a transaction unless the text
-  changed meanwhile (the edit queued it again). Everyone sees them live, as an update. A link that fails gets no line
-  and isn't tried again.
+  app store, renewed after every message: a pass can outlast the minute, QA BUG-111); `POST /api/previews/tick`
+  (superusers) runs it at once. Each message: its links (found as `linkify` finds them, each once, at most 5), fetched
+  one at a time, for 12 s at most (the links after that get no line); a host that doesn't answer (a timeout, a refused
+  connection) isn't asked again for that message. So a message linking to sites that never answer holds up the queue
+  for ~12 s, not minutes. The previews are saved in a transaction unless the text changed meanwhile (the edit queued it
+  again). Everyone sees them live, as an update. A link that fails gets no line and isn't tried again.
 - **Fetching:** the page with `Range: bytes=0-262143` (4 s timeout), `text/html` only, its UTF-8 or Latin-1 text.
-  The title is `og:title`, else `<title>`, entities decoded, whitespace collapsed, at most 200 characters; no title,
-  no line. The icon is the first `<link rel="… icon …">`, else `/favicon.ico` (3 s), an image of at most 16 KB, its
+  The title is `og:title`, else `<title>`, entities decoded, cleaned like a name (`tidy`: no control, invisible or
+  bidi characters, QA BUG-110), whitespace collapsed, at most 200 characters; no title, no line. The icon is the first `<link rel="… icon …">`, else `/favicon.ico` (3 s), an image of at most 16 KB, its
   type as served or sniffed (PNG, ICO, GIF, JPEG, SVG).
 - **Where the server may go** (server-side request forgery): http(s) on the default port, a public IPv4 address or a
   name with a dot whose last label is letters and isn't a local one (`localhost`, `.local`, `.internal`, `.lan`,
@@ -2353,13 +2355,15 @@ the button. Guests can search the Open Air rooms they read.
 
 - **`messages.text_key`**: the text folded like names are compared (§22.1: `nameKey`: no invisible characters, NFKC,
   upper then lower case), so "привет" finds "Привет", "strasse" "Straße" and "abc" "ＡＢＣ"; SQLite's `LIKE` alone only
-  ignores the case of ASCII letters (QA BUG-55). Set by the hooks after every other change on create and update
-  (`setTextKey`), whatever a client sent: empty once deleted. Not hidden, so the list API can filter on it with its
+  ignores the case of ASCII letters (QA BUG-55). One step more than names (`searchKey`): "İ" lowercases to "i" and a
+  combining dot, which goes, so "istanbul" finds "İstanbul" (QA BUG-113; migration `1760000025_search_dotted_i.js`
+  re-keys what was stored before). Set by the hooks after every other change on create and update (`setTextKey`),
+  whatever a client sent: empty once deleted. Not hidden, so the list API can filter on it with its
   rules applied (nobody can search a room they can't read); `MSG_FIELDS` never asks for it. Max 40,000 characters (NFKC
   can make a 2,000-character text longer). Migration `1760000024_message_search.js` backfills it with raw SQL.
 - **Query** (`searchQuery` in `views/room/search.ts`): `room = {:room} && text_key ~ {:w0} && …`, newest first, from a
   `(created, id)` cursor for the next page, as history pages are (§7.5). Up to 5 distinct words, folded the same way on
-  the client (`foldKey`). `%` is escaped (QA BUG-34; `_` already is).
+  the client (`foldKey`). `%` and `\` (the escape character) are escaped (QA BUG-34, BUG-112; `_` already is).
 - **Not found:** forwards (their text is their original's, shown in the answer only, §21.3), attachment names and
   link titles.
 - **Cost:** `LIKE '%…%'` can't use an index, so a search reads the room's messages through
@@ -2374,7 +2378,8 @@ the button. Guests can search the Open Air rooms they read.
 `h`, `api.page`, the time format and `goTo` by the room view; if it can't load, the notice says so. Typing searches
 300 ms after the last key (Enter at once); a new search aborts the one in flight. A result is a button: author, time,
 and the text on two lines starting shortly before the first match, matches in `<mark>` (built with `h`, never HTML).
-The field is `type=search` in a `role=search` region, the count in a `role=status` line ("3 messages found.",
+The field is a `role=searchbox` text field (not `type=search`: browsers add their own clear "×" next to Close,
+QA BUG-114) in a `role=search` region, the count in a `role=status` line ("3 messages found.",
 "50+ messages found.", "No messages found.", "Couldn't search. Check your connection."). Results don't follow live
 changes; searching again does.
 

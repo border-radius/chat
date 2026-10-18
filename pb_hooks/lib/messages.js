@@ -7,7 +7,7 @@ const { accessOf, canSee, canWrite, visibleRoom } = require(`${__hooks}/lib/acce
 const { fieldError, originalNames, recordOf } = require(`${__hooks}/lib/records.js`);
 const { dmRefusal } = require(`${__hooks}/lib/dms.js`);
 const { isDm } = require(`${__hooks}/lib/rooms.js`);
-const { cleanText, isBlank, nameKey } = require(`${__hooks}/lib/text.js`);
+const { cleanText, isBlank, searchKey } = require(`${__hooks}/lib/text.js`);
 
 /**
  * Trim a text field in place (required/min validation then rejects blanks).
@@ -46,12 +46,12 @@ function assertText(record, blankOk = false) {
 }
 
 /**
- * What message search matches (§29): the text case folded like names (`nameKey`), whatever the client sent. Set after
+ * What message search matches (§29): the text case folded (`searchKey`), whatever the client sent. Set after
  * every other change to the text, on every save.
  * @param {core.Record} record
  */
 function setTextKey(record) {
-  record.set("text_key", nameKey(record.getString("text")));
+  record.set("text_key", searchKey(record.getString("text")));
 }
 
 /**

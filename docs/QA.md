@@ -1095,3 +1095,111 @@ Test changes:
   (BUG-108), so later specs timed out. It is the likely cause of the "load flakes" in local full runs since 2026-10-12.
 - `prefetch.test.ts` only hears its own rooms' message events. A message deleted by another test file in a public
   room meanwhile fetched that room too, one `page` call more than the tests count (3 of 6 full unit runs).
+
+# QA pass 15 — search, link previews, who can post, then the rest of the app
+
+Exploratory testing after message search (§29), link previews (§28), who can post (§23.6) and the viewer's "Show in
+chat", 2026-10-18. A production build on a fresh PocketBase server with link previews **on** (a stub web site let
+through `LINK_PREVIEWS_ALLOW_HOSTS`), in Chromium (desktop 1100×720 and a 390×844 phone, with and without the service
+worker). Covered: the REST API around the new fields (filters through a forward's original, search escaping and case
+folding against the server's, writers' rules, preview SSRF guards and odd pages); the search bar (paging, picking a
+result 150 back, guests, archived rooms, room switches, keyboard); previews live, after an edit, on a forward and when
+its original changes; a reader made a writer and back while typing, editing and sending; the viewer's "Show in chat"
+from images paged in; the preview worker under sites that never answer (5 minutes of cron); and randomized runs
+(seeds 31, 32 on desktop, 33 on a phone with the service worker; 50 steps each, now also changing who can post,
+sending links and searching). Numbering continues from BUG-108. Each fix lands with a test that fails without it.
+
+| # | Severity | Area | Summary | Status |
+|---|---|---|---|---|
+| BUG-109 | Medium | Messages | At the bottom of a room, the newest message slid under the composer when it grew: a reaction, an edit, and now every link's preview lines | Fixed |
+| BUG-111 | Medium (performance) | Link previews | A pass over sites that never answer outlived the worker's lock, so a second worker fetched the same links alongside; and one message's dead links held up everyone's previews for minutes | Fixed |
+| BUG-110 | Low | Link previews | A page's title kept control and bidi characters: terminal codes showed as boxes, and "‮" turned the rest of the title around | Fixed |
+| BUG-112 | Low | Search | `\` wasn't escaped: `\%` found messages starting with `\`, `\_` found "a_b", `\\` any backslash | Fixed |
+| BUG-113 | Low | Search | "istanbul" didn't find "İstanbul" (lowercased, "İ" is "i" and a combining dot) | Fixed |
+| BUG-114 | Low | Search | Two "×" side by side in the search field: the browser's own clear button (`type=search`) and Close | Fixed |
+| BUG-115 | Low | Search | Search's styles for its results leaked to the people search sharing the class names: the forward dialog's list was cut at 45% of the screen, and the new-DM search got a scroll box of its own | Fixed |
+
+## BUG-109 — The newest message slid under the composer (Medium)
+
+**Steps:** at the bottom of a room, someone reacts to the last message, edits it longer, or sends a link (its preview
+lines come a second later). **Expected:** the list stays at the bottom. **Actual:** the message grew below the screen:
+31 px for a reaction, 116 for an edit, 21 per preview line, hidden under the composer until you scrolled. Every message
+with a link does this since §28. The controller asked for an anchored render for every change in place, which keeps
+what is on screen in place, right for someone scrolled up but not at the live end. The view's `ResizeObserver` only
+watches the list's own size (the tray opening, BUG-31), not its content. **Fix:** a change in place (realtime update or
+delete, the refresh after a reconnect, your own edit, delete or reaction) scrolls to the bottom when the list is near
+it and there is no newer page; scrolled up, it stays anchored. New messages keep their own rules (not followed while
+the tab is away).
+
+## BUG-111 — Sites that never answer stalled the preview worker (Medium, performance)
+
+**Steps:** send a dozen messages, each linking to five pages of a site that never answers (or any slow one), then one
+ordinary link. **Actual:** each link waits out the 4 s timeout, so the worker spent ~20 s a message; the ordinary link
+had no preview after 4½ minutes. The lock is renewed only between passes (10 messages) and taken as stale after 120 s,
+so from the third minute a second worker ran the same queue alongside (15 duplicate fetches in a minute), and a third
+could follow. Anyone can do this with links to sites they control. **Fix:** the lock is renewed after every message; a
+host that doesn't answer isn't asked again for that message (one timeout, not five); and a message's links get 12 s at
+most. The queue then moves at least every ~20 s whatever is linked.
+
+## BUG-110 — Control and bidi characters in preview titles (Low)
+
+**Steps:** link a page whose `<title>` holds a bell, terminal colour codes, or a right-to-left override (as `&#7;`,
+`&#27;`, `&#x202E;`). **Actual:** kept as is: boxes in the line, and "‮desrever" shown as "reversed", so a page could
+make its title read as something else. Message text has been cleaned since BUG-105, names since BUG-38; titles are
+anyone's text too. **Fix:** titles go through `tidy`, as names do.
+
+## BUG-112 — The search's escape character wasn't escaped (Low)
+
+**Steps:** search `\%` in a room with "a\%b". **Actual:** "No messages found." (it found messages starting with `\`);
+`\_` also found "a_b", and `\\` every message with one backslash. PocketBase's `~` treats `\` as the escape character
+of `LIKE`, and only `%` was escaped. **Fix:** `\` is escaped too.
+
+## BUG-113 — "istanbul" didn't find "İstanbul" (Low)
+
+Lowercased, "İ" (U+0130) is "i" followed by a combining dot above, so the stored key was "i̇stanbul", which "istanbul"
+as typed (on any keyboard) never matched; only "İstanbul" typed with a capital İ found it. **Fix:** the search key drops
+that dot, on the client and the server (`searchKey`); migration `1760000025_search_dotted_i.js` re-keys messages already
+stored. Names keep `nameKey` as it is.
+
+## BUG-114 and BUG-115 (Low)
+
+- **BUG-114:** the field was `type=search`, so Chromium and Safari drew their own clear "×" right next to Close, one
+  clearing the field, the other closing the bar. It is a text field with `role=searchbox` now: the same to a screen
+  reader, and the phone keyboard keeps its Search key (`enterkeyhint`).
+- **BUG-115:** the search bar's `.search-results` and `.search-status` styles (§29) use the class names of the people
+  search (room-list.css) and came later in the stylesheet, so they applied there too: the forward dialog's list was cut
+  at 45vh (324 px on a 720 px screen) and the new-DM search had a scroll box of its own. They apply only inside
+  `.room-search` now.
+
+## Checked and fine
+
+- **Filters and forwards:** a list filter through a forward's original (`forward_of.reply_to.text`,
+  `forward_of.room.members`, `forward_of.reactions`, `forward_of.room.name`) matches nothing for someone outside the
+  original's room: PocketBase applies the related collection's list rule inside the filter. Expanding `forward_of.reply_to`
+  shows nothing either.
+- **Search:** `%` and `_` literal; client and server fold the same way on Greek final sigma, ß, ligatures, full-width
+  and half-width forms, Roman numerals and titlecase digraphs (each sample finds itself); the worst NFKC growth is ×18
+  (U+FDFA), so `text_key` (40,000) holds any 2,000-character message; 6 words and a 3,000-character word; guests in Open
+  Air rooms; archived rooms; a room switch closes the bar; "Show older results" moves focus to the first of them.
+- **Who can post:** a reader can't post, reply, edit, delete (also in bulk) or forward in, but reacts; only the creator
+  sets writers, never on create, and never in a DM; a non-member writer of a room made private is dropped; the composer
+  goes and comes back live with what was typed; an open edit box closes; a send held while posting changed fails with
+  Retry; the room isn't offered as a forward target.
+- **Previews:** live for everyone; an edit clears them at once and the new ones come; a forward shows its original's and
+  follows its edits; each link once, 5 at most; untitled pages and PDFs get no line; `javascript:` icons and icons
+  served as HTML are left out (the site's /favicon.ico instead); local, private and link-local addresses are refused;
+  an edit box stays open (with what was typed) while previews or reactions arrive.
+- **Show in chat:** from an image paged in three back, goes to its message and focuses its tile.
+- **Randomized runs** (seeds 31, 32 desktop, 33 phone with the service worker): the room matched the server after every
+  step, the composer matched who may post, no page errors.
+- Typecheck, lint, unit, integration and Chromium e2e suites, before and after the fixes.
+
+Not changed, by design or for a decision:
+- A link that redirects to a private address is still followed (§28.1 says so: the JSVM can't resolve names or stop
+  redirects); with a redirect to the chat server itself, the title "Chat" came back.
+- Previews' icons are kept in each message as `data:` URLs (up to 16 KB each, 5 a message), so a page of 50 messages
+  full of links can be ~1–2 MB of JSON, and as much in the room cache. Serving icons as files would need a decision.
+- Search doesn't ignore accents ("cafe" doesn't find "café"); §29 never said it would.
+- A send refused because you may no longer post says "Not sent." with Retry, like any refusal; the reader's banner
+  above says why.
+- BUG-108 (busy rooms prefetched by everyone) is still open.

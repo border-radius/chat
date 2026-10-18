@@ -139,6 +139,11 @@ export function createRoomController(opts: {
   const { signal } = scope;
   /** New messages scroll into view only in a visible tab at the bottom: a background tab stays put, with the pill. */
   const follows = () => nearBottom() && !store.get().away;
+  /**
+   * Messages changed where they are (an edit, a reaction, link previews, a delete): what is on screen stays put, but
+   * at the live bottom the list stays at the bottom, or a message growing would slide under the composer.
+   */
+  const inPlace = (): Change => (!win.hasNewer && nearBottom() ? { render: {}, scroll: "bottom" } : { render: { anchor: true } });
 
   let win: MessageWindow = emptyWindow();
   let phase: Phase = "loading";
@@ -500,7 +505,7 @@ export function createRoomController(opts: {
     const inWindow = changed.filter((m) => find(m.id));
     if (!inWindow.length) return;
     win = merge(win, inWindow);
-    emit({ render: { anchor: true } });
+    emit(inPlace());
   }
 
   /** At the live edge after a reconnect: fetch everything newer than what we have (§7.5). */
@@ -534,12 +539,12 @@ export function createRoomController(opts: {
     if (!ready()) return;
     if (action === "delete") {
       win = remove(win, m.id);
-      return emit({ render: { anchor: true } });
+      return emit(inPlace());
     }
     if (action === "update") {
       if (!find(m.id)) return;
       win = merge(win, [m]);
-      return emit({ render: { anchor: true } });
+      return emit(inPlace());
     }
     // create
     if (find(m.id)) {
@@ -660,7 +665,7 @@ export function createRoomController(opts: {
   /** Show `patch` right away; keep the server's copy, or put `before` back if the request fails. */
   async function optimistic(id: string, patch: Partial<Message>, before: Partial<Message>, request: () => Promise<Message>) {
     patchLocal(id, patch);
-    emit({ render: { anchor: true } });
+    emit(inPlace());
     let ok = true;
     try {
       const saved = await inTurn(id, request);
@@ -670,7 +675,7 @@ export function createRoomController(opts: {
       patchLocal(id, before);
       ok = false;
     }
-    emit({ render: { anchor: true } });
+    emit(inPlace());
     return ok;
   }
 
@@ -699,7 +704,7 @@ export function createRoomController(opts: {
 
   async function deleteAll(ms: Message[]): Promise<unknown> {
     for (const m of ms) patchLocal(m.id, { text: "", deleted: true });
-    emit({ render: { anchor: true } });
+    emit(inPlace());
     let failure: unknown = null;
     try {
       const saved = await api.deleteMany(ms.map((m) => m.id));
@@ -713,7 +718,7 @@ export function createRoomController(opts: {
       for (const m of ms) patchLocal(m.id, { text: m.text, deleted: false });
       failure = e;
     }
-    emit({ render: { anchor: true } });
+    emit(inPlace());
     return failure;
   }
 
@@ -744,14 +749,14 @@ export function createRoomController(opts: {
     };
     const queue = inTurn(id, request);
     reacting.set(id, mine.set(emoji, { on, seq }));
-    emit({ render: { anchor: true } });
+    emit(inPlace());
     const ok = await queue;
     // Changed again meanwhile: the later change shows, and says whether it worked.
     if (!latest()) return true;
     if (!scope.active) return ok;
     mine.delete(emoji);
     if (!mine.size && reacting.get(id) === mine) reacting.delete(id);
-    emit({ render: { anchor: true } });
+    emit(inPlace());
     return ok;
   }
 

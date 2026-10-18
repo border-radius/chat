@@ -39,13 +39,17 @@ const MAX_WORDS = 5;
 /** Text shown before the first match in a result, at most (characters). */
 const LEAD = 40;
 
-/** Same as nameKey() in pb_hooks/lib/text.js: what the server stores in `text_key`. */
+/**
+ * Same as searchKey() in pb_hooks/lib/text.js: what the server stores in `text_key`. "İ" lowercases to "i" and a
+ * combining dot, which "istanbul" as typed wouldn't find (QA BUG-113): the dot goes.
+ */
 export function foldKey(s: string): string {
   return s
     .replace(/[­᠎​-‏‪-‮⁠-⁤⁦-⁩﻿]/g, "")
     .normalize("NFKC")
     .toUpperCase()
-    .toLowerCase();
+    .toLowerCase()
+    .replace(/i\u0307/g, "i");
 }
 
 /** The words of a search, folded, each once. */
@@ -55,13 +59,14 @@ export function searchWords(q: string): string[] {
 
 /**
  * The newest messages of `room` with every word in `words`, before `before` when given (newest-first). `~` treats a %
- * in the value as a wildcard (and then stops adding its own), so it is escaped (QA BUG-34); `_` already is.
+ * in the value as a wildcard (and then stops adding its own), so it is escaped (QA BUG-34); `_` already is. So is the
+ * escape character itself: `\%` typed found the messages starting with `\`, and `\_` "a_b" (QA BUG-112).
  */
 export function searchQuery(room: string, words: readonly string[], before?: { created: string; id: string }): PageQuery {
   const params: Record<string, string> = { room };
   const parts = ["room = {:room}"];
   words.forEach((w, i) => {
-    params[`w${i}`] = w.replace(/%/g, "\\%");
+    params[`w${i}`] = w.replace(/[\\%]/g, "\\$&");
     parts.push(`text_key ~ {:w${i}}`);
   });
   if (before) {
@@ -95,7 +100,9 @@ export function createSearch(o: SearchOptions): Search {
   });
 
   const input = h("input", {
-    type: "search",
+    // Not type=search: browsers add a clear "×" of their own next to Close (QA BUG-114).
+    type: "text",
+    role: "searchbox",
     "aria-label": "Search messages",
     placeholder: `Search ${o.label}`,
     enterkeyhint: "search",
