@@ -84,10 +84,19 @@ dialog.access {
   box-shadow: var(--shadow);
 }
 
-dialog.access[open] {
+dialog.access[open],
+.access-body {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+}
+
+/* Only the body scrolls: the buttons stay in view however long the lists get. */
+.access-body {
+  min-height: 0;
+  margin: 0 -1rem;
+  padding: 0 1rem;
+  overflow-y: auto;
 }
 
 dialog.access::backdrop {
@@ -162,14 +171,11 @@ dialog.access h3 {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
-  min-height: 0;
 }
 
 .member-list {
-  max-height: 14rem;
   margin: 0;
   padding: 0;
-  overflow-y: auto;
   list-style: none;
 }
 
@@ -192,8 +198,16 @@ dialog.access h3 {
   font-size: 0.8rem;
 }
 
-.member .remove-member {
+.member .remove-member,
+.search-results [aria-pressed]::after {
   margin-left: auto;
+}
+
+.search-results [aria-pressed="true"]::after {
+  content: "✓ Added";
+  flex: none;
+  color: var(--muted);
+  font-size: 0.8rem;
 }
 
 .add-member {

@@ -1,5 +1,7 @@
 // Room access dialog (§23.2): the creator chooses who can see the room (Private, Public or Open Air) and, for a private
 // room, who its members are. Anyone else in a private room gets the same dialog to see who is in it, read-only.
+// Telegram stand-ins (no_dms, §26.3) are left out of it: the bridge adds them itself, so adding or removing one does
+// nothing. They stay members when it is saved.
 // A modal <dialog>: it keeps focus inside, Escape closes it, and focus goes back to where it was.
 
 import { h, uniqueId } from "../../dom.ts";
@@ -66,19 +68,23 @@ export function createAccessDialog(opts: {
   const memberList = h("ul", { class: "member-list", "aria-label": "Members" });
   const addBtn = h("button", { type: "button", class: "link add-member", on: { click: () => toggleSearch(true) }, signal }, "+ Add people");
   const searchSlot = h("div", { class: "member-search" });
-  const members = h("section", { class: "members" }, [membersHead, memberList, addBtn, searchSlot]);
+  // Search above the list, so it stays in reach however many members there are.
+  const members = h("section", { class: "members" }, [membersHead, addBtn, searchSlot, memberList]);
   const warn = h("p", { class: "access-warning", role: "status" });
   const error = h("p", { class: "field-error", role: "alert" });
   const cancel = h("button", { type: "button", class: "cancel", on: { click: () => close() }, signal }, "Cancel");
   const save = h("button", { type: "button", class: "primary save", on: { click: () => void submit() }, signal }, "Save");
   const buttons = h("div", { class: "dialog-actions" }, [cancel, save]);
-  const el = h("dialog", { class: "access", "aria-labelledby": title.id }, [title, choices, members, warn, error, buttons]);
+  // The body scrolls; the title and the buttons stay put.
+  const body = h("div", { class: "access-body" }, [choices, members, warn, error]);
+  const el = h("dialog", { class: "access", "aria-labelledby": title.id }, [title, body, buttons]);
 
   let room: Room | null = null;
   let editable = false;
   let visibility: Visibility = "public";
   /** The members as chosen so far, the creator first. */
   let people: User[] = [];
+  const isMember = (u: User) => people.some((p) => p.id === u.id);
   let search: { ac: AbortController; ui: UserSearch } | null = null;
   let busy = false;
 
@@ -93,13 +99,14 @@ export function createAccessDialog(opts: {
     for (const [v, input] of radios) input.checked = v === visibility;
     choices.hidden = !editable;
     members.hidden = visibility !== "private";
-    membersHead.textContent = `Members (${people.length})`;
+    const shown = people.filter((u) => !u.no_dms);
+    membersHead.textContent = `Members (${shown.length})`;
     const full = people.length >= LIMITS.roomMembers;
     addBtn.hidden = !editable || !!search;
     addBtn.disabled = full;
     addBtn.title = full ? `A room can have up to ${LIMITS.roomMembers} members.` : "";
     memberList.replaceChildren(
-      ...people.map((u) => {
+      ...shown.map((u) => {
         const owner = u.id === room?.created_by;
         return h("li", { class: "member", dataset: { userId: u.id } }, [
           avatar(u, 24, opts.avatarUrl),
@@ -127,7 +134,7 @@ export function createAccessDialog(opts: {
   }
 
   function remove(userId: string) {
-    const at = people.findIndex((u) => u.id === userId);
+    const at = [...memberList.children].findIndex((li) => (li as HTMLElement).dataset.userId === userId);
     people = people.filter((u) => u.id !== userId);
     render();
     // Focus stays in the list: on the next member's Remove, else the previous one's, else Add people.
@@ -135,15 +142,16 @@ export function createAccessDialog(opts: {
     (buttons[Math.min(at - 1, buttons.length - 1)] ?? addBtn).focus();
   }
 
-  function add(u: User) {
-    if (people.some((p) => p.id === u.id)) return;
-    if (people.length >= LIMITS.roomMembers) {
+  /** A search result picked: add them, or take them out again when they are in. */
+  function toggle(u: User) {
+    if (isMember(u)) people = people.filter((p) => p.id !== u.id);
+    else if (people.length >= LIMITS.roomMembers) {
       error.textContent = `A room can have up to ${LIMITS.roomMembers} members.`;
       return;
-    }
-    people = [...people, u];
+    } else people = [...people, u];
     error.textContent = "";
     render();
+    search?.ui.mark();
   }
 
   function toggleSearch(on: boolean) {
@@ -154,9 +162,10 @@ export function createAccessDialog(opts: {
       const ac = new AbortController();
       signal.addEventListener("abort", () => ac.abort(), { once: true });
       const ui = createUserSearch({
-        search: opts.searchUsers,
+        search: async (q, sig) => (await opts.searchUsers(q, sig)).filter((u) => !u.no_dms),
         avatarUrl: opts.avatarUrl,
-        onPick: add,
+        onPick: toggle,
+        isPicked: isMember,
         onClose: () => {
           toggleSearch(false);
           addBtn.focus();
@@ -167,6 +176,8 @@ export function createAccessDialog(opts: {
       searchSlot.replaceChildren(ui.el);
       render();
       ui.focus();
+      // Room for the results under it, on a small screen too.
+      membersHead.scrollIntoView?.({ block: "start" });
     } else {
       searchSlot.replaceChildren();
       render();

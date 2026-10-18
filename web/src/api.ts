@@ -203,7 +203,7 @@ export const MSG_FIELDS =
 const MSG_OPTS = { expand: "author,reply_to.author,forwarded_from", fields: MSG_FIELDS } as const;
 /** Rooms with their members' public profile (DMs, §16.5); never emails. */
 export const ROOM_FIELDS =
-  "id,name,archived,created_by,kind,visibility,members,last_message_at,created,expand.members.id,expand.members.name,expand.members.avatar";
+  "id,name,archived,created_by,kind,visibility,members,last_message_at,created,expand.members.id,expand.members.name,expand.members.avatar,expand.members.no_dms";
 const ROOM_OPTS = { expand: "members", fields: ROOM_FIELDS } as const;
 const HIDDEN_FIELDS = "id,room";
 /** The site record (§24); its invite code is hidden from everyone but superusers. */

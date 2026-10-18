@@ -10,12 +10,16 @@ export const SEARCH_DEBOUNCE_MS = 200;
 export interface UserSearch {
   readonly el: HTMLElement;
   focus(): void;
+  /** Show again who is picked, after a pick changed it. */
+  mark(): void;
 }
 
 export function createUserSearch(opts: {
   search: (query: string, signal: AbortSignal) => Promise<User[]>;
   avatarUrl: AvatarUrl;
   onPick: (user: User) => void;
+  /** When given, each result is a toggle, pressed for someone already picked. */
+  isPicked?: (user: User) => boolean;
   onClose: () => void;
   signal: AbortSignal;
 }): UserSearch {
@@ -33,29 +37,32 @@ export function createUserSearch(opts: {
   const results = h("ul", { id: `${id}-results`, class: "search-results", "aria-label": "People" });
   let timer: ReturnType<typeof setTimeout> | undefined;
   let inflight: AbortController | null = null;
+  let shown: [User, HTMLButtonElement][] = [];
 
   const buttons = () => [...results.querySelectorAll<HTMLButtonElement>("button")];
 
   function show(users: User[]) {
     status.textContent = users.length ? `${users.length === 20 ? "20+" : users.length} found` : "No one found.";
-    results.replaceChildren(
-      ...users.map((u) =>
-        h(
-          "li",
-          {},
-          h("button", { type: "button", class: "person", on: { click: () => opts.onPick(u) }, signal }, [
-            avatar(u, 24, opts.avatarUrl),
-            h("span", {}, u.name),
-          ]),
-        ),
-      ),
-    );
+    shown = users.map((u) => [
+      u,
+      h("button", { type: "button", class: "person", on: { click: () => opts.onPick(u) }, signal }, [
+        avatar(u, 24, opts.avatarUrl),
+        h("span", {}, u.name),
+      ]),
+    ]);
+    results.replaceChildren(...shown.map(([, b]) => h("li", {}, b)));
+    mark();
+  }
+
+  function mark() {
+    if (opts.isPicked) for (const [u, b] of shown) b.setAttribute("aria-pressed", String(opts.isPicked(u)));
   }
 
   async function run(query: string) {
     inflight?.abort();
     if (!query) {
       status.textContent = "Type a name.";
+      shown = [];
       results.replaceChildren();
       return;
     }
@@ -113,5 +120,5 @@ export function createUserSearch(opts: {
     { once: true },
   );
 
-  return { el, focus: () => input.focus() };
+  return { el, focus: () => input.focus(), mark };
 }

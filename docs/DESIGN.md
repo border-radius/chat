@@ -540,8 +540,8 @@ while its first page loads.
 
 | Asset | Budget (gzipped) |
 |---|---|
-| `app.js` (including the PocketBase client) | **≤ 42.40 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, the room cache without waiting for the network, the QA pass 12 fixes, prefetching rooms not yet kept, the QA pass 13 fixes, thumbnail caching, the QA pass 14 fixes, Ctrl+Up/Down to pick the reply, link previews, see §13) |
-| `app.css` | **≤ 6.15 KB** (5 KB until §21, 5.5 KB until §23, 6 KB until audio attachments, 6.05 KB until §18.5, 6.10 KB until §28, see §13) |
+| `app.js` (including the PocketBase client) | **≤ 42.55 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, the room cache without waiting for the network, the QA pass 12 fixes, prefetching rooms not yet kept, the QA pass 13 fixes, thumbnail caching, the QA pass 14 fixes, Ctrl+Up/Down to pick the reply, link previews, the room access dialog fix, see §13) |
+| `app.css` | **≤ 6.20 KB** (5 KB until §21, 5.5 KB until §23, 6 KB until audio attachments, 6.05 KB until §18.5, 6.10 KB until §28, 6.15 KB until the room access dialog fix, see §13) |
 | `index.html` | ≤ 1.5 KB |
 | Image viewer (§17.7), loaded on first use | ≤ 4 KB script, ≤ 1.5 KB stylesheet |
 | Web fonts | **none** (system font stack) |
@@ -982,6 +982,7 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 | Bundle budget (QA pass 14) | `app.js` raised from 41.95 KB to 42.05 KB gzipped (§7.7): the QA pass 14 fixes (BUG-106, then BUG-107) took it to 42.03 KB. |
 | Bundle budget (reply stepping) | `app.js` raised from 42.05 KB to 42.25 KB gzipped (§7.7): Ctrl+Up / Ctrl+Down to move the reply between messages (§19.3) took it to 42.21 KB. |
 | Bundle budget (link previews) | `app.js` raised from 42.25 KB to 42.40 KB and `app.css` from 6.10 KB to 6.15 KB gzipped (§7.7): link previews (§28) took them to 42.38 KB and 6.13 KB. |
+| Bundle budget (room access dialog) | `app.js` raised from 42.40 KB to 42.55 KB and `app.css` from 6.15 KB to 6.20 KB gzipped (§7.7): the access dialog (§23.2) scrolling its body, search results as toggles, and Telegram stand-ins left out took them to 42.52 KB and 6.18 KB. |
 | Bundle budget (QA pass 9) | `app.js` raised from 39.25 KB to 39.35 KB gzipped (§7.7): the forwarding fixes of QA pass 9 (messages deleted meanwhile left out, the server's reason shown, focus kept while selecting) took it to 39.30 KB. |
 
 ### Still open
@@ -1942,9 +1943,12 @@ nobody else's.
 
 Only the creator, through the rooms API: `api.setAccess(id, visibility, members)` sends both (members only for
 Private). In the room header's menu, the creator gets **Room access…**, a modal dialog (`views/room/access.ts`):
-three radio cards, a member list with Remove buttons (not for the creator) and **+ Add people** (the user search of
-§16.5), a warning that says what the change does ("Everything ever written here … becomes readable by anyone on the
-web", "Everyone else loses it from their list", …), and Save/Cancel. Escape in the people search closes the search,
+three radio cards, **+ Add people** (the user search of §16.5) above a member list with Remove buttons (not for the
+creator), a warning that says what the change does ("Everything ever written here … becomes readable by anyone on the
+web", "Everyone else loses it from their list", …), and Save/Cancel. The body scrolls between the title and the
+buttons, so a long member list or search never pushes them away. Search results are toggles: someone already in shows
+"✓ Added", and picking them takes them out again. Telegram stand-ins (§26.3, `no_dms`) are in neither the list nor the
+search, since the bridge adds them itself; saving keeps them as members. Escape in the people search closes the search,
 not the dialog. In a private room, the other members get **Members (*n*)**: the same dialog, read-only. The new-room
 form has a "Who can see it" select, Public by default.
 

@@ -135,7 +135,7 @@ describe("createApi", () => {
 
       const listed = (await a.listRooms()).find((r) => r.id === dm.id)!;
       expect(listed.kind).toBe("dm");
-      expect(listed.expand?.members?.find((u) => u.id === bob.id)).toEqual({ id: bob.id, name: "Bob", avatar: "" });
+      expect(listed.expand?.members?.find((u) => u.id === bob.id)).toEqual({ id: bob.id, name: "Bob", avatar: "", no_dms: false });
       expect(JSON.stringify(listed)).not.toContain("@test.local");
       expect((await b.getRoom(dm.id)).id).toBe(dm.id);
       expect((await c.listRooms()).some((r) => r.id === dm.id)).toBe(false);
@@ -253,7 +253,7 @@ describe("createApi", () => {
       const shared = await a.setAccess(room.id, "private", [b.currentUser()!.id]);
       expect(shared.members).toEqual([a.currentUser()!.id, b.currentUser()!.id]);
       expect(shared.expand?.members?.map((u) => u.name)).toEqual(["Alice", "Bob"]);
-      expect(Object.keys(shared.expand!.members![0]!).sort()).toEqual(["avatar", "id", "name"]); // never the email
+      expect(Object.keys(shared.expand!.members![0]!).sort()).toEqual(["avatar", "id", "name", "no_dms"]); // never the email
       expect((await b.getRoom(room.id)).id).toBe(room.id);
       const open = await a.setAccess(room.id, "open", [b.currentUser()!.id]);
       expect(open).toMatchObject({ visibility: "open", members: [] });

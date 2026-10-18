@@ -1,7 +1,8 @@
 // Room access in the UI (§23): the access dialog, the header's items, markers in the room list, and a room that goes
 // away (or comes back) while it is open.
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import PocketBase from "pocketbase";
+import { afterEach, beforeEach, describe, expect, inject, it, vi } from "vitest";
 import type { Api } from "../../../web/src/api.ts";
 import type { Ctx } from "../../../web/src/context.ts";
 import { newId } from "../../../web/src/lib/id.ts";
@@ -127,6 +128,44 @@ describe("room access UI (§23)", () => {
       expect(saved.members).toEqual([me.user.id, cat.user.id]);
       expect(store.get().rooms.get(room.id)?.visibility).toBe("private");
       await Promise.all([bob.api.unsubscribeAll(), cat.api.unsubscribeAll()]);
+    });
+
+    it("search marks who is in and toggles them; Telegram stand-ins are left out but stay members (§26.3)", async () => {
+      const tag = uniq();
+      const bob = await signedUp(`Bob ${tag}`);
+      const cat = await signedUp(`Cat ${tag}`);
+      const bot = await signedUp(`Bot ${tag}`);
+      const pb = new PocketBase(inject("pbUrl"));
+      await pb.collection("users").authWithPassword(bot.email, bot.password);
+      await pb.collection("users").update(bot.user.id, { no_dms: true });
+      const room = await me.api.createRoom(`r-${uniq()}`, "private");
+      await me.api.setAccess(room.id, "private", [bob.user.id, bot.user.id]);
+      const el = await mountRoom(room);
+      clickItem(el, "Room access…");
+      expect(memberNames(el)).toEqual([me.user.name, bob.user.name]);
+      expect(dialog(el).querySelector("h3")!.textContent).toBe("Members (2)");
+
+      buttonIn(dialog(el), "+ Add people")!.click();
+      const search = dialog(el).querySelector<HTMLInputElement>(".user-search input")!;
+      search.value = tag;
+      search.dispatchEvent(new Event("input"));
+      const result = (name: string) =>
+        [...dialog(el).querySelectorAll<HTMLButtonElement>(".user-search button.person")].find((b) => b.textContent?.endsWith(name));
+      await vi.waitFor(() => expect(result(cat.user.name)).toBeDefined());
+      expect(result(bot.user.name)).toBeUndefined();
+      expect(result(bob.user.name)!.getAttribute("aria-pressed")).toBe("true");
+      expect(result(cat.user.name)!.getAttribute("aria-pressed")).toBe("false");
+
+      result(cat.user.name)!.click();
+      result(bob.user.name)!.click();
+      expect(result(cat.user.name)!.getAttribute("aria-pressed")).toBe("true");
+      expect(result(bob.user.name)!.getAttribute("aria-pressed")).toBe("false");
+      expect(memberNames(el)).toEqual([me.user.name, cat.user.name]);
+
+      buttonIn(dialog(el), "Save")!.click();
+      await vi.waitFor(() => expect(dialog(el).open).toBe(false));
+      expect((await me.api.getRoom(room.id)).members).toEqual([me.user.id, bot.user.id, cat.user.id]);
+      await Promise.all([bob.api.unsubscribeAll(), cat.api.unsubscribeAll(), bot.api.unsubscribeAll()]);
     });
 
     it("Open Air warns that anyone can read the whole history; a failed save says why and stays open", async () => {
