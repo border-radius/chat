@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug builds only: http to any host, for a dev server on the emulator's host (10.0.2.2) or the LAN (ANDROID.md §17.2). -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

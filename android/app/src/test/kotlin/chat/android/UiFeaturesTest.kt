@@ -1,0 +1,239 @@
+package chat.android
+
+import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.longClick
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextClearance
+import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTouchInput
+import chat.android.data.api.NewMessage
+import chat.android.data.lib.Pages
+import chat.android.data.lib.newId
+import chat.android.data.model.Visibility
+import chat.android.data.testing.TestServer
+import chat.android.data.testing.TestServer.newUser
+import chat.android.data.testing.TestServer.uniq
+import kotlinx.coroutines.runBlocking
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+
+// The parity scenarios of tests/e2e on the app's screens (android/PARITY.md), on Robolectric against a real PocketBase.
+@RunWith(RobolectricTestRunner::class)
+@Config(application = android.app.Application::class)
+class UiFeaturesTest {
+    @get:Rule val compose = createComposeRule()
+    private val ui = UiHarness(compose)
+
+    @After fun tearDown() = ui.stop()
+
+    private fun openRoom(name: String) {
+        ui.showRoom(name)
+        compose.onNodeWithText(name).performClick()
+        ui.waitFor("Beginning of #$name")
+    }
+
+    private fun longPress(text: String) {
+        ui.waitFor(text)
+        compose.onNodeWithText(text).performTouchInput { longClick() }
+    }
+
+    private fun type(text: String) = compose.onNode(hasContentDescription("Message")).performTextInput(text)
+
+    private fun send() = compose.onNodeWithContentDescription("Send").performClick()
+
+    @Test fun `replies quote the message (replies spec)`() {
+        val a = newUser()
+        val room = runBlocking { a.api.createRoom("rp-${uniq()}") }
+        runBlocking { a.api.send(NewMessage(newId(), room.id, "the question")) }
+        ui.signedIn(a)
+        openRoom(room.name)
+        longPress("the question")
+        ui.waitFor("Reply")
+        compose.onNodeWithText("Reply").performClick()
+        ui.waitFor("Replying to ${a.user.name}")
+        type("the answer")
+        send()
+        ui.until { a.api.page(Pages.latest(room.id)).any { it.text == "the answer" && it.replyTo.isNotEmpty() } }
+        ui.waitFor(hasContentDescription("Quoting ${a.user.name}: the question", substring = true))
+    }
+
+    @Test fun `edits show as edited (edit spec)`() {
+        val a = newUser()
+        val room = runBlocking { a.api.createRoom("ed-${uniq()}") }
+        runBlocking { a.api.send(NewMessage(newId(), room.id, "frist")) }
+        ui.signedIn(a)
+        openRoom(room.name)
+        longPress("frist")
+        compose.onNodeWithText("Edit").performClick()
+        ui.waitFor("Edit message")
+        compose.onNode(hasContentDescription("Message")).performTextClearance()
+        type("first")
+        compose.onNodeWithContentDescription("Save").performClick()
+        ui.waitFor("(edited)")
+        ui.until { a.api.page(Pages.latest(room.id)).single().let { it.text == "first" && it.editedAt.isNotEmpty() } }
+    }
+
+    @Test fun `quick reactions count (reactions spec)`() {
+        val a = newUser()
+        val b = newUser()
+        val room = runBlocking { a.api.createRoom("re-${uniq()}") }
+        val m = runBlocking { b.api.send(NewMessage(newId(), room.id, "react to me")) }
+        ui.signedIn(a)
+        openRoom(room.name)
+        longPress("react to me")
+        compose.onNodeWithContentDescription("React with 👍").performClick()
+        ui.waitFor(hasContentDescription("You reacted with 👍"))
+        ui.until { a.api.getMessage(m.id).reactions.singleOrNull()?.users == listOf(a.user.id) }
+    }
+
+    @Test fun `deleting asks first, then shows the message as deleted (edit spec)`() {
+        val a = newUser()
+        val room = runBlocking { a.api.createRoom("de-${uniq()}") }
+        val m = runBlocking { a.api.send(NewMessage(newId(), room.id, "oops")) }
+        ui.signedIn(a)
+        openRoom(room.name)
+        longPress("oops")
+        compose.onNodeWithText("Delete").performClick()
+        ui.waitFor("Delete this message?")
+        compose.onNodeWithText("Delete").performClick() // the dialog's: the sheet is gone
+        ui.waitFor("Message deleted")
+        ui.until { a.api.getMessage(m.id).deleted }
+    }
+
+    @Test fun `search finds messages and goes to one far back (search spec)`() {
+        val a = newUser()
+        val room = runBlocking { a.api.createRoom("se-${uniq()}") }
+        runBlocking {
+            a.api.send(NewMessage(newId(), room.id, "Needle number one"))
+            repeat(60) { a.api.send(NewMessage(newId(), room.id, "filler $it")) }
+        }
+        ui.signedIn(a)
+        ui.showRoom(room.name)
+        compose.onNodeWithText(room.name).performClick()
+        ui.waitFor("filler 59")
+        compose.onNodeWithContentDescription("Search messages").performClick()
+        compose.onNode(hasSetTextAction() and hasContentDescription("Search messages")).performTextInput("NEEDLE")
+        ui.waitFor("1 message found.")
+        compose.onAllNodes(hasText("number one", substring = true))[0].performClick()
+        compose.onNodeWithContentDescription("Close search").performClick()
+        ui.waitFor("Needle number one")
+    }
+
+    @Test fun `a new DM opens from the people search (dm spec)`() {
+        val a = newUser()
+        val b = newUser("bo-${uniq()}")
+        ui.signedIn(a)
+        ui.waitFor("Rooms")
+        compose.onNodeWithContentDescription("New").performClick()
+        compose.onNodeWithText("New message").performClick()
+        compose.onNode(hasSetTextAction()).performTextInput(b.user.name.take(6))
+        ui.waitFor(b.user.name)
+        compose.onAllNodes(hasText(b.user.name))[0].performClick()
+        ui.waitFor("Beginning of your conversation with ${b.user.name}")
+        type("hi bo")
+        send()
+        ui.until { b.api.listRooms().any { it.isDm && a.user.id in it.members } }
+    }
+
+    @Test fun `hiding a room moves it under Hidden (hide spec)`() {
+        val a = newUser()
+        val room = runBlocking { a.api.createRoom("hi-${uniq()}") }
+        ui.signedIn(a)
+        ui.showRoom(room.name)
+        compose.onNodeWithContentDescription("Actions for #${room.name}").performClick()
+        compose.onNodeWithText("Hide").performClick()
+        ui.waitFor("Hidden (1)")
+        ui.until { a.api.listHidden().any { it.room == room.id } }
+    }
+
+    @Test fun `an archived room is read-only (archive spec)`() {
+        val a = newUser()
+        val room = runBlocking { a.api.createRoom("ar-${uniq()}") }
+        ui.signedIn(a)
+        openRoom(room.name)
+        compose.onNodeWithContentDescription("Room actions").performClick()
+        compose.onNodeWithText("Archive room").performClick()
+        ui.waitFor("It becomes read-only for everyone.")
+        compose.onNodeWithText("Archive").performClick() // the dialog's: the menu is gone
+        ui.waitFor("This room is archived. History is read-only.")
+        ui.until { a.api.getRoom(room.id).archived }
+    }
+
+    @Test fun `room access makes a room private with its members (room_access spec)`() {
+        val a = newUser()
+        val b = newUser("mem-${uniq()}")
+        val room = runBlocking { a.api.createRoom("ac-${uniq()}") }
+        ui.signedIn(a)
+        openRoom(room.name)
+        compose.onNodeWithContentDescription("Room actions").performClick()
+        compose.onNodeWithText("Room access…").performClick()
+        ui.waitFor("Who can see #${room.name}?")
+        compose.onNodeWithText("Private").performClick()
+        ui.waitFor("Only you and the people you add will see this room.")
+        compose.onNodeWithText("+ Add people").performClick()
+        compose.onNode(hasSetTextAction()).performTextInput(b.user.name)
+        // The result, not the search field (which holds the name typed).
+        val result = hasText(b.user.name) and androidx.compose.ui.test.hasClickAction() and !hasSetTextAction()
+        ui.waitFor(result, merged = true)
+        compose.onNode(result).performClick()
+        compose.onNodeWithText("Done").performClick()
+        compose.onNodeWithText("Save").performClick()
+        ui.until { a.api.getRoom(room.id).let { it.visibility == Visibility.Private && b.user.id in it.members } }
+        assertTrue(runBlocking { b.api.listRooms().any { it.id == room.id } })
+    }
+
+    @Test fun `renaming yourself is saved (accounts spec)`() {
+        val a = newUser()
+        ui.signedIn(a)
+        ui.waitFor(hasContentDescription("Profile"))
+        compose.onNodeWithContentDescription("Profile").performClick()
+        ui.waitFor("Your profile")
+        val name = "renamed-${uniq()}"
+        compose.onNode(hasSetTextAction() and hasText(a.user.name)).performTextClearance()
+        compose.onNode(hasSetTextAction() and hasText("Display name")).performTextInput(name)
+        compose.onAllNodes(hasText("Save"))[0].performClick()
+        ui.waitFor("Saved.")
+        ui.until { a.api.usersById(listOf(a.user.id)).single().name == name }
+    }
+
+    @Test fun `signing up logs you in (signup spec)`() {
+        ui.start()
+        ui.waitFor("Just looking? Read the Open Air rooms")
+        compose.onNodeWithText("Sign up").performClick()
+        val name = "new-${uniq()}"
+        compose.onNode(hasSetTextAction() and hasText("Display name")).performTextInput(name)
+        compose.onNode(hasSetTextAction() and hasText("Email")).performTextInput("$name@test.local")
+        compose.onNode(hasSetTextAction() and hasText("Password")).performTextInput(TestServer.PASSWORD)
+        compose.onAllNodes(hasText("Sign up"))[1].performScrollTo().performClick()
+        ui.waitFor("Rooms")
+        assertEquals(name, ui.services!!.store.get().user?.name)
+    }
+
+    @Test fun `messages are forwarded with who first wrote them (forward spec)`() {
+        val a = newUser()
+        val b = newUser()
+        val from = runBlocking { a.api.createRoom("fw-${uniq()}") }
+        val to = runBlocking { a.api.createRoom("fwto-${uniq()}") }
+        runBlocking { b.api.send(NewMessage(newId(), from.id, "pass it on")) }
+        ui.signedIn(a)
+        openRoom(from.name)
+        longPress("pass it on")
+        compose.onNodeWithText("Forward").performClick()
+        ui.waitFor("Forward message")
+        compose.onNodeWithText("#${to.name}").performClick()
+        ui.waitFor("Message forwarded.")
+        ui.until { a.api.page(Pages.latest(to.id)).singleOrNull()?.forwardedFrom == b.user.id }
+    }
+}

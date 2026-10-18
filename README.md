@@ -33,8 +33,10 @@ A small, fast, real-time group chat. One [PocketBase](https://pocketbase.io) bin
   to a room (or reloading) doesn't download them again. All of it is cleared on logout
 - Installable as an app (PWA: Add to Home Screen, the browser's Install button); it opens offline to its shell
 - Optimistic sending with safe retries, reconnect gap-fill, light/dark themes, works on phones
+- A native Android app (Kotlin, Jetpack Compose) with the same features, push notifications and a 3 MB download — see
+  [Android app](#android-app)
 
-Design: [`docs/DESIGN.md`](docs/DESIGN.md) · QA: [`docs/QA.md`](docs/QA.md) · Refactoring plan: [`docs/REFACTOR.md`](docs/REFACTOR.md) · Archived plans: [MVP build](docs/history/BUILD_PLAN.md), [avatars, DMs, attachments](docs/history/NEXT_FEATURES_PLAN.md)
+Design: [`docs/DESIGN.md`](docs/DESIGN.md) · Android app: [`docs/ANDROID.md`](docs/ANDROID.md) · QA: [`docs/QA.md`](docs/QA.md) · Refactoring plan: [`docs/REFACTOR.md`](docs/REFACTOR.md) · Archived plans: [MVP build](docs/history/BUILD_PLAN.md), [avatars, DMs, attachments](docs/history/NEXT_FEATURES_PLAN.md)
 
 ## Requirements
 
@@ -85,6 +87,7 @@ web/src/         frontend: api.ts (the only module that talks to PocketBase, thr
 web/styles/      app.css (bundles app/*.css, one file per part) and viewer.css
 scripts/         build, dev, fetch-pocketbase, pb-types (PocketBase's types for the hooks), html-sink check
 tests/           unit/, integration/, e2e/, perf/ (scale measurements), support/ (PocketBase harness, Telegram stub, helpers)
+android/         the Android app (docs/ANDROID.md): core/data (API, realtime, database, sync), core/ui, feature/*, app
 ```
 
 ## Deploying
@@ -172,6 +175,29 @@ storage). Uploaded files (avatars, attachments) live in `pb_data/storage` (or S3
 are part of the backups, so plan disk space for them. **Rate limits** (per IP: messages 10 per 5 s, edits/deletes 20
 per 10 s, reactions 30 per 10 s, forwarding and deleting several messages 20 requests per minute each, password changes 5 per minute, new rooms 5 per minute, opening DMs 10 per minute, marking rooms read 120 per minute, signups 20 per minute; PocketBase defaults for the rest)
 are set by the migrations and adjustable under *Settings → Rate limits*.
+
+## Android app
+
+A native client for any server running the chat, with several accounts at once on one server or many (`android/`,
+design: [`docs/ANDROID.md`](docs/ANDROID.md), §17 for servers and accounts). It needs JDK 17+
+(21 recommended) and the Android SDK (`ANDROID_HOME`, or `sdk.dir` in `android/local.properties`); Gradle fetches the
+rest. Its tests start PocketBase from `bin/`, so run `npm run setup` first.
+
+```sh
+cd android
+./gradlew assembleDebug          # app/build/outputs/apk/debug: offers http://10.0.2.2:8090 (the dev server, from the emulator)
+./gradlew check                  # lint, unit tests, API tests against PocketBase, UI tests on Robolectric
+./gradlew checkApkSize -Pchat.server=https://chat.example.org -Pchat.appId=org.example.chat
+```
+
+People choose their server when they log in or sign up (Change server), and add more accounts from their profile.
+A build only sets the server offered first: `-Pchat.devServer=http://192.168.1.20:8090` for a debug build on a device,
+`chat.server` for a release (without one, the app asks for a server, and no host's links open in the app). Debug builds
+take http addresses; release builds take https only. `chat.fcm.projectId`, `chat.fcm.appId`, `chat.fcm.apiKey` and `chat.fcm.senderId`
+turn on Firebase push. On the server, push needs `FCM_SERVICE_ACCOUNT` (the service account's JSON, of the app's Firebase
+project: servers without it get no pushes, ANDROID.md §17.4), and links to rooms on the build's server open in the app with `ANDROID_APP_ID` and `ANDROID_CERT_SHA256` (`/.well-known/assetlinks.json`). An admin can set
+`min_android_version` on the site record to make older apps ask for an update. What is built and what isn't yet:
+[`docs/ANDROID.md` §16](docs/ANDROID.md#16-implementation-2026-10-18), and [`android/PARITY.md`](android/PARITY.md).
 
 ## Link previews
 

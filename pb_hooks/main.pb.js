@@ -1,5 +1,5 @@
 /// <reference path="../types/pocketbase.d.ts" />
-// Server-side hooks (DESIGN.md §5.6, §16, §18, §20, §21, §22, §23, §24, §28). Logic lives in lib/, one module per collection
+// Server-side hooks (DESIGN.md §5.6, §16, §18, §20, §21, §22, §23, §24, §28; docs/ANDROID.md §8, §9.4). Logic lives in lib/, one module per collection
 // or route: PocketBase hook handlers can't see top-level variables, so each handler require()s its module.
 
 onBootstrap((e) => {
@@ -23,10 +23,12 @@ routerUse((e) => {
 // Not the app's index.html (PocketBase's fallback for any other path, §7.1) for a missing asset or API.
 routerAdd("GET", "/assets/{path...}", (e) => require(`${__hooks}/lib/http.js`).asset(e));
 routerAdd("GET", "/manifest.webmanifest", (e) => require(`${__hooks}/lib/site.js`).manifest(e));
+routerAdd("GET", "/.well-known/assetlinks.json", (e) => require(`${__hooks}/lib/push.js`).assetLinks(e));
 routerAdd("GET", "/api/{path...}", () => {
   throw new NotFoundError();
 });
 routerAdd("POST", "/api/previews/tick", (e) => require(`${__hooks}/lib/previews.js`).tick(e), $apis.requireSuperuserAuth());
+routerAdd("POST", "/api/push/tick", (e) => require(`${__hooks}/lib/push.js`).tick(e), $apis.requireSuperuserAuth());
 routerAdd("POST", "/api/chat/dms", (e) => require(`${__hooks}/lib/dms.js`).openDm(e), $apis.requireAuth("users"));
 routerAdd("GET", "/api/chat/unread", (e) => require(`${__hooks}/lib/reads.js`).unread(e), $apis.requireAuth("users"));
 routerAdd("GET", "/api/chat/unread/{room}", (e) => require(`${__hooks}/lib/reads.js`).firstUnread(e), $apis.requireAuth("users"));
@@ -102,7 +104,13 @@ onRecordCreate((e) => {
   if (e.record) messages.setTextKey(e.record);
   e.next();
   if (e.record) require(`${__hooks}/lib/previews.js`).queue(e.app, e.record);
+  if (e.record) require(`${__hooks}/lib/push.js`).queue(e.app, e.record);
 }, "messages");
+
+onRecordCreateRequest((e) => {
+  require(`${__hooks}/lib/push.js`).beforeTokenCreate(e);
+  e.next();
+}, "push_tokens");
 
 onRecordAfterCreateSuccess((e) => {
   require(`${__hooks}/lib/messages.js`).afterMessageCreate(e);
@@ -140,4 +148,10 @@ onRecordUpdateRequest((e) => {
 // Link previews (§28): fetched by a worker, a minute's run at a time.
 if (require(`${__hooks}/lib/previews.js`).enabled()) {
   cronAdd("previews", "* * * * *", () => require(`${__hooks}/lib/previews.js`).run($app));
+}
+
+// Push notifications for the Android app (docs/ANDROID.md §8): sent by a worker, a minute's run at a time. PUSH_CRON=off
+// leaves them to POST /api/push/tick (tests, which decide when a push goes).
+if (require(`${__hooks}/lib/push.js`).enabled() && $os.getenv("PUSH_CRON").trim().toLowerCase() !== "off") {
+  cronAdd("push", "* * * * *", () => require(`${__hooks}/lib/push.js`).run($app));
 }

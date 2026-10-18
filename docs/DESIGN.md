@@ -45,7 +45,7 @@ These are left out on purpose. The design should not block them later.
 - OAuth providers (email and password only)
 - Email verification (not required to sign up or post, so no SMTP needed)
 - Message retention limits (history is never pruned)
-- Native mobile apps, offline support (a service worker for an installable app and an offline shell: now §27)
+- Native mobile apps (Android: now designed in [`ANDROID.md`](ANDROID.md)), offline support (a service worker for an installable app and an offline shell: now §27)
 - End-to-end encryption
 
 ## 3. Architecture

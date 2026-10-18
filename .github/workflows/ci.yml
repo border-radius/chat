@@ -5,7 +5,7 @@ on:
   pull_request:
 
 # Static checks first; the test suites then run side by side, e2e once per browser. `npm run check` still runs
-# everything but e2e in one go locally.
+# everything but e2e in one go locally. The Android app (android/, docs/ANDROID.md §12) has a job of its own.
 jobs:
   static:
     name: Typecheck, lint, build
@@ -74,4 +74,33 @@ jobs:
           path: |
             playwright-report/
             test-results/
+          retention-days: 7
+
+  android:
+    name: Android (check, size)
+    needs: static
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+      # The app's API and UI tests run against a real PocketBase from bin/ (ANDROID.md §13).
+      - uses: ./.github/actions/setup
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+      # Lint and every module's JVM tests: unit, data integration and Robolectric UI tests.
+      - run: ./gradlew check --max-workers=2
+      - run: ./gradlew :app:checkApkSize --max-workers=2
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-reports
+          path: android/**/build/reports/
           retention-days: 7

@@ -1,0 +1,202 @@
+// Room access (DESIGN.md §23.2, §23.6; web/src/views/room/access.ts): the creator chooses who can see the room
+// (Private, Public or Open Air) and a private room's members, then who can post: everyone who can see it, or only the
+// people they choose. Anyone else sees who is in it, read-only. Telegram stand-ins (no_dms, §26.3) aren't listed: the
+// bridge adds them itself; they stay members and writers when it is saved.
+package chat.android.feature.room
+
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import chat.android.data.api.errorMessage
+import chat.android.data.api.reasonOf
+import chat.android.data.lib.Limits
+import chat.android.data.lib.hint
+import chat.android.data.lib.label
+import chat.android.data.lib.postingOrDefault
+import chat.android.data.lib.visibilityOrDefault
+import chat.android.data.model.Posting
+import chat.android.data.model.Room
+import chat.android.data.model.User
+import chat.android.data.model.Visibility
+import chat.android.ui.Avatar
+import chat.android.ui.Chat
+import chat.android.ui.ChatIcons
+import chat.android.ui.LocalServices
+import chat.android.ui.UserSearchDialog
+import kotlinx.coroutines.launch
+
+/** What a change of visibility does that may not be obvious, or "". */
+fun accessWarning(from: Visibility, to: Visibility): String = when {
+    from == to -> ""
+    to == Visibility.Open -> "Everything ever written here, and everything to come, becomes readable by anyone on the web."
+    from == Visibility.Private -> "Everyone with an account will be able to read the whole history."
+    to == Visibility.Private -> "Only you and the people you add will see this room. Everyone else loses it from their list."
+    else -> "People without an account won't see this room any more."
+}
+
+/** The people [ids] names, as expanded, the creator first (as the server keeps them). */
+private fun users(r: Room, ids: List<String>, expanded: List<User>, me: User?): List<User> {
+    val known = (r.expand?.members.orEmpty() + expanded).associateBy { it.id }.toMutableMap()
+    if (me != null && me.id !in known) known[me.id] = me
+    return (ids.ifEmpty { listOf(r.createdBy) }).map { known[it] ?: User(it, "Unknown") }.sortedByDescending { it.id == r.createdBy }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun RoomAccessScreen(roomId: String, onBack: () -> Unit) {
+    val services = LocalServices.current
+    val s by services.store.flow.collectAsStateWithLifecycle()
+    val room = s.rooms[roomId] ?: return
+    val me = s.user
+    val editable = me != null && room.createdBy == me.id
+    val scope = rememberCoroutineScope()
+    var visibility by remember(roomId) { mutableStateOf(room.visibilityOrDefault) }
+    var posting by remember(roomId) { mutableStateOf(room.postingOrDefault) }
+    var members by remember(roomId) { mutableStateOf(users(room, room.members, emptyList(), me)) }
+    var writers by remember(roomId) { mutableStateOf(users(room, room.writers, room.expand?.writers.orEmpty(), me)) }
+    var adding by remember { mutableStateOf<String?>(null) }
+    var error by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+
+    fun remove(list: String, id: String) {
+        if (list == "members") {
+            members = members.filter { it.id != id }
+            writers = writers.filter { it.id != id } // a member taken out can't post either
+        } else writers = writers.filter { it.id != id }
+    }
+
+    Scaffold(topBar = {
+        TopAppBar(
+            navigationIcon = { IconButton(onClick = onBack) { Icon(ChatIcons.Back, contentDescription = if (editable) "Cancel" else "Close") } },
+            title = { Text(if (editable) "Who can see #${room.name}?" else "Members of #${room.name}") },
+            actions = {
+                if (editable) TextButton(enabled = !busy, onClick = {
+                    busy = true
+                    error = ""
+                    scope.launch {
+                        runCatching { services.actions.setAccess(roomId, visibility, members.map { it.id }, posting, writers.map { it.id }) }
+                            .onSuccess { onBack() }
+                            .onFailure { error = reasonOf(it) }
+                        busy = false
+                    }
+                }) { Text("Save") }
+            },
+        )
+    }) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (editable) {
+                Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    for (v in listOf(Visibility.Private, Visibility.Public, Visibility.Open)) {
+                        Card(v == visibility, when (v) { Visibility.Private -> "🔒"; Visibility.Public -> "#"; Visibility.Open -> "🌐" }, v.label, v.hint) {
+                            visibility = v
+                            error = ""
+                            if (v == Visibility.Private) writers = writers.filter { w -> members.any { it.id == w.id } }
+                        }
+                    }
+                }
+            }
+            if (visibility == Visibility.Private) People("Members", members, room, editable, onAdd = { adding = "members" }, onRemove = { remove("members", it) })
+            if (editable) {
+                Text("Who can post?", style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
+                Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Card(posting == Posting.Everyone, "💬", "Everyone who can see it", "Guests of an Open Air room only read.") { posting = Posting.Everyone }
+                    Card(posting == Posting.Selected, "✋", "Only people you choose", "Everyone else reads and reacts, but can't post.") { posting = Posting.Selected }
+                }
+            }
+            if (posting == Posting.Selected) People("Who can post", writers, room, editable, onAdd = { adding = "writers" }, onRemove = { remove("writers", it) })
+            val warn = if (editable) accessWarning(room.visibilityOrDefault, visibility) else ""
+            if (warn.isNotEmpty()) Text(warn, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+            if (error.isNotEmpty()) Text(error, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Assertive })
+        }
+    }
+
+    adding?.let { which ->
+        val list = if (which == "members") members else writers
+        UserSearchDialog(
+            title = if (which == "members") "Add members" else "Add people who post",
+            onPick = { u ->
+                when {
+                    u.noDms -> {}
+                    list.any { it.id == u.id } -> remove(which, u.id)
+                    list.size >= Limits.ROOM_MEMBERS -> error = "A room can have up to ${Limits.ROOM_MEMBERS} ${if (which == "members") "members" else "people who post"}."
+                    which == "members" -> members = members + u
+                    visibility != Visibility.Private || members.any { it.id == u.id } -> writers = writers + u
+                }
+            },
+            onDismiss = { adding = null },
+            exclude = list.map { it.id }.toSet(),
+            confirm = "Done",
+        )
+    }
+}
+
+@Composable
+private fun Card(selected: Boolean, icon: String, label: String, hint: String, onSelect: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .border(if (selected) 2.dp else 1.dp, if (selected) MaterialTheme.colorScheme.primary else Chat.colors.border, MaterialTheme.shapes.medium)
+            .selectable(selected, role = Role.RadioButton, onClick = onSelect)
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(selected, onClick = null)
+        Spacer(Modifier.width(8.dp))
+        Text(icon, style = MaterialTheme.typography.titleLarge)
+        Spacer(Modifier.width(12.dp))
+        Column {
+            Text(label, style = MaterialTheme.typography.titleSmall)
+            Text(hint, style = MaterialTheme.typography.bodySmall, color = Chat.colors.muted)
+        }
+    }
+}
+
+@Composable
+private fun People(label: String, list: List<User>, room: Room, editable: Boolean, onAdd: () -> Unit, onRemove: (String) -> Unit) {
+    val shown = list.filter { !it.noDms }
+    Text("$label (${shown.size})", style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
+    if (editable) TextButton(onClick = onAdd, enabled = list.size < Limits.ROOM_MEMBERS) { Text("+ Add people") }
+    for (u in shown) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Avatar(u, 28.dp)
+            Text(u.name, Modifier.weight(1f))
+            if (u.id == room.createdBy) Text("creator", color = Chat.colors.muted, style = MaterialTheme.typography.labelMedium)
+            else if (editable) TextButton(onClick = { onRemove(u.id) }) { Text("Remove") }
+        }
+    }
+}

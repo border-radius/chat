@@ -366,6 +366,148 @@
       ]
     },
     {
+      "name": "push_queue",
+      "type": "base",
+      "listRule": null,
+      "viewRule": null,
+      "createRule": null,
+      "updateRule": null,
+      "deleteRule": null,
+      "fields": [
+        {
+          "autogeneratePattern": "[a-z0-9]{15}",
+          "help": "",
+          "hidden": false,
+          "max": 15,
+          "min": 15,
+          "name": "id",
+          "pattern": "^[a-z0-9]+$",
+          "presentable": false,
+          "primaryKey": true,
+          "required": true,
+          "system": true,
+          "type": "text"
+        },
+        {
+          "cascadeDelete": true,
+          "help": "",
+          "hidden": false,
+          "maxSelect": 1,
+          "minSelect": 0,
+          "name": "message",
+          "presentable": false,
+          "required": true,
+          "system": false,
+          "type": "relation",
+          "collection": "messages"
+        },
+        {
+          "hidden": false,
+          "name": "created",
+          "onCreate": true,
+          "onUpdate": false,
+          "presentable": false,
+          "system": false,
+          "type": "autodate"
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_push_queue_created ON push_queue (created)"
+      ]
+    },
+    {
+      "name": "push_tokens",
+      "type": "base",
+      "listRule": null,
+      "viewRule": "user = @request.auth.id",
+      "createRule": [
+        "@request.auth.id != \"\"",
+        "@request.auth.collectionName = \"users\"",
+        "user = @request.auth.id"
+      ],
+      "updateRule": null,
+      "deleteRule": "user = @request.auth.id",
+      "fields": [
+        {
+          "autogeneratePattern": "[a-z0-9]{15}",
+          "help": "",
+          "hidden": false,
+          "max": 15,
+          "min": 15,
+          "name": "id",
+          "pattern": "^[a-z0-9]+$",
+          "presentable": false,
+          "primaryKey": true,
+          "required": true,
+          "system": true,
+          "type": "text"
+        },
+        {
+          "cascadeDelete": true,
+          "help": "",
+          "hidden": false,
+          "maxSelect": 1,
+          "minSelect": 0,
+          "name": "user",
+          "presentable": false,
+          "required": true,
+          "system": false,
+          "type": "relation",
+          "collection": "users"
+        },
+        {
+          "autogeneratePattern": "",
+          "help": "",
+          "hidden": false,
+          "max": 1024,
+          "min": 1,
+          "name": "token",
+          "pattern": "",
+          "presentable": false,
+          "primaryKey": false,
+          "required": true,
+          "system": false,
+          "type": "text"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "maxSelect": 1,
+          "name": "provider",
+          "presentable": false,
+          "required": true,
+          "system": false,
+          "type": "select",
+          "values": [
+            "fcm",
+            "unifiedpush"
+          ]
+        },
+        {
+          "hidden": false,
+          "name": "created",
+          "onCreate": true,
+          "onUpdate": false,
+          "presentable": false,
+          "system": false,
+          "type": "autodate"
+        },
+        {
+          "hidden": false,
+          "name": "updated",
+          "onCreate": true,
+          "onUpdate": true,
+          "presentable": false,
+          "system": false,
+          "type": "autodate"
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_push_tokens_user ON push_tokens (user)",
+        "CREATE UNIQUE INDEX idx_push_tokens_token_user ON push_tokens (token, user)"
+      ]
+    },
+    {
       "name": "room_reads",
       "type": "base",
       "listRule": "user = @request.auth.id",
@@ -748,6 +890,18 @@
           "presentable": false,
           "system": false,
           "type": "autodate"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "max": null,
+          "min": 0,
+          "name": "min_android_version",
+          "onlyInt": true,
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "number"
         }
       ],
       "indexes": []
