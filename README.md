@@ -27,7 +27,6 @@ A small, fast, real-time group chat. One [PocketBase](https://pocketbase.io) bin
   to a room (or reloading) doesn't download them again. All of it is cleared on logout
 - Installable as an app (PWA: Add to Home Screen, the browser's Install button); it opens offline to its shell
 - Optimistic sending with safe retries, reconnect gap-fill, light/dark themes, works on phones
-- An Android app (React Native, Expo) with the same features, for any server: you add servers by their address and switch between them — see [`mobile/`](mobile/README.md)
 
 Design: [`docs/DESIGN.md`](docs/DESIGN.md) · QA: [`docs/QA.md`](docs/QA.md) · Refactoring plan: [`docs/REFACTOR.md`](docs/REFACTOR.md) · Archived plans: [MVP build](docs/history/BUILD_PLAN.md), [avatars, DMs, attachments](docs/history/NEXT_FEATURES_PLAN.md)
 
@@ -78,7 +77,6 @@ web/src/         frontend: api.ts (the only module that talks to PocketBase, thr
                  store, cache.ts (the room cache), sw.ts (the service worker), views/, lib/ (pure logic)
 web/styles/      app.css (bundles app/*.css, one file per part) and viewer.css
 scripts/         build, dev, fetch-pocketbase, pb-types (PocketBase's types for the hooks), html-sink check
-mobile/          the Android app (Expo): its own screens on the web client's api.ts, store and room controller
 tests/           unit/, integration/, e2e/, perf/ (scale measurements), support/ (PocketBase harness, Telegram stub, helpers)
 ```
 

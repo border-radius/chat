@@ -2033,8 +2033,7 @@ elsewhere. A change of writers reaches everyone in the room live (the room's upd
 goes as it is saved. The access dialog has a second choice under the visibility, **Who can post?**: "Everyone who can
 see it" or "Only people you choose", which shows a **Who can post** list like the members list (+ Add people, Remove;
 the creator stays). In a private room its search offers only members, and taking someone out of the members takes
-them off it too. Members of a private room see the list read-only. The Android app (`mobile/`) does the same in its
-access sheet and room screen.
+them off it too. Members of a private room see the list read-only.
 
 Tests: `room_writers.test.ts` (integration: defaults, who posts, reacts and forwards, a writer taken off, private
 rooms, DMs, limits), `api.test.ts` (`setAccess` with writers), `telegram.test.ts` (stand-ins become writers),
@@ -2290,7 +2289,7 @@ and realtime reconnects when the network is back (§6).
 ## 28. Link previews
 
 Under a message, a line for each link in its text: the page's favicon and title, opening the link in a new tab like
-the link in the text (§7.6.3). Web app only for now; the mobile app ignores the field.
+the link in the text (§7.6.3).
 
 ### 28.1 Data and the worker
 

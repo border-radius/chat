@@ -4,22 +4,7 @@
     "enabled": false
   },
   "files": {
-    "includes": [
-      "web/**",
-      "mobile/src/**",
-      "mobile/*.ts",
-      "mobile/*.js",
-      "mobile/*.json",
-      "!mobile/package-lock.json",
-      "tests/**",
-      "scripts/**",
-      "pb_hooks/**",
-      "pb_migrations/**",
-      "*.ts",
-      "*.json",
-      "!types",
-      "!pb_public"
-    ]
+    "includes": ["web/**", "tests/**", "scripts/**", "pb_hooks/**", "pb_migrations/**", "*.ts", "*.json", "!types", "!pb_public"]
   },
   "formatter": {
     "enabled": true,

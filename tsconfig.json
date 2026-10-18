@@ -16,8 +16,7 @@
     "allowJs": true,
     "checkJs": true,
     "skipLibCheck": true,
-    "noEmit": true,
-    "paths": { "react-native": ["./tests/support/react-native.ts"] }
+    "noEmit": true
   },
   "include": ["web/src", "tests", "scripts", "*.config.ts"]
 }
