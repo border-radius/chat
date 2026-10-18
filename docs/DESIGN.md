@@ -1323,7 +1323,9 @@ other files as chips with name and size, each with a remove (×) button.
   120px high and at most 240px wide (the `480x240f` thumb). At most 4 tiles show: with more images and videos the 4th
   says "+N" over it (N more), and the viewer (§17.7) steps through all of them. The height is fixed, so loading never shifts the list
   vertically: a too-wide image is narrowed and letterboxed rather than shortened, a very narrow one is centred in a
-  tile at least half as wide as it is high, and a small one is never enlarged (`object-fit: scale-down`). While a
+  tile at least half as wide as it is high, and a small one is never enlarged (`object-fit: scale-down`). A GIF's
+  tile shows the file itself, not a thumbnail: PocketBase thumbnails a GIF from its first frame only, so it would
+  not play (the full GIF is up to the attachment limit, and loads lazily like the thumbnails). While a
   message sends it shows the local previews, at the size its thumbnails will take: the thumbnails get the previews'
   aspect ratio before they load. Only files the server will show as images (by extension) show as previews. Clicking
   opens the image viewer (§17.7); a click asking for a new tab or window (Ctrl/Cmd/Shift/middle click) opens the full

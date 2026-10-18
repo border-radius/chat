@@ -17,7 +17,7 @@ export { createDrafts, type Drafts } from "../../web/src/drafts.ts";
 export { avatarColor, initials } from "../../web/src/lib/avatar.ts";
 export { newer, older, PAGE_SIZE, withFiles } from "../../web/src/lib/cursor.ts";
 export { CATEGORIES, EMOJI, recentEmoji, rememberEmoji } from "../../web/src/lib/emoji.ts";
-export { attachmentName, checkFiles, formatBytes, isAudio, isImage, isMedia, isVideo } from "../../web/src/lib/files.ts";
+export { attachmentName, checkFiles, formatBytes, isAudio, isGif, isImage, isMedia, isVideo } from "../../web/src/lib/files.ts";
 export { fitWithin } from "../../web/src/lib/image.ts";
 export { LIMITS, MAX_SELECTED, textLength } from "../../web/src/lib/limits.ts";
 export { type Link, linkify } from "../../web/src/lib/links.ts";

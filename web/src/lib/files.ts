@@ -2,12 +2,15 @@
 
 import { LIMITS } from "./limits.ts";
 
-/** Extensions shown inline as images (through server thumbnails only, never the file itself). */
+/** Extensions shown inline as images (through server thumbnails, except GIFs: see isGif). */
 const IMAGE_EXT = new Set(["jpg", "jpeg", "png", "gif", "webp", "avif"]);
 
 const ext = (name: string) => name.slice(name.lastIndexOf(".") + 1).toLowerCase();
 
 export const isImage = (name: string): boolean => name.includes(".") && IMAGE_EXT.has(ext(name));
+
+/** A GIF's tile shows the file itself: PocketBase thumbnails a GIF from its first frame only, so it wouldn't play. */
+export const isGif = (name: string): boolean => name.includes(".") && ext(name) === "gif";
 
 /** Extensions shown inline as videos: the browser draws their first frame and plays them (there are no server thumbnails). */
 const VIDEO_EXT = new Set(["mp4", "m4v", "webm", "mov", "ogv"]);

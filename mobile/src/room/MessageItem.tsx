@@ -12,6 +12,7 @@ import {
   emptyForward,
   formatBytes,
   isAudio,
+  isGif,
   isMedia,
   isVideo,
   linkify,
@@ -435,7 +436,8 @@ function Tile({
 }) {
   const { t } = ui;
   const video = isVideo(name);
-  const thumb = one ? "800x480f" : "480x240f";
+  // A GIF's thumbnail is its first frame only, so it shows the file itself to play.
+  const thumb = isGif(name) ? undefined : one ? "800x480f" : "480x240f";
   const [src, setSrc] = useState(() => (video ? "" : ui.fileUrl(m, name, thumb)));
   const [ratio, setRatio] = useState(one ? 4 / 3 : 1);
   const [broken, setBroken] = useState(false);

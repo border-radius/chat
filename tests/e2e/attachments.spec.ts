@@ -78,6 +78,21 @@ test("attachments: an image and a PDF go live to others, open, and disappear wit
   expect(await statusOf(b, pdfUrl)).toBe(404);
 });
 
+test("a GIF's tile is the file itself, so it plays: its thumbnail would be the first frame only (§17.5)", async ({ browser }) => {
+  const ada = await apiUser("Ada");
+  const room = await apiRoom(ada);
+  const a = await openRoom(browser, ada, room);
+  const gif = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64");
+  await attach(a, [{ name: "dance.gif", mimeType: "image/gif", buffer: gif }, png("still.png")]);
+  await send(a, "moving pictures");
+
+  const imgs = message(a, "moving pictures").locator(".att-tile img");
+  await expect(imgs).toHaveCount(2);
+  await expect(imgs.nth(0)).toHaveAttribute("src", /\/dance_\w+\.gif\?token=[^&]+$/);
+  await expect(imgs.nth(1)).toHaveAttribute("src", /thumb=480x240f/);
+  await expect.poll(() => imgs.nth(0).evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth > 0)).toBe(true);
+});
+
 test("images keep their shape: narrow ones are centred, and a sent one doesn't change width as it loads (§17.5)", async ({ browser }) => {
   const ada = await apiUser("Ada");
   const room = await apiRoom(ada);

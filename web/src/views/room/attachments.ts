@@ -2,7 +2,7 @@
 // chips for other files, and a sending message's local previews.
 
 import { type Child, h } from "../../dom.ts";
-import { attachmentName, isAudio, isMedia, isVideo } from "../../lib/files.ts";
+import { attachmentName, isAudio, isGif, isMedia, isVideo } from "../../lib/files.ts";
 import type { LocalFile, Message } from "../../lib/types.ts";
 
 /** Most image and video tiles a message shows; the last one says how many more there are, which the viewer shows. */
@@ -173,7 +173,7 @@ export function createAttachments(opts: {
    */
   function mediaTile(m: Message, name: string, thumb: string, ratio?: string): HTMLElement {
     const video = isVideo(name);
-    const src = () => opts.fileUrl(m, name, video ? undefined : thumb);
+    const src = () => opts.fileUrl(m, name, video || isGif(name) ? undefined : thumb);
     const el = preview(attachmentName(m, name), src());
     if (!video) el.setAttribute("loading", "lazy");
     if (ratio) el.style.aspectRatio = ratio;
