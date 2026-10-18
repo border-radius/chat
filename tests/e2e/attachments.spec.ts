@@ -399,6 +399,37 @@ test("the viewer steps through the whole room's images, fetching those beyond th
   await expect(viewer.locator(".viewer-count")).toHaveText("2 / 2");
 });
 
+test("Show in chat closes the viewer and goes to the image's message, loading it if need be (§17.7)", async ({ browser }) => {
+  const ada = await apiUser("Ada");
+  const room = await apiRoom(ada);
+  const a = await openRoom(browser, ada, room);
+  await attach(a, [sizedPng("old.png", 300, 200), sizedPng("old2.png", 200, 300)]);
+  await send(a, "old pic");
+  await expect(a.locator("li.msg.pending")).toHaveCount(0);
+  seed(room, ada, 60, { startAt: Date.now(), stepMs: 1 });
+  await attach(a, [sizedPng("new.png", 300, 200)]);
+  await send(a, "new pic");
+  await expect(a.locator("li.msg.pending")).toHaveCount(0);
+  await a.reload();
+  await expect(message(a, "new pic")).toBeVisible();
+  await expect(message(a, "old pic")).toHaveCount(0);
+
+  await message(a, "new pic").locator("a.att-tile").click();
+  const viewer = a.getByRole("dialog");
+  await expect(viewer.locator("h2")).toHaveText("new.png");
+  await a.keyboard.press("ArrowLeft");
+  await expect(viewer.locator("h2")).toHaveText("old2.png");
+  await viewer.getByRole("button", { name: "Show in chat" }).click();
+  await expect(a.locator("dialog.viewer")).toHaveCount(0);
+  const old = message(a, "old pic");
+  await expect(old).toBeInViewport();
+  await expect(old).toHaveClass(/\btarget\b/);
+  // Its tile, the second image's.
+  await expect(old.locator("a.att-tile").nth(1)).toBeFocused();
+  // The viewer's history entry is gone: Back doesn't stay in the room with nothing to close.
+  await expect.poll(() => a.evaluate(() => (history.state as { viewer?: string } | null)?.viewer ?? null)).toBeNull();
+});
+
 test("a forwarded image is the original's: its thumbnail and the viewer load it from there (§21.3)", async ({ browser }) => {
   const ada = await apiUser("Ada");
   const from = await apiRoom(ada);

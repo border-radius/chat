@@ -413,6 +413,7 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
         when: (x) => formatFull(parsePb(x.created)),
         fileUrl: api.fileUrl,
         refreshFileToken: () => api.fileToken(true),
+        onJump: (x) => now(() => ctl.goTo(x.id)),
         opener,
         signal,
       });

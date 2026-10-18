@@ -1380,7 +1380,7 @@ video in the room, oldest first: those of the room's window (§7.5) to start wit
 server as you get near them.
 
 - **What it shows:** the full file (not a thumbnail; uploads are at most 2048 px, §15.3), fitted to the window; a bar
-  with the file name, who sent it and when, "*n* / *total*", **Download** (`download` attribute, re-signed before use
+  with the file name, who sent it and when, "*n* / *total*", **Show in chat**, **Download** (`download` attribute, re-signed before use
   like every file link, §17.3) and **Close**. Images of deleted messages and of messages still sending are left out.
   It starts with the window's images; it doesn't follow new messages.
 - **Beyond the window:** when the image shown is within 3 of the first or last one it has, and the room has messages
@@ -1393,6 +1393,8 @@ server as you get near them.
 - **Moving:** Previous/Next buttons on the sides (hidden at the first and last image), ←/→, Home/End, or a one-finger
   horizontal swipe (≥ 50 px, mostly horizontal; pinch-zoom still works). The neighbours are preloaded, so stepping is
   instant.
+- **Show in chat:** closes the viewer and goes to the message the image or video shown is in, as a search result
+  does (§29): centred and highlighted, loading the window around it if it isn't in this one. Focus goes to its tile.
 - **Closing:** Close, Escape, a click on the dark space around the image, or the browser's **Back** (Android's back
   gesture too). Focus goes back to the thumbnail, or to the one drawn in its place if its message was redrawn while
   the viewer was open (a reaction, an edit). Leaving the room closes it. Keys pressed before it shows (its stylesheet

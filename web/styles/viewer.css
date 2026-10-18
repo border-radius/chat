@@ -75,6 +75,13 @@ dialog.viewer::backdrop {
   text-decoration: none;
 }
 
+.viewer-jump {
+  width: auto;
+  padding: 0 1rem;
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+
 .viewer-button:hover {
   background: rgb(255 255 255 / 22%);
 }

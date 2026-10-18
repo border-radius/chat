@@ -44,6 +44,8 @@ export interface ViewerOptions {
   fileUrl: (m: Message, file: string) => string;
   /** Get a new file token (an image failed to load, maybe because its token expired). */
   refreshFileToken: () => Promise<unknown>;
+  /** Show in chat: go to this message in the room (the viewer has closed). Its tile gets focus once it's there. */
+  onJump: (m: Message) => Promise<unknown>;
   /** Gets focus back on close. */
   opener: HTMLElement;
   /** Closes the viewer (the room view unmounts). */
@@ -104,6 +106,22 @@ export async function openViewer(o: ViewerOptions): Promise<void> {
     );
   const download = h("a", { class: "viewer-button", "aria-label": "Download", title: "Download" }, "↓");
   const closeButton = button("", "Close", "×", () => close(true), true);
+  const jump = h(
+    "button",
+    {
+      type: "button",
+      class: "viewer-button viewer-jump",
+      on: {
+        click: () => {
+          const at = shown();
+          close(true, false);
+          void o.onJump(at.message).then(() => !o.signal.aborted && tile(at)?.focus({ preventScroll: true }));
+        },
+      },
+      signal,
+    },
+    "Show in chat",
+  );
   const prev = button("viewer-prev", "Previous image", "‹", () => void go(-1));
   const next = button("viewer-next", "Next image", "›", () => void go(1));
   const img = h("img", { alt: "", decoding: "async" });
@@ -118,6 +136,7 @@ export async function openViewer(o: ViewerOptions): Promise<void> {
     h("header", { class: "viewer-bar" }, [
       h("div", { class: "viewer-caption", "aria-live": "polite" }, [title, meta]),
       count,
+      jump,
       download,
       closeButton,
     ]),
@@ -137,9 +156,9 @@ export async function openViewer(o: ViewerOptions): Promise<void> {
   /**
    * `back`: closed from the viewer itself (Close, Escape, a click beside the image), so also leave its history entry,
    * and Back goes where it went before. Not when Back closed it, and not when leaving the room: that would undo the
-   * navigation.
+   * navigation. `refocus`: put focus back on the thumbnail (not when going to the message: that focuses its own).
    */
-  function close(back = false) {
+  function close(back = false, refocus = true) {
     if (closed) return;
     closed = true;
     scope.abort();
@@ -148,12 +167,8 @@ export async function openViewer(o: ViewerOptions): Promise<void> {
     img.removeAttribute("src"); // stop a download in progress
     stopVideo();
     if (current === close) current = null;
-    // The thumbnail it was opened from, or the one drawn in its place since (a reaction or an edit redraws the message;
-    // a tile that failed to load is a span, counted so the others keep their place).
-    const first = images[o.start]!;
-    const nth = images.slice(0, o.start).filter((i) => i.message.id === first.message.id).length;
-    const tiles = document.querySelectorAll<HTMLElement>(`li.msg[data-id="${CSS.escape(first.message.id)}"] .att-tile`);
-    (o.opener.isConnected ? o.opener : tiles[nth])?.focus();
+    // The thumbnail it was opened from, or the one drawn in its place since (a reaction or an edit redraws the message).
+    if (refocus) (o.opener.isConnected ? o.opener : tile(images[o.start]!))?.focus();
     if (back && onEntry()) {
       leaving = new Promise((r) => window.addEventListener("popstate", r, { once: true }));
       history.back();
@@ -163,6 +178,9 @@ export async function openViewer(o: ViewerOptions): Promise<void> {
   o.signal.addEventListener("abort", () => close(), { signal });
 
   const shown = () => list[index]!;
+  /** An image's tile in the room's list (a tile that failed to load is a span, counted so the others keep their place). */
+  const tile = ({ message: m, file }: ViewerImage) =>
+    document.querySelectorAll<HTMLElement>(`li.msg[data-id="${CSS.escape(m.id)}"] .att-tile`)[o.media(m).findIndex((i) => i.file === file)];
 
   function show(i: number) {
     index = i;
