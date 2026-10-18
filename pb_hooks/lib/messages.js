@@ -3,7 +3,7 @@
 // A forward (§21.3) has no text or files of its own: it shows those of the message in `forward_of` (showOriginal).
 
 const { assertImagesFit } = require(`${__hooks}/lib/images.js`);
-const { accessOf, canSee, visibleRoom } = require(`${__hooks}/lib/access.js`);
+const { accessOf, canSee, canWrite, visibleRoom } = require(`${__hooks}/lib/access.js`);
 const { fieldError, originalNames, recordOf } = require(`${__hooks}/lib/records.js`);
 const { dmRefusal } = require(`${__hooks}/lib/dms.js`);
 const { isDm } = require(`${__hooks}/lib/rooms.js`);
@@ -101,6 +101,8 @@ function beforeMessageCreate(e) {
   if (room && !canSee(accessOf(room), rec.getString("author"))) {
     throw fieldError("room", isDm(room) ? "You are not a member of this conversation." : "You are not a member of this room.");
   }
+  // ... and for who may post in it (§23.6): forwards and the Telegram bridge come through here too.
+  if (room && !canWrite(room, rec.getString("author"))) throw fieldError("room", "Only some people can post in this room.");
   if (room && isDm(room)) {
     const refused = dmRefusal(e.app, rec.getString("author"), room.getStringSlice("members"));
     if (refused) throw fieldError("room", refused);

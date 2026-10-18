@@ -2,10 +2,10 @@
 
 A small, fast, real-time group chat. One [PocketBase](https://pocketbase.io) binary is the whole backend
 (auth, data, realtime, static files); the frontend is vanilla TypeScript bundled by esbuild — no framework,
-~42 KB of JS and ~6 KB of CSS gzipped (`npm run build` fails over its budget: 42.05 KB of JS, 6.10 KB of CSS).
+~43 KB of JS and ~6 KB of CSS gzipped (`npm run build` fails over its budget: 43.25 KB of JS, 6.20 KB of CSS).
 
 - Public rooms anyone can create; hide rooms you don't care about; creators archive rooms (read-only, history kept)
-- Room access, chosen by each room's creator: **Private** (only the people they add), **Public** (everyone with an account) or **Open Air** (anyone can read it, no account needed; the home page shows these rooms to guests, who log in or sign up to join in)
+- Room access, chosen by each room's creator: **Private** (only the people they add), **Public** (everyone with an account) or **Open Air** (anyone can read it, no account needed; the home page shows these rooms to guests, who log in or sign up to join in); and who can post: everyone who can read it, or only the people they choose (the others read and react)
 - Live messages, edits and deletes (deleted messages leave a placeholder)
 - Full history: scroll back to the very first message of any room (windowed, ≤300 messages in the DOM)
 - Direct messages between any two users, private to them; close a conversation and it comes back on the next message

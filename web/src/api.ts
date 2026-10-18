@@ -2,7 +2,7 @@
 
 import { type Cursor, PAGE_SIZE, type PageQuery } from "./lib/cursor.ts";
 import { createTokenCache } from "./lib/token.ts";
-import { DEFAULT_SITE, type Message, type Room, type Site, type User, type Visibility } from "./lib/types.ts";
+import { DEFAULT_SITE, type Message, type Posting, type Room, type Site, type User, type Visibility } from "./lib/types.ts";
 import { type AuthRecord, type PbClient, PbError, type Query, type RequestOptions } from "./pb.ts";
 
 export type AvatarSize = 48 | 96;
@@ -91,9 +91,10 @@ export interface Api {
   setArchived(id: string, archived: boolean): Promise<Room>;
   /**
    * Who can see the room (§23.2): its visibility, and for a private room its members (user ids; the creator is always
-   * one). Only the creator may. Resolves to the room as saved.
+   * one). With `posting`, also who can post (§23.6): for "selected", its writers (the creator always is one; in a
+   * private room only members count). Only the creator may. Resolves to the room as saved.
    */
-  setAccess(id: string, visibility: Visibility, members: readonly string[]): Promise<Room>;
+  setAccess(id: string, visibility: Visibility, members: readonly string[], posting?: Posting, writers?: readonly string[]): Promise<Room>;
 
   // direct messages (§16)
   /** The DM with `userId`, created on first use; reopens it if you had closed it. */
@@ -203,8 +204,10 @@ export const MSG_FIELDS =
 const MSG_OPTS = { expand: "author,reply_to.author,forwarded_from", fields: MSG_FIELDS } as const;
 /** Rooms with their members' public profile (DMs, §16.5); never emails. */
 export const ROOM_FIELDS =
-  "id,name,archived,created_by,kind,visibility,members,last_message_at,created,expand.members.id,expand.members.name,expand.members.avatar,expand.members.no_dms";
-const ROOM_OPTS = { expand: "members", fields: ROOM_FIELDS } as const;
+  "id,name,archived,created_by,kind,visibility,members,posting,writers,last_message_at,created," +
+  "expand.members.id,expand.members.name,expand.members.avatar,expand.members.no_dms," +
+  "expand.writers.id,expand.writers.name,expand.writers.avatar,expand.writers.no_dms";
+const ROOM_OPTS = { expand: "members,writers", fields: ROOM_FIELDS } as const;
 const HIDDEN_FIELDS = "id,room";
 /** The site record (§24); its invite code is hidden from everyone but superusers. */
 const SITE_FIELDS = "id,title,logo,invite_only";
@@ -418,8 +421,18 @@ export function createApi(client: PbClient): Api {
     createRoom: async (name, visibility) =>
       wrap(rooms.create<Room>({ name, created_by: me(), ...(visibility ? { visibility } : {}) }, ROOM_OPTS)),
     setArchived: (id, archived) => wrap(rooms.update<Room>(id, { archived }, ROOM_OPTS)),
-    setAccess: (id, visibility, members) =>
-      wrap(rooms.update<Room>(id, { visibility, members: visibility === "private" ? [...members] : [] }, ROOM_OPTS)),
+    setAccess: (id, visibility, members, posting, writers = []) =>
+      wrap(
+        rooms.update<Room>(
+          id,
+          {
+            visibility,
+            members: visibility === "private" ? [...members] : [],
+            ...(posting ? { posting, writers: posting === "selected" ? [...writers] : [] } : {}),
+          },
+          ROOM_OPTS,
+        ),
+      ),
 
     openDm: (userId) => wrap(pb.send<Room>("/api/chat/dms", { method: "POST", body: { user: userId } })),
     async searchUsers(query, signal) {

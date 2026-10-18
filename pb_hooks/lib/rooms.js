@@ -53,6 +53,27 @@ function setMembers(rec) {
 }
 
 /**
+ * Who can post (§23.6): everyone who can read the room, or only its writers. A DM is always everyone. Writers are
+ * listed only while posting is "selected": the creator first, each once, and in a private room only its members (a
+ * member taken out stops being a writer too).
+ * @param {core.Record} rec
+ */
+function setWriters(rec) {
+  if (isDm(rec) || !rec.getString("posting")) rec.set("posting", "everyone");
+  if (rec.getString("posting") !== "selected") {
+    rec.set("writers", []);
+    return;
+  }
+  const creator = rec.getString("created_by");
+  let writers = [...new Set([creator, ...rec.getStringSlice("writers")])].filter(Boolean);
+  if (rec.getString("visibility") === "private") {
+    const members = new Set(rec.getStringSlice("members"));
+    writers = writers.filter((id) => members.has(id));
+  }
+  rec.set("writers", writers);
+}
+
+/**
  * rooms create: public unless said otherwise; clean the name and check it is unique (§5.2, §16.1).
  * @param {core.RecordEvent} e
  */
@@ -61,6 +82,7 @@ function beforeRoomCreate(e) {
   if (!rec.getString("kind")) rec.set("kind", "public");
   setRoomName(e.app, rec);
   setMembers(rec);
+  setWriters(rec);
 }
 
 /** Fields only the DM route and hooks may set (§16.3). A room's creator may change a private room's members (§23.2). */
@@ -115,6 +137,7 @@ function beforeRoomUpdate(e) {
     setRoomName(e.app, rec);
   }
   setMembers(rec);
+  setWriters(rec);
   if (isDm(rec)) return;
   const was = orig.getBool("archived");
   const now = rec.getBool("archived");

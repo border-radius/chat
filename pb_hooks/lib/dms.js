@@ -41,6 +41,8 @@ function shape(app, room) {
     archived: room.getBool("archived"),
     created_by: room.getString("created_by"),
     members: room.getStringSlice("members"),
+    posting: room.getString("posting"),
+    writers: room.getStringSlice("writers"),
     last_message_at: room.getString("last_message_at"),
     created: room.getString("created"),
     expand: { members },

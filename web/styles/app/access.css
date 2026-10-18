@@ -167,7 +167,8 @@ dialog.access h3 {
   font-size: 0.85rem;
 }
 
-.members {
+.members,
+.writers {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;

@@ -540,7 +540,7 @@ while its first page loads.
 
 | Asset | Budget (gzipped) |
 |---|---|
-| `app.js` (including the PocketBase client) | **≤ 42.55 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, the room cache without waiting for the network, the QA pass 12 fixes, prefetching rooms not yet kept, the QA pass 13 fixes, thumbnail caching, the QA pass 14 fixes, Ctrl+Up/Down to pick the reply, link previews, the room access dialog fix, see §13) |
+| `app.js` (including the PocketBase client) | **≤ 43.25 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, the room cache without waiting for the network, the QA pass 12 fixes, prefetching rooms not yet kept, the QA pass 13 fixes, thumbnail caching, the QA pass 14 fixes, Ctrl+Up/Down to pick the reply, link previews, the room access dialog fix, who can post, see §13) |
 | `app.css` | **≤ 6.20 KB** (5 KB until §21, 5.5 KB until §23, 6 KB until audio attachments, 6.05 KB until §18.5, 6.10 KB until §28, 6.15 KB until the room access dialog fix, see §13) |
 | `index.html` | ≤ 1.5 KB |
 | Image viewer (§17.7), loaded on first use | ≤ 4 KB script, ≤ 1.5 KB stylesheet |
@@ -983,6 +983,7 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 | Bundle budget (reply stepping) | `app.js` raised from 42.05 KB to 42.25 KB gzipped (§7.7): Ctrl+Up / Ctrl+Down to move the reply between messages (§19.3) took it to 42.21 KB. |
 | Bundle budget (link previews) | `app.js` raised from 42.25 KB to 42.40 KB and `app.css` from 6.10 KB to 6.15 KB gzipped (§7.7): link previews (§28) took them to 42.38 KB and 6.13 KB. |
 | Bundle budget (room access dialog) | `app.js` raised from 42.40 KB to 42.55 KB and `app.css` from 6.15 KB to 6.20 KB gzipped (§7.7): the access dialog (§23.2) scrolling its body, search results as toggles, and Telegram stand-ins left out took them to 42.52 KB and 6.18 KB. |
+| Bundle budget (who can post) | `app.js` raised from 42.55 KB to 43.25 KB gzipped (§7.7): choosing who can post (§23.6), with a second people list in the access dialog, the reader banner and the checks behind replying, editing and forwarding, took it to 43.21 KB. |
 | Bundle budget (QA pass 9) | `app.js` raised from 39.25 KB to 39.35 KB gzipped (§7.7): the forwarding fixes of QA pass 9 (messages deleted meanwhile left out, the server's reason shown, focus kept while selecting) took it to 39.30 KB. |
 
 ### Still open
@@ -1909,6 +1910,8 @@ A room's creator chooses who can see it. Three levels, shown everywhere with the
 | **Public** (the default, and every room from before) | # | everyone with an account | everyone with an account |
 | **Open Air** | 🌐 | anyone, even without an account, while the room isn't archived | everyone with an account |
 
+In any of them but a DM, the creator may also narrow who posts to the people they choose (§23.6).
+
 "Open Air" is the name for a room that is readable from the open web: like a talk in the open air, anyone walking by
 can listen in, but you need to step up (sign in) to speak.
 
@@ -2000,6 +2003,42 @@ refreshes the unread counts.
   room live with its picture, can't write, is told about a room that needs an account, and logs in back into the room;
   an Open Air room leaves and comes back on a guest's screen as it is archived, unarchived and made public. axe checks
   the dialog.
+
+### 23.6 Who can post
+
+Seeing a room and posting in it are two choices. `rooms.posting` (select `everyone` / `selected`, required;
+migration `1760000023_room_writers.js` backfills `everyone`) says who posts: everyone who can see the room (as
+before; guests never), or only `rooms.writers` (up to 100 users). The hooks (`setWriters` in
+`pb_hooks/lib/rooms.js`) keep it consistent on every save: a DM always lets both post; writers are listed only while
+posting is `selected`, the creator first, each once, and in a private room only its members (a member taken out stops
+being a writer). Writers can't be set when creating a room; only its creator sets them afterwards (the rooms update
+rule).
+
+With `WRITER(r)` = `r.posting != "selected" || r.writers.id ?= @auth || r.created_by = @auth`:
+
+| Collection | Rule | Value |
+|---|---|---|
+| `messages` | create | as in §23.1 `&& WRITER("@request.body.room.")` |
+| `messages` | update | as in §23.1 `&& WRITER("room.")`: as in an archived room, someone who may no longer post can't edit or delete what they wrote there (put back, they can) |
+
+Reacting only needs to see the room: readers react. `canWrite()` (`pb_hooks/lib/access.js`) mirrors the rule in
+`beforeMessageCreate`, so forwards into the room (`POST /api/chat/forward`) and anything else the app saves are held
+to it too, and in `POST /api/chat/delete`. Telegram stand-ins (§26.3) who speak in a linked room are made writers, as
+they are made members of a private one: the Telegram group decides who speaks.
+
+On the client, `canPost(room, me)` (`web/src/lib/rooms.ts`) decides. Someone who can see but not post gets "Only some
+people can post in this room. You can read along and react." instead of the composer (what they had typed is kept),
+no Reply, Edit or Delete, and doesn't get the room as a forward target; Forward and Select stay, to share its messages
+elsewhere. A change of writers reaches everyone in the room live (the room's update event), so the composer comes and
+goes as it is saved. The access dialog has a second choice under the visibility, **Who can post?**: "Everyone who can
+see it" or "Only people you choose", which shows a **Who can post** list like the members list (+ Add people, Remove;
+the creator stays). In a private room its search offers only members, and taking someone out of the members takes
+them off it too. Members of a private room see the list read-only. The Android app (`mobile/`) does the same in its
+access sheet and room screen.
+
+Tests: `room_writers.test.ts` (integration: defaults, who posts, reacts and forwards, a writer taken off, private
+rooms, DMs, limits), `api.test.ts` (`setAccess` with writers), `telegram.test.ts` (stand-ins become writers),
+`access.test.ts` (unit: the dialog, a reader's room, made a writer live) and `room_access.spec.ts` (e2e, with axe).
 
 ## 24. Site settings: branding and invite-only signups
 

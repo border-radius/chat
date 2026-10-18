@@ -20,6 +20,7 @@ import {
   trim,
 } from "../../lib/messages.ts";
 import { setReaction } from "../../lib/reactions.ts";
+import { canPost } from "../../lib/rooms.ts";
 import { parsePb, toPb } from "../../lib/time.ts";
 import type { LocalFile, Message, Reaction, Room } from "../../lib/types.ts";
 import type { Scope } from "../../scope.ts";
@@ -92,7 +93,7 @@ export interface RoomController {
   repliable(m: Message): boolean;
   /** My newest editable message (Up arrow in an empty composer). */
   lastEditable(): Message | undefined;
-  /** Send optimistically, as a reply to `replyTo` if given (§19). False when sending isn't possible (no user, archived room). */
+  /** Send optimistically, as a reply to `replyTo` if given (§19). False when sending isn't possible (no user, archived room, not allowed to post: §23.6). */
   send(text: string, files?: LocalFile[], replyTo?: Message): boolean;
   retrySend(id: string): Promise<void>;
   /** Drop a failed message (no request). */
@@ -177,16 +178,19 @@ export function createRoomController(opts: {
   /** Whom the window was loaded for: after a logout or a user switch, nothing of it may be kept for the next one. */
   const owner = me()?.id ?? "";
   const find = (id: string) => win.items.find((m) => m.id === id);
-  const deletable = (m: Message) => {
+  /** I may post here (§23.6): signed in, the room isn't archived, and it lets me. */
+  const posting = () => {
     const r = room();
-    return !!r && !r.archived && m.author === me()?.id && !m.deleted && !m.status;
+    return !!r && !r.archived && canPost(r, me());
   };
+  const deletable = (m: Message) => posting() && m.author === me()?.id && !m.deleted && !m.status;
   const editable = (m: Message) => deletable(m) && !m.forwarded_from;
-  /** Guests only read (§23.3): no replies, reactions or selecting. */
-  const repliable = (m: Message) => {
+  /** Guests only read (§23.3): no replies, reactions or selecting. Readers who can't post still react (§23.6). */
+  const reactable = (m: Message) => {
     const r = room();
     return !!me() && !!r && !r.archived && !m.deleted && !m.status;
   };
+  const repliable = (m: Message) => reactable(m) && posting();
   /**
    * My reaction changes still on their way, by message id and emoji: whether it should be there, and which change said
    * so last. They show over every copy of the message until that change is answered (§20.3).
@@ -557,7 +561,7 @@ export function createRoomController(opts: {
   function send(text: string, files: LocalFile[] = [], replyTo?: Message): boolean {
     const user = me();
     const r = room();
-    if (!user || !r || r.archived) return false;
+    if (!user || !r || !posting()) return false;
     const quoted = replyTo ? quoteOf(replyTo) : undefined;
     void (async () => {
       if (win.hasNewer) await jump("latest");
@@ -803,11 +807,11 @@ export function createRoomController(opts: {
     remove: removeMessage,
     selectable: (m) => !!me() && !m.deleted && !m.status,
     removeMany,
-    reactable: repliable,
+    reactable,
     reactions: reactionsOf,
     react(id, emoji, on) {
       const m = find(id);
-      return m && repliable(m) && me() ? react(id, emoji, on) : null;
+      return m && reactable(m) ? react(id, emoji, on) : null;
     },
   };
 }

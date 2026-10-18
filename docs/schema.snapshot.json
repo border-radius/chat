@@ -133,7 +133,8 @@
         "@request.body.reactions:isset = false",
         "@request.body.forwarded_from:isset = false",
         "@request.body.forward_of:isset = false",
-        "@request.body.previews:isset = false"
+        "@request.body.previews:isset = false",
+        "(@request.body.room.posting != \"selected\" || @request.body.room.writers.id ?= @request.auth.id || @request.body.room.created_by = @request.auth.id)"
       ],
       "updateRule": [
         "author = @request.auth.id",
@@ -150,7 +151,8 @@
         "@request.body.forwarded_from:isset = false",
         "(@request.auth.id != \"\" && (room.visibility != \"private\" || room.members.id ?= @request.auth.id || room.created_by = @request.auth.id))",
         "@request.body.forward_of:isset = false",
-        "@request.body.previews:isset = false"
+        "@request.body.previews:isset = false",
+        "(room.posting != \"selected\" || room.writers.id ?= @request.auth.id || room.created_by = @request.auth.id)"
       ],
       "deleteRule": null,
       "fields": [
@@ -427,7 +429,8 @@
         "(@request.body.kind:isset = false || @request.body.kind = \"public\")",
         "@request.body.members:isset = false",
         "@request.body.dm_key:isset = false",
-        "@request.body.last_message_at:isset = false"
+        "@request.body.last_message_at:isset = false",
+        "@request.body.writers:isset = false"
       ],
       "updateRule": [
         "created_by = @request.auth.id",
@@ -599,6 +602,33 @@
             "private",
             "open"
           ]
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "maxSelect": 1,
+          "name": "posting",
+          "presentable": false,
+          "required": true,
+          "system": false,
+          "type": "select",
+          "values": [
+            "everyone",
+            "selected"
+          ]
+        },
+        {
+          "cascadeDelete": false,
+          "help": "",
+          "hidden": false,
+          "maxSelect": 100,
+          "minSelect": 0,
+          "name": "writers",
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "relation",
+          "collection": "users"
         }
       ],
       "indexes": [

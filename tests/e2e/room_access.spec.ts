@@ -2,7 +2,21 @@
 import AxeBuilder from "@axe-core/playwright";
 import { type Browser, expect, type Page } from "@playwright/test";
 import { PNG } from "../support/files.ts";
-import { apiRoom, apiSend, apiUser, atPath, attach, composer, headerAction, login, message, send, test, uniq } from "./fixtures.ts";
+import {
+  apiRoom,
+  apiSend,
+  apiUser,
+  atPath,
+  attach,
+  composer,
+  headerAction,
+  login,
+  message,
+  openRoom,
+  send,
+  test,
+  uniq,
+} from "./fixtures.ts";
 
 const newPage = async (browser: Browser): Promise<Page> => (await browser.newContext({ viewport: { width: 1100, height: 720 } })).newPage();
 
@@ -188,4 +202,48 @@ test("Open Air rooms leave a guest's view as soon as they close to guests (§23.
   await a.locator("dialog.access").getByRole("button", { name: "Save" }).click();
   await expect(guest.getByText("You can't see this room any more.")).toBeVisible();
   await expect(composer(a)).toBeVisible();
+});
+
+test("only the people its creator chooses post; the others read and react, and get the composer once chosen (§23.6)", async ({
+  browser,
+}) => {
+  const tag = uniq();
+  const ada = await apiUser(`Ada ${tag}`);
+  const bob = await apiUser(`Bob ${tag}`);
+  const room = await apiRoom(ada, `news-${tag}`);
+  await apiSend(ada, room, "welcome");
+  const [a, b] = await Promise.all([openRoom(browser, ada, room), openRoom(browser, bob, room)]);
+  await expect(composer(b)).toBeVisible();
+
+  await headerAction(a, "Room access…");
+  const dialog = a.locator("dialog.access");
+  await dialog.getByRole("radio", { name: /Only people you choose/ }).check();
+  await expect(dialog.locator(".writers .member")).toHaveText([new RegExp(`${ada.name}.*creator`)]);
+  expect(
+    await new AxeBuilder({ page: a })
+      .include("dialog.access")
+      .analyze()
+      .then((r) => r.violations.map((v) => v.id)),
+  ).toEqual([]);
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await expect(dialog).toBeHidden();
+
+  // Bob loses the composer live, but still reacts; Ada still posts.
+  await expect(b.locator("footer .reader-banner")).toHaveText(/Only some people can post in this room/);
+  await expect(composer(b)).toHaveCount(0);
+  await message(b, "welcome").hover();
+  await expect(message(b, "welcome").getByRole("button", { name: "Reply" })).toHaveCount(0);
+  await expect(message(b, "welcome").getByRole("button", { name: "Add reaction" })).toHaveCount(1);
+  await send(a, "only from me");
+  await expect(message(b, "only from me")).toBeVisible();
+
+  // Chosen, he gets it back.
+  await headerAction(a, "Room access…");
+  await dialog.locator(".writers").getByRole("button", { name: "+ Add people" }).click();
+  await dialog.getByLabel("Find someone to message").fill(`Bob ${tag}`);
+  await dialog.locator("button.person", { hasText: bob.name }).click();
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await expect(composer(b)).toBeVisible();
+  await send(b, "thanks");
+  await expect(message(a, "thanks")).toBeVisible();
 });

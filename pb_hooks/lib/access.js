@@ -39,6 +39,18 @@ function canSee(a, userId) {
 }
 
 /**
+ * Can `userId` post in the room (§23.6)? They must see it, signed in, and the room let everyone post or list them as a
+ * writer (its creator always is). The messages create rule says the same.
+ * @param {core.Record} room
+ * @param {string} userId
+ */
+function canWrite(room, userId) {
+  if (!userId || !canSee(accessOf(room), userId)) return false;
+  if (room.getString("posting") !== "selected") return true;
+  return room.getString("created_by") === userId || room.getStringSlice("writers").includes(userId);
+}
+
+/**
  * canSee for a signed-in user, as an SQL condition on `rooms r`, with the user's id bound as {:me}. (Open Air rooms are
  * not private, so no guest case is needed: guests never run these queries.)
  */
@@ -87,4 +99,4 @@ function dropLostAccess(app, before, room) {
   }
 }
 
-module.exports = { MAX_MEMBERS, SEES_SQL, accessOf, canSee, visibleRoom, dropLostAccess };
+module.exports = { MAX_MEMBERS, SEES_SQL, accessOf, canSee, canWrite, visibleRoom, dropLostAccess };

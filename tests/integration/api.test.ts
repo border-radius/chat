@@ -237,6 +237,8 @@ describe("createApi", () => {
         kind: "public",
         visibility: "public",
         members: [],
+        posting: "everyone",
+        writers: [],
         last_message_at: "",
         created: expect.any(String),
         expand: {},
@@ -260,6 +262,17 @@ describe("createApi", () => {
       expect((await anon.listRooms()).map((r) => r.id)).toContain(room.id);
       // Only the creator: Bob is refused.
       expect([400, 403, 404]).toContain((await rejection(b.setAccess(room.id, "private", []))).status);
+    });
+
+    it("who can post (§23.6): writers set with their profiles; left out, posting is kept", async () => {
+      const { a, b } = await setup();
+      const room = await a.createRoom(`sel-${uniq()}`);
+      const sel = await a.setAccess(room.id, "public", [], "selected", [b.currentUser()!.id]);
+      expect(sel).toMatchObject({ posting: "selected", writers: [a.currentUser()!.id, b.currentUser()!.id] });
+      expect(sel.expand?.writers?.map((u) => u.name)).toEqual(["Alice", "Bob"]);
+      expect(Object.keys(sel.expand!.writers![0]!).sort()).toEqual(["avatar", "id", "name", "no_dms"]); // never the email
+      expect(await a.setAccess(room.id, "open", [])).toMatchObject({ visibility: "open", posting: "selected" });
+      expect(await a.setAccess(room.id, "open", [], "everyone", [b.currentUser()!.id])).toMatchObject({ posting: "everyone", writers: [] });
     });
 
     it("a guest (§23.3) gets no file token, without asking the server", async () => {

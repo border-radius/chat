@@ -70,7 +70,19 @@ describe("room access UI (§23)", () => {
     [...el.querySelectorAll<HTMLButtonElement>("button")].find((b) =>
       typeof label === "string" ? b.textContent === label : label.test(b.getAttribute("aria-label") ?? b.textContent ?? ""),
     );
-  const memberNames = (el: Element) => [...dialog(el).querySelectorAll(".member .member-name")].map((n) => n.textContent);
+  const names = (el: Element, list: string) => [...dialog(el).querySelectorAll(`${list} .member .member-name`)].map((n) => n.textContent);
+  const memberNames = (el: Element) => names(el, ".members");
+  const writerNames = (el: Element) => names(el, ".writers");
+  /** Search `list`'s people for `name` and click the first result. */
+  async function pick(el: Element, list: string, name: string) {
+    const section = dialog(el).querySelector(list)!;
+    if (!section.querySelector(".user-search")) buttonIn(section, "+ Add people")!.click();
+    const search = section.querySelector<HTMLInputElement>(".user-search input")!;
+    search.value = name;
+    search.dispatchEvent(new Event("input"));
+    await vi.waitFor(() => expect(section.querySelector(".user-search button.person")?.textContent).toContain(name));
+    section.querySelector<HTMLButtonElement>(".user-search button.person")!.click();
+  }
 
   describe("header", () => {
     it("the creator gets “Room access…”; a member of a private room “Members (n)”; others neither", async () => {
@@ -196,6 +208,71 @@ describe("room access UI (§23)", () => {
       expect(dialog(el).querySelector(".remove-member")).toBeNull();
       expect(buttonIn(dialog(el), "Save")!.hidden).toBe(true);
       expect(dialog(el).querySelector<HTMLElement>(".add-member")!.hidden).toBe(true);
+      await bob.api.unsubscribeAll();
+    });
+  });
+
+  describe("who can post (§23.6)", () => {
+    it("the creator chooses who can post: starts with them, adds people, saves", async () => {
+      const bob = await signedUp(`Bob ${uniq()}`);
+      const room = await me.api.createRoom(`r-${uniq()}`);
+      const el = await mountRoom(room);
+      clickItem(el, "Room access…");
+      expect(radio(el, "everyone").checked).toBe(true);
+      expect(dialog(el).querySelector<HTMLElement>(".writers")!.hidden).toBe(true);
+      choose(el, "selected");
+      expect(dialog(el).querySelector<HTMLElement>(".writers")!.hidden).toBe(false);
+      expect(writerNames(el)).toEqual([me.user.name]);
+      expect(buttonIn(dialog(el), new RegExp(`^Remove ${me.user.name}$`))).toBeUndefined(); // the creator always posts
+      await pick(el, ".writers", bob.user.name);
+      expect(writerNames(el)).toEqual([me.user.name, bob.user.name]);
+      buttonIn(dialog(el), "Save")!.click();
+      await vi.waitFor(() => expect(dialog(el).open).toBe(false));
+      const saved = await me.api.getRoom(room.id);
+      expect(saved).toMatchObject({ visibility: "public", posting: "selected", writers: [me.user.id, bob.user.id] });
+      expect(store.get().rooms.get(room.id)?.posting).toBe("selected");
+      await bob.api.unsubscribeAll();
+    });
+
+    it("in a private room only members can be chosen, and a member taken out stops posting", async () => {
+      const tag = uniq();
+      const bob = await signedUp(`Bob ${tag}`);
+      const cat = await signedUp(`Cat ${tag}`);
+      const room = await me.api.createRoom(`r-${uniq()}`, "private");
+      await me.api.setAccess(room.id, "private", [bob.user.id], "selected", [bob.user.id]);
+      const el = await mountRoom(room);
+      clickItem(el, "Room access…");
+      expect(writerNames(el)).toEqual([me.user.name, bob.user.name]);
+      const section = dialog(el).querySelector(".writers")!;
+      buttonIn(section, "+ Add people")!.click();
+      const search = section.querySelector<HTMLInputElement>(".user-search input")!;
+      search.value = tag;
+      search.dispatchEvent(new Event("input"));
+      await vi.waitFor(() => expect(section.querySelector(".user-search button.person")?.textContent).toContain(bob.user.name));
+      expect(section.textContent).not.toContain(cat.user.name); // not a member
+      buttonIn(dialog(el).querySelector(".members")!, new RegExp(`^Remove ${bob.user.name}$`))!.click();
+      expect(writerNames(el)).toEqual([me.user.name]);
+      await Promise.all([bob.api.unsubscribeAll(), cat.api.unsubscribeAll()]);
+    });
+
+    it("a reader gets a banner instead of the composer, reacts but can't reply; made a writer, the composer comes", async () => {
+      const bob = await signedUp(`Bob ${uniq()}`);
+      const room = await me.api.createRoom(`r-${uniq()}`);
+      await me.api.setAccess(room.id, "public", [], "selected", []);
+      await me.api.send({ id: newId(), room: room.id, text: "news" });
+      const bobStore = createStore<AppState>({ ...initialState(), user: bob.user });
+      const el = await mountRoom(room, bob.api, bobStore);
+      await vi.waitFor(() => expect(el.querySelector("li.msg .body")?.textContent).toBe("news"));
+      expect(el.querySelector("form.composer")).toBeNull();
+      expect(el.querySelector("footer .reader-banner")!.textContent).toContain("Only some people can post");
+      const msg = el.querySelector("li.msg")!;
+      expect(msg.querySelector("button.react")).not.toBeNull();
+      expect(msg.querySelector("button.reply")).toBeNull();
+
+      await me.api.setAccess(room.id, "public", [], "selected", [bob.user.id]);
+      await vi.waitFor(() => expect(el.querySelector("form.composer")).not.toBeNull());
+      expect(el.querySelector(".reader-banner")).toBeNull();
+      await vi.waitFor(() => expect(el.querySelector("li.msg button.reply")).not.toBeNull());
       await bob.api.unsubscribeAll();
     });
   });

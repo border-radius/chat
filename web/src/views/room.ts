@@ -11,7 +11,7 @@ import { clear, h, uniqueId } from "../dom.ts";
 import { newer, older, PAGE_SIZE, withFiles } from "../lib/cursor.ts";
 import { attachmentName, isMedia, isVideo } from "../lib/files.ts";
 import { emptyForward, lastSaved } from "../lib/messages.ts";
-import { isDm, otherMember, roomTitle } from "../lib/rooms.ts";
+import { canPost, isDm, otherMember, roomTitle } from "../lib/rooms.ts";
 import { isNearBottom } from "../lib/scroll.ts";
 import { formatFull, parsePb } from "../lib/time.ts";
 import type { Message } from "../lib/types.ts";
@@ -88,9 +88,9 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
   const accessDialog = createAccessDialog({
     searchUsers: (q, sig) => api.searchUsers(q, sig),
     avatarUrl: api.avatarUrl,
-    onSave: async (visibility, members) => {
+    onSave: async (visibility, members, posting, writers) => {
       try {
-        await actions.setAccess(roomId, visibility, members);
+        await actions.setAccess(roomId, visibility, members, posting, writers);
         return null;
       } catch (e) {
         return `Couldn't save. ${errorMessage(e)}`;
@@ -168,7 +168,8 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
   const forwardDialog = createForwardDialog({
     rooms: () => {
       const s = roomSections(store.get());
-      return [...s.dms, ...s.rooms, ...s.hidden];
+      // Only where you may post (§23.6).
+      return [...s.dms, ...s.rooms, ...s.hidden].filter((r) => canPost(r, me()));
     },
     me,
     searchUsers: (q, sig) => api.searchUsers(q, sig),
@@ -205,6 +206,11 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
     h("a", { href: "/signup" }, "sign up"),
     " to join the conversation.",
   ]);
+  const readerBanner = h(
+    "p",
+    { class: "guest-banner reader-banner" },
+    "Only some people can post in this room. You can read along and react.",
+  );
   const shell = h("section", { class: "room", "aria-labelledby": `${vid}-title` }, [
     header.el,
     notice.el,
@@ -429,6 +435,9 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
       picker.close(); // nothing left to insert into or react to
     } else if (!me()) {
       if (footer.firstChild !== guestBanner) footer.replaceChildren(guestBanner);
+    } else if (!canPost(r, me())) {
+      // A reader (§23.6). What they had typed stays in the composer, for if they may post again.
+      if (footer.firstChild !== readerBanner) footer.replaceChildren(readerBanner);
     } else if (footer.firstChild !== composer.el) footer.replaceChildren(composer.el);
     composer.setPlaceholder(`Message ${roomTitle(r, me())}`);
     // Entering a room (or switching to another one), you can just type. Not on touch screens: it would pop up the

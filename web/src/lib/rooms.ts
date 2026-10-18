@@ -1,11 +1,20 @@
 // Room helpers that depend on who is looking (§16.5): a DM is titled after the other member.
 
-import type { Room, User, Visibility } from "./types.ts";
+import type { Posting, Room, User, Visibility } from "./types.ts";
 
 export const isDm = (room: Room): boolean => room.kind === "dm";
 
 /** Who can see the room (§23.1); rooms from before visibility existed are public. */
 export const visibilityOf = (room: Room): Visibility => room.visibility ?? "public";
+
+/** Who can post in the room (§23.6); rooms from before posting existed let everyone. */
+export const postingOf = (room: Room): Posting => room.posting ?? "everyone";
+
+/** Can `me` post in a room they see (§23.6)? Guests never can; the creator always can. */
+export function canPost(room: Room, me: User | null): boolean {
+  if (!me) return false;
+  return postingOf(room) !== "selected" || room.created_by === me.id || !!room.writers?.includes(me.id);
+}
 
 /** How each visibility is called and explained (§23.1). */
 export const VISIBILITY: Record<Visibility, { label: string; icon: string; hint: string }> = {

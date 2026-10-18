@@ -2,7 +2,7 @@
 // They reject with ApiError; showing the failure is up to the caller.
 
 import type { Api } from "./api.ts";
-import type { Room, Visibility } from "./lib/types.ts";
+import type { Posting, Room, Visibility } from "./lib/types.ts";
 import { type AppState, markHidden, type Store, unmarkHidden, unmarkHiddenRoom, upsertRoom } from "./store.ts";
 
 export interface RoomActions {
@@ -10,8 +10,14 @@ export interface RoomActions {
   hide(roomId: string): Promise<void>;
   unhide(roomId: string): Promise<void>;
   setArchived(roomId: string, archived: boolean): Promise<void>;
-  /** Change who can see the room (§23.2); creator only. */
-  setAccess(roomId: string, visibility: Visibility, members: readonly string[]): Promise<void>;
+  /** Change who can see the room (§23.2), and with `posting` who can post in it (§23.6); creator only. */
+  setAccess(
+    roomId: string,
+    visibility: Visibility,
+    members: readonly string[],
+    posting?: Posting,
+    writers?: readonly string[],
+  ): Promise<void>;
   /** Open (or reopen) the DM with `userId` (§16.2). Resolves to the room, now in the store. */
   openDm(userId: string): Promise<Room>;
 }
@@ -36,8 +42,8 @@ export function createRoomActions({ api, store }: { api: Api; store: Store<AppSt
     async setArchived(roomId, archived) {
       store.set(upsertRoom(await api.setArchived(roomId, archived)));
     },
-    async setAccess(roomId, visibility, members) {
-      store.set(upsertRoom(await api.setAccess(roomId, visibility, members)));
+    async setAccess(roomId, visibility, members, posting, writers) {
+      store.set(upsertRoom(await api.setAccess(roomId, visibility, members, posting, writers)));
     },
     async openDm(userId) {
       // Already open: no request (the route is rate limited per IP, which a whole office may share; QA BUG-30).

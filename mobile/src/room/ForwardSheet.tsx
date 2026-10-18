@@ -3,7 +3,7 @@
 
 import { useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, Text, View } from "react-native";
-import { otherMember, type Room, roomSections, roomTitle, type User } from "../shared";
+import { canPost, otherMember, type Room, roomSections, roomTitle, type User } from "../shared";
 import { Avatar, Button, Input, Sheet, styles } from "../ui/components";
 import { useAppState, useSession } from "../ui/context";
 import { useTheme } from "../ui/theme";
@@ -32,7 +32,8 @@ export function ForwardSheet({
   const people = useUserSearch(api.searchUsers, query);
 
   const s = roomSections(state);
-  const all = [...s.dms, ...s.rooms, ...s.hidden];
+  // Only where you may post (§23.6).
+  const all = [...s.dms, ...s.rooms, ...s.hidden].filter((r) => canPost(r, me));
   const q = query.trim().toLowerCase();
   const rooms = all.filter((r) => roomTitle(r, me).toLowerCase().includes(q));
   const inDms = new Set(all.map((r) => otherMember(r, me)?.id));

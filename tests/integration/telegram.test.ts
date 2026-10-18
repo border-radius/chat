@@ -274,6 +274,18 @@ describe("Telegram bridge (§26)", () => {
     expect((await admin.collection("rooms").getOne(room.id)).members).toContain(m!.author);
   });
 
+  it("a stand-in posting where only some people post becomes a writer (§23.6)", async () => {
+    const owner = await signUp();
+    const { room, chat } = await linkedRoom(owner, { posting: "selected" });
+    await deliver({ message: tgMessage(chat, { text: "chosen hello", from: { ...ann, id: 778, first_name: "Sel" } }) });
+    const [m] = await eventually(async () => {
+      const l = await messagesOf(room.id);
+      expect(l).toHaveLength(1);
+      return l;
+    });
+    expect((await admin.collection("rooms").getOne(room.id)).writers).toEqual([owner.user.id, m!.author]);
+  });
+
   it("a chat message goes to the group under its author's name; replies, edits and deletes follow", async () => {
     const owner = await signUp(`Bob-${uniq()}`);
     const { room, chat } = await linkedRoom(owner);

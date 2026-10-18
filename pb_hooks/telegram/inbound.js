@@ -106,16 +106,21 @@ function mapped(app, chatId, tgId) {
 }
 
 /**
- * Stand-ins write in a private room as members (the messages hook checks it, §23).
+ * Stand-ins write in a private room as members, and in a room where only some people post as writers (the messages
+ * hook checks both, §23, §23.6): the Telegram group decides who speaks.
  * @param {core.App} app
  * @param {core.Record} room
  * @param {string} userId
  */
 function ensureMember(app, room, userId) {
-  if (room.getString("visibility") !== "private" || room.getString("created_by") === userId) return;
+  if (room.getString("created_by") === userId) return;
   const members = room.getStringSlice("members");
-  if (members.includes(userId)) return;
-  room.set("members", [...members, userId]);
+  const writers = room.getStringSlice("writers");
+  const member = room.getString("visibility") !== "private" || members.includes(userId);
+  const writer = room.getString("posting") !== "selected" || writers.includes(userId);
+  if (member && writer) return;
+  if (!member) room.set("members", [...members, userId]);
+  if (!writer) room.set("writers", [...writers, userId]);
   app.save(room);
 }
 

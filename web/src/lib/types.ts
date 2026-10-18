@@ -16,6 +16,8 @@ export type RoomKind = "public" | "dm";
  * (Open Air). A DM is private to its two members.
  */
 export type Visibility = "private" | "public" | "open";
+/** Who can post in a room (§23.6): everyone who can read it, or only its writers. */
+export type Posting = "everyone" | "selected";
 
 export interface Room {
   id: string;
@@ -29,10 +31,14 @@ export interface Room {
   visibility?: Visibility;
   /** A DM's two members, or a private room's (the creator and whoever they added, §23.2); empty otherwise. */
   members?: string[];
+  /** Absent = "everyone" (§23.6). */
+  posting?: Posting;
+  /** Who can post when posting is "selected": the creator and the people they chose (§23.6); empty otherwise. */
+  writers?: string[];
   /** DMs: when the latest message was sent ("" before the first). */
   last_message_at?: string;
   created?: string;
-  expand?: { members?: User[] };
+  expand?: { members?: User[]; writers?: User[] };
 }
 
 /** Client-only send state for optimistic messages (§7.5). Absent once the server has the message. */

@@ -30,6 +30,7 @@ import { type Media, Viewer, type ViewerProps } from "../../room/Viewer";
 import {
   attachmentName,
   type Change,
+  canPost,
   createNameLookup,
   createRoomController,
   createScope,
@@ -684,6 +685,8 @@ function Room({ roomId, msgId, reopen }: { roomId: string; msgId: string | undef
         </View>
       );
     }
+    // A reader (§23.6): what they had typed stays in the drafts, for if they may post again.
+    if (!canPost(room, me)) return banner("Only some people can post in this room. You can read along and react.");
     const editMessage = editing ? ctl.find(editing) : undefined;
     const quoted = replyNow ? { name: replyNow.expand?.author?.name ?? "Unknown", text: quoteText(replyNow) } : null;
     return (

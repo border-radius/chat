@@ -4,6 +4,7 @@
 // transaction. The saves go through the messages hooks (messages.js) like any other, so the soft delete wipes what it
 // should, a forward is checked like a new message, and realtime tells everyone.
 
+const { canWrite } = require(`${__hooks}/lib/access.js`);
 const { isService } = require(`${__hooks}/lib/messages.js`);
 
 /** Most messages one request may act on (MAX_SELECTED in web/src/lib/limits.ts). */
@@ -79,7 +80,7 @@ function answer(e, recs) {
 
 /**
  * POST /api/chat/delete { messages: [ids] } → the messages, soft-deleted (§21.2). Only the caller's own, in rooms that
- * aren't archived. Already deleted ones are left as they are, so a retry succeeds.
+ * aren't archived and they may still post in. Already deleted ones are left as they are, so a retry succeeds.
  * @param {core.RequestEvent} e
  */
 function deleteMessages(e) {
@@ -90,9 +91,10 @@ function deleteMessages(e) {
   const msgs = visibleMessages(e, info, messageIds(/** @type {Record<string, unknown>} */ (info.body), what));
   if (msgs.some((m) => m.getString("author") !== me.id)) throw new ForbiddenError("You can only delete your own messages.");
   // (Archived meanwhile: beforeMessageUpdate refuses the save, and the transaction rolls back.)
-  if (msgs.some((m) => e.app.findRecordById("rooms", m.getString("room")).getBool("archived"))) {
-    throw badRequest("messages", "This room is archived and read-only.", what);
-  }
+  const rooms = msgs.map((m) => e.app.findRecordById("rooms", m.getString("room")));
+  if (rooms.some((r) => r.getBool("archived"))) throw badRequest("messages", "This room is archived and read-only.", what);
+  // As the update rule says: no longer allowed to post there, no deleting either (§23.6).
+  if (rooms.some((r) => !canWrite(r, me.id))) throw badRequest("messages", "Only some people can post in this room.", what);
 
   /** @type {core.Record[]} */
   const saved = [];
