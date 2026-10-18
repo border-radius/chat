@@ -2155,7 +2155,7 @@ Telegram (`outbound.js`):
 
 - **The message** goes as the bot, with the author's name in bold over the text (Telegram HTML, escaped): "**Bob**
   hello". A forward says "*forwarded from Ann*" and shows its original's text and files (§21.3).
-- **Files:** photos (jpg, png, webp up to 10 MB, Telegram's photo limit) and videos (mp4) go together as an album,
+- **Files:** photos (jpg, png, webp up to 10 MB, Telegram's photo limit) and videos (mp4, m4v, mov; sent with `supports_streaming`, so they play inline as they load) go together as an album,
   other files as a second album of documents (Telegram doesn't mix them); one file goes alone. The text is the first
   item's caption when it fits (1024 characters), else a message of its own before the files. Files keep their original
   names.

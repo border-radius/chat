@@ -341,6 +341,35 @@ describe("Telegram bridge (§26)", () => {
     expect(doc.params.caption).toBeUndefined();
   });
 
+  it("videos go as videos that play as they load, a phone's .mov too", async () => {
+    const owner = await signUp();
+    const { room, chat } = await linkedRoom(owner);
+    await owner.pb.collection("messages").create({
+      room: room.id,
+      author: owner.user.id,
+      files: [new File(["mov"], "IMG_0001.MOV", { type: "video/quicktime" })],
+    });
+    const one = await eventually(() => {
+      const c = stub.callsOf("sendVideo").find((x) => x.params.chat_id === String(chat));
+      expect(c).toBeDefined();
+      return c!;
+    });
+    expect(one.params.supports_streaming).toBe("true");
+    expect(one.files.video!.name).toBe("IMG_0001.MOV");
+    await owner.pb.collection("messages").create({
+      room: room.id,
+      author: owner.user.id,
+      files: [new File([PNG], "a.png", { type: "image/png" }), new File(["mp4"], "clip.mp4", { type: "video/mp4" })],
+    });
+    const group = await eventually(() => {
+      const c = stub.callsOf("sendMediaGroup").find((x) => x.params.chat_id === String(chat));
+      expect(c).toBeDefined();
+      return c!;
+    });
+    expect(group.params.media).toMatchObject([{ type: "photo" }, { type: "video", supports_streaming: true }]);
+    expect(stub.callsOf("sendDocument").find((x) => x.params.chat_id === String(chat))).toBeUndefined();
+  });
+
   it("a room linked to two groups passes each group's messages to the other", async () => {
     const owner = await signUp();
     const { room, chat } = await linkedRoom(owner);

@@ -11,7 +11,10 @@ const MAX_CAPTION = 1024;
 const MAX_PHOTO = 10 * 1024 * 1024;
 
 const PHOTO_EXT = new Set(["jpg", "jpeg", "png", "webp"]);
-const VIDEO_EXT = new Set(["mp4", "m4v"]);
+/** MPEG-4 and QuickTime (what phones record): Telegram plays them inline. WebM and Ogg would arrive as files anyway. */
+const VIDEO_EXT = new Set(["mp4", "m4v", "mov"]);
+/** A video plays while it downloads, rather than only once it has (Telegram shows it as a file to fetch first). */
+const STREAM = { supports_streaming: true };
 
 /**
  * @param {core.App} app
@@ -207,14 +210,23 @@ function send(app, messageId, chatId) {
     for (const group of groups) {
       if (group.length === 1) {
         const f = group[0];
-        const sent = call(SEND[f.kind], { chat_id: chatId, ...(caption || {}), ...reply }, { [f.kind]: f.file });
+        const sent = call(
+          SEND[f.kind],
+          { chat_id: chatId, ...(f.kind === "video" ? STREAM : {}), ...(caption || {}), ...reply },
+          { [f.kind]: f.file },
+        );
         remember(app, messageId, chatId, sent, caption ? "caption" : "media");
       } else {
         /** @type {Record<string, any>} */
         const attach = {};
         const media = group.map((f, i) => {
           attach[`file${i}`] = f.file;
-          return { type: f.kind, media: `attach://file${i}`, ...(i === 0 && caption ? caption : {}) };
+          return {
+            type: f.kind,
+            media: `attach://file${i}`,
+            ...(f.kind === "video" ? STREAM : {}),
+            ...(i === 0 && caption ? caption : {}),
+          };
         });
         const sent = call("sendMediaGroup", { chat_id: chatId, media, ...reply }, attach);
         for (let i = 0; i < sent.length; i++) remember(app, messageId, chatId, sent[i], i === 0 && caption ? "caption" : "media");
