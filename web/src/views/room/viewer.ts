@@ -106,22 +106,12 @@ export async function openViewer(o: ViewerOptions): Promise<void> {
     );
   const download = h("a", { class: "viewer-button", "aria-label": "Download", title: "Download" }, "↓");
   const closeButton = button("", "Close", "×", () => close(true), true);
-  const jump = h(
-    "button",
-    {
-      type: "button",
-      class: "viewer-button viewer-jump",
-      on: {
-        click: () => {
-          const at = shown();
-          close(true, false);
-          void o.onJump(at.message).then(() => !o.signal.aborted && tile(at)?.focus({ preventScroll: true }));
-        },
-      },
-      signal,
-    },
-    "Show in chat",
-  );
+  // The eye icon is drawn in CSS.
+  const jump = button("viewer-jump", "Show in chat", "", () => {
+    const at = shown();
+    close(true, false);
+    void o.onJump(at.message).then(() => !o.signal.aborted && tile(at)?.focus({ preventScroll: true }));
+  });
   const prev = button("viewer-prev", "Previous image", "‹", () => void go(-1));
   const next = button("viewer-next", "Next image", "›", () => void go(1));
   const img = h("img", { alt: "", decoding: "async" });

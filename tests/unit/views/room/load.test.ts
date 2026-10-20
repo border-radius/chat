@@ -78,6 +78,16 @@ describe("room view", () => {
       expect(msgEls()[1]!.querySelector(".author")).toBeNull();
     });
 
+    it("a message's time links to it (/r/:id/m/:msgId)", async () => {
+      const room = await newRoom();
+      await seedMessages(room.id, me.user.id, 1);
+      await mount(room);
+      const el = msgEls()[0]!;
+      const link = el.querySelector<HTMLAnchorElement>(".meta a.permalink")!;
+      expect(link.getAttribute("href")).toBe(`/r/${room.id}/m/${el.dataset.id}`);
+      expect(link.querySelector("time")).not.toBeNull();
+    });
+
     it("links in a message open in a new tab; anything else in it stays text (§7.6.3)", async () => {
       const room = await newRoom();
       await seedMessages(room.id, me.user.id, 1, { text: () => "docs at https://example.com/a. not javascript:alert(1) or <b>x</b>" });

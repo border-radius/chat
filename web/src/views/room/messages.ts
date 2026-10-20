@@ -280,6 +280,12 @@ export function createMessageList(opts: {
     return inWindow ?? m.expand?.reply_to ?? { id: m.reply_to, author: "", text: "", deleted: true };
   }
 
+  /** A sent message's time links to it (/r/:id/m/:msgId); one still sending, or failed, isn't on the server yet. */
+  function permalink(m: Message, time: HTMLElement): HTMLElement {
+    if (m.status) return time;
+    return h("a", { class: "permalink", href: `/r/${m.room}/m/${m.id}` }, [time]);
+  }
+
   function messageNode(
     m: Message,
     groupStart: boolean,
@@ -300,6 +306,8 @@ export function createMessageList(opts: {
       ? []
       : opts.reactions(m).map((r) => ({ ...r, who: reactors(r.users, me?.id ?? "", (id) => names.get(id) ?? opts.nameOf(id)) }));
     const { ms, time } = timeOf(m.created);
+    /** Someone else's reply to one of my messages: highlighted, so that I notice it (§19.3). */
+    const toMe = !!me && quoted?.author === me.id && m.author !== me.id;
     const sig = JSON.stringify([
       m.text,
       m.deleted,
@@ -322,6 +330,7 @@ export function createMessageList(opts: {
       confirmDelete === m.id,
       err?.text ?? "",
       targetId === m.id,
+      toMe,
       m.expand?.author?.name ?? "",
       m.expand?.author?.avatar ?? "",
       (m.files ?? []).join("/"),
@@ -332,7 +341,15 @@ export function createMessageList(opts: {
     if (hit && hit.sig === sig) return hit.el;
 
     const author: User = m.expand?.author ?? (me && m.author === me.id ? me : { id: m.author, name: "Unknown" });
-    const cls = ["msg", groupStart && "group-start", m.status, m.deleted && "deleted", targetId === m.id && "target", picked && "selected"]
+    const cls = [
+      "msg",
+      groupStart && "group-start",
+      m.status,
+      m.deleted && "deleted",
+      toMe && "to-me",
+      targetId === m.id && "target",
+      picked && "selected",
+    ]
       .filter(Boolean)
       .join(" ");
 
@@ -360,7 +377,7 @@ export function createMessageList(opts: {
       parts.push(
         h("div", { class: "meta" }, [
           authorEl(author, me, !!m.expand?.author),
-          h("time", { datetime: new Date(ms).toISOString(), title: formatFull(ms) }, time),
+          permalink(m, h("time", { datetime: new Date(ms).toISOString(), title: formatFull(ms) }, time)),
         ]),
       );
     }

@@ -540,8 +540,8 @@ while its first page loads.
 
 | Asset | Budget (gzipped) |
 |---|---|
-| `app.js` (including the PocketBase client) | **≤ 43.45 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, the room cache without waiting for the network, the QA pass 12 fixes, prefetching rooms not yet kept, the QA pass 13 fixes, thumbnail caching, the QA pass 14 fixes, Ctrl+Up/Down to pick the reply, link previews, the room access dialog fix, who can post, message search, see §13) |
-| `app.css` | **≤ 6.35 KB** (5 KB until §21, 5.5 KB until §23, 6 KB until audio attachments, 6.05 KB until §18.5, 6.10 KB until §28, 6.15 KB until the room access dialog fix, 6.20 KB until §29, see §13) |
+| `app.js` (including the PocketBase client) | **≤ 43.50 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, the room cache without waiting for the network, the QA pass 12 fixes, prefetching rooms not yet kept, the QA pass 13 fixes, thumbnail caching, the QA pass 14 fixes, Ctrl+Up/Down to pick the reply, link previews, the room access dialog fix, who can post, message search, message permalinks, see §13) |
+| `app.css` | **≤ 6.40 KB** (5 KB until §21, 5.5 KB until §23, 6 KB until audio attachments, 6.05 KB until §18.5, 6.10 KB until §28, 6.15 KB until the room access dialog fix, 6.20 KB until §29, 6.35 KB until message permalinks, see §13) |
 | `index.html` | ≤ 1.5 KB |
 | Image viewer (§17.7), loaded on first use | ≤ 4 KB script, ≤ 1.5 KB stylesheet |
 | Message search (§29), loaded on first use | ≤ 2 KB script (its styles are in `app.css`) |
@@ -1588,6 +1588,8 @@ always true for someone who can see the reply. `NewMessage.replyTo` sends `reply
 - **The quote** is a one-line button above the reply's text: author name, then the text on one line (or
   "Attachment", "Message deleted"). It uses the window's copy of the original when there is one, so edits and
   deletes show live; otherwise the server's expanded copy.
+- **Replies to you** (someone else's reply to one of your messages) are highlighted (`.to-me`: an accent bar on the
+  left and a faint accent tint), so you can spot them while scrolling.
 - **Going to the original** (`ctl.goTo`): if it is in the window, it is highlighted (`.target`) and centred. The
   highlight (here and for `/r/:id/m/:msgId`) holds briefly, fades out, and is dropped after `HIGHLIGHT_MS` (3 s). If not,
   the window is replaced by the history around it (as for `/r/:id/m/:msgId`, §7.5) once that has loaded; the old
@@ -1610,7 +1612,8 @@ always true for someone who can see the reply. `NewMessage.replyTo` sends `reply
 - **Unit** (room view): reply bar and send; cancel with × and Escape; stepping with Ctrl+Up/Down; quotes that go to an original on screen and
   one far back in history; a quote and the reply bar following an edit and a delete; no Reply when archived, deleted
   or still sending; archiving ends the reply, and unarchiving doesn't bring it back; Escape while composing; a send
-  or a failed message during a quote's history load; a reply to an original deleted unseen; the quote's name.
+  or a failed message during a quote's history load; a reply to an original deleted unseen; the quote's name; only
+  others' replies to your messages are highlighted.
 - **E2E** (`replies.spec.ts`, light and dark): Bob replies to Ada and she sees the quote live; Ada replies to a message
   far back in history, and Bob's click on the quote loads that history and highlights it; axe finds no serious
   violations in the reply bar or the quotes.

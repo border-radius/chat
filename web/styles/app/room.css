@@ -143,8 +143,14 @@
   white-space: nowrap;
 }
 
-.meta time {
+.meta time,
+.permalink {
   flex: none;
+}
+
+/* The time links to its message: underlined only on hover. */
+.permalink:not(:hover) {
+  text-decoration: none;
 }
 
 /* Another author's name opens a menu with "Message" (§16.5). It shrinks and truncates like a plain name, so the
@@ -173,6 +179,7 @@
 }
 
 .meta time,
+.permalink,
 .edited,
 .hint,
 .counter {

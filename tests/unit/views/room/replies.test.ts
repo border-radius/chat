@@ -53,6 +53,20 @@ describe("room view", () => {
       expect(saved.reply_to).toBe(parent.id);
     });
 
+    it("someone else's reply to one of your messages is highlighted; other replies aren't", async () => {
+      const other = await signedUp("Other");
+      const room = await newRoom();
+      const mine = await me.api.send({ id: newId(), room: room.id, text: "mine" });
+      const theirs = await other.api.send({ id: newId(), room: room.id, text: "theirs" });
+      const toMe = await other.api.send({ id: newId(), room: room.id, text: "re: mine", replyTo: mine.id });
+      const toThem = await other.api.send({ id: newId(), room: room.id, text: "re: theirs", replyTo: theirs.id });
+      const toSelf = await me.api.send({ id: newId(), room: room.id, text: "re: mine too", replyTo: mine.id });
+      await mount(room);
+      const highlighted = (id: string) => msgEl(id)!.classList.contains("to-me");
+      expect(highlighted(toMe.id)).toBe(true);
+      expect([mine, theirs, toThem, toSelf].map((m) => highlighted(m.id))).toEqual([false, false, false, false]);
+    });
+
     it("× or Escape cancels the reply; the next message is a plain one", async () => {
       const room = await newRoom();
       const parent = await me.api.send({ id: newId(), room: room.id, text: "first" });
