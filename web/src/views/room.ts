@@ -31,6 +31,7 @@ import { createNotice } from "./room/notice.ts";
 import { reactionFocus } from "./room/reactions.ts";
 import { createReply } from "./room/reply.ts";
 import { createSelection } from "./room/selection.ts";
+import type { ViewerImage } from "./room/viewer.ts";
 
 /**
  * Two changes as one: the later scroll and notice, and a render if either asked for one, keeping the anchor if either
@@ -79,6 +80,7 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
     avatarUrl: api.avatarUrl,
     onJumpToBeginning: () => void now(() => ctl.jump("first")),
     onSearch: () => void openSearch(),
+    onMedia: openMedia,
     onAccess: () => {
       const r = room();
       if (r) accessDialog.open(r, r.created_by === me()?.id, me());
@@ -389,11 +391,19 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
    * window's to start with, the viewer fetches the others when it gets near them.
    * The viewer is a lazy chunk, loaded on the first click. If it can't be (offline, or a new version was deployed),
    * the image opens in a new tab, as a thumbnail did before the viewer.
+   * From the media grid (§30): its `images` and `more`, and `leave` closes it on "Show in chat".
    */
-  async function viewImage(m: Message, file: string, opener: HTMLElement) {
+  async function viewImage(
+    m: Message,
+    file: string,
+    opener: HTMLElement,
+    images?: ViewerImage[],
+    more?: [boolean, boolean],
+    leave?: () => void,
+  ) {
     const media = (x: Message) => (x.files ?? []).filter(isMedia).map((f) => ({ message: x, file: f, video: isVideo(f) }));
     const { win } = ctl.state();
-    const images = win.items.flatMap((x) => (x.deleted || x.localFiles?.length ? [] : media(x)));
+    images ??= win.items.flatMap((x) => (x.deleted || x.localFiles?.length ? [] : media(x)));
     const id = roomId;
     const start = images.findIndex((i) => i.message.id === m.id && i.file === file);
     try {
@@ -402,7 +412,7 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
       await openViewer({
         images,
         start,
-        more: [win.hasOlder, win.hasNewer],
+        more: more ?? [win.hasOlder, win.hasNewer],
         page: async (back, edge) => {
           const messages = await api.page(withFiles(back ? older(id, edge) : newer(id, edge)), signal);
           return { messages: back ? messages.reverse() : messages, done: messages.length < PAGE_SIZE };
@@ -413,7 +423,10 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
         when: (x) => formatFull(parsePb(x.created)),
         fileUrl: api.fileUrl,
         refreshFileToken: () => api.fileToken(true),
-        onJump: (x) => now(() => ctl.goTo(x.id)),
+        onJump: (x) => {
+          leave?.();
+          return now(() => ctl.goTo(x.id));
+        },
         opener,
         signal,
       });
@@ -485,6 +498,16 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
     const back = h("a", { href: "/" }, "Back to rooms");
     shell.replaceChildren(notFound("You can't see this room any more.", [back]));
     scope.dispose();
+  }
+
+  /** The room's images and videos as a grid (§30): a lazy chunk, like search. It opens the viewer with `viewImage`. */
+  function openMedia() {
+    import("./room/media.ts").then(
+      (m) =>
+        scope.active &&
+        m.openMedia({ room: roomId, api, pageSize: PAGE_SIZE, h, name: attachmentName, isMedia, isVideo, open: viewImage, signal }),
+      () => scope.active && notice.say("Couldn't open media. Check your connection."),
+    );
   }
 
   /** The search bar (§29), while open. */

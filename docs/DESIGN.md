@@ -135,6 +135,7 @@ chat/
 │   ├── index.html              # template; build injects hashed asset names
 │   ├── styles/app.css          # @imports styles/app/*.css (one file per part, in cascade order) into one bundle
 │   ├── styles/viewer.css       # the image viewer's, loaded on first use (§17.7)
+│   ├── styles/media.css        # the media grid's, loaded on first use (§30)
 │   ├── public/icons/           # the installed app's icons, copied to pb_public/icons/ (§27)
 │   └── src/
 │       ├── main.ts             # boot; registers the service worker
@@ -163,7 +164,8 @@ chat/
 │           ├── room.ts         # puts the controller's changes on screen, wires the parts
 │           └── room/           # controller.ts (message window, loading, realtime, sending; no DOM),
 │                               # header.ts, messages.ts (the list), composer.ts, forward.ts (§21.3),
-│                               # viewer.ts (image viewer, a lazy chunk: §17.7), search.ts (message search, a lazy chunk: §29)
+│                               # viewer.ts (image viewer, a lazy chunk: §17.7), search.ts (message search, a lazy chunk: §29),
+│                               # media.ts (media grid, a lazy chunk: §30)
 ├── tests/
 │   ├── unit/                   # Vitest + happy-dom, against a real throwaway PocketBase
 │   ├── integration/            # Vitest against a real PocketBase process
@@ -540,11 +542,12 @@ while its first page loads.
 
 | Asset | Budget (gzipped) |
 |---|---|
-| `app.js` (including the PocketBase client) | **≤ 43.50 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, the room cache without waiting for the network, the QA pass 12 fixes, prefetching rooms not yet kept, the QA pass 13 fixes, thumbnail caching, the QA pass 14 fixes, Ctrl+Up/Down to pick the reply, link previews, the room access dialog fix, who can post, message search, message permalinks, see §13) |
+| `app.js` (including the PocketBase client) | **≤ 43.60 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, the room cache without waiting for the network, the QA pass 12 fixes, prefetching rooms not yet kept, the QA pass 13 fixes, thumbnail caching, the QA pass 14 fixes, Ctrl+Up/Down to pick the reply, link previews, the room access dialog fix, who can post, message search, message permalinks, the media grid, see §13) |
 | `app.css` | **≤ 6.40 KB** (5 KB until §21, 5.5 KB until §23, 6 KB until audio attachments, 6.05 KB until §18.5, 6.10 KB until §28, 6.15 KB until the room access dialog fix, 6.20 KB until §29, 6.35 KB until message permalinks, see §13) |
 | `index.html` | ≤ 1.5 KB |
 | Image viewer (§17.7), loaded on first use | ≤ 4 KB script, ≤ 1.5 KB stylesheet |
 | Message search (§29), loaded on first use | ≤ 2 KB script (its styles are in `app.css`) |
+| Media grid (§30), loaded on first use | ≤ 3 KB script, ≤ 1 KB stylesheet |
 | Web fonts | **none** (system font stack) |
 | Requests on first load | 3 (html, js, css) + API; the manifest, its icons and `sw.js` (§27) come after, off the critical path |
 
@@ -986,6 +989,7 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 | Bundle budget (room access dialog) | `app.js` raised from 42.40 KB to 42.55 KB and `app.css` from 6.15 KB to 6.20 KB gzipped (§7.7): the access dialog (§23.2) scrolling its body, search results as toggles, and Telegram stand-ins left out took them to 42.52 KB and 6.18 KB. |
 | Bundle budget (who can post) | `app.js` raised from 42.55 KB to 43.25 KB gzipped (§7.7): choosing who can post (§23.6), with a second people list in the access dialog, the reader banner and the checks behind replying, editing and forwarding, took it to 43.21 KB. |
 | Bundle budget (message search) | `app.js` raised from 43.25 KB to 43.45 KB and `app.css` from 6.20 KB to 6.35 KB gzipped (§7.7): message search (§29), the header button, loading its chunk and going to a result, and its styles took them to 43.40 KB and 6.32 KB. The search itself is a lazy chunk of 1.58 KB. |
+| Bundle budget (media grid) | `app.js` raised from 43.50 KB to 43.60 KB gzipped (§7.7): the media grid (§30) is a lazy chunk with its own stylesheet, but its header button, loading the chunk and opening the viewer from it took `app.js` to 43.59 KB. |
 | Bundle budget (QA pass 9) | `app.js` raised from 39.25 KB to 39.35 KB gzipped (§7.7): the forwarding fixes of QA pass 9 (messages deleted meanwhile left out, the server's reason shown, focus kept while selecting) took it to 39.30 KB. |
 
 ### Still open
@@ -2396,3 +2400,45 @@ changes; searching again does.
 - **E2E** (`search.spec.ts`): a Cyrillic search in any case goes to a message 200 back (axe: no serious violations);
   a DM's search finds only its own messages.
 - **Perf** (`tests/perf/scale.ts`): a room searched for a word in none of its messages, and for one in all.
+
+## 30. Media grid
+
+A button (🖼️, "Media") in the header of every room and DM, next to search (§29), opens a modal dialog with the
+room's images and videos as a grid of square tiles, **newest first** under month headings ("October 2026"), so one
+sent long ago is quick to find without scrolling the history. Scrolling to the end fetches older ones (50 messages a
+page). A tile opens the viewer (§17.7) over the grid, stepping through the grid's images and videos (oldest first, as
+the viewer always does) and fetching older ones as it nears them; closing the viewer comes back to the grid with focus
+on the tile. "Show in chat" in the viewer closes both and goes to the message, as from a thumbnail in the list.
+Escape or × closes the grid and gives focus back to the button. Guests can open it in the Open Air rooms they read.
+
+### 30.1 Data
+
+- **Query** (`mediaQuery` in `views/room/media.ts`): the viewer's (§17.7), `withFiles(latest(room))` then
+  `withFiles(older(room, last))`, newest first, through `api.page` with the list rule applied. Written out in the chunk,
+  which can't import `lib/cursor.ts` (§17.7); a unit test keeps the two the same. Messages with only other files (PDFs,
+  audio) or forwards without media give no tiles; when a page brings few, the grid asks for the next one at once.
+- **Thumbnails:** a `240x240` thumb (cropped to the square, centred), added to `messages.files` by migration
+  `1760000028_media_grid_thumbs.js`; the fitted thumbs of §17.5 would be blurry once cropped. A video tile is its first
+  frame (`#t=0.001`), as in the list. A tile that fails to load tries once more with a new file token.
+- Not live: what is posted while the grid is open shows the next time it opens.
+
+### 30.2 Frontend
+
+`views/room/media.ts` is a lazy chunk like search: imported on the first click, types only; the room view passes it
+`api`, `h`, the file-name helpers and `viewImage` (which takes the grid's list, its "more before" flag and a callback
+that closes the grid). It links `styles/media.css` (hashed, its URL in the `MEDIA_CSS` define) and opens once that has
+loaded, like the viewer; if the chunk can't load, the notice says "Couldn't open media. Check your connection.". The
+dialog follows the theme (unlike the viewer) and fills the window on narrow screens. Like the viewer it adds a history
+entry with the same URL: Back closes it (and from the viewer over it, closes just the viewer); closing it from itself
+goes Back off its entry, and after "Show in chat" waits for the viewer's own Back first. A tile is a button named
+"file name[, video], author, date". The status line says "Loading…", "No photos or videos here yet." or "Couldn't
+load media." with Retry.
+
+### 30.3 Tests
+
+- **Unit** (`views/room/media.test.ts`): the query equals `withFiles(latest|older)`; newest first, a message's files
+  in reverse, month headings across pages, the next page at the end, no more once a page is short; the empty state;
+  Retry; Escape and focus; one grid at a time.
+- **E2E** (`media.spec.ts`): images 120 messages back, opened in the viewer ("2 / 3"), Escape and Back back to the
+  grid, "Show in chat" loads the message and leaves no history entry; Back and Escape close the grid; axe: no serious
+  violations; an empty room says so.

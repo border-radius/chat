@@ -10,6 +10,7 @@ import {
   entryOutputs,
   formatSizes,
   injectAssets,
+  MEDIA,
   OUTDIR,
   outputOf,
   SEARCH,
@@ -33,16 +34,20 @@ const shared = {
   logLevel: "warning",
 };
 
-// The viewer's stylesheet first: the app's build needs its hashed name.
+// The viewer's and the media grid's stylesheets first: the app's build needs their hashed names.
 const viewerCss = await esbuild.build({
   ...shared,
-  entryPoints: [{ in: VIEWER.css, out: "viewer" }],
+  entryPoints: [
+    { in: VIEWER.css, out: "viewer" },
+    { in: MEDIA.css, out: "media" },
+  ],
   bundle: true,
   outdir: OUTDIR,
 });
 const viewerCssPath = outputOf(viewerCss.metafile, OUTDIR, VIEWER.css);
+const mediaCssPath = outputOf(viewerCss.metafile, OUTDIR, MEDIA.css);
 
-const result = await esbuild.build({ ...BASE_OPTIONS, ...shared, define: viewerDefine(viewerCssPath) });
+const result = await esbuild.build({ ...BASE_OPTIONS, ...shared, define: viewerDefine(viewerCssPath, mediaCssPath) });
 
 const assets = entryOutputs(result.metafile, OUTDIR, ENTRIES);
 const eager = staticImports(result.metafile, OUTDIR, assets.js);
@@ -64,6 +69,8 @@ const sizes = {
   viewerJs: await gz(`${OUTDIR}/${outputOf(result.metafile, OUTDIR, VIEWER.js)}`),
   viewerCss: await gz(`${OUTDIR}/${viewerCssPath}`),
   searchJs: await gz(`${OUTDIR}/${outputOf(result.metafile, OUTDIR, SEARCH.js)}`),
+  mediaJs: await gz(`${OUTDIR}/${outputOf(result.metafile, OUTDIR, MEDIA.js)}`),
+  mediaCss: await gz(`${OUTDIR}/${mediaCssPath}`),
 };
 
 console.log(`built ${OUTDIR}/ (gzipped):\n${formatSizes(sizes)}`);

@@ -1,6 +1,6 @@
 // Pure helpers for scripts/build.mjs. Kept side-effect free so they can be unit-tested.
 
-/** @typedef {{ js: number, css: number, html: number, viewerJs: number, viewerCss: number, searchJs: number }} Sizes gzipped byte sizes */
+/** @typedef {{ js: number, css: number, html: number, viewerJs: number, viewerCss: number, searchJs: number, mediaJs: number, mediaCss: number }} Sizes gzipped byte sizes */
 
 /** Where builds go: PocketBase serves this directory. */
 export const OUTDIR = "pb_public";
@@ -16,6 +16,9 @@ export const VIEWER = Object.freeze({ js: "web/src/views/room/viewer.ts", css: "
 
 /** Message search (§29): a lazy chunk too. Its few styles are in app.css. */
 export const SEARCH = Object.freeze({ js: "web/src/views/room/search.ts" });
+
+/** The media grid (§30): a lazy chunk and a stylesheet it links, like the viewer's (`MEDIA_CSS`). */
+export const MEDIA = Object.freeze({ js: "web/src/views/room/media.ts", css: "web/styles/media.css" });
 
 /**
  * The service worker (§27): built on its own, unhashed, to the root of the public dir (a worker controls only the paths
@@ -33,8 +36,14 @@ export const SW_OPTIONS = {
 /** Files copied as they are to the public dir: the icons the web app manifest and index.html name (§27). */
 export const STATIC_DIR = "web/public";
 
-/** @param {string} cssPath the viewer stylesheet's path relative to the public dir */
-export const viewerDefine = (cssPath) => ({ VIEWER_CSS: JSON.stringify(`/${cssPath}`) });
+/**
+ * @param {string} cssPath the viewer stylesheet's path relative to the public dir
+ * @param {string} mediaCssPath the media grid's (§30)
+ */
+export const viewerDefine = (cssPath, mediaCssPath) => ({
+  VIEWER_CSS: JSON.stringify(`/${cssPath}`),
+  MEDIA_CSS: JSON.stringify(`/${mediaCssPath}`),
+});
 
 /**
  * esbuild options shared by `build` and `dev`; each adds its own minify/sourcemap/naming.
@@ -57,12 +66,14 @@ export const BASE_OPTIONS = {
 
 /** Gzipped size budget in bytes (DESIGN.md §7.7). */
 export const BUDGET = Object.freeze({
-  js: 43.5 * 1024,
+  js: 43.6 * 1024,
   css: 6.4 * 1024,
   html: 1536,
   viewerJs: 4 * 1024,
   viewerCss: 1.5 * 1024,
   searchJs: 2 * 1024,
+  mediaJs: 3 * 1024,
+  mediaCss: 1024,
 });
 
 /**

@@ -13,7 +13,7 @@ export default defineConfig({
     projects: [
       {
         // What the build defines (scripts/lib/build-utils.mjs).
-        define: { VIEWER_CSS: JSON.stringify("/assets/viewer.css") },
+        define: { VIEWER_CSS: JSON.stringify("/assets/viewer.css"), MEDIA_CSS: JSON.stringify("/assets/media.css") },
         test: {
           name: "unit",
           include: ["tests/unit/**/*.test.ts"],

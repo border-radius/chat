@@ -66,7 +66,10 @@ describe("staticImports", () => {
 });
 
 describe("viewerDefine", () => {
-  it("defines the viewer stylesheet's absolute URL as a string literal", () => {
-    expect(viewerDefine("assets/viewer-AB12.css")).toEqual({ VIEWER_CSS: '"/assets/viewer-AB12.css"' });
+  it("defines the viewer's and the media grid's stylesheet URLs as string literals", () => {
+    expect(viewerDefine("assets/viewer-AB12.css", "assets/media-CD34.css")).toEqual({
+      VIEWER_CSS: '"/assets/viewer-AB12.css"',
+      MEDIA_CSS: '"/assets/media-CD34.css"',
+    });
   });
 });

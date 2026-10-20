@@ -272,7 +272,8 @@
           "system": false,
           "thumbs": [
             "800x480f",
-            "480x240f"
+            "480x240f",
+            "240x240"
           ],
           "type": "file"
         },

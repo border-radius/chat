@@ -1,0 +1,121 @@
+/* Media grid (DESIGN.md §30). Not part of app.css: the grid links this file when it first opens.
+   Uses app.css's custom properties, so it follows the theme. */
+
+dialog.media {
+  width: min(56rem, 100%);
+  height: min(48rem, 100%);
+  max-width: none;
+  max-height: none;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--fg);
+  box-shadow: var(--shadow);
+}
+
+dialog.media[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+dialog.media::backdrop {
+  background: rgb(0 0 0 / 45%);
+}
+
+.media-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem 0.5rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.media-bar h2 {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 1rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.media-bar .link {
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.media-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 1rem 1rem;
+}
+
+.media-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr));
+  gap: 4px;
+}
+
+.media-grid h3 {
+  grid-column: 1 / -1;
+  margin: 0.9rem 0 0.2rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.media-tile {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.media-tile img,
+.media-tile video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.media-tile:hover {
+  opacity: 0.85;
+}
+
+.media-tile span {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  padding: 0 0.4rem;
+  border-radius: var(--pill);
+  background: rgb(0 0 0 / 60%);
+  color: #fff;
+  font-size: 0.75rem;
+}
+
+.media-status {
+  margin: 1rem 0 0;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+@media (max-width: 40rem) {
+  dialog.media {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    border-radius: 0;
+  }
+  .media-bar {
+    padding-top: max(0.5rem, env(safe-area-inset-top));
+  }
+}

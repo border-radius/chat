@@ -93,9 +93,9 @@ export async function seedMessages(
   room: string,
   author: string,
   n: number,
-  opts: { text?: (i: number) => string; stepMs?: number; startAt?: number } = {},
+  opts: { text?: (i: number) => string; stepMs?: number; startAt?: number; files?: (i: number) => string[] } = {},
 ): Promise<Message[]> {
-  const { text = (i) => `msg ${i + 1}`, stepMs = 1000, startAt } = opts;
+  const { text = (i) => `msg ${i + 1}`, stepMs = 1000, startAt, files = () => [] } = opts;
   const db = new DatabaseSync(join(inject("pbDataDir"), "data.db"), { readOnly: true });
   let name: string;
   try {
@@ -116,6 +116,8 @@ export async function seedMessages(
       updated: ts,
       edited_at: "",
       deleted: false,
+      // Names only: there are no such files on disk.
+      ...(files(i).length ? { files: files(i) } : {}),
       expand: { author: { id: author, name } },
     };
     out.push(m);
@@ -123,8 +125,8 @@ export async function seedMessages(
   await runSql(
     inject("pbUrl"),
     out.map((m) => ({
-      sql: "INSERT INTO messages (id, room, author, text, text_key, edited_at, deleted, deleted_at, created, updated) VALUES ({:id}, {:room}, {:author}, {:text}, {:key}, '', 0, '', {:ts}, {:ts})",
-      params: { id: m.id, room, author, text: m.text, key: foldKey(m.text), ts: m.created },
+      sql: "INSERT INTO messages (id, room, author, text, text_key, files, edited_at, deleted, deleted_at, created, updated) VALUES ({:id}, {:room}, {:author}, {:text}, {:key}, {:files}, '', 0, '', {:ts}, {:ts})",
+      params: { id: m.id, room, author, text: m.text, key: foldKey(m.text), files: JSON.stringify(m.files ?? []), ts: m.created },
     })),
   );
   return out;
