@@ -205,8 +205,10 @@ export function createClient(baseUrl: string, authStore: AuthStore = createAuthS
         onUpload && payload instanceof FormData
           ? await upload(url, method, headers, payload, onUpload)
           : await fetch(url, { method, headers, ...(payload ? { body: payload } : {}), ...(signal ? { signal } : {}) });
+      // No body is fine for a 204, or an error the server didn't explain. A success whose body never came (the page
+      // navigated away, the connection dropped) is a failure, not `{}`: as a login's answer it saved no session (QA BUG-117).
       data = await (res.json() as Promise<PbError["response"]>).catch((e) => {
-        if (aborted(e)) throw e;
+        if (aborted(e) || (res.status < 300 && res.status !== 204)) throw e;
         return {};
       });
     } catch (e) {

@@ -304,7 +304,7 @@ The hooks are kept small. They only do things the rules can't express:
 
 ## 6. API usage (frontend ↔ backend)
 
-The frontend talks to PocketBase through `pb.ts`, a minimal client (about 2 KB gzipped) that replaced the official **PocketBase JS SDK** (about 10 KB, most of it admin services, OAuth2/OTP/MFA flows and cookie helpers the app never used; §13). It keeps the SDK 0.28 wire behavior the app relies on: JSON or multipart requests with the auth header, `pb.filter()` binding, the auth record in `localStorage` under the SDK's key `pocketbase_auth` (shared with other tabs through the `storage` event), and the realtime protocol (one `EventSource`, `PB_CONNECT` client id, subscriptions POSTed to `/api/realtime` and resent after reconnects with the same backoff). Only `api.ts` imports it. The record calls in the table below are named as in the SDK; `api.ts` implements them on top of `pb.send()`. The tests still use the SDK as an admin client.
+The frontend talks to PocketBase through `pb.ts`, a minimal client (about 2 KB gzipped) that replaced the official **PocketBase JS SDK** (about 10 KB, most of it admin services, OAuth2/OTP/MFA flows and cookie helpers the app never used; §13). It keeps the SDK 0.28 wire behavior the app relies on: JSON or multipart requests with the auth header, `pb.filter()` binding, the auth record in `localStorage` under the SDK's key `pocketbase_auth` (shared with other tabs through the `storage` event), and the realtime protocol (one `EventSource`, `PB_CONNECT` client id, subscriptions POSTed to `/api/realtime` and resent after reconnects with the same backoff). Only `api.ts` imports it. A failed request rejects with a `PbError`, status 0 for network trouble, including a success whose body never came (the page navigated away mid-answer; taken as `{}` it saved an empty session, QA BUG-117). The record calls in the table below are named as in the SDK; `api.ts` implements them on top of `pb.send()`. The tests still use the SDK as an admin client.
 
 | Action | Call |
 |---|---|
@@ -542,7 +542,7 @@ while its first page loads.
 
 | Asset | Budget (gzipped) |
 |---|---|
-| `app.js` (including the PocketBase client) | **≤ 43.60 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, the room cache without waiting for the network, the QA pass 12 fixes, prefetching rooms not yet kept, the QA pass 13 fixes, thumbnail caching, the QA pass 14 fixes, Ctrl+Up/Down to pick the reply, link previews, the room access dialog fix, who can post, message search, message permalinks, the media grid, see §13) |
+| `app.js` (including the PocketBase client) | **≤ 43.65 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, the room cache without waiting for the network, the QA pass 12 fixes, prefetching rooms not yet kept, the QA pass 13 fixes, thumbnail caching, the QA pass 14 fixes, Ctrl+Up/Down to pick the reply, link previews, the room access dialog fix, who can post, message search, message permalinks, the media grid, the QA pass 16 fixes, see §13) |
 | `app.css` | **≤ 6.40 KB** (5 KB until §21, 5.5 KB until §23, 6 KB until audio attachments, 6.05 KB until §18.5, 6.10 KB until §28, 6.15 KB until the room access dialog fix, 6.20 KB until §29, 6.35 KB until message permalinks, see §13) |
 | `index.html` | ≤ 1.5 KB |
 | Image viewer (§17.7), loaded on first use | ≤ 4 KB script, ≤ 1.5 KB stylesheet |
@@ -661,7 +661,8 @@ View tests run against a real, throwaway PocketBase (temp data dir) using the re
 - Unauthenticated access redirects to `/login`.
 - `unmount` of the previous view is called before the next view's `mount`.
 - A trailing slash is the same page.
-- An image viewer history entry with no viewer open (§17.7) is passed over with `history.back()`, on start and on `popstate`.
+- An image viewer history entry with no viewer open (§17.7), or a media grid entry with no grid open (§30), is passed over
+  with `history.back()`, on start and on `popstate`; not the grid's entry while the grid is open (QA BUG-118).
 
 **`views/room/*.test.ts`** (real PocketBase; one file per feature, sharing `views/room/harness.ts`)
 - Initial render shows 50 messages, oldest at the top.
@@ -990,6 +991,7 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 | Bundle budget (who can post) | `app.js` raised from 42.55 KB to 43.25 KB gzipped (§7.7): choosing who can post (§23.6), with a second people list in the access dialog, the reader banner and the checks behind replying, editing and forwarding, took it to 43.21 KB. |
 | Bundle budget (message search) | `app.js` raised from 43.25 KB to 43.45 KB and `app.css` from 6.20 KB to 6.35 KB gzipped (§7.7): message search (§29), the header button, loading its chunk and going to a result, and its styles took them to 43.40 KB and 6.32 KB. The search itself is a lazy chunk of 1.58 KB. |
 | Bundle budget (media grid) | `app.js` raised from 43.50 KB to 43.60 KB gzipped (§7.7): the media grid (§30) is a lazy chunk with its own stylesheet, but its header button, loading the chunk and opening the viewer from it took `app.js` to 43.59 KB. |
+| Bundle budget (QA pass 16) | `app.js` raised from 43.60 KB to 43.65 KB gzipped (§7.7): the fixes for QA BUG-117 (a success whose body never came saved an empty session, `pb.ts`) and BUG-118 (the router passes over a media grid entry with no grid) run before any lazy chunk loads, and took `app.js` to 43.64 KB. |
 | Bundle budget (QA pass 9) | `app.js` raised from 39.25 KB to 39.35 KB gzipped (§7.7): the forwarding fixes of QA pass 9 (messages deleted meanwhile left out, the server's reason shown, focus kept while selecting) took it to 39.30 KB. |
 
 ### Still open
@@ -2430,9 +2432,10 @@ that closes the grid). It links `styles/media.css` (hashed, its URL in the `MEDI
 loaded, like the viewer; if the chunk can't load, the notice says "Couldn't open media. Check your connection.". The
 dialog follows the theme (unlike the viewer) and fills the window on narrow screens. Like the viewer it adds a history
 entry with the same URL: Back closes it (and from the viewer over it, closes just the viewer); closing it from itself
-goes Back off its entry, and after "Show in chat" waits for the viewer's own Back first. A tile is a button named
-"file name[, video], author, date". The status line says "Loading…", "No photos or videos here yet." or "Couldn't
-load media." with Retry.
+goes Back off its entry, and after "Show in chat" waits for the viewer's own Back first. An entry with no grid open on
+it (a reload while it was open, Forward after Back closed it) is passed over by the router, as the viewer's is (QA
+BUG-118). A tile is a button named "file name[, video], author, date". The status line says "Loading…", "No photos or
+videos here yet." or "Couldn't load media." with Retry; until Retry, the end of the grid doesn't ask again (QA BUG-116).
 
 ### 30.3 Tests
 

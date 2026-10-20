@@ -109,7 +109,6 @@ export function openMedia(o: MediaOptions): void {
       if (closed) return;
       done = page.length < o.pageSize;
       last = page.at(-1) ?? last;
-      // Newest first, so a message's files last to first: reversed for the viewer, they are in their own order.
       for (const m of page) {
         if (m.deleted) continue;
         // Newest first, so a message's files last to first: reversed for the viewer, they are in their own order.
@@ -118,10 +117,13 @@ export function openMedia(o: MediaOptions): void {
       status.textContent = done ? (items.length ? "" : "No photos or videos here yet.") : "";
     } catch {
       if (closed) return;
+      // Until Retry: observed again, the end (still in view) would ask again at once, over and over (QA BUG-116).
+      seen.unobserve(status);
       status.replaceChildren(
         "Couldn't load media. ",
         h("button", { type: "button", class: "link", on: { click: () => void more() }, signal }, "Retry"),
       );
+      return;
     } finally {
       loading = false;
     }
@@ -179,7 +181,8 @@ export function openMedia(o: MediaOptions): void {
   /**
    * `back`: closed from the grid itself (×, Escape) or from the viewer's "Show in chat": leave its history entry too.
    * Not when Back closed it, nor when leaving the room (that would undo the navigation). `refocus`: put focus back on
-   * the button (not when going to a message: the viewer focuses its tile).
+   * the button (not when going to a message: the viewer focuses its tile). The closed dialog stays in the page until
+   * then: the router passes over a grid entry with no grid (QA BUG-118), and would go Back a second time.
    */
   function close(back: boolean, refocus = true) {
     if (closed) return;
@@ -188,8 +191,8 @@ export function openMedia(o: MediaOptions): void {
     scope.abort();
     seen.disconnect();
     if (dialog.open) dialog.close();
-    dialog.remove();
-    if (back) leaving = leave();
+    if (back) leaving = leave().finally(() => dialog.remove());
+    else dialog.remove();
     if (refocus) opener?.focus();
   }
 

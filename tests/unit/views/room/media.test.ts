@@ -72,6 +72,9 @@ describe("room view: media grid (§30)", () => {
     await mount(room);
     await open();
     await vi.waitFor(() => expect(status().textContent).toBe("Couldn't load media. Retry"));
+    // Not observed until Retry: a real observer reports the end at once when observed again, which asked again,
+    // ~60 times a second while it failed (QA BUG-116).
+    expect(io.observing(status())).toBe(false);
     fail = false;
     status().querySelector("button")!.click();
     await vi.waitFor(() => expect(status().textContent).toBe("No photos or videos here yet."));
@@ -87,7 +90,9 @@ describe("room view: media grid (§30)", () => {
     await vi.waitFor(() => expect(tiles()).toHaveLength(1));
     expect(document.querySelectorAll("dialog.media")).toHaveLength(1);
     grid()!.dispatchEvent(new Event("close"));
-    expect(grid()).toBeNull();
+    expect(grid()!.open).toBe(false);
+    // Removed once Back has left its entry: the router passes over a grid entry with no grid (QA BUG-118).
+    await vi.waitFor(() => expect(grid()).toBeNull());
     expect(document.activeElement).toBe(toggle());
   });
 });

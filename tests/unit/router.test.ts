@@ -270,6 +270,27 @@ describe("createRouter", () => {
     back.mockRestore();
   });
 
+  it("passes over a media grid entry (§30) with no grid open, not the one under a viewer Back just closed (QA BUG-118)", () => {
+    const back = vi.spyOn(history, "back").mockImplementation(() => {});
+    const land = (state: unknown) => {
+      history.pushState(state, "", "/r/42");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    };
+    history.replaceState({ media: "media-1" }, "", "/r/42");
+    router.start();
+    expect(back).toHaveBeenCalledTimes(1);
+    land({ media: "media-1" });
+    expect(back).toHaveBeenCalledTimes(2);
+    // The grid is open: Back closed the viewer over it, landing on the grid's own entry.
+    const grid = document.body.appendChild(document.createElement("dialog"));
+    grid.className = "media";
+    land({ media: "media-1" });
+    expect(back).toHaveBeenCalledTimes(2);
+    grid.remove();
+    expect(log).toEqual([`mount room {"id":"42"}`]);
+    back.mockRestore();
+  });
+
   describe("old-style #/ URLs (from before paths)", () => {
     it("are shown as their path on start", () => {
       history.replaceState(null, "", "/#/r/42");

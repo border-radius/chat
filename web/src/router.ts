@@ -130,11 +130,15 @@ export function createRouter(opts: {
   }
 
   /**
-   * An entry the image viewer added (§17.7) with no viewer open on it: Forward after Back closed it, or a reload while
-   * it was open. It would take an extra Back that seems to do nothing, so it is passed over. (While a viewer is open, a
-   * popstate only ever leaves its entry, so this never meets an open viewer.)
+   * An entry the image viewer (§17.7) or the media grid (§30) added with nothing open on it: Forward after Back closed
+   * it, or a reload while it was open. It would take an extra Back that seems to do nothing, so it is passed over.
+   * (While a viewer is open, a popstate only ever leaves its entry, so this never meets an open viewer; the grid's
+   * entry is met with the grid open when Back closes a viewer over it, QA BUG-118.)
    */
-  const skipViewerEntry = () => (history.state as { viewer?: unknown } | null)?.viewer && history.back();
+  const skipViewerEntry = () => {
+    const s = history.state as { viewer?: unknown; media?: unknown } | null;
+    if (s?.viewer || (s?.media && !document.querySelector("dialog.media"))) history.back();
+  };
   /** Back/Forward. (Also the image viewer's own history entry, §17.7: same path, so nothing to do.) */
   const onPopState = () => {
     skipViewerEntry();

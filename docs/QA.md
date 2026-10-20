@@ -1203,3 +1203,77 @@ Not changed, by design or for a decision:
 - A send refused because you may no longer post says "Not sent." with Retry, like any refusal; the reader's banner
   above says why.
 - BUG-108 (busy rooms prefetched by everyone) is still open.
+
+# QA pass 16 — the media grid, message permalinks, then the rest of the app
+
+Exploratory testing after the media grid (§30) and timestamp permalinks, 2026-10-21. A production build on a fresh
+PocketBase server, in Chromium (desktop 1100×720 and a 390×844 phone, light and dark, with and without the service
+worker). Covered: the grid with forwards, deleted messages, PDFs, 230 messages over five months (paging, month headings,
+order within a message), the viewer over it (stepping, Escape, Back, "Show in chat" 180 messages back), guests in Open
+Air rooms, failing pages (offline, 500), losing access or logging out elsewhere while it is open, double clicks and
+double Backs; permalinks clicked, pasted (other rooms' ids, deleted, junk, 300 characters), opened by guests and
+non-members, while selecting, with Ctrl, with a draft typed, on unread rooms; and randomized runs (seeds 41 desktop, 42
+phone, 43 with the service worker; 50 steps each, now also clicking times and opening the grid). Numbering continues
+from BUG-115. Each fix lands with a test that fails without it.
+
+| # | Severity | Area | Summary | Status |
+|---|---|---|---|---|
+| BUG-117 | Medium | Sessions | A reload or a click to another page while the session was being renewed (on every page load) could log you out: about 1 page load in 6 in quick succession | Fixed |
+| BUG-116 | Medium (performance) | Media grid | A page of the grid that failed was asked for again at once, ~60 times a second, until it loaded or the grid closed | Fixed |
+| BUG-118 | Low | Media grid | After a reload with the grid open, or Forward after Back closed it, Back seemed to do nothing once | Fixed |
+
+## BUG-117 — A page change while the session was renewed logged you out (Medium)
+
+**Steps:** logged in, load a page and go to another one (a reload, a link, a typed URL) within a moment. **Actual:**
+in 2 of 12 tries the next page came up as a guest: a private room said "This room doesn't exist.", and the session was
+gone for good (`pocketbase_auth` held `{}`). The app renews the session on every start (`renew()`, QA BUG-45). When the
+page went away while the answer was arriving, its body never came, and `pb.ts` took a body it couldn't read as `{}`,
+so the renewal "succeeded" with no token and saved that: `JSON.stringify({ token: undefined, record: undefined })` is
+`{}`. A connection dropping mid-answer did the same, and any other request then "succeeded" with nothing in it.
+**Fix:** a success (2xx but 204) whose body can't be read fails with status 0, like any network trouble; a 204, or an
+error with no explanation, still reads as `{}`. 0 of 24 tries since.
+
+## BUG-116 — A failed page of the grid was asked for again and again (Medium, performance)
+
+**Steps:** open Media while offline, or while the server answers 500 (or 429, when rate limited). **Actual:** 173
+requests in 3 s, the status line flickering between "Loading…" and "Couldn't load media. Retry". After each page the
+grid observes its end again (a page with few media leaves it in view), and an `IntersectionObserver` reports what it
+starts observing at once, so a failure asked again straight away. The unit test's fake observer doesn't report on
+`observe()`, so it never saw it. **Fix:** a failure stops observing until Retry.
+
+## BUG-118 — A media grid entry with no grid on it (Low)
+
+Like the viewer (§17.7), the grid adds a history entry with the same URL, so Back closes it. After a reload while it
+was open, or Forward after Back closed it, that entry was still there with no grid: one Back did nothing visible. The
+router has passed over such viewer entries since §17.7, not the grid's. **Fix:** the router passes over a grid entry
+when no grid is open. The grid closing from itself keeps its (closed) dialog in the page until its own Back has landed,
+or the router went Back a second time after "Show in chat" and left the room: caught by `media.spec.ts`.
+
+## Checked and fine
+
+- **Media grid:** forwards show their original's images (as the forwarder's, like the viewer); deleted messages and
+  PDFs give no tiles; 159 images from 230 messages over five months all come, once each, newest first, a message's
+  files last to first, one heading per month across pages; the viewer from the oldest tile counts "1 / 159"; "Show in
+  chat" 180 messages back loads and highlights the message and leaves no dialog or history entry; Escape from the
+  viewer comes back to the grid with focus on the tile; a double click opens one grid; losing access or logging out in
+  another tab closes the grid and the viewer over it; a guest in an Open Air room sees tiles, authors and the viewer;
+  dark mode.
+- **Permalinks:** clicking a time goes to `/r/:id/m/:msgId` with the message highlighted, the draft kept and new
+  messages still live; Back returns to the room; an old message's link loads history around it and scrolling down
+  reaches the newest; a deleted message's link opens at its "Message deleted" place; another room's message id, junk
+  and 300-character ids show the latest messages and "That message isn't in this room."; a non-member of a private room gets "This room doesn't exist." and
+  nothing of it; a guest's link to a members-only room asks to log in and comes back to the message after; while
+  selecting, a click on a time selects; Ctrl+click opens a new tab; a sending message's time isn't a link until it is
+  sent; a link to an old message leaves the room's unread count alone until you scroll to the end.
+- **Randomized runs** (seeds 41, 42 phone, 43 service worker before the fixes; 44, 45 phone, 46 service worker after):
+  the room matched the server after every step, no page errors.
+- Typecheck, unit and integration suites before the fixes; `npm run check` and the Chromium e2e suite (62/62) after;
+  the e2e suite with the service worker allowed (60/62: `attachments.spec.ts:96` and `:177` route() what the service
+  worker fetches itself, as in pass 14).
+
+Not changed, by design or for a decision:
+- The grid's video tiles load their metadata (`preload=metadata`, first frame) as soon as they are drawn, not lazily
+  like images: a page of 50 messages with ten videos each fetches 500 at once. The room's list does the same.
+- After losing access to a room with the viewer open over the grid, one Back stays on the "You can't see this room any
+  more." page: it is the room's own entry, same URL.
+- BUG-108 (busy rooms prefetched by everyone) is still open.

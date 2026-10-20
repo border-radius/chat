@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createApi } from "../../web/src/api.ts";
 import { createAuthStore, createClient, PbError } from "../../web/src/pb.ts";
 
 /** An unsigned JWT with `payload` (only the client's expiry check reads it). Base64url, like PocketBase's. */
@@ -138,6 +139,26 @@ describe("client", () => {
     ac.abort();
     vi.stubGlobal("fetch", async () => Promise.reject(new DOMException("aborted", "AbortError")));
     expect(await pb.send("/api/x", { signal: ac.signal }).catch((e: unknown) => e)).toMatchObject({ status: 0, isAbort: true });
+  });
+
+  it("rejects with status 0 when a success's body never comes; no body is fine for a 204 or an error (QA BUG-117)", async () => {
+    const cut = () => new Response(new ReadableStream({ pull: (c) => c.error(new TypeError("network error")) }), { status: 200 });
+    vi.stubGlobal("fetch", async () => cut());
+    expect(await pb.send("/api/x").catch((e: unknown) => e)).toMatchObject({ status: 0, isAbort: false });
+    vi.stubGlobal("fetch", async () => new Response(null, { status: 204 }));
+    expect(await pb.send("/api/x", { method: "POST" })).toEqual({});
+    vi.stubGlobal("fetch", async () => new Response("<html>Bad gateway</html>", { status: 502 }));
+    expect(await pb.send("/api/x").catch((e: unknown) => e)).toMatchObject({ status: 502 });
+
+    // A session refresh cut off like that (a reload while it was on its way) kept the session, not an empty one.
+    const store = createAuthStore(localStorage);
+    store.save(jwt({ exp: inAnHour() }), user);
+    const token = store.token;
+    const api = createApi(createClient("http://pb.test", store));
+    vi.stubGlobal("fetch", async () => cut());
+    await expect(api.refreshAuth()).rejects.toMatchObject({ status: 0 });
+    expect(store.token).toBe(token);
+    expect(JSON.parse(localStorage.getItem("pocketbase_auth")!).token).toBe(token);
   });
 });
 
