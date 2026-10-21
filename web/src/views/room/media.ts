@@ -3,25 +3,25 @@
 // (§17.7) over the grid, stepping through the same images; closing the viewer comes back to the grid, and "Show in
 // chat" closes both. Like the viewer it adds a history entry (same URL), so Back closes it rather than leaving the room.
 //
+// Its pages come from GET /api/chat/media/{room} (§30.1): only the room's images and videos, from an index, not its
+// messages. A video's tile is its poster frame, made by the server, or a plain tile with ▶ until there is one: never
+// the video itself, which every browser would start fetching.
+//
 // A lazy chunk, like search (§29): the room view import()s it when the grid is first opened, and it links its own
 // stylesheet (styles/media.css), so neither app.js nor app.css grows. It imports types only: what it needs from app.js
 // comes in its options.
 
 import type { Api } from "../../api.ts";
 import type { h } from "../../dom.ts";
-import type { Message } from "../../lib/types.ts";
+import type { MediaItem, Message, User } from "../../lib/types.ts";
 import type { ViewerImage } from "./viewer.ts";
 
 export interface MediaOptions {
   room: string;
-  api: Pick<Api, "page" | "fileUrl" | "fileToken">;
-  /** A full page of messages (`PAGE_SIZE`): fewer, and there are no more. */
-  pageSize: number;
+  api: Pick<Api, "media" | "fileUrl" | "posterUrl" | "fileToken">;
   h: typeof h;
   /** What to call a file (`attachmentName`). */
   name: (m: Message, file: string) => string;
-  isMedia: (file: string) => boolean;
-  isVideo: (file: string) => boolean;
   /**
    * Show `m`'s `file` in the viewer (the room view's `viewImage`), stepping through `images` (oldest first); `more`:
    * the room has more before them (and none after). `leave` closes the grid ("Show in chat").
@@ -29,17 +29,6 @@ export interface MediaOptions {
   open: (m: Message, file: string, opener: HTMLElement, images: ViewerImage[], more: [boolean, boolean], leave: () => void) => unknown;
   /** Ends it (the room view unmounts). */
   signal: AbortSignal;
-}
-
-/** Older messages than `before` (or the newest) that may have files, newest first: `withFiles(older(…))` (lib/cursor.ts). */
-export function mediaQuery(room: string, before?: Message) {
-  const params: Record<string, string> = { room };
-  let filter = "room = {:room}";
-  if (before) {
-    Object.assign(params, { created: before.created, id: before.id });
-    filter += " && (created < {:created} || (created = {:created} && id < {:id}))";
-  }
-  return { filter: `${filter} && (files:length > 0 || forward_of != "")`, params, sort: "-created,-id" };
 }
 
 /** The stylesheet's URL, set by the build (scripts/lib/build-utils.mjs). */
@@ -90,9 +79,11 @@ export function openMedia(o: MediaOptions): void {
     body,
   ]);
 
-  /** What is shown, newest first, and the last message fetched (where older ones begin). */
+  /** What is shown, newest first, and the last one fetched (where older ones begin). */
   const items: ViewerImage[] = [];
-  let last: Message | undefined;
+  let last: MediaItem | undefined;
+  /** The messages they come from, as the viewer takes them, by id. */
+  const messages = new Map<string, Message>();
   let done = false;
   let loading = false;
   let month = "";
@@ -105,15 +96,12 @@ export function openMedia(o: MediaOptions): void {
     loading = true;
     status.textContent = "Loading…";
     try {
-      const page = await api.page(mediaQuery(o.room, last), signal);
+      const page = await api.media(o.room, last && { sent: last.sent, message: last.message, pos: last.pos }, signal);
       if (closed) return;
-      done = page.length < o.pageSize;
-      last = page.at(-1) ?? last;
-      for (const m of page) {
-        if (m.deleted) continue;
-        // Newest first, so a message's files last to first: reversed for the viewer, they are in their own order.
-        for (const f of [...(m.files ?? [])].reverse()) if (o.isMedia(f)) add({ message: m, file: f, video: o.isVideo(f) });
-      }
+      done = !page.more;
+      last = page.items.at(-1) ?? last;
+      // Newest first, so a message's files last to first: reversed for the viewer, they are in their own order.
+      for (const it of page.items) add(it);
       status.textContent = done ? (items.length ? "" : "No photos or videos here yet.") : "";
     } catch {
       if (closed) return;
@@ -132,8 +120,26 @@ export function openMedia(o: MediaOptions): void {
     if (!done && !closed) seen.observe(status);
   }
 
-  function add(it: ViewerImage) {
-    const { message: m, file, video } = it;
+  /** The message an item comes from: what the viewer, "Show in chat" and the file's URL need of it. */
+  function messageOf(it: MediaItem): Message {
+    let m = messages.get(it.message);
+    if (!m) {
+      const { message: id, sent, author } = it;
+      m = { id, room: o.room, author: author?.id ?? "", text: "", created: sent, updated: sent, edited_at: "", deleted: false };
+      m.files = [];
+      m.file_names = {};
+      if (it.source !== id) m.forward_of = it.source; // its files are the original's (§21.3)
+      if (author) m.expand = { author: author as User };
+      messages.set(id, m);
+    }
+    m.files!.unshift(it.file);
+    if (it.name) m.file_names![it.file] = it.name;
+    return m;
+  }
+
+  function add(row: MediaItem) {
+    const { file, video } = row;
+    const m = messageOf(row);
     const d = new Date(m.created.replace(" ", "T"));
     const mo = monthOf.format(d);
     if (mo !== month) {
@@ -141,25 +147,27 @@ export function openMedia(o: MediaOptions): void {
       grid.append(h("h3", {}, mo));
     }
     const name = o.name(m, file);
-    const src = () => (video ? `${api.fileUrl(m, file)}#t=0.001` : api.fileUrl(m, file, "240x240"));
-    const pic = video
-      ? h("video", { src: src(), preload: "metadata", muted: true, playsinline: true })
-      : h("img", { src: src(), alt: "", loading: "lazy", decoding: "async" });
+    const src = () => (video ? api.posterUrl(m, file) : api.fileUrl(m, file, "240x240"));
+    // A video without a poster (not made yet, or no ffmpeg on the server) is a plain tile with ▶.
+    const pic = (!video || row.poster) && h("img", { src: src(), alt: "", loading: "lazy", decoding: "async" });
     let retried = false;
-    pic.addEventListener(
-      "error",
-      () => {
-        if (retried) return;
-        retried = true;
-        void api.fileToken(true).then(
-          () => (pic.src = src()),
-          () => {},
-        );
-      },
-      { signal },
-    );
+    if (pic) {
+      pic.addEventListener(
+        "error",
+        () => {
+          // Again, with a new token (it may have expired); a poster that fails twice leaves the plain tile.
+          if (retried) return video && pic.remove();
+          retried = true;
+          void api.fileToken(true).then(
+            () => (pic.src = src()),
+            () => {},
+          );
+        },
+        { signal },
+      );
+    }
     const label = `${name}${video ? ", video" : ""}, ${m.expand?.author?.name ?? "Unknown"}, ${d.toLocaleDateString()}`;
-    const index = items.push(it) - 1;
+    const index = items.push({ message: m, file, video }) - 1;
     const tile = h(
       "button",
       { type: "button", class: "media-tile", "aria-label": label, title: label, on: { click: () => open(index, tile) }, signal },

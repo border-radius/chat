@@ -207,6 +207,13 @@ project: servers without it get no pushes, ANDROID.md §17.4), and links to room
 Messages show a line under them for each link: the page's favicon and title ([`docs/DESIGN.md` §28](docs/DESIGN.md)).
 The server fetches them, only from public addresses. Set `LINK_PREVIEWS=off` to turn it off.
 
+## Media grid
+
+Each room's Media button shows its images and videos as a grid ([`docs/DESIGN.md` §30](docs/DESIGN.md)). A worker on
+the server makes their thumbnails ahead of time, and a poster frame for each video with `ffmpeg` (in the Docker
+image), which the room shows too, so browsers don't load videos just to draw their first frame. Set `FFMPEG=off` to
+go without: videos then show their first frame in the room as before, and plain tiles in the grid.
+
 ## Telegram integration
 
 An optional bridge between rooms and Telegram groups ([`docs/DESIGN.md` §26](docs/DESIGN.md)). A bot sits in your

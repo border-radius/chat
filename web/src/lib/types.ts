@@ -86,6 +86,30 @@ export interface LinkPreview {
   icon: string;
 }
 
+/** One image or video in a room's media grid (§30.1): a file of `source`, shown by `message` (a forward, or itself). */
+export interface MediaItem {
+  message: string;
+  source: string;
+  file: string;
+  /** Its place in the source's files. */
+  pos: number;
+  /** The original upload name, "" when the server has none (QA BUG-28). */
+  name: string;
+  video: boolean;
+  /** A video's poster frame is ready (GET /api/chat/posters/{source}/{file}). */
+  poster: boolean;
+  /** The message's `created`. */
+  sent: string;
+  /** Who sent the message; null for a service message. */
+  author: { id: string; name: string } | null;
+}
+
+/** A page of a room's media, newest first; `more`: there are older ones. */
+export interface MediaPage {
+  items: MediaItem[];
+  more: boolean;
+}
+
 /** One emoji on a message and who reacted with it (§20.1). */
 export interface Reaction {
   emoji: string;

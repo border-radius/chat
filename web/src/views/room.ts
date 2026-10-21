@@ -141,6 +141,7 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
     onRetrySend: (id) => void now(() => ctl.retrySend(id)),
     onDiscard: (id) => now(() => ctl.discard(id)),
     fileUrl: api.fileUrl,
+    posterUrl: api.posterUrl,
     refreshFileToken: () => api.fileToken(true),
     onOpenImage: (m, file, opener) => void viewImage(m, file, opener),
     avatarUrl: api.avatarUrl,
@@ -503,9 +504,7 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
   /** The room's images and videos as a grid (§30): a lazy chunk, like search. It opens the viewer with `viewImage`. */
   function openMedia() {
     import("./room/media.ts").then(
-      (m) =>
-        scope.active &&
-        m.openMedia({ room: roomId, api, pageSize: PAGE_SIZE, h, name: attachmentName, isMedia, isVideo, open: viewImage, signal }),
+      (m) => scope.active && m.openMedia({ room: roomId, api, h, name: attachmentName, open: viewImage, signal }),
       () => scope.active && notice.say("Couldn't open media. Check your connection."),
     );
   }

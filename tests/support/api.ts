@@ -7,6 +7,7 @@ import { type Api, createApi } from "../../web/src/api.ts";
 import type { Cache, Kept } from "../../web/src/cache.ts";
 import type { Ctx } from "../../web/src/context.ts";
 import { createDrafts } from "../../web/src/drafts.ts";
+import { isMedia, isVideo } from "../../web/src/lib/files.ts";
 import { newId } from "../../web/src/lib/id.ts";
 import { toPb } from "../../web/src/lib/time.ts";
 import type { Message, User } from "../../web/src/lib/types.ts";
@@ -122,13 +123,25 @@ export async function seedMessages(
     };
     out.push(m);
   }
-  await runSql(
-    inject("pbUrl"),
-    out.map((m) => ({
+  await runSql(inject("pbUrl"), [
+    ...out.map((m) => ({
       sql: "INSERT INTO messages (id, room, author, text, text_key, files, edited_at, deleted, deleted_at, created, updated) VALUES ({:id}, {:room}, {:author}, {:text}, {:key}, {:files}, '', 0, '', {:ts}, {:ts})",
       params: { id: m.id, room, author, text: m.text, key: foldKey(m.text), files: JSON.stringify(m.files ?? []), ts: m.created },
     })),
-  );
+    // The media grid's index (§30.1), as the messages hooks keep it: done, no poster (no files on disk).
+    ...out.flatMap((m) =>
+      (m.files ?? []).flatMap((file, pos) =>
+        isMedia(file)
+          ? [
+              {
+                sql: "INSERT INTO media (id, room, message, source, file, pos, video, sent, ready, poster) VALUES ({:id}, {:room}, {:message}, {:message}, {:file}, {:pos}, {:video}, {:ts}, 1, 0)",
+                params: { id: newId(), room, message: m.id, file, pos, video: isVideo(file) ? 1 : 0, ts: m.created },
+              },
+            ]
+          : [],
+      ),
+    ),
+  ]);
   return out;
 }
 

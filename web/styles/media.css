@@ -78,8 +78,7 @@ dialog.media::backdrop {
   cursor: pointer;
 }
 
-.media-tile img,
-.media-tile video {
+.media-tile img {
   display: block;
   width: 100%;
   height: 100%;
@@ -99,6 +98,15 @@ dialog.media::backdrop {
   background: rgb(0 0 0 / 60%);
   color: #fff;
   font-size: 0.75rem;
+}
+
+/* A video without a poster frame (§30.1): a plain tile, ▶ in the middle. */
+.media-tile:not(:has(img)) span {
+  inset: 0;
+  width: fit-content;
+  height: fit-content;
+  margin: auto;
+  font-size: 1.25rem;
 }
 
 .media-status {

@@ -168,6 +168,37 @@ describe("room view", () => {
       expect(chips(m.id).map((a) => a.textContent)).toEqual(["notes.pdf"]);
     });
 
+    it("a video's tile is its poster (§30.1); without one, the video's own first frame", async () => {
+      const other = await signedUp("Other");
+      const room = await newRoom();
+      const mp4 = (name: string) => new File([new Uint8Array(8)], name, { type: "video/mp4" });
+      const m = await other.api.send({ id: newId(), room: room.id, text: "", files: [mp4("a.mp4"), mp4("b.mp4")] });
+      await mount(room);
+      const [a, b] = tiles(m.id);
+      const poster = (t: HTMLElement) => t.querySelector("img")!;
+      [a!, b!].forEach((t, i) => {
+        expect(t.querySelector("video")).toBeNull();
+        expect(poster(t).getAttribute("src")).toContain(`/api/chat/posters/${m.id}/${m.files![i]}?token=`);
+        expect(poster(t).loading).toBe("lazy");
+        expect(t.getAttribute("aria-label")).toMatch(/^[ab]\.mp4, video$/);
+      });
+      // a has a poster; b hasn't (not made yet): its tile falls back to the video, at once and without a new token.
+      const ctl = instrument(me.api);
+      poster(a!).style.aspectRatio = "4 / 3";
+      poster(b!).style.aspectRatio = "4 / 3";
+      poster(b!).dispatchEvent(new Event("error"));
+      const video = b!.querySelector("video")!;
+      expect(b!.querySelector("img")).toBeNull();
+      expect(video.getAttribute("src")).toContain(`/api/files/messages/${m.id}/${m.files![1]}?token=`);
+      expect(video.getAttribute("src")).toMatch(/#t=0\.001$/);
+      expect(video.style.aspectRatio).toBe("4 / 3");
+      expect(ctl.calls("fileToken")).toBe(0);
+      expect(a!.querySelector("img")).not.toBeNull();
+      // The video failing too goes on as before: once more with a new token.
+      video.dispatchEvent(new Event("error"));
+      await vi.waitFor(() => expect(ctl.calls("fileToken")).toBe(1));
+    });
+
     it("a sending message shows how much of its attachments has been uploaded", async () => {
       const room = await newRoom();
       let report: ((fraction: number) => void) | undefined;

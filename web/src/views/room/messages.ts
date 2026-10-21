@@ -105,6 +105,8 @@ export function createMessageList(opts: {
   onMessageUser: (userId: string) => void;
   /** Signed URL of an attachment (§17.3). */
   fileUrl: (m: Message, filename: string, thumb?: string) => string;
+  /** Signed URL of a video's poster frame (§30.1). */
+  posterUrl: (m: Message, filename: string) => string;
   /** Get a new file token (an image failed to load, maybe because its token expired). */
   refreshFileToken: () => Promise<unknown>;
   /** A thumbnail was clicked: show the image or video in the viewer (§17.7). */

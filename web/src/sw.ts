@@ -4,7 +4,7 @@
 // - Pages: network first, so a deploy shows on the next load; offline, the last page loaded (index.html: every page
 //   of the app is the same shell, §7.1).
 // - Content-hashed assets (/assets/*-HASH.js|css): cache first; they never change under one name.
-// - Attachment thumbnails: cache first, kept under their URL without the file token (§17.3). The token changes every
+// - Attachment thumbnails and video posters (§30.1): cache first, kept under their URL without the file token (§17.3). The token changes every
 //   few minutes, so the browser's own cache, keyed by the whole URL, misses on every room switch.
 // - Everything else, the API and realtime included, is left to the browser: no stale data, no other cached files.
 
@@ -37,6 +37,8 @@ const HASHED = /^\/assets\/.+-[A-Z0-9]{8}\.(js|css)$/;
 const FILES = "chat-files";
 /** An attachment: /api/files/messages/{message}/{file}. */
 const ATTACHMENT = /^\/api\/files\/messages\/[a-z0-9]+\/[^/]+$/;
+/** A video's poster: /api/chat/posters/{message}/{file}. Like a thumbnail, it never changes under one name. */
+const POSTER = /^\/api\/chat\/posters\/[a-z0-9]+\/[^/]+$/;
 /** At most this many thumbnails are kept (~20–40 KB each); the oldest go first. */
 const MAX_FILES = 1000;
 /** Thumbnails kept by this worker: every TRIM_EVERY-th (the first included) trims the cache to MAX_FILES. */
@@ -51,9 +53,10 @@ sw.addEventListener("fetch", (e) => {
   const req = e.request;
   const url = new URL(req.url);
   if (req.method !== "GET" || url.origin !== location.origin) return;
-  if (ATTACHMENT.test(url.pathname) && url.searchParams.get("thumb")) {
+  const thumb = ATTACHMENT.test(url.pathname) && url.searchParams.get("thumb");
+  if (thumb || POSTER.test(url.pathname)) {
     const user = fileTokenUser(url.searchParams.get("token") ?? "");
-    if (user) e.respondWith(thumbnail(e, `${url.origin}${url.pathname}?thumb=${url.searchParams.get("thumb")}&user=${user}`));
+    if (user) e.respondWith(thumbnail(e, `${url.origin}${url.pathname}?${thumb ? `thumb=${thumb}&` : ""}user=${user}`));
     return;
   }
   // Files (opened in a tab) and the admin UI are not the app's pages.

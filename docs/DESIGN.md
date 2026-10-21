@@ -542,7 +542,7 @@ while its first page loads.
 
 | Asset | Budget (gzipped) |
 |---|---|
-| `app.js` (including the PocketBase client) | **≤ 43.65 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, the room cache without waiting for the network, the QA pass 12 fixes, prefetching rooms not yet kept, the QA pass 13 fixes, thumbnail caching, the QA pass 14 fixes, Ctrl+Up/Down to pick the reply, link previews, the room access dialog fix, who can post, message search, message permalinks, the media grid, the QA pass 16 fixes, see §13) |
+| `app.js` (including the PocketBase client) | **≤ 43.77 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, the room cache without waiting for the network, the QA pass 12 fixes, prefetching rooms not yet kept, the QA pass 13 fixes, thumbnail caching, the QA pass 14 fixes, Ctrl+Up/Down to pick the reply, link previews, the room access dialog fix, who can post, message search, message permalinks, the media grid, the QA pass 16 fixes, video posters in the room, see §13) |
 | `app.css` | **≤ 6.40 KB** (5 KB until §21, 5.5 KB until §23, 6 KB until audio attachments, 6.05 KB until §18.5, 6.10 KB until §28, 6.15 KB until the room access dialog fix, 6.20 KB until §29, 6.35 KB until message permalinks, see §13) |
 | `index.html` | ≤ 1.5 KB |
 | Image viewer (§17.7), loaded on first use | ≤ 4 KB script, ≤ 1.5 KB stylesheet |
@@ -829,6 +829,7 @@ Playwright traces are uploaded when a test fails. The job runs on every push and
 | Email harvesting | `emailVisibility = false`, and `fields` requests never include email. |
 | Spam and flooding | PocketBase rate limits, the 2000-char cap, and signup rate limiting. The limits are per client IP: behind a reverse proxy, `TRUSTED_PROXY=X-Forwarded-For` (applied on start by `trustProxy` in `http.js`, set in the Docker image) makes them per client rather than one for everyone; the rightmost address is used, so clients can't choose theirs. |
 | Server-side request forgery (link previews) | The previews worker fetches only http(s) on default ports from public-looking hosts (§28.1): no local names, private IPv4, IPv6 literals or userinfo. Names aren't resolved, so DNS pointing inward or a redirect still gets through, and only a title and a small icon are kept. `LINK_PREVIEWS=off` turns it off. |
+| Untrusted video files (video posters) | ffmpeg reads uploads to make posters (§30.1): only the local file, the container's own demuxer (no playlists, no other protocols), one thread, 20 s at most, not as root. `FFMPEG=off` turns it off. |
 | Filling the disk | Uploads are capped per file, per message and by the message rate limit; forwards copy nothing (§21.3). |
 | Token theft | The token is stored in `localStorage` by the client (`pb.ts`). The CSP greatly lowers XSS risk. Moving to HttpOnly cookies is noted as future work. |
 | Admin UI exposure | Strong superuser password. In production, optionally restrict `/_/` by IP using a hook. |
@@ -992,6 +993,7 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 | Bundle budget (message search) | `app.js` raised from 43.25 KB to 43.45 KB and `app.css` from 6.20 KB to 6.35 KB gzipped (§7.7): message search (§29), the header button, loading its chunk and going to a result, and its styles took them to 43.40 KB and 6.32 KB. The search itself is a lazy chunk of 1.58 KB. |
 | Bundle budget (media grid) | `app.js` raised from 43.50 KB to 43.60 KB gzipped (§7.7): the media grid (§30) is a lazy chunk with its own stylesheet, but its header button, loading the chunk and opening the viewer from it took `app.js` to 43.59 KB. |
 | Bundle budget (QA pass 16) | `app.js` raised from 43.60 KB to 43.65 KB gzipped (§7.7): the fixes for QA BUG-117 (a success whose body never came saved an empty session, `pb.ts`) and BUG-118 (the router passes over a media grid entry with no grid) run before any lazy chunk loads, and took `app.js` to 43.64 KB. |
+| Bundle budget (video posters) | `app.js` raised from 43.65 KB to 43.77 KB gzipped (§7.7): a video's tile in the room shows the server's poster (§30.1) and falls back to the video's first frame without one (`api.posterUrl`, `attachments.ts`), 43.76 KB. The room's list is in `app.js`, so it can't go in a lazy chunk. |
 | Bundle budget (QA pass 9) | `app.js` raised from 39.25 KB to 39.35 KB gzipped (§7.7): the forwarding fixes of QA pass 9 (messages deleted meanwhile left out, the server's reason shown, focus kept while selecting) took it to 39.30 KB. |
 
 ### Still open
@@ -1341,9 +1343,12 @@ other files as chips with name and size, each with a remove (×) button.
   opens the image viewer (§17.7); a click asking for a new tab or window (Ctrl/Cmd/Shift/middle click) opens the full
   file there instead (`target="_blank" rel="noopener"`), served under the sandbox CSP.
 - **Videos** (by extension: `mp4 m4v webm mov ogv`): tiles like images, in the same row and at the same sizes,
-  showing the video's first frame with a play badge over it. There are no server thumbnails for videos: the tile is a
-  `<video preload="metadata">` of the full file with `#t=0.001` (so every browser, Safari too, draws the first
-  frame), and the browser fetches only enough of it to draw that. While sending, the local preview is the file's
+  showing the video's first frame with a play badge over it. The tile is the **poster** the server makes of the video
+  (§30.1: its first frame, in its own shape, at most 800×480), an `<img loading="lazy">` like an image's thumbnail, so
+  the browser fetches nothing of the video until it plays. Without one (just sent, before the worker gets to it; a
+  server without ffmpeg) the poster's request fails (404) and the tile becomes a `<video preload="metadata">` of the
+  full file with `#t=0.001` (so every browser, Safari too, draws the first frame), fetching only enough of it to draw
+  that, at once and without a new token. While sending, the local preview is the file's
   object URL (so the app CSP allows `media-src blob:`), and its aspect ratio carries over like an image's. Clicking
   plays it in the viewer (§17.7); a failed load retries once with a new token, then shows "Couldn't load video" with
   Retry (a format the browser can't play ends up there too; Ctrl/Cmd-click still gets the file).
@@ -1371,7 +1376,8 @@ other files as chips with name and size, each with a remove (×) button.
   is 404; responses carry the sandbox CSP and `nosniff` (an uploaded `.html` and `.svg` included); an edit cannot
   add, remove or replace files; soft delete empties `files` and the old file URL returns 404; the body limit fits
   10 × 20 MB, and other requests still get 413 over 32 MB.
-- **Unit:** `displayName`; token cache (reuse, refresh after 2 min, one in-flight request); the composer tray (add,
+- **Unit:** a video's tile is its poster, and the video's first frame when the poster fails (no new token for that);
+  `displayName`; token cache (reuse, refresh after 2 min, one in-flight request); the composer tray (add,
   remove, limits, paste, drop); optimistic send with files, failure, and Retry with the same id and files; object
   URLs revoked on ack, removal and unmount; image grid layout classes for 1–4 images, and "+N" past 4; the upload
   progress bar; expired-token retry happens once.
@@ -2278,7 +2284,8 @@ worker takes over at once (`skipWaiting`, `clients.claim`): it holds nothing an 
   page of the app is the same `index.html`, §7.1), and offline the last one kept is served.
 - **Content-hashed assets** (`/assets/*-HASH.js|css`): cache first; one name never changes. Keeping a new page drops
   the cached assets it doesn't name (older builds; a lazy chunk comes back when used).
-- **Attachment thumbnails** (`GET /api/files/messages/{id}/{file}?thumb=…&token=…`): cache first, in their own cache
+- **Attachment thumbnails** (`GET /api/files/messages/{id}/{file}?thumb=…&token=…`) and the media grid's video
+  posters (`GET /api/chat/posters/{id}/{file}?token=…`, §30.1): cache first, in their own cache
   (`chat-files`), kept under the URL without the token plus the token's user id (read from the JWT, not verified:
   the server checks a miss). A file name never changes its content, so a kept thumbnail is never stale. Only
   successes are kept, at most 1000 (oldest out first, trimmed every 50th put). A request with no file token (a
@@ -2407,7 +2414,7 @@ changes; searching again does.
 
 A button (🖼️, "Media") in the header of every room and DM, next to search (§29), opens a modal dialog with the
 room's images and videos as a grid of square tiles, **newest first** under month headings ("October 2026"), so one
-sent long ago is quick to find without scrolling the history. Scrolling to the end fetches older ones (50 messages a
+sent long ago is quick to find without scrolling the history. Scrolling to the end fetches older ones (60 tiles a
 page). A tile opens the viewer (§17.7) over the grid, stepping through the grid's images and videos (oldest first, as
 the viewer always does) and fetching older ones as it nears them; closing the viewer comes back to the grid with focus
 on the tile. "Show in chat" in the viewer closes both and goes to the message, as from a thumbnail in the list.
@@ -2415,13 +2422,39 @@ Escape or × closes the grid and gives focus back to the button. Guests can open
 
 ### 30.1 Data
 
-- **Query** (`mediaQuery` in `views/room/media.ts`): the viewer's (§17.7), `withFiles(latest(room))` then
-  `withFiles(older(room, last))`, newest first, through `api.page` with the list rule applied. Written out in the chunk,
-  which can't import `lib/cursor.ts` (§17.7); a unit test keeps the two the same. Messages with only other files (PDFs,
-  audio) or forwards without media give no tiles; when a page brings few, the grid asks for the next one at once.
+- **Index:** the `media` collection (migration `1760000029_media.js`, no API rules), one row per image or video a
+  room shows: `room`, `message` (the one in the room), `source` (whose file it is: the message, or a forward's
+  original, §21.3), `file`, `pos` (its place in the source's files), `video`, `sent` (the message's `created`),
+  `ready` and `poster` (below). The messages hooks keep it (`pb_hooks/lib/media.js`): a new message adds its rows in the
+  save's transaction, a delete takes out its rows and its forwards', and the relations cascade when a message or room
+  goes for good. Image and video are by extension, as in `lib/files.ts`. The migration fills it from the messages there
+  are. Before it the grid paged through the room's messages (`withFiles`, 50 at a time, with the list rule, expands and
+  the enrich hook), for a few tiles a page.
+- **Page:** `GET /api/chat/media/{room}?sent=&message=&pos=&limit=` (`api.media`): rows older than the last one shown
+  (or the newest), newest first, a message's files last to first, 60 a page (at most 100), with the file's original name
+  and the author's id and name, and `more`. The room is checked once (`visibleRoom`, §23: guests in Open Air rooms);
+  404 for a room you can't see. One query on the index `(room, sent, message, pos)`.
 - **Thumbnails:** a `240x240` thumb (cropped to the square, centred), added to `messages.files` by migration
-  `1760000028_media_grid_thumbs.js`; the fitted thumbs of §17.5 would be blurry once cropped. A video tile is its first
-  frame (`#t=0.001`), as in the list. A tile that fails to load tries once more with a new file token.
+  `1760000028_media_grid_thumbs.js`; the fitted thumbs of §17.5 would be blurry once cropped. A tile that fails to load
+  tries once more with a new file token.
+- **The worker** (`lib/media.js`, a cron job like the previews' (§28.1): 57 s a minute, one run at a time;
+  `POST /api/media/tick` for superusers runs it at once; `MEDIA_CRON=off` leaves it to that, as tests do): takes the
+  rows not `ready`, newest first (so a new upload goes before the migration's backlog), and makes what they need before
+  anyone asks. PocketBase makes a thumbnail on its first request, so a grid opened over old images had the server
+  decode and resize dozens at once. An image gets the grid's thumb, and for a message from the last 7 days the room's
+  too (a GIF only the grid's: the room shows the file, §17.5); avif none (PocketBase serves it as it is). A video gets a
+  **poster**: its first frame, fitted in 800×480 in its own shape and never enlarged (the room's large tile, §17.5),
+  JPEG, from `ffmpeg` (`FFMPEG`: the command, default `ffmpeg`;
+  `off`, or not installed: no posters), stored as `thumbs_{file}/poster.jpg` next to the file, so PocketBase deletes
+  it with the file; then the source's rows and its forwards' say `poster`. ffmpeg reads only the local file
+  (`-protocol_whitelist file`, the container's own demuxer forced by extension, so a "video" that is a playlist reads
+  nothing else), on one thread, stopped after 20 s (`timeout`). A video kept in S3 has no local path: it is copied to the temp folder first (Go copies it,
+  never through JS) and the copy removed after, so each video is downloaded once. Each file is tried
+  once. After each one the worker rests as long as it worked: at most half of one CPU.
+- **Posters:** `GET /api/chat/posters/{message}/{file}?token=`, the URL of the video with its token on another route.
+  Checked as PocketBase checks the file (§17.3): the file token's user against the message's view rule; 404 otherwise,
+  and until the poster is made. `Cache-Control: private, max-age=2592000`; the service worker keeps them like
+  thumbnails (§27.2).
 - Not live: what is posted while the grid is open shows the next time it opens.
 
 ### 30.2 Frontend
@@ -2434,13 +2467,27 @@ dialog follows the theme (unlike the viewer) and fills the window on narrow scre
 entry with the same URL: Back closes it (and from the viewer over it, closes just the viewer); closing it from itself
 goes Back off its entry, and after "Show in chat" waits for the viewer's own Back first. An entry with no grid open on
 it (a reload while it was open, Forward after Back closed it) is passed over by the router, as the viewer's is (QA
-BUG-118). A tile is a button named "file name[, video], author, date". The status line says "Loading…", "No photos or
+BUG-118). The viewer gets messages made from the rows (id, room, author, `created`, the file names, `forward_of` for a
+forward's), which is all it and "Show in chat" use. A video's tile is its poster (cropped to the square by
+`object-fit: cover`, like the images' `240x240`), or until there is one a plain tile
+with ▶ in the middle: never the video, which every browser would start fetching (`preload="metadata"`); a poster that
+fails twice leaves the plain tile. A tile is a button named "file name[, video], author, date". The status line says "Loading…", "No photos or
 videos here yet." or "Couldn't load media." with Retry; until Retry, the end of the grid doesn't ask again (QA BUG-116).
 
 ### 30.3 Tests
 
-- **Unit** (`views/room/media.test.ts`): the query equals `withFiles(latest|older)`; newest first, a message's files
-  in reverse, month headings across pages, the next page at the end, no more once a page is short; the empty state;
+- **Integration** (`media.test.ts`): the page (media only, newest first, files last to first, paging by the cursor);
+  a forward's tiles, and none once the original is deleted; 404 for outsiders of a private room and for guests outside
+  Open Air; the query plan uses the index with no sort; the worker's thumbnails (all for a recent message, the grid's
+  for an old one); a poster made with ffmpeg (skipped without it, except in CI, which installs it), served with the
+  file token to those who may see the video, a forward's readers too, in the video's shape and not enlarged, and gone
+  with the file; no poster for an image
+  or another message's file; the migration's backfill (media only, a forward's from its original, none of deleted ones).
+  `media.s3.test.ts`, its own PocketBase on an S3 server (versitygw serving a temp folder, `tests/support/s3.ts`;
+  skipped without it or ffmpeg, except in CI): the poster and thumbnails land in the bucket, no temp copy is left, the
+  poster is served, and it goes with the file.
+- **Unit** (`views/room/media.test.ts`): newest first, a message's files in reverse, month headings across pages, the
+  next page at the end, no more after the last; a video's poster or plain tile, never a `<video>`; the empty state;
   Retry; Escape and focus; one grid at a time.
 - **E2E** (`media.spec.ts`): images 120 messages back, opened in the viewer ("2 / 3"), Escape and Back back to the
   grid, "Show in chat" loads the message and leaves no history entry; Back and Escape close the grid; axe: no serious

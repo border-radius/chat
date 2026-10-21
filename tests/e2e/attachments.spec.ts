@@ -1,7 +1,10 @@
 import { deflateSync } from "node:zlib";
 import { expect, type Page } from "@playwright/test";
 import { PNG } from "../support/files.ts";
+import { SUPERUSER } from "../support/sql.ts";
+import { makeMp4 } from "../support/video.ts";
 import { apiRoom, apiUser, attach, composer, login, message, openRoom, seed, send, test, uniq } from "./fixtures.ts";
+import { E2E_BASE } from "./paths.ts";
 
 const png = (name: string) => ({ name, mimeType: "image/png", buffer: Buffer.from(PNG) });
 /** A w×h PNG (a horizontal gradient). */
@@ -328,6 +331,8 @@ test("videos: their first frame shows like an image, and a click plays them in t
   const room = await apiRoom(ada);
   const a = await openRoom(browser, ada, room);
   const b = await openRoom(browser, bob, room);
+  // No poster (§30.1): the tile is the video's own first frame. (Another test's worker run could make one.)
+  await b.route("**/api/chat/posters/**", (r) => r.fulfill({ status: 404 }));
 
   const clip = await recordedVideo(a, "clip");
   await attach(a, [clip, sizedPng("photo.png", 600, 600)]);
@@ -367,6 +372,55 @@ test("videos: their first frame shows like an image, and a click plays them in t
   await b.keyboard.press("Escape");
   await expect(b.locator("dialog.viewer")).toHaveCount(0);
   await expect(tile).toBeFocused();
+});
+
+/** Run the media worker now (POST /api/media/tick, superusers): every video not done yet gets its poster. */
+async function mediaTick() {
+  const auth = await fetch(`${E2E_BASE}/api/collections/_superusers/auth-with-password`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ identity: SUPERUSER.email, password: SUPERUSER.password }),
+  });
+  const { token } = (await auth.json()) as { token: string };
+  const res = await fetch(`${E2E_BASE}/api/media/tick`, { method: "POST", headers: { Authorization: token } });
+  expect(res.status).toBe(204);
+}
+
+test("a video with a poster shows it, and the browser fetches nothing of the video until it plays (§17.5, §30.1)", async ({ browser }) => {
+  test.skip(!process.env.CI && !makeMp4(), "no ffmpeg here (CI installs it)");
+  const ada = await apiUser("Ada");
+  const bob = await apiUser("Bob");
+  const room = await apiRoom(ada);
+  const a = await openRoom(browser, ada, room);
+  const clip = await recordedVideo(a, "poster");
+  await attach(a, [clip]);
+  await send(a, "with a poster");
+  await expect(message(a, "with a poster").locator(".att-tile")).toHaveCount(1);
+  await mediaTick();
+
+  // Bob's page from the start, to see every request it makes.
+  const ctx = await browser.newContext({ viewport: { width: 1100, height: 720 } });
+  const b = await ctx.newPage();
+  const asked: string[] = [];
+  b.on("request", (r) => asked.push(new URL(r.url()).pathname));
+  await login(b, bob);
+  await b.goto(`/r/${room.id}`);
+  const tile = message(b, "with a poster").locator("a.att-tile");
+  await expect(tile).toHaveAccessibleName(`${clip.name}, video`);
+  const poster = tile.locator("img");
+  await expect.poll(() => poster.evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth)).toBe(320); // never enlarged
+  await expect(tile.locator("video")).toHaveCount(0);
+  expect(await poster.getAttribute("src")).toMatch(/\/api\/chat\/posters\//);
+  // One video: 240px high, as an image would be; 16:9 at that height is over the 400px most, so it is narrowed.
+  const box = (await tile.boundingBox())!;
+  expect(box.height).toBe(240);
+  expect(box.width).toBe(400);
+  expect(asked.filter((u) => u.startsWith("/api/files/messages/"))).toEqual([]);
+
+  await tile.click();
+  const video = b.getByRole("dialog").locator(".viewer-stage video");
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState >= 2 && v.videoWidth)).toBe(320);
+  await ctx.close();
 });
 
 test("the viewer steps through the whole room's images, fetching those beyond the loaded messages (§17.7)", async ({ browser }) => {

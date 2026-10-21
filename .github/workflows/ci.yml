@@ -37,6 +37,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
+      # The media worker's video posters (DESIGN.md §30.1); without it their tests are skipped locally, and fail in CI.
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      # An S3 server for the posters of videos kept in S3 (tests/integration/media.s3.test.ts): versitygw, checksum-verified.
+      - name: Install versitygw
+        run: |
+          v=1.9.0
+          cd "$RUNNER_TEMP"
+          curl -fsSLO "https://github.com/versity/versitygw/releases/download/v$v/versitygw_v${v}_Linux_x86_64.tar.gz"
+          curl -fsSL "https://github.com/versity/versitygw/releases/download/v$v/checksums.txt" | grep "versitygw_v${v}_Linux_x86_64.tar.gz" | sha256sum -c
+          tar xzf "versitygw_v${v}_Linux_x86_64.tar.gz"
+          echo "VERSITYGW=$RUNNER_TEMP/versitygw_v${v}_Linux_x86_64/versitygw" >> "$GITHUB_ENV"
       - run: npm run test:int
 
   e2e:
@@ -59,6 +70,8 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ matrix.browser }}-${{ hashFiles('package-lock.json') }}
       - run: npx playwright install --with-deps ${{ matrix.browser }}
+      # Video posters (DESIGN.md §30.1): attachments.spec.ts shows one in the room.
+      - run: sudo apt-get install -y --no-install-recommends ffmpeg
 
       - run: npm run build
       - run: npx playwright test --project=${{ matrix.browser }}

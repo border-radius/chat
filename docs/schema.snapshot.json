@@ -118,6 +118,140 @@
       ]
     },
     {
+      "name": "media",
+      "type": "base",
+      "listRule": null,
+      "viewRule": null,
+      "createRule": null,
+      "updateRule": null,
+      "deleteRule": null,
+      "fields": [
+        {
+          "autogeneratePattern": "[a-z0-9]{15}",
+          "help": "",
+          "hidden": false,
+          "max": 15,
+          "min": 15,
+          "name": "id",
+          "pattern": "^[a-z0-9]+$",
+          "presentable": false,
+          "primaryKey": true,
+          "required": true,
+          "system": true,
+          "type": "text"
+        },
+        {
+          "cascadeDelete": true,
+          "help": "",
+          "hidden": false,
+          "maxSelect": 1,
+          "minSelect": 0,
+          "name": "room",
+          "presentable": false,
+          "required": true,
+          "system": false,
+          "type": "relation",
+          "collection": "rooms"
+        },
+        {
+          "cascadeDelete": true,
+          "help": "",
+          "hidden": false,
+          "maxSelect": 1,
+          "minSelect": 0,
+          "name": "message",
+          "presentable": false,
+          "required": true,
+          "system": false,
+          "type": "relation",
+          "collection": "messages"
+        },
+        {
+          "cascadeDelete": true,
+          "help": "",
+          "hidden": false,
+          "maxSelect": 1,
+          "minSelect": 0,
+          "name": "source",
+          "presentable": false,
+          "required": true,
+          "system": false,
+          "type": "relation",
+          "collection": "messages"
+        },
+        {
+          "autogeneratePattern": "",
+          "help": "",
+          "hidden": false,
+          "max": 255,
+          "min": 0,
+          "name": "file",
+          "pattern": "",
+          "presentable": false,
+          "primaryKey": false,
+          "required": true,
+          "system": false,
+          "type": "text"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "max": null,
+          "min": 0,
+          "name": "pos",
+          "onlyInt": true,
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "number"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "name": "video",
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "bool"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "max": "",
+          "min": "",
+          "name": "sent",
+          "presentable": false,
+          "required": true,
+          "system": false,
+          "type": "date"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "name": "ready",
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "bool"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "name": "poster",
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "bool"
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_media_room ON media (room, sent, message, pos)",
+        "CREATE INDEX idx_media_message ON media (message)",
+        "CREATE INDEX idx_media_source ON media (source, file)",
+        "CREATE INDEX idx_media_pending ON media (sent) WHERE ready = FALSE"
+      ]
+    },
+    {
       "name": "messages",
       "type": "base",
       "listRule": "((room.visibility = \"open\" && room.archived = false) || (@request.auth.id != \"\" && (room.visibility != \"private\" || room.members.id ?= @request.auth.id || room.created_by = @request.auth.id)))",

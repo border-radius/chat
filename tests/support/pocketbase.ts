@@ -1,6 +1,6 @@
 // Spawns a throwaway PocketBase process on a free port with its own temp data dir.
 // Shared by the Vitest integration globalSetup and the Playwright webServer.
-import { type ChildProcess, execFile, spawn } from "node:child_process";
+import { type ChildProcess, execFile, execFileSync, spawn } from "node:child_process";
 import { cp, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -86,7 +86,7 @@ export async function startPocketBase(opts: StartOptions = {}): Promise<PocketBa
     stdio: opts.verbose ? "inherit" : "pipe",
     // Never a Telegram bot from the developer's own environment: only what a test passes (the bridge, §26). No link
     // previews either (§28), which would fetch whatever the tests link to, unless a test turns them on.
-    env: { ...withoutTelegram(process.env), LINK_PREVIEWS: "off", ...opts.env },
+    env: { ...withoutTelegram(process.env), LINK_PREVIEWS: "off", MEDIA_CRON: "off", ...opts.env },
   });
 
   let output = "";
@@ -166,4 +166,20 @@ export async function disableRateLimits(url: string): Promise<RateLimits> {
   const { rateLimits } = (await admin.settings.getAll()) as { rateLimits: RateLimits };
   await admin.settings.update({ rateLimits: { ...rateLimits, enabled: false } });
   return rateLimits;
+}
+
+/** Run `pocketbase migrate …` (e.g. `down 1`, `up`) on a stopped server's data dir, answering yes to its question. */
+export function migrate(dataDir: string, ...args: string[]): void {
+  execFileSync(
+    bin,
+    [
+      "migrate",
+      ...args,
+      `--dir=${dataDir}`,
+      `--migrationsDir=${join(root, "pb_migrations")}`,
+      `--hooksDir=${join(root, "pb_hooks")}`,
+      "--automigrate=false",
+    ],
+    { input: "y\n", stdio: "pipe" },
+  );
 }

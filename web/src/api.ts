@@ -2,7 +2,7 @@
 
 import { type Cursor, PAGE_SIZE, type PageQuery } from "./lib/cursor.ts";
 import { createTokenCache } from "./lib/token.ts";
-import { DEFAULT_SITE, type Message, type Posting, type Room, type Site, type User, type Visibility } from "./lib/types.ts";
+import { DEFAULT_SITE, type MediaPage, type Message, type Posting, type Room, type Site, type User, type Visibility } from "./lib/types.ts";
 import { type AuthRecord, type PbClient, PbError, type Query, type RequestOptions } from "./pb.ts";
 
 export type AvatarSize = 48 | 96;
@@ -144,6 +144,12 @@ export interface Api {
    * Starts a refresh in the background when the token is getting old.
    */
   fileUrl(m: Message, filename: string, thumb?: string): string;
+  /** URL of a video's poster frame (§30.1), signed like `fileUrl`: 404 until the server has made it. */
+  posterUrl(m: Message, filename: string): string;
+
+  // media grid (§30.1)
+  /** A page of the room's images and videos, newest first, older than `after` (the oldest shown) or the newest. */
+  media(room: string, after?: { sent: string; message: string; pos: number }, signal?: AbortSignal): Promise<MediaPage>;
 
   // realtime
   subscribeMessages(room: string, fn: RealtimeHandler<Message>): Promise<Unsubscribe>;
@@ -497,6 +503,9 @@ export function createApi(client: PbClient): Api {
       // A forward's attachments are its original's (§21.3).
       return pb.fileUrl("messages", m.forward_of || m.id, filename, { token: token || undefined, thumb });
     },
+    // The file's own URL and token, on the poster route.
+    posterUrl: (m, filename) => api.fileUrl(m, filename).replace("/api/files/messages/", "/api/chat/posters/"),
+    media: (room, after, signal) => wrap(pb.send<MediaPage>(`/api/chat/media/${room}`, { query: after, signal })),
 
     subscribeMessages: (room, fn) => subscribe("messages", fn, { ...MSG_OPTS, filter: pb.filter("room = {:room}", { room }) }),
     subscribeRooms: (fn) => subscribe("rooms", fn, ROOM_OPTS),

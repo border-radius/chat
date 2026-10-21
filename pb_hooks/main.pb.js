@@ -1,5 +1,5 @@
 /// <reference path="../types/pocketbase.d.ts" />
-// Server-side hooks (DESIGN.md §5.6, §16, §18, §20, §21, §22, §23, §24, §28; docs/ANDROID.md §8, §9.4). Logic lives in lib/, one module per collection
+// Server-side hooks (DESIGN.md §5.6, §16, §18, §20, §21, §22, §23, §24, §28, §30; docs/ANDROID.md §8, §9.4). Logic lives in lib/, one module per collection
 // or route: PocketBase hook handlers can't see top-level variables, so each handler require()s its module.
 
 onBootstrap((e) => {
@@ -36,6 +36,9 @@ routerAdd("POST", "/api/chat/reads", (e) => require(`${__hooks}/lib/reads.js`).m
 routerAdd("POST", "/api/chat/reactions", (e) => require(`${__hooks}/lib/reactions.js`).react(e), $apis.requireAuth("users"));
 routerAdd("POST", "/api/chat/delete", (e) => require(`${__hooks}/lib/bulk.js`).deleteMessages(e), $apis.requireAuth("users"));
 routerAdd("POST", "/api/chat/forward", (e) => require(`${__hooks}/lib/bulk.js`).forward(e), $apis.requireAuth("users"));
+routerAdd("GET", "/api/chat/media/{room}", (e) => require(`${__hooks}/lib/media.js`).list(e));
+routerAdd("GET", "/api/chat/posters/{message}/{file}", (e) => require(`${__hooks}/lib/media.js`).poster(e));
+routerAdd("POST", "/api/media/tick", (e) => require(`${__hooks}/lib/media.js`).tick(e), $apis.requireSuperuserAuth());
 routerAdd("GET", "/api/chat/users", (e) => require(`${__hooks}/lib/users.js`).searchUsers(e), $apis.requireAuth("users"));
 routerAdd("POST", "/api/chat/password", (e) => require(`${__hooks}/lib/account.js`).changePassword(e), $apis.requireAuth("users"));
 
@@ -105,6 +108,7 @@ onRecordCreate((e) => {
   e.next();
   if (e.record) require(`${__hooks}/lib/previews.js`).queue(e.app, e.record);
   if (e.record) require(`${__hooks}/lib/push.js`).queue(e.app, e.record);
+  if (e.record) require(`${__hooks}/lib/media.js`).add(e.app, e.record);
 }, "messages");
 
 onRecordCreateRequest((e) => {
@@ -123,7 +127,10 @@ onRecordUpdate((e) => {
   if (e.record) messages.setTextKey(e.record);
   const touch = !!e.record && messages.changesForwards(e.record);
   const edited = !!e.record && e.record.getString("text") !== e.record.original().getString("text");
+  const deleted = !!e.record && e.record.getBool("deleted") && !e.record.original().getBool("deleted");
   e.next();
+  // Saved: a deleted message's media leave the grid, its forwards' too (§30.1).
+  if (deleted && e.record) require(`${__hooks}/lib/media.js`).drop(e.app, e.record.id);
   // Saved: forwards of it tell their readers (§21.3).
   if (touch && e.record) messages.touchForwards(e.app, e.record);
   if (edited && e.record) require(`${__hooks}/lib/previews.js`).queue(e.app, e.record);
@@ -148,6 +155,12 @@ onRecordUpdateRequest((e) => {
 // Link previews (§28): fetched by a worker, a minute's run at a time.
 if (require(`${__hooks}/lib/previews.js`).enabled()) {
   cronAdd("previews", "* * * * *", () => require(`${__hooks}/lib/previews.js`).run($app));
+}
+
+// The media grid's thumbnails and video posters (§30.1): made by a worker, a minute's run at a time. MEDIA_CRON=off
+// leaves them to POST /api/media/tick (tests).
+if ($os.getenv("MEDIA_CRON").trim().toLowerCase() !== "off") {
+  cronAdd("media", "* * * * *", () => require(`${__hooks}/lib/media.js`).run($app));
 }
 
 // Push notifications for the Android app (docs/ANDROID.md §8): sent by a worker, a minute's run at a time. PUSH_CRON=off

@@ -17,6 +17,8 @@ export type Attachments = ((m: Message) => HTMLElement | null) & {
 export function createAttachments(opts: {
   /** Signed URL of an attachment (§17.3). */
   fileUrl: (m: Message, filename: string, thumb?: string) => string;
+  /** Signed URL of a video's poster frame (§30.1): 404 until the server has made one. */
+  posterUrl: (m: Message, filename: string) => string;
   /** Get a new file token (an image failed to load, maybe because its token expired). */
   refreshFileToken: () => Promise<unknown>;
   /** A thumbnail was clicked: show the image or video in the viewer (§17.7). */
@@ -169,13 +171,16 @@ export function createAttachments(opts: {
 
   /**
    * An image's thumbnail or a video's first frame: a click opens the viewer, a click that asks for a new tab or window
-   * (or a middle click) gets the full file there. A failed load retries once with a new token, then offers Retry.
+   * (or a middle click) gets the full file there. A video shows the poster the server made of it (§30.1), so the
+   * browser fetches nothing of the video; without one (not made yet, no ffmpeg there) it shows the video's own first
+   * frame. A failed load retries once with a new token, then offers Retry.
    */
   function mediaTile(m: Message, name: string, thumb: string, ratio?: string): HTMLElement {
     const video = isVideo(name);
-    const src = () => opts.fileUrl(m, name, video || isGif(name) ? undefined : thumb);
-    const el = preview(attachmentName(m, name), src());
-    if (!video) el.setAttribute("loading", "lazy");
+    let poster = video;
+    const src = () => (poster ? opts.posterUrl(m, name) : opts.fileUrl(m, name, video || isGif(name) ? undefined : thumb));
+    let el = poster ? h("img", { src: src(), alt: attachmentName(m, name), decoding: "async" }) : preview(attachmentName(m, name), src());
+    if (el instanceof HTMLImageElement) el.loading = "lazy";
     if (ratio) el.style.aspectRatio = ratio;
     const tile = fileLink(m, name, "att-tile", [el, playBadge(name)]);
     tile.removeAttribute("download"); // open images and videos in a tab rather than download them
@@ -189,28 +194,35 @@ export function createAttachments(opts: {
       },
       { signal },
     );
-    const load = () => (el.src = video ? `${src()}#t=0.001` : src());
+    const load = () => (el.src = video && !poster ? `${src()}#t=0.001` : src());
     let retried = false;
-    el.addEventListener(
-      "error",
-      () => {
-        if (!retried) {
-          retried = true;
-          void opts.refreshFileToken().then(load, () => el.dispatchEvent(new Event("error")));
-          return;
-        }
-        const broken = h("span", { class: "att-tile att-broken" }, [
-          `Couldn't load ${video ? "video" : "image"} `,
-          btn("Retry", () => {
-            retried = false;
-            broken.replaceWith(tile);
-            load();
-          }),
-        ]);
-        tile.replaceWith(broken);
-      },
-      { signal },
-    );
+    const failed = () => {
+      // No poster: the video's first frame instead, as if there had never been one.
+      if (poster) {
+        poster = false;
+        const was = el;
+        el = preview(attachmentName(m, name), src());
+        el.style.aspectRatio = was.style.aspectRatio;
+        el.addEventListener("error", failed, { signal });
+        was.replaceWith(el);
+        return;
+      }
+      if (!retried) {
+        retried = true;
+        void opts.refreshFileToken().then(load, () => el.dispatchEvent(new Event("error")));
+        return;
+      }
+      const broken = h("span", { class: "att-tile att-broken" }, [
+        `Couldn't load ${video ? "video" : "image"} `,
+        btn("Retry", () => {
+          retried = false;
+          broken.replaceWith(tile);
+          load();
+        }),
+      ]);
+      tile.replaceWith(broken);
+    };
+    el.addEventListener("error", failed, { signal });
     return tile;
   }
 

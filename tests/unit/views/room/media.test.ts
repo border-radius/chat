@@ -1,19 +1,9 @@
-// Media grid (§30): its query, and the grid in the room view: newest first, under month headings, a page at a time.
+// Media grid (§30): the grid in the room view, newest first, under month headings, a page at a time (GET
+// /api/chat/media/{room}: tests/integration/media.test.ts).
 
 import { describe, expect, it, vi } from "vitest";
-import { latest, older, withFiles } from "../../../../web/src/lib/cursor.ts";
-import type { Message } from "../../../../web/src/lib/types.ts";
-import { mediaQuery } from "../../../../web/src/views/room/media.ts";
 import { intercept, seedMessages } from "../../../support/api.ts";
 import { io, me, mount, newRoom, root, useRoomView } from "./harness.ts";
-
-describe("mediaQuery", () => {
-  it("is withFiles(latest) and withFiles(older): the chunk can't import lib/cursor.ts", () => {
-    expect(mediaQuery("r1")).toEqual(withFiles(latest("r1")));
-    const m = { id: "abc", created: "2026-10-18 10:00:00.000Z" } as Message;
-    expect(mediaQuery("r1", m)).toEqual(withFiles(older("r1", m)));
-  });
-});
 
 describe("room view: media grid (§30)", () => {
   useRoomView();
@@ -40,13 +30,22 @@ describe("room view: media grid (§30)", () => {
       files: (i) =>
         i === 69 ? ["a_abcdefghij.png", "b_abcdefghij.mp4"] : i % 10 === 9 ? ["notes_abcdefghij.pdf"] : [`p${i}_abcdefghij.png`],
     });
+    // The server says p68 is a video whose poster is made; b.mp4 has none yet.
+    intercept(me.api, "media", (media) => async (r, after, sig) => {
+      const page = await media(r, after, sig);
+      return { ...page, items: page.items.map((i) => (i.file.startsWith("p68_") ? { ...i, video: true, poster: true } : i)) };
+    });
     await mount(room);
     await open();
-    await vi.waitFor(() => expect(tiles()).toHaveLength(47)); // the newest 50 messages: 45 with an image, the newest with 2
+    await vi.waitFor(() => expect(tiles()).toHaveLength(60)); // a page: 65 tiles in all (63 messages with an image, one with 2)
     // A message's files in their own order once reversed for the viewer: newest first, last to first.
     expect(names().slice(0, 3)).toEqual(["b.mp4", "a.png", "p68.png"]);
-    expect(tiles()[0]!.querySelector("video")!.getAttribute("src")).toMatch(/#t=0\.001$/);
-    expect(tiles()[1]!.querySelector("img")!.getAttribute("src")).toMatch(/thumb=240x240/);
+    // A video is never loaded in the grid: its poster, or a plain tile until there is one.
+    expect(grid()!.querySelector("video")).toBeNull();
+    expect(tiles()[0]!.querySelector("img")).toBeNull();
+    expect(tiles()[0]!.querySelector("span")!.textContent).toBe("▶");
+    expect(tiles()[2]!.querySelector("img")!.getAttribute("src")).toMatch(/\/api\/chat\/posters\/[a-z0-9]+\/p68_abcdefghij\.png\?token=/);
+    expect(tiles()[1]!.querySelector("img")!.getAttribute("src")).toMatch(/\/api\/files\/messages\/.*thumb=240x240/);
     expect(tiles()[0]!.getAttribute("aria-label")).toMatch(/^b\.mp4, video, Me, /);
     const months = () => [...grid()!.querySelectorAll("h3")].map((h) => h.textContent);
     expect(months()).toEqual(["August 2026", "July 2026", "June 2026"]);
@@ -64,11 +63,7 @@ describe("room view: media grid (§30)", () => {
     const room = await newRoom();
     await seedMessages(room.id, me.user.id, 3);
     let fail = true;
-    intercept(
-      me.api,
-      "page",
-      (page) => (q, sig) => (fail && q.filter.includes("files:length") ? Promise.reject(new Error("offline")) : page(q, sig)),
-    );
+    intercept(me.api, "media", (media) => (r, after, sig) => (fail ? Promise.reject(new Error("offline")) : media(r, after, sig)));
     await mount(room);
     await open();
     await vi.waitFor(() => expect(status().textContent).toBe("Couldn't load media. Retry"));

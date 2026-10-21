@@ -1,4 +1,4 @@
-# Production image: the built frontend + the pinned PocketBase, nothing else. Used by Dokku (README "Deploying").
+# Production image: the built frontend + the pinned PocketBase, and ffmpeg. Used by Dokku (README "Deploying").
 
 # ---- frontend: web/ → pb_public/ ----
 FROM node:22-alpine AS web
@@ -20,7 +20,9 @@ RUN sh scripts/fetch-pocketbase.sh
 
 # ---- runtime ----
 FROM alpine:3.22
-RUN apk add --no-cache ca-certificates tzdata \
+# ffmpeg: the media worker makes each video's poster frame for the room and the media grid (DESIGN.md §30.1). Without it (or with
+# -e FFMPEG=off) the room loads videos to draw their first frame, as before. busybox's `timeout` stops a run that hangs.
+RUN apk add --no-cache ca-certificates tzdata ffmpeg \
   && adduser -D -H -u 32767 chat \
   && mkdir /pb_data && chown chat /pb_data
 WORKDIR /app
