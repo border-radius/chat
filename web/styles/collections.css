@@ -1,0 +1,249 @@
+/* Media collections (DESIGN.md §31): the collection page, the save menu, the picker. Not part of app.css: the chunk
+   links this file when it first shows one. Uses app.css's custom properties, and the media grid's tiles (.media-grid,
+   .media-tile) are styled here too, since media.css may not be loaded. */
+
+.collection {
+  padding: 1rem 1.25rem 2rem;
+}
+
+.coll-head h1 {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  margin: 0 0 0.25rem;
+  font-size: 1.4rem;
+  overflow-wrap: anywhere;
+}
+
+.coll-meta,
+.coll-notice,
+.coll-status,
+.coll-count {
+  margin: 0 0 0.5rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.coll-actions,
+.coll-rename,
+.coll-new-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.coll-actions .danger {
+  color: var(--danger);
+}
+
+.coll-new {
+  margin: 0.5rem 0;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.media-grid.coll-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(7rem, 1fr));
+  gap: 4px;
+}
+
+.coll-grid h3 {
+  grid-column: 1 / -1;
+  margin: 0.9rem 0 0.2rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.coll-grid .media-tile {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 1;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.coll-grid .media-tile img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.coll-grid .media-tile span {
+  position: relative;
+  font-size: 1.4rem;
+}
+
+.coll-cell {
+  position: relative;
+}
+
+/* New since your last visit: a ring and a dot. */
+.coll-cell.new .media-tile {
+  outline: 3px solid var(--accent);
+  outline-offset: -3px;
+}
+
+.coll-cell.new::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: 0.7rem;
+  height: 0.7rem;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: var(--grad);
+  pointer-events: none;
+}
+
+.coll-remove {
+  opacity: 1;
+}
+
+.coll-remove {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgb(13 11 20 / 65%);
+  color: #fff;
+  opacity: 0;
+}
+
+@media (hover: none) {
+  .coll-remove {
+    opacity: 0.85;
+  }
+}
+
+.coll-cell:hover .att-save,
+.coll-cell:focus-within .att-save,
+.coll-cell:hover .coll-remove,
+.coll-cell:focus-within /* The save menu and the picker. */
+dialog.coll-dialog {
+  width: min(28rem, 100%);
+  max-height: min(40rem, 100%);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--fg);
+  box-shadow: var(--shadow);
+}
+
+dialog.coll-pick {
+  width: min(48rem, 100%);
+  height: min(40rem, 100%);
+}
+
+dialog.coll-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+dialog.coll-dialog::backdrop {
+  background: rgb(0 0 0 / 45%);
+}
+
+.coll-dialog .media-bar {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.5rem 0.75rem 0.5rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.coll-dialog .media-bar h2 {
+  display: flex;
+  flex: 1;
+  gap: 0.4rem;
+  align-items: center;
+  margin: 0;
+  font-size: 1rem;
+}
+
+.coll-dialog .media-bar .link {
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.coll-dialog select {
+  margin: 0.75rem 1rem 0;
+}
+
+.coll-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.75rem 1rem;
+}
+
+.coll-choices {
+  margin: 0 0 0.75rem;
+  padding: 0;
+  list-style: none;
+}
+
+.coll-choices label {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  padding: 0.35rem 0;
+}
+
+.coll-pick .media-tile[aria-pressed="true"] {
+  outline: 3px solid var(--accent);
+  outline-offset: -3px;
+}
+
+.coll-pick .media-tile[aria-pressed="true"]::after {
+  content: "✓";
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 800;
+}
+
+.coll-foot {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0.5rem 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.coll-foot .coll-count {
+  margin: 0 auto 0 0;
+}
+
+@media (max-width: 40rem) {
+  dialog.coll-dialog {
+    width: 100%;
+    height: 100%;
+    max-height: none;
+    border-radius: 0;
+  }
+}

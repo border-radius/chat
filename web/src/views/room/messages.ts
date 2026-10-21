@@ -9,7 +9,7 @@ import { emptyForward, type MessageWindow, quoteText, startsGroup } from "../../
 import { reactors } from "../../lib/reactions.ts";
 import { captureAnchor, restoreAnchor } from "../../lib/scroll.ts";
 import { dayLabel, formatFull, formatTime, parsePb } from "../../lib/time.ts";
-import type { LinkPreview, Message, Quoted, Reaction, User } from "../../lib/types.ts";
+import type { Badge, LinkPreview, Message, Quoted, Reaction, User } from "../../lib/types.ts";
 import { type AvatarUrl, avatar } from "../../ui/avatar.ts";
 import { createActionMenu } from "../../ui/menu.ts";
 import { createAttachments } from "./attachments.ts";
@@ -111,6 +111,10 @@ export function createMessageList(opts: {
   refreshFileToken: () => Promise<unknown>;
   /** A thumbnail was clicked: show the image or video in the viewer (§17.7). */
   onOpenImage: (m: Message, file: string, opener: HTMLElement) => void;
+  /** What the badge of a file from collection `id` says (§31); undefined until known. */
+  badge?: (id: string) => Badge | undefined;
+  /** Save to collection on a tile (§31). */
+  onSave?: (m: Message, file: string, opener: HTMLElement) => void;
   signal: AbortSignal;
 }): MessageList {
   const { signal } = opts;
@@ -338,6 +342,7 @@ export function createMessageList(opts: {
       (m.files ?? []).join("/"),
       (m.previews ?? []).map((p) => [p.url, p.title, p.icon.length]),
       (m.localFiles ?? []).map((f) => f.url || f.file.name).join("/"),
+      Object.values(m.file_sources ?? {}).map((c) => opts.badge?.(c) ?? null),
     ]);
     const hit = cache.get(m.id);
     if (hit && hit.sig === sig) return hit.el;

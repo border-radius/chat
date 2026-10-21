@@ -60,6 +60,8 @@ export interface Message {
   files?: string[];
   /** Original upload names by stored name, set by the server (QA BUG-28); absent for older messages. */
   file_names?: Record<string, string>;
+  /** Stored name → the collection it was attached from (§31); absent or empty for the others. */
+  file_sources?: Record<string, string>;
   /** The message this one replies to (§19); "" or absent when it isn't a reply. */
   reply_to?: string;
   /** Emoji reactions (§20), in the order they were first added; empty or absent when there are none. */
@@ -128,10 +130,48 @@ export interface Quoted {
 }
 
 export interface LocalFile {
+  /** For an item from a collection, an empty stand-in named after it. */
   file: File;
   /** Object URL for an image or video preview, "" for other files. Revoked once the message no longer needs it. */
   url: string;
+  /** Attached from a collection (§31): the item's id, sent for the server to copy, and its collection's. */
+  item?: { id: string; collection: string };
 }
+
+/** A collection (§31), as GET /api/chat/collections lists it. */
+export interface Collection {
+  id: string;
+  name: string;
+  public: boolean;
+  items: number;
+  last_added: string;
+  /** Someone else's that you follow: whose it is, up to when you've seen it, and how many items are new (at most 100). */
+  owner?: { id: string; name: string };
+  seen_at?: string;
+  new?: number;
+}
+
+/** What GET /api/chat/collections answers: yours and those you follow, by name. */
+export interface Collections {
+  mine: Collection[];
+  subs: Collection[];
+}
+
+/** A collection item (§31): one image or video. */
+export interface CollectionItem {
+  id: string;
+  collection: string;
+  file: string;
+  /** The original file name. */
+  name: string;
+  video: boolean;
+  /** A video's poster frame is ready (GET /api/chat/posters/items/{id}/{file}). */
+  poster: boolean;
+  created: string;
+}
+
+/** What a "from collection" badge may say (§31): a public one's (or your own) name, "private", or null: gone. */
+export type Badge = { name: string; public: boolean; mine: boolean } | { private: true } | null;
 
 /** The site's branding and signup policy (§24), set by an admin in PocketBase. */
 export interface Site {

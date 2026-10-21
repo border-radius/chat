@@ -223,6 +223,9 @@ function forwardSourceRemoved(app, rec, orig) {
 function beforeMessageCreateRequest(e) {
   const rec = recordOf(e);
   for (const f of ["forwarded_from", "forward_of"]) if (rec.getString(f) !== "") throw fieldError(f, "This field can't be set.");
+  // Only attachItems sets it, from the items named (§31).
+  const sources = rec.getString("file_sources");
+  if (sources !== "" && sources !== "null" && sources !== "{}") throw fieldError("file_sources", "This field can't be set.");
 }
 
 /**
@@ -270,6 +273,7 @@ function beforeMessageUpdate(e) {
     rec.set("text", "");
     rec.set("files", []); // PocketBase deletes the stored files once the update commits (§17.1)
     rec.set("file_names", {});
+    rec.set("file_sources", {});
     rec.set("reactions", []);
     rec.set("previews", []);
     rec.set("deleted_at", new DateTime());
@@ -278,6 +282,7 @@ function beforeMessageUpdate(e) {
   }
 
   rec.set("file_names", orig.get("file_names")); // never changed by an edit
+  rec.set("file_sources", orig.get("file_sources")); // nor this (§31)
   // Reactions only change through POST /api/chat/reactions (§20.2). Any other save (an edit) keeps the ones stored
   // now, not the ones loaded with the record: a reaction added meanwhile would be lost. (Edits save in a transaction.)
   if (rec.getString("reactions") === orig.getString("reactions")) {
@@ -361,6 +366,7 @@ function showOriginal(e) {
   rec.set("text", gone ? "" : original.getString("text"));
   rec.set("files", gone ? [] : original.getStringSlice("files"));
   rec.set("file_names", gone ? {} : original.get("file_names"));
+  rec.set("file_sources", gone ? {} : original.get("file_sources"));
   rec.set("previews", gone ? [] : original.get("previews"));
   rec.set("edited_at", gone ? "" : original.get("edited_at"));
 }

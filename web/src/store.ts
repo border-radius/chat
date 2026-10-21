@@ -1,6 +1,6 @@
 // Tiny observable app state (§7.4). Message lists are owned by the room view, not stored here.
 
-import { DEFAULT_SITE, type Room, type Site, type User } from "./lib/types.ts";
+import { type Collections, DEFAULT_SITE, type Room, type Site, type User } from "./lib/types.ts";
 
 type Listener<S> = (state: S, prev: S) => void;
 
@@ -41,6 +41,10 @@ export interface AppState {
   unread: Map<string, number>;
   roomsStatus: LoadStatus;
   activeRoomId: string | null;
+  /** Your collections and those you follow (§31); null until loaded (and for guests). */
+  collections: Collections | null;
+  /** The collection whose page is open. */
+  activeCollectionId: string | null;
   /** The tab isn't visible (§22.4): nobody is reading the open room, so its new messages count too. */
   away: boolean;
   /** Branding and signup policy (§24): not the session's, so it stays when the session ends. */
@@ -57,6 +61,8 @@ export const initialState = (): AppState => ({
   unread: UNCOUNTED,
   roomsStatus: "idle",
   activeRoomId: null,
+  collections: null,
+  activeCollectionId: null,
   away: false,
   site: DEFAULT_SITE,
 });

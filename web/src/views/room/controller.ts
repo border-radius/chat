@@ -41,7 +41,7 @@ export const UNREAD_LINE_MS = 5000;
 const strays = new Map<string, Message[]>();
 /** Keep a failed send for the room's next view. Its previews went with the view: its files show by name. */
 function stray(m: Message) {
-  const files = m.localFiles?.map((f) => ({ file: f.file, url: "" }));
+  const files = m.localFiles?.map((f) => ({ ...f, url: "" }));
   strays.set(m.room, [...(strays.get(m.room) ?? []), { ...m, ...(files && { localFiles: files }) }]);
 }
 
@@ -610,13 +610,15 @@ export function createRoomController(opts: {
     let saved: Message | null = null;
     let failed: Message | null = null;
     try {
-      const files = msg.localFiles?.map((f) => f.file);
+      const files = msg.localFiles?.filter((f) => !f.item).map((f) => f.file);
+      const items = msg.localFiles?.flatMap((f) => (f.item ? [f.item.id] : []));
       saved = await api.send(
         {
           id: msg.id,
           room: msg.room,
           text: msg.text,
           ...(files?.length ? { files } : {}),
+          ...(items?.length ? { items } : {}),
           ...(replyTo ? { replyTo } : {}),
         },
         (fraction) => opts.onUpload?.(msg.id, fraction),

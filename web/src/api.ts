@@ -2,7 +2,19 @@
 
 import { type Cursor, PAGE_SIZE, type PageQuery } from "./lib/cursor.ts";
 import { createTokenCache } from "./lib/token.ts";
-import { DEFAULT_SITE, type MediaPage, type Message, type Posting, type Room, type Site, type User, type Visibility } from "./lib/types.ts";
+import {
+  type Badge,
+  type CollectionItem,
+  type Collections,
+  DEFAULT_SITE,
+  type MediaPage,
+  type Message,
+  type Posting,
+  type Room,
+  type Site,
+  type User,
+  type Visibility,
+} from "./lib/types.ts";
 import { type AuthRecord, type PbClient, PbError, type Query, type RequestOptions } from "./pb.ts";
 
 export type AvatarSize = 48 | 96;
@@ -38,6 +50,16 @@ export interface NewMessage {
   files?: File[];
   /** The message this one replies to (§19). */
   replyTo?: string;
+  /** Collection items whose files it attaches, after `files` (§31). */
+  items?: string[];
+}
+
+/** A request to the server (`Api.request`). */
+export interface Request {
+  method?: string;
+  body?: Record<string, unknown>;
+  query?: Query;
+  signal?: AbortSignal;
 }
 
 /**
@@ -151,6 +173,21 @@ export interface Api {
   /** A page of the room's images and videos, newest first, older than `after` (the oldest shown) or the newest. */
   media(room: string, after?: { sent: string; message: string; pos: number }, signal?: AbortSignal): Promise<MediaPage>;
 
+  // collections (§31): the rest of their calls are the lazy chunk's (views/collection/lazy.ts), through `request`
+  collections(signal?: AbortSignal): Promise<Collections>;
+  /** You have seen the collection's items up to `at` (an item's `created`; default now). */
+  markSeen(collection: string, at?: string): Promise<void>;
+  /** What each collection's badge may say. */
+  badges(ids: readonly string[], signal?: AbortSignal): Promise<Record<string, Badge>>;
+  /** Signed URL of an item's file (a thumbnail with `thumb`), as fileUrl. */
+  itemUrl(item: Pick<CollectionItem, "id" | "file">, thumb?: string): string;
+  /** Signed URL of an item's video poster: 404 until there is one. */
+  itemPosterUrl(item: Pick<CollectionItem, "id" | "file">): string;
+  /** Changes of these collections (yours, and those you follow), and of your own subscriptions. */
+  subscribeCollections(ids: readonly string[], fn: () => void): Promise<Unsubscribe>;
+  /** Any request to the server, for a lazy chunk (which can't import this module); rejects with ApiError. */
+  request<T>(path: string, r?: Request): Promise<T>;
+
   // realtime
   subscribeMessages(room: string, fn: RealtimeHandler<Message>): Promise<Unsubscribe>;
   subscribeRooms(fn: RealtimeHandler<Room>): Promise<Unsubscribe>;
@@ -203,7 +240,7 @@ export const reasonOf = (err: unknown): string => (err instanceof ApiError && Ob
 
 /** Only what the UI renders; never user emails (§6). */
 export const MSG_FIELDS =
-  "id,room,text,created,updated,edited_at,deleted,files,file_names,reactions,previews,author,expand.author.id,expand.author.name,expand.author.avatar,expand.author.no_dms," +
+  "id,room,text,created,updated,edited_at,deleted,files,file_names,file_sources,reactions,previews,author,expand.author.id,expand.author.name,expand.author.avatar,expand.author.no_dms," +
   "reply_to,expand.reply_to.id,expand.reply_to.author,expand.reply_to.text,expand.reply_to.deleted,expand.reply_to.files," +
   "expand.reply_to.expand.author.id,expand.reply_to.expand.author.name," +
   "forwarded_from,forward_of,expand.forwarded_from.id,expand.forwarded_from.name";
@@ -482,6 +519,7 @@ export function createApi(client: PbClient): Api {
             text: m.text,
             ...(m.files?.length ? { files: m.files } : {}),
             ...(m.replyTo ? { reply_to: m.replyTo } : {}),
+            ...(m.items?.length ? { items: m.items } : {}),
           },
           MSG_OPTS,
           m.files?.length ? onUpload : undefined,
@@ -505,6 +543,30 @@ export function createApi(client: PbClient): Api {
     },
     // The file's own URL and token, on the poster route.
     posterUrl: (m, filename) => api.fileUrl(m, filename).replace("/api/files/messages/", "/api/chat/posters/"),
+    collections: (signal) => wrap(pb.send<Collections>("/api/chat/collections", { signal })),
+    markSeen: async (collection, at) => {
+      await wrap(pb.send("/api/chat/subs/seen", { method: "POST", body: { collection, ...(at ? { at } : {}) } }));
+    },
+    badges: (ids, signal) => wrap(pb.send<Record<string, Badge>>("/api/chat/badges", { query: { ids: ids.join(",") }, signal })),
+    itemUrl(item, thumb) {
+      const user = api.currentUser();
+      if (user && !tokens.fresh()) void tokens.ensure().catch(() => {});
+      const token = user ? tokens.current() : "";
+      return pb.fileUrl("collection_items", item.id, item.file, { token: token || undefined, thumb });
+    },
+    itemPosterUrl: (item) => api.itemUrl(item).replace("/api/files/collection_items/", "/api/chat/posters/items/"),
+    async subscribeCollections(ids, fn) {
+      // One topic per collection followed: a filter naming them all could be longer than a topic may be.
+      const offs = await Promise.all([
+        subscribe("collections", fn, { fields: "id", filter: pb.filter("owner = {:me}", { me: me() }) }),
+        subscribe("collection_subs", fn, { fields: "id" }),
+        ...ids.map((id) => wrap(pb.realtime.subscribe(`collections/${id}`, fn, { fields: "id" }))),
+      ]);
+      return async () => {
+        await Promise.all(offs.map((off) => off()));
+      };
+    },
+    request: (path, r) => wrap(pb.send(path, r)),
     media: (room, after, signal) => wrap(pb.send<MediaPage>(`/api/chat/media/${room}`, { query: after, signal })),
 
     subscribeMessages: (room, fn) => subscribe("messages", fn, { ...MSG_OPTS, filter: pb.filter("room = {:room}", { room }) }),

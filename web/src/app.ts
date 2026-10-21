@@ -5,6 +5,7 @@
 import { createRoomActions } from "./actions.ts";
 import { type Api, ApiError } from "./api.ts";
 import { createCache, forgetGone } from "./cache.ts";
+import { createCollections } from "./collections.ts";
 import type { Ctx } from "./context.ts";
 import { clear, h } from "./dom.ts";
 import { createDrafts } from "./drafts.ts";
@@ -17,6 +18,7 @@ import { type AppState, createStore, initialState, type Store } from "./store.ts
 import { createSync } from "./sync.ts";
 import { avatar } from "./ui/avatar.ts";
 import { createUnread } from "./unread.ts";
+import { createCollectionView } from "./views/collection.ts";
 import { createHomeView } from "./views/home.ts";
 import { createLoginView } from "./views/login.ts";
 import { createProfileView } from "./views/profile.ts";
@@ -95,6 +97,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
   const store = createStore<AppState>({ ...initialState(), user: api.currentUser(), away: document.visibilityState === "hidden" });
   const sync = createSync({ api, store });
   const unread = createUnread({ api, store });
+  const collections = createCollections({ api, store });
   const drafts = createDrafts(() => store.get().user?.id ?? "");
   const cache = createCache();
   const offGone = forgetGone(cache, store);
@@ -106,6 +109,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     sync.start();
     if (!store.get().user) return;
     unread.start();
+    collections.start();
     prefetch.start();
   };
   /** The page a guest was on before going to log in or sign up: where logging in takes them back to (§23.3). */
@@ -127,6 +131,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     // this sends nothing: a reader only sends as the user it was opened for.
     unread.flush();
     unread.stop();
+    collections.stop();
     prefetch.stop();
     sync.stop();
     void api.unsubscribeAll().catch(() => {});
@@ -264,6 +269,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     store,
     sync,
     unread,
+    collections,
     actions: createRoomActions({ api, store }),
     navigate: (hash) => router.navigate(hash),
     reopen: () => panes.reload(),
@@ -296,6 +302,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
       { pattern: "/", public: true, view: withSidebar(rooms, () => createHomeView(ctx), "home") },
       { pattern: "/r/:id", public: true, view: roomPage },
       { pattern: "/r/:id/m/:msgId", public: true, view: roomPage },
+      { pattern: "/c/:id", public: true, view: withSidebar(rooms, () => createCollectionView(ctx)) },
       { pattern: "/me", view: withSidebar(rooms, () => createProfileView(ctx)) },
     ],
   });
@@ -343,6 +350,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
       offGone();
       router.stop();
       unread.stop();
+      collections.stop();
       prefetch.stop();
       sync.stop();
       clear(root);

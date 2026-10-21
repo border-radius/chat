@@ -63,6 +63,8 @@ describe("initialState", () => {
       unread: new Map(),
       roomsStatus: "idle",
       activeRoomId: null,
+      collections: null,
+      activeCollectionId: null,
       away: false,
       site: DEFAULT_SITE,
     });

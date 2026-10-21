@@ -3,6 +3,7 @@
 import type { RoomActions } from "./actions.ts";
 import type { Api } from "./api.ts";
 import type { Cache } from "./cache.ts";
+import type { CollectionsService } from "./collections.ts";
 import type { Drafts } from "./drafts.ts";
 import type { AppState, Store } from "./store.ts";
 import type { Sync } from "./sync.ts";
@@ -13,6 +14,8 @@ export interface Ctx {
   store: Store<AppState>;
   sync: Sync;
   unread: Unread;
+  /** Your collections and those you follow (§31). */
+  collections: CollectionsService;
   actions: RoomActions;
   navigate: (hash: string) => void;
   /** Start the current page over, with the same route (a room you can see again, §23.4). */

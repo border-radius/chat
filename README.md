@@ -22,6 +22,7 @@ A small, fast, real-time group chat. One [PocketBase](https://pocketbase.io) bin
 - Attachments: up to 10 files of 20 MB per message, with an upload progress bar; images shown as thumbnails and videos as their first frame (4 tiles, then "+N"); files are private to whoever can read the message
 - Image viewer: click a thumbnail to see it full size (or a video to play it) and step through the room's images and videos (buttons, arrow keys, swipe);
   loaded only when first used, so it adds nothing to the page's first load
+- Collections: save any image or video from the chat to collections of your own, public or private, and attach from them to messages; subscribe to other people's public collections to use theirs too, with a count of what's new and the new items highlighted; media attached from a collection link to it (or say "Private collection")
 - Select messages (up to 50): forward them to any room or DM, with "Forwarded from" and their attachments (forwards show the original, so nothing is copied), or delete them together when they are yours
 - Unread counts on every room and DM, live, and in sync across your tabs and devices; the total shows in the tab's favicon and title;
   a room with unread messages opens at the first of them, under a "New" line

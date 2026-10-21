@@ -3,7 +3,8 @@
 // The message window and everything that changes it live in room/controller.ts (no DOM). This module puts the
 // controller's changes on screen and wires the parts in room/: header (title + actions menu), search (§29), messages (the list),
 // composer, selection (the bar while selecting), reply, notice (the status line), names (who reacted), forward dialog,
-// access dialog (§23.2). A guest reads an Open Air room without a composer (§23.3).
+// access dialog (§23.2). A guest reads an Open Air room without a composer (§23.3). Images and videos can be saved to
+// collections and attached from them (§31): the save menu and the picker are the collections' lazy chunk.
 
 import { errorMessage, reasonOf } from "../api.ts";
 import type { Ctx } from "../context.ts";
@@ -14,12 +15,13 @@ import { emptyForward, lastSaved } from "../lib/messages.ts";
 import { canPost, isDm, otherMember, roomTitle } from "../lib/rooms.ts";
 import { isNearBottom } from "../lib/scroll.ts";
 import { formatFull, formatTime, parsePb } from "../lib/time.ts";
-import type { Message } from "../lib/types.ts";
+import type { Badge, Message } from "../lib/types.ts";
 import type { View } from "../router.ts";
 import { createScope } from "../scope.ts";
 import { roomSections } from "../store.ts";
 import { createEmojiPicker } from "../ui/emoji-picker.ts";
 import type { RoomReader } from "../unread.ts";
+import { chunkContext, collectionChunk } from "./collection.ts";
 import { createAccessDialog } from "./room/access.ts";
 import { createComposer, validEdit } from "./room/composer.ts";
 import { type Change, createRoomController, type Phase, type RoomController } from "./room/controller.ts";
@@ -43,7 +45,7 @@ export function mergeChanges(a: Change, b: Change): Change {
   return c;
 }
 
-export function createRoomView({ api, store, unread, actions, navigate, reopen, drafts, cache }: Ctx): View {
+export function createRoomView({ api, store, unread, actions, navigate, reopen, drafts, cache, collections }: Ctx): View {
   const vid = uniqueId("room");
   const scope = createScope();
   const { signal } = scope;
@@ -64,6 +66,66 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
 
   const room = () => store.get().rooms.get(roomId);
   const me = () => store.get().user;
+
+  // ---------------------------------------------------------------- collections (§31)
+
+  /** What each collection's badge says, by id: undefined while asked. Asked for together, after a render. */
+  const badges = new Map<string, Badge | undefined>();
+  const asking = new Set<string>();
+  function badge(id: string): Badge | undefined {
+    if (!badges.has(id)) {
+      badges.set(id, undefined);
+      if (!asking.size) queueMicrotask(askBadges);
+      asking.add(id);
+    }
+    return badges.get(id);
+  }
+  function askBadges() {
+    const ids = [...asking];
+    asking.clear();
+    for (let i = 0; i < ids.length; i += 50) {
+      const some = ids.slice(i, i + 50);
+      api.badges(some, signal).then(
+        (got) => {
+          for (const id of some) badges.set(id, got[id] ?? null);
+          render({ anchor: true });
+        },
+        () => {
+          for (const id of some) badges.delete(id); // asked again by the next render
+        },
+      );
+    }
+  }
+  const lazy = () => ({ ...chunkContext({ api, store, collections }), signal });
+  const noCollections = () => notice.say("Couldn't open collections. Check your connection.");
+  /** The save menu for a file of `m` (a forward's is its original's, §21.3). */
+  function saveFile(m: Message, file: string, opener: HTMLElement) {
+    collectionChunk().then(
+      (c) => scope.active && void c.openSave({ ...lazy(), from: { message: m.forward_of || m.id, file }, opener }),
+      () => scope.active && noCollections(),
+    );
+  }
+  /** The picker: the items picked join the composer's tray. */
+  function pickItems(opener: HTMLElement, max: number) {
+    collectionChunk().then(
+      (c) =>
+        scope.active &&
+        void c.openPicker({
+          ...lazy(),
+          max,
+          opener,
+          onPick: (items) =>
+            composer.addItems(
+              items.map((it) => ({
+                file: new File([], it.name || it.file),
+                url: it.video ? (it.poster ? api.itemPosterUrl(it) : "") : api.itemUrl(it, "800x480f"),
+                item: { id: it.id, collection: it.collection },
+              })),
+            ),
+        }),
+      () => scope.active && noCollections(),
+    );
+  }
 
   // ---------------------------------------------------------------- parts
 
@@ -148,6 +210,8 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
     posterUrl: api.posterUrl,
     refreshFileToken: () => api.fileToken(true),
     onOpenImage: (m, file, opener) => void viewImage(m, file, opener),
+    badge,
+    ...(me() ? { onSave: saveFile } : {}),
     avatarUrl: api.avatarUrl,
     onMessageUser: (userId) => void messageUser(userId),
     signal,
@@ -174,6 +238,7 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
     onChange: (text) => {
       if (roomId) drafts.set(roomId, text);
     },
+    onCollections: pickItems,
     signal,
   });
   const forwardDialog = createForwardDialog({
@@ -440,6 +505,7 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
           leave?.();
           return now(() => ctl.goTo(x.id));
         },
+        ...(me() ? { onSave: saveFile } : {}),
         opener,
         follow: (fn) => (viewing = fn),
         signal,

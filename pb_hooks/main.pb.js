@@ -1,5 +1,5 @@
 /// <reference path="../types/pocketbase.d.ts" />
-// Server-side hooks (DESIGN.md §5.6, §16, §18, §20, §21, §22, §23, §24, §28, §30; docs/ANDROID.md §8, §9.4). Logic lives in lib/, one module per collection
+// Server-side hooks (DESIGN.md §5.6, §16, §18, §20, §21, §22, §23, §24, §28, §30, §31; docs/ANDROID.md §8, §9.4). Logic lives in lib/, one module per collection
 // or route: PocketBase hook handlers can't see top-level variables, so each handler require()s its module.
 
 onBootstrap((e) => {
@@ -38,6 +38,14 @@ routerAdd("POST", "/api/chat/delete", (e) => require(`${__hooks}/lib/bulk.js`).d
 routerAdd("POST", "/api/chat/forward", (e) => require(`${__hooks}/lib/bulk.js`).forward(e), $apis.requireAuth("users"));
 routerAdd("GET", "/api/chat/media/{room}", (e) => require(`${__hooks}/lib/media.js`).list(e));
 routerAdd("GET", "/api/chat/posters/{message}/{file}", (e) => require(`${__hooks}/lib/media.js`).poster(e));
+routerAdd("GET", "/api/chat/posters/items/{item}/{file}", (e) => require(`${__hooks}/lib/media.js`).itemPoster(e));
+routerAdd("GET", "/api/chat/collections", (e) => require(`${__hooks}/lib/collections.js`).list(e), $apis.requireAuth("users"));
+routerAdd("GET", "/api/chat/badges", (e) => require(`${__hooks}/lib/collections.js`).badges(e));
+routerAdd("POST", "/api/chat/items", (e) => require(`${__hooks}/lib/collections.js`).saveItem(e), $apis.requireAuth("users"));
+routerAdd("GET", "/api/chat/saved", (e) => require(`${__hooks}/lib/collections.js`).saved(e), $apis.requireAuth("users"));
+routerAdd("DELETE", "/api/chat/items/{id}", (e) => require(`${__hooks}/lib/collections.js`).removeItem(e), $apis.requireAuth("users"));
+routerAdd("POST", "/api/chat/subs", (e) => require(`${__hooks}/lib/collections.js`).subscribe(e), $apis.requireAuth("users"));
+routerAdd("POST", "/api/chat/subs/seen", (e) => require(`${__hooks}/lib/collections.js`).markSeen(e), $apis.requireAuth("users"));
 routerAdd("POST", "/api/media/tick", (e) => require(`${__hooks}/lib/media.js`).tick(e), $apis.requireSuperuserAuth());
 routerAdd("GET", "/api/chat/users", (e) => require(`${__hooks}/lib/users.js`).searchUsers(e), $apis.requireAuth("users"));
 routerAdd("POST", "/api/chat/password", (e) => require(`${__hooks}/lib/account.js`).changePassword(e), $apis.requireAuth("users"));
@@ -98,8 +106,33 @@ onRecordUpdate((e) => {
 
 onRecordCreateRequest((e) => {
   require(`${__hooks}/lib/messages.js`).beforeMessageCreateRequest(e);
-  e.next();
+  // Files attached from collections (§31): copies, some in the temp folder (S3) until the save is done.
+  const temps = require(`${__hooks}/lib/collections.js`).attachItems(e);
+  try {
+    e.next();
+  } finally {
+    for (const path of temps) {
+      try {
+        $os.remove(path);
+      } catch {
+        // already gone
+      }
+    }
+  }
 }, "messages");
+
+onRecordCreate((e) => {
+  require(`${__hooks}/lib/collections.js`).beforeCollectionSave(e);
+  e.next();
+}, "collections");
+
+onRecordUpdate((e) => {
+  const collections = require(`${__hooks}/lib/collections.js`);
+  collections.beforeCollectionSave(e);
+  const wasPublic = !!e.record && e.record.original().getBool("public");
+  e.next();
+  if (e.record) collections.afterCollectionUpdate(e.app, e.record, wasPublic);
+}, "collections");
 
 onRecordCreate((e) => {
   const messages = require(`${__hooks}/lib/messages.js`);

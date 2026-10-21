@@ -7,6 +7,7 @@ import { checkFiles, formatBytes, isVideo } from "../../lib/files.ts";
 import { prepareImage } from "../../lib/image.ts";
 import { LIMITS, textLength } from "../../lib/limits.ts";
 import type { LocalFile } from "../../lib/types.ts";
+import { collectionIcon } from "../../ui/icon.ts";
 
 const MAX_LEN = LIMITS.messageText;
 const COUNTER_FROM = 1800;
@@ -78,6 +79,8 @@ export interface Composer {
   focus(): void;
   /** Add attachments (e.g. dropped on the room). Images are prepared first (§15.3). */
   addFiles(files: readonly File[]): Promise<void>;
+  /** Add items from collections (§31): they go after the uploads, as the server attaches them. */
+  addItems(items: readonly LocalFile[]): void;
   /** Show who and what the next message replies to (§19), or nothing. */
   setReply(reply: { name: string; text: string } | null): void;
 }
@@ -99,6 +102,8 @@ export function createComposer(opts: {
   onEmoji: (opener: HTMLElement, insert: (emoji: string) => void) => void;
   /** The text changed (typed, inserted, sent or replaced): e.g. to keep it as a draft. */
   onChange?: (text: string) => void;
+  /** Attach from collections (§31): offer at most `room` items next to `opener` (they come back through addItems). */
+  onCollections?: (opener: HTMLElement, room: number) => void;
   signal: AbortSignal;
 }): Composer {
   const { signal } = opts;
@@ -114,6 +119,22 @@ export function createComposer(opts: {
     "aria-label": "Attach files",
   });
   const attach = h("button", { type: "button", class: "attach", title: "Attach files", "aria-label": "Attach files" }, "+");
+  const { onCollections } = opts;
+  const fromCollections =
+    onCollections &&
+    h(
+      "button",
+      {
+        type: "button",
+        class: "icon-button attach-coll",
+        title: "Attach from collections",
+        "aria-label": "Attach from collections",
+        "aria-haspopup": "dialog",
+        on: { click: () => onCollections(fromCollections!, Math.max(0, LIMITS.attachments - files.length)) },
+        signal,
+      },
+      collectionIcon(),
+    );
   const emojiBtn = h(
     "button",
     {
@@ -175,17 +196,19 @@ export function createComposer(opts: {
     tray.replaceChildren(
       ...files.map((f) =>
         h("li", { class: "tray-item" }, [
-          !f.url
-            ? h("span", { class: "tray-icon", "aria-hidden": "true" }, "📄")
-            : h(isVideo(f.file.name) ? "video" : "img", {
-                class: "tray-thumb",
-                src: isVideo(f.file.name) ? `${f.url}#t=0.001` : f.url,
-                width: 40,
-                height: 40,
-                alt: "",
-              }),
+          f.item && !f.url
+            ? collectionIcon()
+            : !f.url
+              ? h("span", { class: "tray-icon", "aria-hidden": "true" }, "📄")
+              : h(isVideo(f.file.name) && !f.item ? "video" : "img", {
+                  class: "tray-thumb",
+                  src: isVideo(f.file.name) && !f.item ? `${f.url}#t=0.001` : f.url,
+                  width: 40,
+                  height: 40,
+                  alt: "",
+                }),
           h("span", { class: "tray-name" }, f.file.name),
-          h("span", { class: "tray-size" }, formatBytes(f.file.size)),
+          h("span", { class: "tray-size" }, f.item ? "From a collection" : formatBytes(f.file.size)),
           h(
             "button",
             { type: "button", class: "remove", "aria-label": `Remove ${f.file.name}`, on: { click: () => removeFile(f) }, signal },
@@ -199,7 +222,7 @@ export function createComposer(opts: {
   }
 
   function removeFile(f: LocalFile) {
-    if (f.url) URL.revokeObjectURL(f.url);
+    if (f.url && !f.item) URL.revokeObjectURL(f.url);
     files = files.filter((x) => x !== f);
     trayError.textContent = "";
     renderTray();
@@ -218,11 +241,22 @@ export function createComposer(opts: {
       prepared,
     );
     files = [
-      ...files,
+      ...files.filter((f) => !f.item),
       ...accepted.map((file) => ({ file, url: previewable(file) || isVideo(file.name) ? URL.createObjectURL(file) : "" })),
+      ...files.filter((f) => f.item),
     ];
     trayError.textContent = rejected.map((r) => `“${r.name}”: ${r.reason}.`).join(" ");
     renderTray();
+  }
+
+  function addItems(items: readonly LocalFile[]) {
+    if (signal.aborted) return;
+    const fresh = items.filter((it) => !files.some((f) => f.item?.id === it.item?.id));
+    const room = Math.max(0, LIMITS.attachments - files.length);
+    files = [...files, ...fresh.slice(0, room)];
+    trayError.textContent = fresh.length > room ? `At most ${LIMITS.attachments} files per message.` : "";
+    renderTray();
+    textarea.focus();
   }
 
   function submit() {
@@ -257,7 +291,7 @@ export function createComposer(opts: {
   signal.addEventListener(
     "abort",
     () => {
-      for (const f of files) if (f.url) URL.revokeObjectURL(f.url);
+      for (const f of files) if (f.url && !f.item) URL.revokeObjectURL(f.url);
     },
     { once: true },
   );
@@ -305,6 +339,7 @@ export function createComposer(opts: {
       h("div", { class: "composer-row" }, [
         fileInput,
         attach,
+        fromCollections,
         h("label", { for: opts.id, class: "visually-hidden" }, "Message"),
         textarea,
         counter,
@@ -318,6 +353,7 @@ export function createComposer(opts: {
   return {
     el,
     addFiles,
+    addItems,
     text: () => textarea.value,
     setText(text) {
       textarea.value = text;

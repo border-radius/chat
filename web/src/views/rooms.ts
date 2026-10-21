@@ -1,6 +1,6 @@
-// Room list (§7.1, §16.5): Rooms / Direct messages / Hidden / Archived sections, new-room form, user search,
-// per-room actions, unread badges (§18.4), private and Open Air markers (§23.1). A guest gets only the Open Air
-// rooms, to read (§23.3).
+// Room list (§7.1, §16.5): Rooms / Direct messages / Collections (§31) / Hidden / Archived sections, new-room form, user
+// search, per-room actions, unread badges (§18.4) and new items in collections you follow, private and Open Air markers
+// (§23.1). A guest gets only the Open Air rooms, to read (§23.3).
 // The data comes from the store, kept live by sync.ts; this view only renders it and issues commands.
 
 import { ApiError, errorMessage } from "../api.ts";
@@ -8,13 +8,15 @@ import type { Ctx } from "../context.ts";
 import { clear, h, reconcile, uniqueId } from "../dom.ts";
 import { LIMITS, textLength } from "../lib/limits.ts";
 import { otherMember, roomTitle, VISIBILITY, visibilityOf } from "../lib/rooms.ts";
-import type { Room, User, Visibility } from "../lib/types.ts";
+import type { Collection, Room, User, Visibility } from "../lib/types.ts";
 import type { View } from "../router.ts";
 import { createScope, type Scope } from "../scope.ts";
 import { roomSections, unreadCount } from "../store.ts";
 import { avatar } from "../ui/avatar.ts";
+import { collectionIcon } from "../ui/icon.ts";
 import { type ActionMenu, createActionMenu, type MenuItem } from "../ui/menu.ts";
 import { createUserSearch, type UserSearch } from "../ui/user-search.ts";
+import { chunkContext, collectionChunk } from "./collection.ts";
 
 type Section = "rooms" | "dms" | "hidden" | "archived";
 
@@ -34,7 +36,7 @@ export function visibilityMark(v: Visibility): HTMLElement | null {
   ]);
 }
 
-export function createRoomsView({ api, store, sync, unread, actions, navigate }: Ctx): View {
+export function createRoomsView({ api, store, sync, unread, actions, navigate, collections }: Ctx): View {
   const id = uniqueId("rooms");
   let root: HTMLElement;
   let scope: Scope;
@@ -55,6 +57,8 @@ export function createRoomsView({ api, store, sync, unread, actions, navigate }:
   let newRoom: { form: HTMLFormElement; input: HTMLInputElement; reset: () => void };
   const guest = () => !store.get().user;
   let creating = false;
+  /** Collection rows by id, with what they were drawn from. */
+  const collRows = new Map<string, { sig: unknown[]; el: HTMLElement }>();
 
   const alert = h("p", { role: "alert", class: "list-error" });
   const nav = h("nav", { "aria-label": "Rooms" });
@@ -125,6 +129,46 @@ export function createRoomsView({ api, store, sync, unread, actions, navigate }:
     render();
     if (open) newRoom.input.focus();
     else nav.querySelector<HTMLElement>("button.new-room-toggle")?.focus();
+  }
+
+  /** "+" in Collections (§31): the new-collection dialog, from the collections' chunk. */
+  function newCollection(opener: HTMLElement) {
+    collectionChunk().then(
+      (c) =>
+        scope.active &&
+        void c.openCreate({
+          ...chunkContext({ api, store, collections }),
+          signal: scope.signal,
+          opener,
+          onCreated: (cid) => navigate(`/c/${cid}`),
+        }),
+      () => {
+        actionError = "Couldn't open collections. Check your connection.";
+        if (scope.active) renderAlert();
+      },
+    );
+  }
+
+  /** A collection's row (§31): yours (a lock when private), or one you follow with whose it is and what is new. */
+  function collectionRow(c: Collection): HTMLElement {
+    const current = store.get().activeCollectionId === c.id;
+    const n = c.owner ? (c.new ?? 0) : 0;
+    const sig = [c.name, c.public, c.owner?.name, n, current];
+    const hit = collRows.get(c.id);
+    if (hit?.sig.every((v, i) => v === sig[i])) return hit.el;
+    const el = h(
+      "li",
+      { dataset: { collectionId: c.id } },
+      h("a", { href: `/c/${c.id}`, class: n ? "unread" : "", "aria-current": current ? "page" : null }, [
+        collectionIcon(),
+        h("span", {}, c.name),
+        c.owner ? h("span", { class: "owner" }, c.owner.name) : null,
+        c.public ? null : visibilityMark("private"),
+        n ? h("span", { class: "badge" }, [n > 99 ? "99+" : n, h("span", { class: "visually-hidden" }, " new")]) : null,
+      ]),
+    );
+    collRows.set(c.id, { sig, el });
+    return el;
   }
 
   async function message(user: User) {
@@ -250,6 +294,19 @@ export function createRoomsView({ api, store, sync, unread, actions, navigate }:
       },
       "+",
     );
+    const newColl = h(
+      "button",
+      {
+        type: "button",
+        class: "new-dm new-coll",
+        "aria-label": "New collection",
+        title: "New collection",
+        "aria-haspopup": "dialog",
+        on: { click: () => newCollection(newColl) },
+        signal: scope.signal,
+      },
+      "+",
+    );
     return {
       newRoomToggle,
       newDm,
@@ -260,6 +317,10 @@ export function createRoomsView({ api, store, sync, unread, actions, navigate }:
       direct: h("div", { class: "room-section", dataset: { section: "dms" } }),
       directHead: h("div", { class: "section-head" }, [h("h2", {}, "Direct messages"), newDm]),
       dms: h("ul"),
+      newColl,
+      collHead: h("div", { class: "section-head" }, [h("h2", {}, "Collections"), newColl]),
+      colls: h("div", { class: "room-section", dataset: { section: "collections" } }),
+      collList: h("ul"),
       hidden: collapsible("hidden"),
       archived: collapsible("archived"),
     };
@@ -300,6 +361,14 @@ export function createRoomsView({ api, store, sync, unread, actions, navigate }:
       p.direct,
       [p.directHead, search?.el ?? null, dms.length ? p.dms : null].filter((n) => n !== null),
     );
+    const c = s.collections;
+    const all = c ? [...c.mine, ...c.subs] : [];
+    reconcile(p.collList, all.map(collectionRow));
+    for (const id of collRows.keys()) if (!all.some((x) => x.id === id)) collRows.delete(id);
+    reconcile(
+      p.colls,
+      [p.collHead, all.length ? p.collList : null].filter((n) => n !== null),
+    );
     for (const [section, title, list] of [
       ["hidden", "Hidden", hidden],
       ["archived", "Archived", archived],
@@ -311,7 +380,7 @@ export function createRoomsView({ api, store, sync, unread, actions, navigate }:
         list.map((r) => roomRow(r, section, live)),
       );
     }
-    reconcile(nav, [p.main, p.direct, p.hidden.el, p.archived.el]);
+    reconcile(nav, [p.main, p.direct, p.colls, p.hidden.el, p.archived.el]);
     if (focused?.isConnected && document.activeElement !== focused) focused.focus();
     forget(live);
   }
@@ -423,6 +492,7 @@ export function createRoomsView({ api, store, sync, unread, actions, navigate }:
       rows.clear();
       search = null;
       creating = false;
+      collRows.clear();
       newRoom = newRoomForm();
       parts = skeleton();
       shell.replaceChildren(alert, nav);
@@ -437,6 +507,8 @@ export function createRoomsView({ api, store, sync, unread, actions, navigate }:
             s.hidden !== prev.hidden ||
             s.unread !== prev.unread ||
             s.activeRoomId !== prev.activeRoomId ||
+            s.collections !== prev.collections ||
+            s.activeCollectionId !== prev.activeCollectionId ||
             s.user !== prev.user ||
             s.roomsStatus !== prev.roomsStatus
           )

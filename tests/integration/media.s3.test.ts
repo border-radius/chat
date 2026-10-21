@@ -1,5 +1,5 @@
 // The media worker with files kept in S3 (§30.1): a video is copied to the temp folder for ffmpeg, its poster stored
-// in the bucket next to it, and the copy removed. Its own PocketBase, on an S3 server (versitygw, tests/support/s3.ts).
+// in the bucket next to it, and the copy removed. Collections (§31) copy files out of the bucket and back the same way. Its own PocketBase, on an S3 server (versitygw, tests/support/s3.ts).
 // Skipped without versitygw or ffmpeg, except in CI, which installs both.
 
 import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
@@ -88,5 +88,29 @@ describe.skipIf(!run)("media worker, files in S3 (§30.1)", () => {
     // Deleted: PocketBase removes the file's thumbs folder from the bucket, the poster with it.
     await pb.collection("messages").update(m.id, { deleted: true });
     expect(inBucket(m.id, `thumbs_${clip}/poster.jpg`)).toBe(false);
+  });
+
+  it("saves a video to a collection, poster and all, attaches it back, and leaves no copy behind (§31)", async () => {
+    const room = await pb.collection("rooms").create({ name: "s3-collections", created_by: me });
+    const m = await pb.collection("messages").create({
+      room: room.id,
+      author: me,
+      files: [new File([new Uint8Array(mp4 ?? [0])], "clip.mp4", { type: "video/mp4" })],
+    });
+    await su.send("/api/media/tick", { method: "POST" });
+    const coll = await pb.collection("collections").create({ owner: me, name: "s3" });
+    const item = await pb.send<{ id: string; file: string; poster: boolean }>("/api/chat/items", {
+      method: "POST",
+      body: { collection: coll.id, message: m.id, file: m.files[0] },
+    });
+    expect(item.poster).toBe(true);
+    const itemsId = (await su.collections.getOne("collection_items")).id;
+    expect(existsSync(join(s3.dir, itemsId, item.id, item.file))).toBe(true);
+    expect(existsSync(join(s3.dir, itemsId, item.id, `thumbs_${item.file}/poster.jpg`))).toBe(true);
+
+    const sent = await pb.collection("messages").create({ room: room.id, author: me, items: JSON.stringify([item.id]) });
+    expect(inBucket(sent.id, sent.files[0])).toBe(true);
+    expect(sent.file_names[sent.files[0]]).toBe("clip.mp4");
+    expect(readdirSync(temp).filter((f) => f.startsWith("chat-poster-"))).toEqual([]);
   });
 });

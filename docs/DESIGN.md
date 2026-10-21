@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | Draft |
 | **Date** | 2026-10-10 |
-| **Scope** | MVP (§1–§14); post-MVP features: avatars §15, direct messages §16, attachments §17, unread counts §18, replies §19, reactions and emoji §20, selecting, forwarding and deleting several messages §21, accounts and quality of life §22, room access (private rooms, Open Air rooms and guests) §23, site settings §24, measured scale §25, Telegram bridge §26 |
+| **Scope** | MVP (§1–§14); post-MVP features: avatars §15, direct messages §16, attachments §17, unread counts §18, replies §19, reactions and emoji §20, selecting, forwarding and deleting several messages §21, accounts and quality of life §22, room access (private rooms, Open Air rooms and guests) §23, site settings §24, measured scale §25, Telegram bridge §26, …, media grid §30, media collections §31 |
 
 Code and tests cite this document by section number (e.g. `§7.5`). **Don't renumber sections:** append new ones, and
 mark obsolete ones as such instead of deleting them.
@@ -543,12 +543,13 @@ while its first page loads.
 
 | Asset | Budget (gzipped) |
 |---|---|
-| `app.js` (including the PocketBase client) | **≤ 43.91 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, the room cache without waiting for the network, the QA pass 12 fixes, prefetching rooms not yet kept, the QA pass 13 fixes, thumbnail caching, the QA pass 14 fixes, Ctrl+Up/Down to pick the reply, link previews, the room access dialog fix, who can post, message search, message permalinks, the media grid, the QA pass 16 fixes, video posters in the room, the QA pass 17 fixes, see §13) |
-| `app.css` | **≤ 6.40 KB** (5 KB until §21, 5.5 KB until §23, 6 KB until audio attachments, 6.05 KB until §18.5, 6.10 KB until §28, 6.15 KB until the room access dialog fix, 6.20 KB until §29, 6.35 KB until message permalinks, see §13) |
+| `app.js` (including the PocketBase client) | **≤ 46.05 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, the room cache without waiting for the network, the QA pass 12 fixes, prefetching rooms not yet kept, the QA pass 13 fixes, thumbnail caching, the QA pass 14 fixes, Ctrl+Up/Down to pick the reply, link previews, the room access dialog fix, who can post, message search, message permalinks, the media grid, the QA pass 16 fixes, video posters in the room, the QA pass 17 fixes, media collections, see §13) |
+| `app.css` | **≤ 6.85 KB** (5 KB until §21, 5.5 KB until §23, 6 KB until audio attachments, 6.05 KB until §18.5, 6.10 KB until §28, 6.15 KB until the room access dialog fix, 6.20 KB until §29, 6.35 KB until message permalinks, 6.40 KB until §31, see §13) |
 | `index.html` | ≤ 1.5 KB |
 | Image viewer (§17.7), loaded on first use | ≤ 4 KB script, ≤ 1.5 KB stylesheet |
 | Message search (§29), loaded on first use | ≤ 2 KB script (its styles are in `app.css`) |
 | Media grid (§30), loaded on first use | ≤ 3 KB script, ≤ 1 KB stylesheet |
+| Media collections (§31), loaded on first use | ≤ 6 KB script, ≤ 1.5 KB stylesheet |
 | Web fonts | **none** (system font stack) |
 | Requests on first load | 3 (html, js, css) + API; the manifest, its icons and `sw.js` (§27) come after, off the critical path |
 
@@ -997,6 +998,16 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 | Bundle budget (video posters) | `app.js` raised from 43.65 KB to 43.77 KB gzipped (§7.7): a video's tile in the room shows the server's poster (§30.1) and falls back to the video's first frame without one (`api.posterUrl`, `attachments.ts`), 43.76 KB. The room's list is in `app.js`, so it can't go in a lazy chunk. |
 | Bundle budget (QA pass 17) | `app.js` raised from 43.77 KB to 43.91 KB gzipped (§7.7): the QA pass 17 fixes (failed sends kept after leaving a room, the viewer following deletes, the reaction picker closing on a deleted message, retrying a failed room load when back online, the avatar type message) took it to 43.90 KB. All of it is in the room view, the controller and the profile, which are in `app.js`. |
 | Bundle budget (QA pass 9) | `app.js` raised from 39.25 KB to 39.35 KB gzipped (§7.7): the forwarding fixes of QA pass 9 (messages deleted meanwhile left out, the server's reason shown, focus kept while selecting) took it to 39.30 KB. |
+
+### Decided (2026-10-21, media collections)
+
+| Topic | Decision |
+|---|---|
+| Saving | Copies the file into the collection (§31.1): it outlives the message (deleted by its author, the saved copy stays), and is seen by the collection's rules, not the room's. |
+| Private rooms into public collections | Allowed: saving media from a private room or a DM into a public collection makes it public. The save menu marks the public collections. |
+| The badge for your own private collection | Its name (with 🔒) and a link, to you; others see "Private collection", not a link. |
+| Buttons | The collections icon alone (named for screen readers) on every collection button: Save to collection, Attach from collections. |
+| Bundle budget (media collections) | `app.js` raised from 43.91 KB to 46.05 KB and `app.css` from 6.40 KB to 6.85 KB gzipped (§7.7), the user's call: the sidebar section and its live new counts (`collections.ts`), the badge and Save on the room's tiles, the composer's button and the route took them to 45.96 KB and 6.83 KB. The page, the save menu, the picker, the new-collection dialog and their requests are a lazy chunk (5.05 KB, stylesheet 1.09 KB). |
 
 ### Still open
 
@@ -2498,3 +2509,109 @@ videos here yet." or "Couldn't load media." with Retry; until Retry, the end of 
 - **E2E** (`media.spec.ts`): images 120 messages back, opened in the viewer ("2 / 3"), Escape and Back back to the
   grid, "Show in chat" loads the message and leaves no history entry; Back and Escape close the grid; axe: no serious
   violations; an empty room says so.
+
+## 31. Media collections
+
+A user keeps images and videos in **collections** of their own, public or private. Any image or video of the chat can
+be saved to one (the collections icon on a tile, or in the viewer), and anything in a collection can be attached to a
+message. Others can **subscribe** to a public collection, use what is in it, and see what has been added since they
+last looked. Collections are listed in the sidebar. Decisions: §13 (2026-10-21).
+
+### 31.1 Data (`pb_migrations/1760000030_collections.js`)
+
+- **`collections`:** `owner` (cascade with the user), `name` (1–60 characters, unique among the owner's whatever the
+  case: `name_key`, hidden, as `nameKey()` folds it), `public`, `items` and `last_added` (kept by the routes below).
+  Rules: list and view `public = true || owner = @request.auth.id` (guests see public ones); create with yourself as
+  `owner`, update and delete by the owner, never `owner`, `items`, `last_added` or `name_key` from a request body. The
+  hooks (`lib/collections.js`) clean the name and refuse a 51st collection.
+- **`collection_items`:** `collection` (cascade), `file` (one, **protected**, 20 MB, the thumbs of `messages.files`),
+  `name` (the original file name), `video`, `poster`, `ready` and `origin` (hidden: which message file, `m:<id>/<file>`,
+  or item, `i:<id>`, it was copied from), `created`. Unique `(collection, origin)`: a file is in a collection once,
+  however it came. Rules: list and view `collection.public = true || collection.owner = @request.auth.id`, which is
+  also what a file token is checked against (§17.3); no writes but the routes'. At most 2,000 per collection.
+- **`collection_subs`:** `user`, `collection` (both cascade), `seen_at`. Unique `(user, collection)`. Rules: your own
+  rows only, written by the routes (as `room_reads`, §18.1). At most 200 per user.
+- **`messages.file_sources`:** stored file name → the collection that file was attached from. Set only by the create
+  hook (the rules refuse it in a body, `beforeMessageCreateRequest` backs that up); never changed by an edit; emptied
+  with the files by a delete; a forward shows its original's (`showOriginal`, §21.3).
+- Rate limits: `collections:create` 10 per 60 s, `POST /api/chat/items` 30 per 60 s, `POST /api/chat/subs` 60 per 60 s.
+
+**Saving copies the file** (and attaching copies it again, into the message). A collection item doesn't point at the
+message: its file would follow the message's room rules (a subscriber couldn't see a file saved from a DM) and its
+lifetime (a delete wipes it, §17.1). So an item outlives the message it came from, and a message outlives the item
+and the collection it was attached from: the media grid, the viewer, forwards and the Telegram bridge see an ordinary
+file. The copy is Go's: PocketBase reads the stored file from its path (`$filesystem.fileFromPath`), or, kept in S3,
+from a copy in the temp folder (`media.js` `tempCopy`), removed once the save is done. A video's poster comes along
+when the file it was saved from has one; otherwise the media worker (§30.1) makes the item's grid thumbnail or poster.
+
+### 31.2 Routes (`pb_hooks/lib/collections.js`)
+
+- **`GET /api/chat/collections`** → `{ mine, subs }` by name: yours, and the public ones you follow with their owner,
+  `seen_at` and `new` (items added after `seen_at`, at most 100, one range scan each on `(collection, created)`).
+  One that turned private is left out but its row kept: public again, it is back.
+- **`POST /api/chat/items`** `{ collection, message, file }` or `{ collection, item }` → the item. Yours only (403
+  for someone else's you can see, 404 for one you can't); a message file you can see by the messages **view** rule (a
+  forward's reader saves its original's, §21.3), not deleted, an image or video; or an item you can see. 409 when it
+  is in there already. `DELETE /api/chat/items/{id}`: the owner takes one out.
+- **`GET /api/chat/saved?message=&file=`** (or `?item=`) → `{ collection: item }`: which of your collections have it.
+- **Attaching:** a message create may name items (`items`, their ids: a JSON list in a form). They must be yours or in
+  a public collection; their files are added after the uploads (10 in all), copied, with their names in `file_names`
+  and their collections in `file_sources`.
+- **`GET /api/chat/badges?ids=`** → per id `{ name, public, mine }` for a public collection or your own, `{ private:
+  true }` for someone else's private one, `null` for one that is gone. Guests too.
+- **`POST /api/chat/subs`** `{ collection, on }`: follow someone else's public collection (seen up to now), or stop.
+  **`POST /api/chat/subs/seen`** `{ collection, at? }`: as `/reads` (§18.2), forward only, never past now.
+- **`GET /api/chat/posters/items/{item}/{file}`**: an item's video poster, checked like the file (§30.1).
+- A collection turning private (or public again) saves its subscribers' rows again, so they hear of it live.
+
+### 31.3 Client
+
+- **The icon:** a picture with another behind it, drawn by CSS (`.ci`, a mask of an inline SVG, so it takes the text
+  color; `ui/icon.ts`). Every collection button is the icon alone, named for screen readers: Save to collection (on
+  a tile, top right, shown on hover and focus, always on touch screens; in the viewer's bar), Attach from collections
+  (in the composer, next to +), and the sidebar rows.
+- **State:** `collections.ts`, started with the session like `unread.ts`, keeps `AppState.collections`. It refetches
+  (debounced 250 ms) on a change of any of yours or those you follow (one realtime subscription on `collections`,
+  filtered to those ids, renewed when they change: a public collection's changes never reach everyone) and of your
+  `collection_subs` rows, and on reconnect.
+- **Sidebar:** a Collections section after Direct messages: yours (🔒 when private), then those you follow with their
+  owner's name and a badge of new items (`99+`, " new" for screen readers). "+" opens the new-collection dialog.
+- **The page, `/c/:id`:** in the room pane, the sidebar kept. Its name, whose it is, Public or Private and how many
+  items; the owner can rename it, make it public or private and delete it (confirmed); others Subscribe or
+  Unsubscribe. The items as square tiles, newest first under month headings, 60 at a time (the records API, cursor
+  on `(created, id)`). Items added since your `seen_at` have a ring and a dot, and "*n* new since your last visit" says
+  how many; once they are on screen in a visible tab the page sends `seen` with the newest item's `created`, and the
+  badge goes. A tile opens the viewer (§17.7, without "Show in chat"); the owner can remove one, anyone signed in save
+  one to their own collections.
+- **Saving** opens a menu of your collections, ticked where the file is already (`/saved`): tick to add, untick to
+  take out, or make a new (private) one there. Public ones say so: a file saved from a private room or a DM into a
+  public collection is then anyone's to see (§13).
+- **Attaching:** the picker lists your collections and those you follow; pick up to what the message still takes
+  and they join the tray (after the uploads, as the server attaches them), "From a collection". The pending message
+  shows their thumbnails; Retry sends the same ids.
+- **The badge:** a file with a `file_sources` entry gets a chip over its tile, bottom left: the icon and the
+  collection's name, a link to it, if it is public or yours (yours private: 🔒 after the name); "Private collection",
+  not a link, if it is someone else's private one; nothing if it is gone. The room view asks `/badges` once for the ids
+  a render shows that it hasn't asked about, and draws again when the answer comes (a message's signature includes
+  its badges). Renamed or made private meanwhile, a badge says the new state once the room is opened again.
+- **Loading:** `views/collection/lazy.ts` (the page, the save menu, the picker and the new-collection dialog, with
+  their requests, through `api.request`) is a lazy chunk with its own stylesheet, `styles/collections.css`
+  (`COLLECTIONS_CSS`), imported on first use by `views/collection.ts`. In `app.js`: the service, the sidebar section,
+  the badge and Save on tiles, the composer button and the route.
+- Guests read public collections and see badges, but can't save, subscribe or attach.
+
+### 31.4 Tests
+
+- **Integration** (`collections.test.ts`): names unique per owner whatever the case; counters, owner and limits kept
+  by the server; who sees which collection and item file (owner, others, guests; public and private); saving (a copy
+  that outlives the message, the original name, 409 twice, only media, not deleted, only what you can see, a
+  forward's original, copying an item); `/saved`; removing; attaching (after uploads, names, `file_sources`, the room's
+  rules for the copy, JSON and form bodies, forwards, only yours or public, no `file_sources` from a client, 10 at
+  most, cleared by a delete); badges; subscriptions (not your own, not private, new counts, seen, unsubscribe; turned
+  private: hidden and told live); the count's query plan; item thumbnails and posters (copied along, or made by
+  ffmpeg, served by the item's rules). `media.s3.test.ts`: saving a video and attaching it back with S3, poster
+  included, no temp copy left.
+- **E2E** (`collections.spec.ts`): make one from the sidebar, save from a tile, its page; another user subscribes,
+  sees "1 new" live, opens it with the new item highlighted and the badge gone; attaches it from the picker and the
+  message's badge links to it; made private, the badge says "Private collection" (not a link) to others and still
+  names it to the owner; axe on the page. Saving and unsaving from the viewer.

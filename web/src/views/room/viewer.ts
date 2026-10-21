@@ -44,8 +44,13 @@ export interface ViewerOptions {
   fileUrl: (m: Message, file: string) => string;
   /** Get a new file token (an image failed to load, maybe because its token expired). */
   refreshFileToken: () => Promise<unknown>;
-  /** Show in chat: go to this message in the room (the viewer has closed). Its tile gets focus once it's there. */
-  onJump: (m: Message) => Promise<unknown>;
+  /**
+   * Show in chat: go to this message in the room (the viewer has closed). Its tile gets focus once it's there. None
+   * for a collection's items (§31).
+   */
+  onJump?: (m: Message) => Promise<unknown>;
+  /** Save to collection (§31): offer it for the one shown, next to the button. None for guests. */
+  onSave?: (m: Message, file: string, opener: HTMLElement) => void;
   /** Gets focus back on close. */
   opener: HTMLElement;
   /** Gets the function to call when one of the room's messages changes or goes (`gone`: deleted for good). */
@@ -109,11 +114,16 @@ export async function openViewer(o: ViewerOptions): Promise<void> {
   const download = h("a", { class: "viewer-button", "aria-label": "Download", title: "Download" }, "↓");
   const closeButton = button("", "Close", "×", () => close(true), true);
   // The eye icon is drawn in CSS.
-  const jump = button("viewer-jump", "Show in chat", "", () => {
-    const at = shown();
-    close(true, false);
-    void o.onJump(at.message).then(() => !o.signal.aborted && tile(at)?.focus({ preventScroll: true }));
-  });
+  const { onJump, onSave } = o;
+  const jump =
+    onJump &&
+    button("viewer-jump", "Show in chat", "", () => {
+      const at = shown();
+      close(true, false);
+      void onJump(at.message).then(() => !o.signal.aborted && tile(at)?.focus({ preventScroll: true }));
+    });
+  const save = onSave && button("", "Save to collection", "", () => onSave(shown().message, shown().file, save!));
+  save?.append(h("span", { class: "ci", "aria-hidden": "true" }));
   const prev = button("viewer-prev", "Previous image", "‹", () => void go(-1));
   const next = button("viewer-next", "Next image", "›", () => void go(1));
   const img = h("img", { alt: "", decoding: "async" });
@@ -128,6 +138,7 @@ export async function openViewer(o: ViewerOptions): Promise<void> {
     h("header", { class: "viewer-bar" }, [
       h("div", { class: "viewer-caption", "aria-live": "polite" }, [title, meta]),
       count,
+      save,
       jump,
       download,
       closeButton,

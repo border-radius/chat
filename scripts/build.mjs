@@ -5,6 +5,7 @@ import { gzipSync } from "node:zlib";
 import * as esbuild from "esbuild";
 import {
   BASE_OPTIONS,
+  COLLECTIONS,
   checkBudget,
   ENTRIES,
   entryOutputs,
@@ -40,14 +41,16 @@ const viewerCss = await esbuild.build({
   entryPoints: [
     { in: VIEWER.css, out: "viewer" },
     { in: MEDIA.css, out: "media" },
+    { in: COLLECTIONS.css, out: "collections" },
   ],
   bundle: true,
   outdir: OUTDIR,
 });
 const viewerCssPath = outputOf(viewerCss.metafile, OUTDIR, VIEWER.css);
 const mediaCssPath = outputOf(viewerCss.metafile, OUTDIR, MEDIA.css);
+const collCssPath = outputOf(viewerCss.metafile, OUTDIR, COLLECTIONS.css);
 
-const result = await esbuild.build({ ...BASE_OPTIONS, ...shared, define: viewerDefine(viewerCssPath, mediaCssPath) });
+const result = await esbuild.build({ ...BASE_OPTIONS, ...shared, define: viewerDefine(viewerCssPath, mediaCssPath, collCssPath) });
 
 const assets = entryOutputs(result.metafile, OUTDIR, ENTRIES);
 const eager = staticImports(result.metafile, OUTDIR, assets.js);
@@ -71,6 +74,8 @@ const sizes = {
   searchJs: await gz(`${OUTDIR}/${outputOf(result.metafile, OUTDIR, SEARCH.js)}`),
   mediaJs: await gz(`${OUTDIR}/${outputOf(result.metafile, OUTDIR, MEDIA.js)}`),
   mediaCss: await gz(`${OUTDIR}/${mediaCssPath}`),
+  collJs: await gz(`${OUTDIR}/${outputOf(result.metafile, OUTDIR, COLLECTIONS.js)}`),
+  collCss: await gz(`${OUTDIR}/${collCssPath}`),
 };
 
 console.log(`built ${OUTDIR}/ (gzipped):\n${formatSizes(sizes)}`);

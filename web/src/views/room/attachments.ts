@@ -1,9 +1,11 @@
 // A message's attachments (§17.5): image and video thumbnails that open the viewer (§17.7), audio players, download
-// chips for other files, and a sending message's local previews.
+// chips for other files, and a sending message's local previews. An image or video has a Save button (to a collection,
+// §31), and one attached from a collection says which.
 
 import { type Child, h } from "../../dom.ts";
 import { attachmentName, isAudio, isGif, isMedia, isVideo } from "../../lib/files.ts";
-import type { LocalFile, Message } from "../../lib/types.ts";
+import type { Badge, LocalFile, Message } from "../../lib/types.ts";
+import { collectionIcon } from "../../ui/icon.ts";
 
 /** Most image and video tiles a message shows; the last one says how many more there are, which the viewer shows. */
 export const MAX_TILES = 4;
@@ -25,6 +27,10 @@ export function createAttachments(opts: {
   onOpenImage: (m: Message, file: string, opener: HTMLElement) => void;
   /** How much of a sending message's attachments has been uploaded, 0 to 1 (§17.4). */
   uploadProgress: (id: string) => number;
+  /** What the badge of a file from collection `id` says (§31); undefined until known. */
+  badge?: (id: string) => Badge | undefined;
+  /** Save to collection on a tile (§31): offer it next to `opener`. None for guests. */
+  onSave?: (m: Message, file: string, opener: HTMLElement) => void;
   signal: AbortSignal;
 }): Attachments {
   const { signal } = opts;
@@ -74,7 +80,8 @@ export function createAttachments(opts: {
         }
         if (images.childElementCount === MAX_TILES) continue;
         const i = images.childElementCount;
-        const el = preview(f.file.name, f.url);
+        // An item from a collection (§31) shows its thumbnail (or a video's poster), never as a video.
+        const el = f.item ? h("img", { src: f.url, alt: f.file.name, decoding: "async" }) : preview(f.file.name, f.url);
         el.addEventListener(
           el instanceof HTMLVideoElement ? "loadedmetadata" : "load",
           () => {
@@ -96,7 +103,7 @@ export function createAttachments(opts: {
         if (isMedia(name)) {
           if (images.childElementCount === MAX_TILES) continue;
           const tile = mediaTile(m, name, thumb, ratios?.[images.childElementCount]);
-          images.append(tile);
+          images.append(cell(m, name, tile));
           more(tile);
         } else {
           const chip = fileLink(m, name, "att-file", [attachmentName(m, name)]);
@@ -113,6 +120,41 @@ export function createAttachments(opts: {
       others.childElementCount ? others : null,
       progress,
     ]);
+  }
+
+  /**
+   * A tile with what goes over it (§31): Save, and for a file attached from a collection its badge, a link to the
+   * collection if you may see it, else "Private collection". A forward's files are its original's (§21.3).
+   */
+  function cell(m: Message, name: string, tile: HTMLElement): HTMLElement {
+    const from = m.file_sources?.[name];
+    const b = from ? opts.badge?.(from) : null;
+    const { onSave } = opts;
+    const save =
+      onSave &&
+      h(
+        "button",
+        {
+          type: "button",
+          class: "att-save",
+          "aria-label": `Save ${attachmentName(m, name)} to collection`,
+          title: "Save to collection",
+          "aria-haspopup": "dialog",
+          on: { click: () => onSave(m, name, save!) },
+          signal,
+        },
+        collectionIcon(),
+      );
+    const badge =
+      b &&
+      ("private" in b
+        ? h("span", { class: "att-src" }, [collectionIcon(), "Private collection"])
+        : h("a", { class: "att-src", href: `/c/${from}`, title: `From the collection “${b.name}”` }, [
+            collectionIcon(),
+            h("span", {}, b.name),
+            b.public ? null : h("span", { "aria-label": "private" }, "🔒"),
+          ]));
+    return h("span", { class: "att-cell" }, [tile, badge, save]);
   }
 
   /** A link to the full file, re-signed with the current token whenever it is about to be used. */

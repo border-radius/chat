@@ -4,7 +4,17 @@
 import { spawn } from "node:child_process";
 import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import * as esbuild from "esbuild";
-import { BASE_OPTIONS, injectAssets, MEDIA, OUTDIR, STATIC_DIR, SW_OPTIONS, VIEWER, viewerDefine } from "./lib/build-utils.mjs";
+import {
+  BASE_OPTIONS,
+  COLLECTIONS,
+  injectAssets,
+  MEDIA,
+  OUTDIR,
+  STATIC_DIR,
+  SW_OPTIONS,
+  VIEWER,
+  viewerDefine,
+} from "./lib/build-utils.mjs";
 
 const PORT = process.env.PORT ?? "8090";
 
@@ -28,9 +38,14 @@ const writeIndex = {
 
 const ctx = await esbuild.context({
   ...BASE_OPTIONS,
-  // Unhashed names, so the viewer's and the media grid's stylesheets can be built alongside.
-  entryPoints: [...BASE_OPTIONS.entryPoints, { in: VIEWER.css, out: "viewer" }, { in: MEDIA.css, out: "media" }],
-  define: viewerDefine("assets/viewer.css", "assets/media.css"),
+  // Unhashed names, so the viewer's, the media grid's and the collections' stylesheets can be built alongside.
+  entryPoints: [
+    ...BASE_OPTIONS.entryPoints,
+    { in: VIEWER.css, out: "viewer" },
+    { in: MEDIA.css, out: "media" },
+    { in: COLLECTIONS.css, out: "collections" },
+  ],
+  define: viewerDefine("assets/viewer.css", "assets/media.css", "assets/collections.css"),
   sourcemap: "inline",
   entryNames: "assets/[name]",
   logLevel: "info",

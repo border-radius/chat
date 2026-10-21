@@ -5,6 +5,7 @@ import { inject, vi } from "vitest";
 import { createRoomActions } from "../../web/src/actions.ts";
 import { type Api, createApi } from "../../web/src/api.ts";
 import type { Cache, Kept } from "../../web/src/cache.ts";
+import { createCollections } from "../../web/src/collections.ts";
 import type { Ctx } from "../../web/src/context.ts";
 import { createDrafts } from "../../web/src/drafts.ts";
 import { isMedia, isVideo } from "../../web/src/lib/files.ts";
@@ -30,7 +31,14 @@ const clients = new Set<Api>();
 
 /** Realtime subscriptions each client has asked for, as promises that settle once the server has them. */
 const subscriptions = new WeakMap<Api, Promise<unknown>[]>();
-const SUBSCRIBE_OPS = ["subscribeMessages", "subscribeRooms", "subscribeHidden", "subscribeAllMessages", "subscribeReads"] as const;
+const SUBSCRIBE_OPS = [
+  "subscribeMessages",
+  "subscribeRooms",
+  "subscribeHidden",
+  "subscribeAllMessages",
+  "subscribeReads",
+  "subscribeCollections",
+] as const;
 
 /** A logged-out real client with its own in-memory auth store. */
 export function newApi(): Api {
@@ -254,6 +262,8 @@ export function viewContext(api: Api, store: Store<AppState>, navigate: (hash: s
     store,
     sync,
     unread,
+    // Not started: a test that needs the collections in the store starts it (and stops it).
+    collections: createCollections({ api, store }),
     actions: createRoomActions({ api, store }),
     navigate,
     reopen: vi.fn(),

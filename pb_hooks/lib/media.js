@@ -172,15 +172,34 @@ function list(e) {
  * @param {core.RequestEvent} e
  */
 function poster(e) {
-  const id = e.request?.pathValue("message") ?? "";
+  servePoster(e, "messages", "files", e.request?.pathValue("message") ?? "");
+}
+
+/**
+ * GET /api/chat/posters/items/{item}/{file}?token=: a collection item's poster (§31), checked the same way against the
+ * item's view rule.
+ * @param {core.RequestEvent} e
+ */
+function itemPoster(e) {
+  servePoster(e, "collection_items", "file", e.request?.pathValue("item") ?? "");
+}
+
+/**
+ * The poster of the video `file` of record `id`, served as PocketBase serves the file (its view rule, the file token).
+ * @param {core.RequestEvent} e
+ * @param {string} collection
+ * @param {string} field
+ * @param {string} id
+ */
+function servePoster(e, collection, field, id) {
   const file = e.request?.pathValue("file") ?? "";
   let msg;
   try {
-    msg = e.app.findRecordById("messages", id);
+    msg = e.app.findRecordById(collection, id);
   } catch {
     throw new NotFoundError();
   }
-  if (!isVideo(file) || !msg.getStringSlice("files").includes(file)) throw new NotFoundError();
+  if (!isVideo(file) || !msg.getStringSlice(field).includes(file)) throw new NotFoundError();
   const info = e.requestInfo();
   const token = e.request?.url?.query().get("token") ?? "";
   /** @type {core.Record | null} */
@@ -196,7 +215,7 @@ function poster(e) {
   if (!e.app.canAccessRecord(msg, info, msg.collection().viewRule ?? "")) throw new NotFoundError();
   const fs = e.app.newFilesystem();
   try {
-    const key = posterKey(dirOf(e.app, id), file);
+    const key = posterKey(`${msg.collection().id}/${id}`, file);
     if (!fs.exists(key)) throw new NotFoundError();
     // Never changes under one name: a new upload gets a new file name.
     e.response.header().set("Cache-Control", "private, max-age=2592000");
@@ -377,7 +396,7 @@ function pass(app, beat, rest = true) {
     .newQuery("SELECT id, source, file, sent FROM media WHERE ready = FALSE ORDER BY sent DESC LIMIT {:n}")
     .bind({ n: BATCH })
     .all(rows);
-  if (!rows.length) return 0;
+  if (!rows.length) return itemPass(app, beat, rest);
   const fs = app.newFilesystem();
   try {
     for (const row of rows) {
@@ -396,6 +415,67 @@ function pass(app, beat, rest = true) {
     fs.close();
   }
   return rows.length;
+}
+
+/**
+ * As pass, for collection items (§31) once the messages are done: the grid's thumbnail, or a video's poster.
+ * @param {core.App} app
+ * @param {() => void} [beat]
+ * @param {boolean} [rest]
+ */
+function itemPass(app, beat, rest = true) {
+  const rows = arrayOf(new DynamicModel({ id: "", file: "" }));
+  app
+    .db()
+    .newQuery("SELECT id, file FROM collection_items WHERE ready = FALSE ORDER BY created DESC LIMIT {:n}")
+    .bind({ n: BATCH })
+    .all(rows);
+  if (!rows.length) return 0;
+  const dir = `${app.findCollectionByNameOrId("collection_items").id}`;
+  const fs = app.newFilesystem();
+  try {
+    for (const row of rows) {
+      const start = Date.now();
+      try {
+        itemThumbs(app, fs, `${dir}/${row.id}`, row.id, row.file);
+      } catch (err) {
+        app.logger().warn("media: item thumbnails", "item", row.id, "file", row.file, "error", String(err));
+      }
+      app.db().newQuery("UPDATE collection_items SET ready = TRUE WHERE id = {:id}").bind({ id: row.id }).execute();
+      beat?.();
+      if (rest) sleep(Math.min(2000, Date.now() - start));
+    }
+  } finally {
+    fs.close();
+  }
+  return rows.length;
+}
+
+/**
+ * An item's grid thumbnail, or its video's poster (unless it came along from the file it was saved from).
+ * @param {core.App} app
+ * @param {filesystem.System} fs
+ * @param {string} dir
+ * @param {string} id
+ * @param {string} file
+ */
+function itemThumbs(app, fs, dir, id, file) {
+  const key = `${dir}/${file}`;
+  if (!fs.exists(key)) return;
+  const mark = () => app.db().newQuery("UPDATE collection_items SET poster = TRUE WHERE id = {:id}").bind({ id }).execute();
+  if (isVideo(file)) {
+    const target = posterKey(dir, file);
+    if (fs.exists(target)) return mark();
+    const bytes = posterOf(app, fs, key, file);
+    if (!bytes) return;
+    fs.uploadFile($filesystem.fileFromBytes(bytes, POSTER), target);
+    if (!fs.exists(key)) return fs.delete(target);
+    mark();
+    return;
+  }
+  if (!THUMB_EXT.includes(ext(file))) return;
+  const thumb = `${dir}/thumbs_${file}/${GRID_THUMB}_${file}`;
+  if (!fs.exists(thumb)) fs.createThumb(key, thumb, GRID_THUMB);
 }
 
 /**
@@ -432,8 +512,8 @@ function run(app) {
  * @param {core.RequestEvent} e
  */
 function tick(e) {
-  while (pass(e.app, undefined, false) === BATCH);
+  while (pass(e.app, undefined, false) > 0);
   return e.noContent(204);
 }
 
-module.exports = { add, drop, list, poster, run, tick, isMedia, isVideo };
+module.exports = { add, drop, list, poster, itemPoster, run, tick, isMedia, isVideo, tempCopy, posterKey };
