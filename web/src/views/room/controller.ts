@@ -33,11 +33,17 @@ export const HIGHLIGHT_MS = 3000;
 export const UNREAD_LINE_MS = 5000;
 
 /**
- * Sends that failed after their room view had gone (another room was opened while they were on their way), by room.
- * The room's next view shows them as not sent, with Retry: otherwise what was written would be lost without a word, as
- * the composer and the draft were cleared on sending.
+ * Sends that failed, by room, kept for its next view when the view went: those that failed after it had gone (another
+ * room was opened while they were on their way), and those it showed as not sent (QA BUG-119). The next view shows
+ * them as not sent, with Retry: otherwise what was written would be lost without a word, as the composer and the draft
+ * were cleared on sending.
  */
 const strays = new Map<string, Message[]>();
+/** Keep a failed send for the room's next view. Its previews went with the view: its files show by name. */
+function stray(m: Message) {
+  const files = m.localFiles?.map((f) => ({ file: f.file, url: "" }));
+  strays.set(m.room, [...(strays.get(m.room) ?? []), { ...m, ...(files && { localFiles: files }) }]);
+}
 
 export type Phase = "loading" | "ready" | "failed" | "not-found";
 /** "below": new messages under the viewport. "history": new messages, but the window isn't at the live edge. */
@@ -134,6 +140,8 @@ export function createRoomController(opts: {
   onUpload?: (id: string, fraction: number) => void;
   /** Where the room's latest messages are kept between visits (§7.5). */
   cache?: Cache;
+  /** Any of the room's messages changed or went (`gone`: deleted for good), in the window or not. */
+  onEvent?: (m: Message, gone: boolean) => void;
 }): RoomController {
   const { api, store, roomId, msgId, scope, nearBottom } = opts;
   const { signal } = scope;
@@ -535,6 +543,7 @@ export function createRoomController(opts: {
 
   function onMessage(action: Action, m: Message) {
     if (!scope.active || m.room !== roomId) return;
+    if (action !== "create") opts.onEvent?.(m, action === "delete");
     if (!ready() || stale) buffer.push([action, m]); // the first page may be older than this event
     if (!ready()) return;
     if (action === "delete") {
@@ -631,9 +640,7 @@ export function createRoomController(opts: {
     // replaced the pending copy, whose previews nothing else would release; QA BUG-70).
     if (saved) revokeLocal(msg);
     if (!scope.active) {
-      // Its previews went with the view: its files show by name.
-      const files = failed?.localFiles?.map((f) => ({ file: f.file, url: "" }));
-      if (failed) strays.set(roomId, [...(strays.get(roomId) ?? []), { ...failed, ...(files && { localFiles: files }) }]);
+      if (failed) stray(failed);
       return;
     }
     // The window may have moved back in history meanwhile (a quote, a jump): then the message isn't in it, and
@@ -768,13 +775,18 @@ export function createRoomController(opts: {
       scope.defer(() => {
         clearTimeout(keepTimer);
         keep();
-        for (const m of [...win.items, ...unsent.values()]) revokeLocal(m);
+        for (const m of [...win.items, ...unsent.values()]) {
+          if (m.status === "failed") stray(m);
+          revokeLocal(m);
+        }
       });
       // Keep a fresh file token for attachment URLs (§17.3); it only fetches when the cached one is old.
       const keepToken = setInterval(() => void api.fileToken().catch(() => {}), 30_000);
       scope.defer(() => clearInterval(keepToken));
       // Leaving the page (a reload, the tab closed) before the timer: kept now.
       addEventListener("pagehide", keep, { signal });
+      // Back online: a first load that failed tries again, even if realtime never noticed (QA BUG-123).
+      addEventListener("online", retry, { signal });
       scope.defer(() => clearTimeout(targetTimer));
       for (const m of strays.get(roomId) ?? []) if (m.author === me()?.id) unsent.set(m.id, m); // not from before a logout
       strays.delete(roomId);

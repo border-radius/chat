@@ -14,9 +14,11 @@ import { avatar } from "../ui/avatar.ts";
 /** Longest edge of an uploaded avatar (§15.3). */
 const AVATAR_EDGE = 512;
 
+const NOT_AN_IMAGE = "Choose a JPEG, PNG, WebP or GIF image.";
+
 /** Why `file` can't be an avatar (after preparation), or "". */
 export function avatarProblem(file: File): string {
-  if (!(LIMITS.avatarTypes as readonly string[]).includes(file.type)) return "Choose a JPEG, PNG, WebP or GIF image.";
+  if (!(LIMITS.avatarTypes as readonly string[]).includes(file.type)) return NOT_AN_IMAGE;
   if (file.size > LIMITS.avatarBytes) return `That image is too large (max ${LIMITS.avatarBytes / 1024 / 1024} MB).`;
   return "";
 }
@@ -131,7 +133,9 @@ export function createProfileView({ api, store, logOut }: Ctx): View {
       if (!scope.active) return;
       store.set({ user });
     } catch (e) {
-      if (scope.active) avatarError.textContent = fieldMessage(e, "avatar");
+      // The server goes by what the file is, not its name: one that only looks like an image (QA BUG-122).
+      const notImage = e instanceof ApiError && e.codes.avatar === "validation_invalid_mime_type";
+      if (scope.active) avatarError.textContent = notImage ? NOT_AN_IMAGE : fieldMessage(e, "avatar");
     } finally {
       if (scope.active) {
         busy = false;

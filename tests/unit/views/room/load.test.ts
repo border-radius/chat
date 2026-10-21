@@ -268,6 +268,18 @@ describe("room view", () => {
       await vi.waitFor(() => expect(bodyOf(m.id)).toBe("back online"));
     });
 
+    it("a failed load retries when the browser is back online, though realtime stayed connected (QA BUG-123)", async () => {
+      const room = await newRoom();
+      const m = await me.api.send({ id: newId(), room: room.id, text: "back online" });
+      instrument(me.api).failNext("getRoom", new ApiError("Failed to fetch", 0));
+      await mount(room);
+      expect(list().textContent).toContain("Couldn't load this room.");
+      dispatchEvent(new Event("online"));
+      await vi.waitFor(() => expect(bodyOf(m.id)).toBe("back online"));
+      dispatchEvent(new Event("online")); // loaded: nothing to do
+      expect(list().textContent).not.toContain("Couldn't load");
+    });
+
     it("BUG-05: a failed history load is not shown as an empty room", async () => {
       const room = await newRoom();
       await me.api.send({ id: newId(), room: room.id, text: "history" });

@@ -57,6 +57,8 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
   let reader: RoomReader | null = null;
   /** The messages the forward dialog is open for. */
   let forwarding: string[] = [];
+  /** Tells the open viewer that a message changed or went (§17.7). */
+  let viewing: ((m: Message, gone: boolean) => void) | undefined;
   /** Put the caret in the composer as soon as it is shown: on entering the room (§22.5). */
   let focusComposer = true;
 
@@ -67,6 +69,8 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
 
   /** One emoji picker for the composer and every message's reactions. */
   const picker = createEmojiPicker({ signal });
+  /** The message the picker was opened to react to ("": the composer's). */
+  let reactingTo = "";
   const notice = createNotice(signal);
   const nameOf = createNameLookup({
     usersById: (ids, sig) => api.usersById(ids, sig),
@@ -162,7 +166,10 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
     },
     onStepReply: (dir) => reply.step(dir),
     onCancelReply: () => reply.set(null),
-    onEmoji: (opener, insert) => picker.open(opener, { label: "Insert emoji", onPick: insert, restoreFocus: () => composer.focus() }),
+    onEmoji: (opener, insert) => {
+      reactingTo = "";
+      picker.open(opener, { label: "Insert emoji", onPick: insert, restoreFocus: () => composer.focus() });
+    },
     // Kept as you type, so a reload doesn't lose it (§22.3).
     onChange: (text) => {
       if (roomId) drafts.set(roomId, text);
@@ -258,6 +265,11 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
   function render(o?: { anchor?: boolean }) {
     selection.prune();
     messages.render(o);
+    // Deleted (or gone from the list) meanwhile: nothing left to react to (QA BUG-121).
+    if (reactingTo && picker.isOpen) {
+      const m = ctl.find(reactingTo);
+      if (!m || !ctl.reactable(m)) picker.close();
+    }
     markRead();
   }
 
@@ -429,6 +441,7 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
           return now(() => ctl.goTo(x.id));
         },
         opener,
+        follow: (fn) => (viewing = fn),
         signal,
       });
     } catch {
@@ -588,6 +601,7 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
     const user = me();
     if (!m || !user || !ctl.reactable(m)) return;
     const mine = new Set(ctl.reactions(m).flatMap((r) => (r.users.includes(user.id) ? [r.emoji] : [])));
+    reactingTo = id;
     picker.open(opener, {
       label: "Add reaction",
       chosen: mine,
@@ -613,6 +627,7 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
         onChange: apply,
         onUpload: (id, fraction) => messages.setUpload(id, fraction),
         cache,
+        onEvent: (m, gone) => viewing?.(m, gone),
       });
 
       pill.addEventListener(

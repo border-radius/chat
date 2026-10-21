@@ -4,7 +4,7 @@ import { BUDGET, checkBudget, formatSizes } from "../../../scripts/lib/build-uti
 describe("checkBudget", () => {
   it("matches the design doc budget (§7.7)", () => {
     expect(BUDGET).toEqual({
-      js: 43.77 * 1024,
+      js: 43.91 * 1024,
       css: 6.4 * 1024,
       html: 1536,
       viewerJs: 4 * 1024,
@@ -53,7 +53,7 @@ describe("formatSizes", () => {
       mediaJs: 1024,
       mediaCss: 512,
     });
-    expect(out).toContain("js          2.00 KB / 43.77 KB");
+    expect(out).toContain("js          2.00 KB / 43.91 KB");
     expect(out).toContain("viewerJs    1.00 KB / 4.00 KB");
     expect(out).toMatch(/css\s+6\.50 KB \/ 6\.40 KB\s+OVER/);
     expect(out).not.toMatch(/js .*OVER/);

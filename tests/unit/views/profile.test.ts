@@ -109,6 +109,13 @@ describe("profile view (§15.5)", () => {
     expect(ctl.calls("setAvatar")).toBe(0);
   });
 
+  it("a file named and typed as an image that isn't one is refused in words, not the server's (QA BUG-122)", async () => {
+    mount();
+    choose(new File(["not an image at all"], "fake.png", { type: "image/png" }));
+    await vi.waitFor(() => expect(avatarError()).toBe("Choose a JPEG, PNG, WebP or GIF image."));
+    expect(picture().textContent).toBe("AL");
+  });
+
   it("Remove clears the avatar", async () => {
     store.set({ user: await me.api.setAvatar(pngFile()) });
     mount();

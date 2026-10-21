@@ -453,6 +453,43 @@ test("the viewer steps through the whole room's images, fetching those beyond th
   await expect(viewer.locator(".viewer-count")).toHaveText("2 / 2");
 });
 
+test("a message deleted while the viewer shows its image takes it out: the next one shows, none left closes it (QA BUG-120)", async ({
+  browser,
+}) => {
+  const ada = await apiUser("Ada");
+  const room = await apiRoom(ada);
+  const a = await openRoom(browser, ada, room);
+  await attach(a, [sizedPng("wide.png", 600, 300), sizedPng("square.png", 300, 300)]);
+  await send(a, "first");
+  await attach(a, [sizedPng("tall.png", 100, 400)]);
+  await send(a, "second");
+  await expect(a.locator("li.msg.pending")).toHaveCount(0);
+  const softDelete = async (text: string) => {
+    const id = await message(a, text).getAttribute("data-id");
+    const res = await fetch(`${E2E_BASE}/api/collections/messages/records/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json", authorization: ada.token },
+      body: JSON.stringify({ deleted: true }),
+    });
+    expect(res.status).toBe(200);
+  };
+
+  await message(a, "first").locator("a.att-tile").nth(1).click();
+  const viewer = a.getByRole("dialog");
+  await expect(viewer.locator("h2")).toHaveText("square.png");
+  await expect(viewer.locator(".viewer-count")).toHaveText("2 / 3");
+  await softDelete("first");
+  await expect(viewer.locator("h2")).toHaveText("tall.png");
+  await expect(viewer.locator(".viewer-count")).toHaveText("");
+  await expect(viewer.getByRole("button", { name: "Previous image" })).toBeHidden();
+  await expect.poll(() => viewer.locator(".viewer-stage img").evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth)).toBe(100);
+  await softDelete("second");
+  await expect(a.locator("dialog.viewer")).toHaveCount(0);
+  // It went Back off its own history entry: one more Back leaves the room.
+  await expect.poll(() => a.evaluate(() => (history.state as { viewer?: string } | null)?.viewer ?? null)).toBeNull();
+  await expect(a).toHaveURL(new RegExp(`/r/${room.id}$`));
+});
+
 test("Show in chat closes the viewer and goes to the image's message, loading it if need be (§17.7)", async ({ browser }) => {
   const ada = await apiUser("Ada");
   const room = await apiRoom(ada);

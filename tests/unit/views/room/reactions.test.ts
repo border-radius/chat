@@ -192,6 +192,24 @@ describe("room view", () => {
       expect(button(msgEl(m.id), "☺+")).toBeNull();
     });
 
+    it("the picker closes when its message is deleted meanwhile; the composer's stays open (QA BUG-121)", async () => {
+      const other = await signedUp("Other");
+      const room = await newRoom();
+      const theirs = await other.api.send({ id: newId(), room: room.id, text: "soon gone" });
+      const also = await other.api.send({ id: newId(), room: room.id, text: "also gone" });
+      await mount(room);
+      button(msgEl(theirs.id), "☺+")!.click();
+      expect(pickerOpen()).toBe(true);
+      await other.api.softDelete(theirs.id);
+      await vi.waitFor(() => expect(msgEl(theirs.id)!.textContent).toContain("Message deleted"));
+      expect(pickerOpen()).toBe(false);
+      root.querySelector<HTMLButtonElement>("form.composer .emoji-button")!.click();
+      expect(pickerOpen()).toBe(true);
+      await other.api.softDelete(also.id);
+      await vi.waitFor(() => expect(msgEl(also.id)!.textContent).toContain("Message deleted"));
+      expect(pickerOpen()).toBe(true);
+    });
+
     it("the composer's emoji button inserts at the caret, replacing a selection", async () => {
       const room = await newRoom();
       await mount(room);

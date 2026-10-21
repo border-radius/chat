@@ -447,7 +447,8 @@ The window state machine above lives in `views/room/controller.ts`, which has no
    so a slow one (a large attachment) must not be overtaken by the next (QA BUG-71). A message's edits, deletes and
    reactions go one at a time too (QA BUG-72).
 7. A send that fails after its room view has gone (another room was opened meanwhile) is kept, and the room's next view
-   shows it as failed, with Retry (QA BUG-76).
+   shows it as failed, with Retry (QA BUG-76). So is one the view showed as failed when it went (QA BUG-119): in
+   memory, for this page load.
 
 **Reconnects:** the client (`pb.ts`) reconnects SSE automatically. On every `PB_CONNECT` after the first, the room view checks where its window is:
 
@@ -542,7 +543,7 @@ while its first page loads.
 
 | Asset | Budget (gzipped) |
 |---|---|
-| `app.js` (including the PocketBase client) | **≤ 43.77 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, the room cache without waiting for the network, the QA pass 12 fixes, prefetching rooms not yet kept, the QA pass 13 fixes, thumbnail caching, the QA pass 14 fixes, Ctrl+Up/Down to pick the reply, link previews, the room access dialog fix, who can post, message search, message permalinks, the media grid, the QA pass 16 fixes, video posters in the room, see §13) |
+| `app.js` (including the PocketBase client) | **≤ 43.91 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, the room cache without waiting for the network, the QA pass 12 fixes, prefetching rooms not yet kept, the QA pass 13 fixes, thumbnail caching, the QA pass 14 fixes, Ctrl+Up/Down to pick the reply, link previews, the room access dialog fix, who can post, message search, message permalinks, the media grid, the QA pass 16 fixes, video posters in the room, the QA pass 17 fixes, see §13) |
 | `app.css` | **≤ 6.40 KB** (5 KB until §21, 5.5 KB until §23, 6 KB until audio attachments, 6.05 KB until §18.5, 6.10 KB until §28, 6.15 KB until the room access dialog fix, 6.20 KB until §29, 6.35 KB until message permalinks, see §13) |
 | `index.html` | ≤ 1.5 KB |
 | Image viewer (§17.7), loaded on first use | ≤ 4 KB script, ≤ 1.5 KB stylesheet |
@@ -994,6 +995,7 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 | Bundle budget (media grid) | `app.js` raised from 43.50 KB to 43.60 KB gzipped (§7.7): the media grid (§30) is a lazy chunk with its own stylesheet, but its header button, loading the chunk and opening the viewer from it took `app.js` to 43.59 KB. |
 | Bundle budget (QA pass 16) | `app.js` raised from 43.60 KB to 43.65 KB gzipped (§7.7): the fixes for QA BUG-117 (a success whose body never came saved an empty session, `pb.ts`) and BUG-118 (the router passes over a media grid entry with no grid) run before any lazy chunk loads, and took `app.js` to 43.64 KB. |
 | Bundle budget (video posters) | `app.js` raised from 43.65 KB to 43.77 KB gzipped (§7.7): a video's tile in the room shows the server's poster (§30.1) and falls back to the video's first frame without one (`api.posterUrl`, `attachments.ts`), 43.76 KB. The room's list is in `app.js`, so it can't go in a lazy chunk. |
+| Bundle budget (QA pass 17) | `app.js` raised from 43.77 KB to 43.91 KB gzipped (§7.7): the QA pass 17 fixes (failed sends kept after leaving a room, the viewer following deletes, the reaction picker closing on a deleted message, retrying a failed room load when back online, the avatar type message) took it to 43.90 KB. All of it is in the room view, the controller and the profile, which are in `app.js`. |
 | Bundle budget (QA pass 9) | `app.js` raised from 39.25 KB to 39.35 KB gzipped (§7.7): the forwarding fixes of QA pass 9 (messages deleted meanwhile left out, the server's reason shown, focus kept while selecting) took it to 39.30 KB. |
 
 ### Still open
@@ -1394,7 +1396,9 @@ server as you get near them.
 - **What it shows:** the full file (not a thumbnail; uploads are at most 2048 px, §15.3), fitted to the window; a bar
   with the file name, who sent it and when, "*n* / *total*", **Show in chat**, **Download** (`download` attribute, re-signed before use
   like every file link, §17.3) and **Close**. Images of deleted messages and of messages still sending are left out.
-  It starts with the window's images; it doesn't follow new messages.
+  It starts with the window's images; it doesn't follow new messages. It does follow deletes (the room view passes on
+  every update of the room's messages): a deleted message's images leave it, and a forward's once its original is
+  deleted; the one shown gives way to the next (else the one before), and with none left the viewer closes (QA BUG-120).
 - **Beyond the window:** when the image shown is within 3 of the first or last one it has, and the room has messages
   beyond the window on that side (`hasOlder`/`hasNewer`), it fetches the next page of the room's messages that have
   attachments (`withFiles` in `lib/cursor.ts`: `files:length > 0`, the usual `(created, id)` cursor from its first or
@@ -1698,7 +1702,8 @@ reactions. It is a `role="dialog"` named for what it does ("Insert emoji", "Add 
   then the categories, in an 8-column grid. Built on first open.
 - **Keyboard:** the grid is one tab stop (roving `tabindex`). Arrow keys move within and across categories, Home and
   End go to the ends, and Enter or Space picks. **Escape** closes it and gives focus back (to the composer, or to the
-  message's ☺+). Clicking or tabbing elsewhere closes it. A window resize moves it along rather than closing it. On
+  message's ☺+). Clicking or tabbing elsewhere closes it, and so does the message it reacts to being deleted (or
+  leaving the list) meanwhile (QA BUG-121). A window resize moves it along rather than closing it. On
   Android the page resizes when the keyboard goes away (`interactive-widget=resizes-content`), and opening the picker
   takes the focus from the composer, which hides the keyboard.
 - The emoji are toggle buttons (`aria-pressed`) only for reactions, where picking can take one back. For the composer
@@ -2296,7 +2301,8 @@ worker takes over at once (`skipWaiting`, `clients.claim`): it holds nothing an 
   private cached), `/_/`, other origins, anything but `GET`, and unhashed dev assets.
 
 Offline the shell boots and behaves as with the server unreachable: failed loads show their errors and **Retry** (§7.5),
-and realtime reconnects when the network is back (§6).
+and realtime reconnects when the network is back (§6). A room whose first load failed also tries again on the browser's
+`online` event, for when realtime stayed connected through it (QA BUG-123).
 
 ### 27.3 Tests
 

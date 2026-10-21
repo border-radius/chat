@@ -48,6 +48,8 @@ export interface ViewerOptions {
   onJump: (m: Message) => Promise<unknown>;
   /** Gets focus back on close. */
   opener: HTMLElement;
+  /** Gets the function to call when one of the room's messages changes or goes (`gone`: deleted for good). */
+  follow: (fn: (m: Message, gone: boolean) => void) => void;
   /** Closes the viewer (the room view unmounts). */
   signal: AbortSignal;
 }
@@ -267,6 +269,26 @@ export async function openViewer(o: ViewerOptions): Promise<void> {
     failureText.textContent = shown().video ? "Couldn't play video. " : "Couldn't load image. ";
     failure.hidden = false;
   }
+
+  /**
+   * A message changed: its images and videos it no longer has (deleted, or a forward whose original was) leave the
+   * list. Shown, the next one (else the one before) shows instead; none left, the viewer closes (QA BUG-120).
+   */
+  o.follow((m, gone) => {
+    if (closed) return;
+    const has = new Set(gone || m.deleted ? [] : o.media(m).map((i) => i.file));
+    const out = (i: ViewerImage) => i.message.id === m.id && !has.has(i.file);
+    if (!list.some(out)) return;
+    const at = shown();
+    const before = list.slice(0, index).filter(out).length;
+    const left = list.filter((i) => !out(i));
+    list.splice(0, list.length, ...left);
+    if (!list.length) return close(true);
+    if (list.includes(at)) {
+      index = list.indexOf(at);
+      update();
+    } else show(Math.min(index - before, list.length - 1));
+  });
 
   /** One step back or on, waiting for the ones beyond what is here if need be. */
   async function go(step: number) {

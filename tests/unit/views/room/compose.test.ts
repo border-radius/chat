@@ -125,6 +125,36 @@ describe("room view", () => {
       expect((await me.api.page(latest(a.id))).map((m) => m.text)).toEqual(["words worth keeping"]);
     });
 
+    it("a send shown as not sent is still there, with Retry, after leaving the room and coming back (QA BUG-119)", async () => {
+      const a = await newRoom();
+      const b = await newRoom();
+      const ctx = viewContext(me.api, store, navigate);
+      const open = async (room: Room) => {
+        view?.unmount();
+        setView(createRoomView(ctx));
+        view!.mount(root, { id: room.id });
+        fakeLayout(list(), { rowHeight: ROW, clientHeight: VIEWPORT });
+        await loaded();
+      };
+      instrument(me.api).failNext("send", new ApiError("Failed to fetch", 0));
+      await open(a);
+      send("words worth keeping");
+      await vi.waitFor(() => expect(msgEls().at(-1)!.classList.contains("failed")).toBe(true));
+      await open(b);
+      expect(msgEls()).toHaveLength(0);
+      await open(a);
+      const el = msgEls().at(-1)!;
+      expect(el.classList.contains("failed")).toBe(true);
+      expect(el.querySelector(".body")!.textContent).toBe("words worth keeping");
+      button(el, "Retry")!.click();
+      await vi.waitFor(() => expect(msgEls().at(-1)!.classList.contains("pending")).toBe(false));
+      expect(msgEls().at(-1)!.classList.contains("failed")).toBe(false);
+      expect((await me.api.page(latest(a.id))).map((m) => m.text)).toEqual(["words worth keeping"]);
+      await open(b);
+      await open(a);
+      expect(msgEls().filter((li) => li.classList.contains("failed"))).toHaveLength(0); // kept once, not again
+    });
+
     it("Enter that confirms an input method's word (Safari: keyCode 229) doesn't send (QA BUG-77)", async () => {
       const room = await newRoom();
       const ctl = instrument(me.api);

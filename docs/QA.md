@@ -1277,3 +1277,85 @@ Not changed, by design or for a decision:
 - After losing access to a room with the viewer open over the grid, one Back stays on the "You can't see this room any
   more." page: it is the room's own entry, same URL.
 - BUG-108 (busy rooms prefetched by everyone) is still open.
+
+# QA pass 17 — video posters, then the whole app
+
+Exploratory testing after video posters in the room (§17.5, §30.1), 2026-10-21. A production build on a fresh PocketBase
+server with ffmpeg, in Chromium (320, 390, 768 and 1100 px wide, light and dark, with and without the service worker),
+plus probes of the API. Covered: posters for MP4, WebM, portrait and landscape videos, a "video" that is a playlist, a
+private room's video forwarded to a public one, guests in Open Air rooms, the grid and the viewer over them; a layout
+sweep of every page and dialog at four widths in both themes (horizontal overflow, screenshots); sign up, log in,
+names, passwords and avatars; composing, editing, replying and drafts; dialogs and modes left open while someone else
+changes what they show; going offline and back; one user in two tabs; and randomized runs. Numbering continues from
+BUG-118. Each fix lands with a test that fails without it.
+
+| # | Severity | Area | Summary | Status |
+|---|---|---|---|---|
+| BUG-119 | Medium | Sending | A message shown as "Not sent." was gone, with what was written in it, after visiting another room and coming back | Fixed |
+| BUG-120 | Medium (privacy) | Viewer | The viewer kept showing (and stepping to) the images of a message deleted while it was open | Fixed |
+| BUG-121 | Low | Reactions | The reaction picker stayed open on a message deleted meanwhile, and a pick failed without a word | Fixed |
+| BUG-122 | Low | Profile | An avatar that only looks like an image (a renamed file) was refused with PocketBase's message and the stored file name | Fixed |
+| BUG-123 | Low | Room | A room that failed to load while offline didn't load by itself once back online if realtime had stayed connected | Fixed |
+
+## BUG-119 — A message not sent was lost on leaving the room (Medium)
+
+**Steps:** offline (or with the server unreachable), send a message: it shows "Not sent. Retry Discard". Back online,
+open another room, then come back. **Actual:** the message was gone, and with it the text: the composer and its draft
+were cleared when it was sent. Only a send that failed *after* the room had been left was kept for the room's next
+view (QA BUG-76); one the view showed as failed went with the view. **Fix:** the view's failed sends are kept the same
+way when it goes; the next view shows them with Retry (its attachments by name).
+
+## BUG-120 — The viewer kept a deleted message's images (Medium, privacy)
+
+**Steps:** open an image in the viewer; its author deletes the message. **Actual:** the image stayed, "2 / 2" and
+all, and the arrows still stepped to it, while the room showed "Message deleted"; Download gave a 404. Losing access
+closes the viewer (pass 16), a delete didn't. **Fix:** the room view passes every update of its messages on to the
+viewer, which drops the images of a message that no longer has them (deleted, or a forward whose original was). The
+one shown gives way to the next, else the one before; none left, the viewer closes and leaves its history entry.
+
+## BUG-121, BUG-122, BUG-123 (Low)
+
+- **BUG-121:** with the reaction picker open on a message that was then deleted, the picker stayed; picking sent a
+  reaction the server refused (400), and the error had nowhere to show (a deleted message has no reactions). **Fix:**
+  the picker closes when the message it reacts to is deleted or leaves the list; the composer's picker is left alone.
+- **BUG-122:** a file named `photo.png` that isn't an image passes the type check (the browser goes by its name) and
+  the server refused it with `"photo_ht448j1ab2.png" mime type must be one of: image/jpeg, …`. **Fix:** that refusal
+  says "Choose a JPEG, PNG, WebP or GIF image.", like a wrong type picked.
+- **BUG-123:** a room opened while offline says "Couldn't load this room." with Retry. It loaded again by itself only
+  on a realtime reconnect; with the browser's offline mode (DevTools, Playwright), or a short outage the event stream
+  survives, nothing reconnects, and it stayed so. **Fix:** the browser's `online` event also retries a failed load.
+
+## Checked and fine
+
+- **Video posters:** a video's poster 404s until the worker has made it, then is a JPEG for MP4, WebM and portrait
+  videos; a "video" that is an M3U playlist gets none and its tile says "Couldn't load video" with Retry; the poster of
+  a PNG, of a path with `../`, without a token in a members' room, or for someone outside a private room: 404; a
+  forward's readers get the original's poster, and it is gone once the original is deleted; a guest in an Open Air room
+  gets posters without a token; the grid shows no `<video>`; the viewer plays the video.
+- **Layout:** no horizontal overflow on any page or dialog at 320, 390, 768 and 1100 px in either theme, with a 400
+  character URL, a 500 character word, mixed Arabic and Hebrew text, twelve reactions, long names and file names.
+- **Accounts:** a blank name is refused; names are trimmed; an email in another case is "already an account"; logging
+  in with another case and spaces around it works; a name over 32 code points is refused before asking; bidi controls
+  are stripped from names; a wrong, short or unchanged password is said next to its field; a password change logs other
+  sessions out and keeps this one; a 3000×3000 PNG avatar is shrunk and saved; room names blank, over 48, duplicate in
+  another case or HTML are handled.
+- **Composing:** Up edits your last message; an unchanged or whitespace-only edit isn't marked edited; an edit box closes
+  when its message is deleted elsewhere; a reply whose original is deleted before sending goes without its quote (§19);
+  drafts survive Back and reload and go once sent; invisible-only text isn't sent; 2,000 characters (also emoji) send.
+- **Dialogs and modes:** a selection drops a message deleted elsewhere; forwarding to a room archived meanwhile says
+  "This room is archived and read-only."; archiving a room while typing keeps the text for when it is unarchived.
+- **API:** `/api/chat/media` with negative, huge, non-numeric limits and junk cursors; reads in the future or garbage;
+  forwarding into or out of rooms you can't see; bulk-deleting others' messages; reactions outside the picker's set.
+- **Two tabs:** a send shows once in the other; reading in one clears the other's badge; logging out in one logs out
+  the other; logging in as someone else there follows.
+- **Randomized runs** (seeds 51 desktop, 52 phone, 53 with the service worker; 50 steps each): the room matched the
+  server after every step, no page errors.
+
+Not changed, by design or for a decision:
+- An edit that failed ("Couldn't save your edit. Retry") is forgotten on leaving the room: the message still shows
+  what it said, so nothing looks sent that wasn't.
+- Messages deleted while the media grid is open keep their tiles until it is opened again (§30.1: not live); opening
+  one says "Couldn't load image." with Retry.
+- A name change shows in your other tabs at once, on your other devices on their next load.
+- `app.js` went from 43.76 KB to 43.90 KB with these fixes; its budget was raised to 43.91 KB (§13).
+- BUG-108 (busy rooms prefetched by everyone) is still open.
