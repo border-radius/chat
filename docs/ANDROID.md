@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Built (2026-10-18): what changed in implementation is §16. Several servers and accounts: §17 (2026-10-19) |
+| **Status** | **Frozen (2026-10-21): no work on the app until it is unfrozen, see [`CLAUDE.md`](../CLAUDE.md).** Built (2026-10-18): what changed in implementation is §16. Several servers and accounts: §17 (2026-10-19) |
 | **Date** | 2026-10-18 |
 | **Scope** | A native Android client with the web app's features (§1–§14); the server additions it needs: push notifications §8, App Links §9.4, minimum app version §12.4 |
 

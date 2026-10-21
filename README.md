@@ -178,6 +178,9 @@ are set by the migrations and adjustable under *Settings → Rate limits*.
 
 ## Android app
 
+**Frozen since 2026-10-21:** only the web client is being worked on. The app is not changed, built or tested until it
+is unfrozen ([`CLAUDE.md`](CLAUDE.md)).
+
 A native client for any server running the chat, with several accounts at once on one server or many (`android/`,
 design: [`docs/ANDROID.md`](docs/ANDROID.md), §17 for servers and accounts). It needs JDK 17+
 (21 recommended) and the Android SDK (`ANDROID_HOME`, or `sdk.dir` in `android/local.properties`); Gradle fetches the
