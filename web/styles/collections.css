@@ -214,6 +214,10 @@ dialog.coll-dialog::backdrop {
   padding: 0.35rem 0;
 }
 
+.coll-choices .coll-meta {
+  margin: 0;
+}
+
 /* A save or removal in progress (the copy can take seconds). */
 .coll-spin {
   flex: none;
