@@ -432,9 +432,11 @@ function subscribe(e) {
   const user = me(e);
   const body = /** @type {Record<string, unknown>} */ (e.requestInfo().body);
   const id = typeof body.collection === "string" ? body.collection : "";
+  const what = "Failed to subscribe.";
+  // Not "false" or 0 taken for true.
+  if (body.on !== undefined && typeof body.on !== "boolean") throw badRequest("on", "Must be true or false.", what);
   const on = body.on !== false;
   const coll = find(e.app, "collections", id);
-  const what = "Failed to subscribe.";
   if (on) {
     if (!coll?.getBool("public")) throw new NotFoundError("The collection doesn't exist.");
     if (coll.getString("owner") === user.id) throw badRequest("collection", "This is your own collection.", what);

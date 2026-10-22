@@ -1,7 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, type Page } from "@playwright/test";
 import { PNG } from "../support/files.ts";
-import { apiRoom, apiUser, composer, message, openRoom, type Room, test, type User } from "./fixtures.ts";
+import { apiRoom, apiUser, attach, composer, message, openRoom, type Room, test, type User } from "./fixtures.ts";
 import { E2E_BASE } from "./paths.ts";
 
 /** A message with images, through the API. */
@@ -142,4 +142,110 @@ test("collections: the viewer saves too, and unticking takes it out (§31)", asy
   await a.keyboard.press("Escape");
   await expect(menu).toHaveCount(0);
   await expect(viewer).toBeVisible();
+});
+
+/** A copy of a message's file in a collection, through the API. */
+async function apiSave(user: User, collection: string, message: { id: string; files: string[] }) {
+  const res = await fetch(`${E2E_BASE}/api/chat/items`, {
+    method: "POST",
+    headers: { authorization: user.token, "content-type": "application/json" },
+    body: JSON.stringify({ collection, message: message.id, file: message.files[0] }),
+  });
+  expect(res.ok).toBe(true);
+}
+
+test("collections: the page follows changes; renaming, removing and the dialogs (QA pass 18: BUG-124–132)", async ({ browser }) => {
+  const ada = await apiUser("Ada");
+  const bob = await apiUser("Bob");
+  const room = await apiRoom(ada);
+  const cat = await sendImages(ada, room, "cat", ["cat.png"]);
+  const dog = await sendImages(ada, room, "dog", ["dog.png"]);
+  const { id } = await apiCollection(ada, "Live", true);
+  await apiCollection(ada, "Taken", false);
+  await apiSave(ada, id, cat);
+
+  // BUG-129: a guest sees whose it is.
+  const guest = await browser.newContext();
+  try {
+    const g = await guest.newPage();
+    await g.goto(`${E2E_BASE}/c/${id}`);
+    await expect(g.locator(".coll-head .coll-meta")).toHaveText(`By ${ada.name} · Public · 1 item`);
+  } finally {
+    await guest.close();
+  }
+
+  // BUG-125: someone with no collections doesn't wait for some to come (it waited 2 s).
+  const b = await openRoom(browser, bob, room);
+  await b.goto(`/c/${id}`);
+  await expect(b.getByRole("button", { name: "Subscribe" })).toBeVisible({ timeout: 1500 });
+  // BUG-126: a follower on the page sees what is added, and no "new" badge for it.
+  await b.getByRole("button", { name: "Subscribe" }).click();
+  await expect(sidebarRow(b, "Live")).toBeVisible();
+  await apiSave(ada, id, dog);
+  await expect(b.locator(".coll-grid .media-tile")).toHaveCount(2);
+  await expect(b.locator(".coll-cell.new .media-tile")).toHaveAccessibleName("dog.png, new");
+  await expect(b.locator(".coll-head .coll-meta")).toContainText("2 items");
+  await expect(sidebarRow(b, "Live").locator(".badge")).toHaveCount(0);
+  // Made private meanwhile: the page says so.
+  await fetch(`${E2E_BASE}/api/collections/collections/records/${id}`, {
+    method: "PATCH",
+    headers: { authorization: ada.token, "content-type": "application/json" },
+    body: JSON.stringify({ public: false }),
+  });
+  await expect(b.getByRole("heading", { level: 1 })).toHaveText(/doesn't exist/);
+
+  // BUG-127: a refused rename says why and keeps the form; a saved one shows the name as saved.
+  const a = await openRoom(browser, ada, room);
+  await a.goto(`/c/${id}`);
+  await a.getByRole("button", { name: "Rename" }).click();
+  const name = a.getByRole("textbox", { name: "Collection name" });
+  await name.fill("taken");
+  await a.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(a.locator(".coll-notice")).toHaveText("Couldn't save. You already have a collection with this name.");
+  await expect(name).toBeVisible();
+  await name.fill("  Pets  ");
+  await name.press("Enter");
+  await expect(a.getByRole("heading", { level: 1 })).toHaveText(/^\W*Pets$/);
+  await expect(a.getByRole("button", { name: "Rename" })).toBeFocused();
+
+  // BUG-131: the viewer doesn't call an item's author "Unknown".
+  await a.locator(".coll-cell .media-tile").first().click();
+  await expect(a.locator("dialog.viewer")).toContainText(/Added \w/);
+  await expect(a.locator("dialog.viewer")).not.toContainText("Unknown");
+  await a.keyboard.press("Escape");
+  await expect(a.locator("dialog.viewer")).toBeHidden();
+
+  // BUG-124: the tile's buttons show on focus; the dialogs are styled.
+  await a.locator(".coll-cell .media-tile").first().focus();
+  await a.keyboard.press("Tab");
+  await a.keyboard.press("Tab");
+  const remove = a.getByRole("button", { name: /^Remove dog\.png/ });
+  await expect(remove).toBeFocused();
+  await expect(remove).toHaveCSS("opacity", "1");
+  await a.getByRole("button", { name: "Save dog.png to collection" }).click();
+  const menu = a.getByRole("dialog", { name: "Save to collection" });
+  await expect(menu).toHaveCSS("border-top-width", "1px");
+  await a.keyboard.press("Escape");
+
+  // BUG-128: removing the last ones leaves no month heading, says it is empty, and keeps focus on the page.
+  await remove.click();
+  await a.getByRole("button", { name: /^Remove cat\.png/ }).click();
+  await expect(a.locator(".coll-grid h3")).toHaveCount(0);
+  await expect(a.locator(".collection .media-status")).toHaveText(/Nothing here yet/);
+  await expect(a.getByRole("button", { name: "Rename" })).toBeFocused();
+  await a.getByRole("button", { name: "Delete" }).click();
+  await expect(a.locator(".coll-actions")).toContainText("Delete “Pets”? This can't be undone.");
+
+  // BUG-132: the picker says why nothing can be picked when the message is full.
+  await a.goto(`/r/${room.id}`);
+  await attach(a, Array.from({ length: 10 }, (_, i) => ({ name: `f${i}.png`, mimeType: "image/png", buffer: Buffer.from(PNG) })));
+  await a.getByRole("button", { name: "Attach from collections" }).click();
+  await expect(a.getByRole("dialog", { name: "Attach from collections" })).toContainText("The message has all the files it can take.");
+  await a.keyboard.press("Escape");
+  await a.goBack();
+
+  // BUG-130: a narrow screen has its way back to the rooms.
+  await a.setViewportSize({ width: 375, height: 700 });
+  await a.getByRole("link", { name: "Back to rooms" }).click();
+  await expect(a).toHaveURL(/\/$/);
 });

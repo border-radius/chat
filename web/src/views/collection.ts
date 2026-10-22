@@ -5,7 +5,6 @@
 import type { Ctx } from "../context.ts";
 import { clear, h } from "../dom.ts";
 import { formatFull, parsePb } from "../lib/time.ts";
-import type { Collection } from "../lib/types.ts";
 import type { View } from "../router.ts";
 import { createScope } from "../scope.ts";
 import type * as Lazy from "./collection/lazy.ts";
@@ -22,13 +21,12 @@ export function collectionChunk(): Promise<typeof Lazy> {
 
 /** What the chunk's parts get from the app: the API, the DOM helper, the collections in the store and their service. */
 export function chunkContext({ api, store, collections }: Pick<Ctx, "api" | "store" | "collections">) {
-  const list = () => store.get().collections ?? { mine: [] as Collection[], subs: [] as Collection[] };
   return {
     api,
     h,
     service: collections,
     me: () => store.get().user,
-    list,
+    list: () => store.get().collections,
     watch: (fn: () => void) => store.subscribe((s, prev) => s.collections !== prev.collections && fn()),
     when: (created: string) => formatFull(parsePb(created)),
   };

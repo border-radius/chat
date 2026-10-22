@@ -280,6 +280,10 @@ describe("subscriptions (§31)", () => {
     expect(await status(sub(b, (await newCollection(a)).id))).toBe(404); // private
     expect((await sub(b, coll.id)).on).toBe(true);
     expect((await sub(b, coll.id)).on).toBe(true); // idempotent
+    // Not taken for true (QA BUG-133).
+    for (const on of ["false", 0]) {
+      expect(await status(b.pb.send("/api/chat/subs", { method: "POST", body: { collection: coll.id, on } }))).toBe(400);
+    }
     let row = (await listed(b)).subs.find((s) => s.id === coll.id)!;
     expect(row).toMatchObject({ name: coll.name, items: 1, owner: { id: a.user.id, name: a.user.name }, new: 0 });
 

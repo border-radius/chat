@@ -2582,7 +2582,9 @@ when the file it was saved from has one; otherwise the media worker (§30.1) mak
   on `(created, id)`). Items added since your `seen_at` have a ring and a dot, and "*n* new since your last visit" says
   how many; once they are on screen in a visible tab the page sends `seen` with the newest item's `created`, and the
   badge goes. A tile opens the viewer (§17.7, without "Show in chat"); the owner can remove one, anyone signed in save
-  one to their own collections.
+  one to their own collections. The page follows the store for a collection of yours or one you follow: what is added
+  meanwhile comes in at the top, marked new and seen at once (no badge for the page you are on); a rename or a change
+  of Public shows; made private or deleted, it says it doesn't exist. Narrow screens get "← Rooms" (as a room, §7.8).
 - **Saving** opens a menu of your collections, ticked where the file is already (`/saved`): tick to add, untick to
   take out, or make a new (private) one there. Public ones say so: a file saved from a private room or a DM into a
   public collection is then anyone's to see (§13).

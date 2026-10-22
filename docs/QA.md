@@ -1359,3 +1359,85 @@ Not changed, by design or for a decision:
 - A name change shows in your other tabs at once, on your other devices on their next load.
 - `app.js` went from 43.76 KB to 43.90 KB with these fixes; its budget was raised to 43.91 KB (§13).
 - BUG-108 (busy rooms prefetched by everyone) is still open.
+
+# QA pass 18 — media collections
+
+Exploratory testing of media collections (§31), 2026-10-21, after they shipped. A production build on a fresh PocketBase
+server with ffmpeg, in Chromium (375, 390 touch and 1100 px wide, light and dark), as owners, followers, people with no
+collections and guests, plus probes of the API beyond `collections.test.ts`. Covered: making, renaming, making public
+or private and deleting collections; saving from tiles, the viewer and another collection's page, and making one from
+the save menu; removing items; following, "new" counts, seen; the picker, attaching, a failed send and Retry, badges
+(public, yours private, someone else's private, gone, on a forward); 131 items paged; a video item; long names; two
+tabs; keyboard and touch. Numbering continues from BUG-123. Each fix lands with a test that fails without it.
+
+| # | Severity | Area | Summary | Status |
+|---|---|---|---|---|
+| BUG-124 | Medium | Collections | The save menu, the picker and the new-collection dialog were unstyled (browser defaults: thick black border, checkboxes stretched across the row), and a page's tile buttons (Save, Remove) never showed, not even focused | Fixed |
+| BUG-125 | Medium | Collections | Someone with no collections and following none waited 2 s for a collection's page every time | Fixed |
+| BUG-126 | Medium | Collections | A collection's page didn't follow changes: an item added meanwhile didn't show, and the sidebar said "1 new" for the page you were looking at; renamed, made private or deleted, the page stayed as it was (a follower was offered Subscribe, which failed) | Fixed |
+| BUG-127 | Low | Collections | Renaming showed the name as typed (spaces and all) rather than as saved; a refused one said "Failed to save record." and closed the form; any change in the store redrew the actions, closing an open rename form or delete confirmation and dropping focus | Fixed |
+| BUG-128 | Low | Collections | Removing items left an empty month heading, an empty collection said nothing, focus fell to the page, and the delete confirmation said "its 1 items" or "its 0 items" | Fixed |
+| BUG-129 | Low | Collections | Guests didn't see whose a public collection is (the owner was looked up by the users list rule, signed-in only) | Fixed |
+| BUG-130 | Medium | Mobile | On a narrow screen a collection's page had no way back to the rooms but the browser's Back | Fixed |
+| BUG-131 | Low | Viewer | The viewer over a collection called every item's author "Unknown" | Fixed |
+| BUG-132 | Low | Composer | The picker opened for a message that already has 10 files took no picks and said nothing | Fixed |
+| BUG-133 | Low | API | `POST /api/chat/subs` took `on: "false"` or `on: 0` for true and subscribed | Fixed |
+
+## BUG-124 — The collection dialogs were unstyled, and a page's tile buttons hidden (Medium)
+
+`web/styles/collections.css` ended its `.coll-cell:hover .att-save, …, .coll-cell:focus-within` selector list straight
+into the dialog rule's comment and selector (an edit that lost the `.coll-remove { opacity: 1 }` rule in between). So
+`dialog.coll-dialog` got no rule of its own: the dialogs had the browser's look, and app.css's `input { width: 100% }`
+stretched their checkboxes. And since nothing set `opacity: 1` on a page's Save and Remove buttons, they stayed
+invisible on hover and on keyboard focus (a stray `.coll-remove { opacity: 1 }` above was overridden). **Fix:** the
+rules restored; checkboxes and the name field in the dialogs are sized for their row.
+
+## BUG-125 — A 2 s wait on a collection's page (Medium)
+
+The page waits for the store's collections (your `seen_at` decides what is new) when it opens just after a reload. It
+took "none of yours, none followed" for "not loaded yet", so for someone without any it always waited the full 2 s.
+**Fix:** `chunkContext().list()` is null until loaded, and the page waits only then.
+
+## BUG-126 — A collection's page didn't follow changes (Medium)
+
+The page drew the collection once. **Fix:** it follows the store (§31.3): an item added meanwhile comes in at the top
+(`items(…, newer)`, a cursor after the newest shown; more than a page: drawn again), marked new and seen at once (in a
+microtask: not while the store is telling its listeners), so the sidebar has no badge for it; a rename or a change of
+Public shows; gone from the list, it is asked for again, and a 404 says it doesn't exist.
+
+## BUG-127, BUG-128, BUG-129, BUG-130, BUG-131, BUG-132, BUG-133 (Low, BUG-130 Medium)
+
+- **BUG-127:** the page now shows the name and Public as the server saved them, a refused change gives the server's
+  reason ("You already have a collection with this name.") and keeps the form, and the actions are only drawn again
+  when what they offer changes, with focus kept on the same one.
+- **BUG-128:** a month heading goes with its last item, an empty collection says "Nothing here yet.", focus moves to the
+  next item's Remove (or the actions), and the delete confirmation counts items properly ("Delete “Pets”?" for none).
+- **BUG-129:** the page reads the owner's name with the collection (`expand=owner`, which the users view rule lets
+  anyone read), not with a users list request.
+- **BUG-130:** the page has "← Rooms" on narrow screens, as a room has.
+- **BUG-131:** the viewer's caption is "Added <date>" for an item (a message with no author), not "Unknown · <date>".
+- **BUG-132:** the picker says "The message has all the files it can take." when it can take none.
+- **BUG-133:** `on` must be a boolean when given (400 otherwise).
+
+## Checked and fine
+
+- **API:** names blank, spaces, 60 and 61 characters, control and bidi characters, HTML, 60 emoji; the same name in
+  another case on rename; `name_key`, `items`, `owner` from a body; saving to someone else's public (403) or private
+  (404) collection, an item of someone else's private one, the same file twice whichever way (409); `/saved` with
+  nothing or with someone else's private item (`{}`); removing as someone else or a guest; writing items through the
+  records API; attaching the same item twice (one file), 10 files and an item, items as a string, into a room you
+  can't post in, as a guest; an edit naming items or `file_sources`; seen with junk, zero, past and future dates; 60
+  badge ids (50 answered); a deleted collection leaves its followers' lists; a private collection's items listed by a
+  guest (none).
+- **Browser:** the new-collection dialog's blank and duplicate names and Escape; saving, unticking and making one from
+  the save menu (ticked at once); 131 items paged by scrolling, no duplicates, one month heading; the viewer's arrows
+  and a video item's poster and playback; badges for a public, your own private, someone else's private and a deleted
+  collection, and on a forward; a pending message's item thumbnails and Retry; switching collections and Back; long
+  names in the sidebar, badge and heading; two tabs; Save and Remove shown on touch screens; dark theme.
+- Typecheck, lint, unit (654) and integration (407) suites and the Chromium e2e suite (67/67) after the fixes. JS
+  budgets: `app.js` 45.96 of 46.05 KB (unchanged), the collections chunk 5.71 of 6 KB.
+
+Not changed, by design or for a decision:
+- A collection that turned private stays followed (§31.1): its follower can't unsubscribe until it is public again.
+- The picker doesn't mark the items already in the tray; picking one again adds nothing.
+- An item removed in another tab keeps its tile on an open page until it is opened again; opening it fails to load.

@@ -22,8 +22,8 @@ interface Base {
   h: typeof H;
   service: CollectionsService;
   me: () => User | null;
-  /** Yours and those you follow, as the store has them. */
-  list: () => Collections;
+  /** Yours and those you follow, as the store has them: null until they are loaded. */
+  list: () => Collections | null;
   /** Call `fn` when they change; returns the unsubscribe. */
   watch: (fn: () => void) => () => void;
   /** When an item was added, for the viewer. */
@@ -66,16 +66,26 @@ const lit = (v: string) => JSON.stringify(v);
 /** The requests of the page, the menu and the picker. */
 function calls(api: Api) {
   return {
+    /** The collection, with its owner's name (guests can't look users up). */
     get: (id: string, signal: AbortSignal) =>
-      api.request<Meta>(`${RECORDS}/${id}`, { query: { fields: "id,name,public,owner,items" }, signal }),
+      api.request<Meta & { expand?: { owner?: { name: string } } }>(`${RECORDS}/${id}`, {
+        query: { expand: "owner", fields: "id,name,public,owner,items,expand.owner.name" },
+        signal,
+      }),
     create: (owner: string, name: string, isPublic: boolean) =>
       api.request<{ id: string }>(RECORDS, { method: "POST", body: { owner, name, public: isPublic }, query: { fields: "id" } }),
     update: (id: string, body: { name?: string; public?: boolean }) =>
-      api.request(`${RECORDS}/${id}`, { method: "PATCH", body, query: { fields: "id" } }),
+      api.request<Pick<Meta, "name" | "public">>(`${RECORDS}/${id}`, { method: "PATCH", body, query: { fields: "name,public" } }),
     remove: (id: string) => api.request(`${RECORDS}/${id}`, { method: "DELETE" }),
-    /** A page of a collection's items, newest first, older than `after` (the oldest shown) or the newest. */
-    async items(collection: string, after: CollectionItem | undefined, signal: AbortSignal) {
-      const cursor = after ? ` && (created < ${lit(after.created)} || (created = ${lit(after.created)} && id < ${lit(after.id)}))` : "";
+    /**
+     * A page of a collection's items, newest first: older than `after` (the oldest shown), or the newest; with
+     * `newer`, those added after `after` (the newest shown).
+     */
+    async items(collection: string, after: CollectionItem | undefined, signal: AbortSignal, newer = false) {
+      const op = newer ? ">" : "<";
+      const cursor = after
+        ? ` && (created ${op} ${lit(after.created)} || (created = ${lit(after.created)} && id ${op} ${lit(after.id)}))`
+        : "";
       const query = {
         filter: `collection = ${lit(collection)}${cursor}`,
         sort: "-created,-id",
@@ -96,6 +106,9 @@ function calls(api: Api) {
   };
 }
 
+/** Yours and those you follow (none until they are loaded). */
+const lists = (o: Base): Collections => o.list() ?? { mine: [], subs: [] };
+
 /** The next change of the collections in the store, or `ms` without one. */
 function changed(o: Base, ms: number): Promise<void> {
   return new Promise((resolve) => {
@@ -107,6 +120,13 @@ function changed(o: Base, ms: number): Promise<void> {
     const off = o.watch(done);
     const timer = setTimeout(done, ms);
   });
+}
+
+/** Why a request failed, in words: the server's reason for a field when it gave one. */
+function reason(e: unknown): string {
+  const err = e as { fields?: Record<string, string>; message?: string; status?: number };
+  if (err?.status === 0) return "Can't reach the server. Check your connection.";
+  return Object.values(err?.fields ?? {})[0] || err?.message || "Something went wrong.";
 }
 
 const icon = (h: typeof H) => h("span", { class: "ci", "aria-hidden": "true" });
@@ -192,35 +212,36 @@ export interface PageOptions extends Base {
 
 export async function mountCollection(root: HTMLElement, o: PageOptions): Promise<void> {
   const { h, api, signal, id } = o;
+  const call = calls(api);
   const [, meta] = await Promise.all([
     loadStylesheet(h),
-    calls(api)
-      .get(id, signal)
-      .catch(() => null),
+    call.get(id, signal).catch(() => null),
     (async () => {
       // Your subscription's `seen_at` decides what is new: wait for the store to have it (just after a reload).
-      if (o.me() && !o.list().mine.length && !o.list().subs.length) {
+      if (o.me() && !o.list()) {
         await changed(o, 2000);
       }
     })(),
   ]);
   if (signal.aborted) return;
-  const heading = h("h1", { id: "coll-title" }, [icon(h), " ", meta?.name ?? "This collection doesn't exist."]);
-  if (!meta) {
+  /** Not there (any more), or not yours to see. */
+  function gone() {
     root.replaceChildren(
       h("section", { class: "collection not-found" }, [
-        heading,
+        h("h1", {}, [icon(h), " This collection doesn't exist."]),
         h("p", {}, ["It may be private, or deleted. ", h("a", { href: "/" }, "Back to rooms")]),
       ]),
     );
-    return;
   }
-  let info = meta;
+  if (!meta) return gone();
+  let info: Meta = meta;
   const me = o.me();
   const mine = !!me && info.owner === me.id;
-  const seenAt = o.list().subs.find((c) => c.id === id)?.seen_at ?? "";
-  const pages = pager(o, id, signal);
+  const ownerName = meta.expand?.owner?.name ?? "";
+  const seenAt = lists(o).subs.find((c) => c.id === id)?.seen_at ?? "";
+  let pages = pager(o, id, signal);
 
+  const heading = h("h1", { id: "coll-title" });
   const metaLine = h("p", { class: "coll-meta" });
   const actions = h("div", { class: "coll-actions" });
   const notice = h("p", { class: "coll-notice", role: "status" });
@@ -229,43 +250,53 @@ export async function mountCollection(root: HTMLElement, o: PageOptions): Promis
   const status = h("p", { class: "media-status", role: "status" });
   root.replaceChildren(
     h("section", { class: "collection", "aria-labelledby": "coll-title" }, [
-      h("header", { class: "coll-head" }, [heading, metaLine, actions, notice]),
+      h("header", { class: "coll-head" }, [
+        h("a", { href: "/", class: "back", "aria-label": "Back to rooms" }, "← Rooms"),
+        heading,
+        metaLine,
+        actions,
+        notice,
+      ]),
       newLine,
       grid,
       status,
     ]),
   );
-  let ownerName = mine ? "you" : "";
-  if (!mine) {
-    void api
-      .usersById([info.owner], signal)
-      .then(([u]) => {
-        ownerName = u?.name ?? "";
-        renderHead();
-      })
-      .catch(() => {});
-  }
 
   const fail = (what: string, e: unknown) => {
-    notice.textContent = `Couldn't ${what}. ${e instanceof Error ? e.message : ""}`.trim();
+    notice.textContent = `Couldn't ${what}. ${reason(e)}`;
   };
   const btn = (label: string, run: () => unknown, cls = "") =>
     h("button", { type: "button", class: cls, on: { click: () => void run() }, signal }, label);
+  const count = (n: number) => `${n} ${n === 1 ? "item" : "items"}`;
+  const empty = () => (mine ? "Nothing here yet. Save images and videos from the chat." : "Nothing here yet.");
 
-  const call = calls(api);
-  async function change(patch: { name?: string; public?: boolean }) {
-    try {
-      await call.update(id, patch);
-      o.service.refresh();
-      info = { ...info, ...patch };
-      notice.textContent = "";
-    } catch (e) {
-      fail("save", e);
-    }
+  /** Renaming or confirming a delete: the actions stay as they are while the store changes. */
+  let editing = false;
+  /** What the actions were drawn for: they are drawn again only when that changes, so focus stays. */
+  let drawn = "";
+  function doneEditing() {
+    editing = false;
+    drawn = "";
     renderHead();
   }
 
+  /** Saved: true. Refused: the reason is shown, and whatever was being edited stays. */
+  async function change(patch: { name?: string; public?: boolean }): Promise<boolean> {
+    try {
+      info = { ...info, ...(await call.update(id, patch)) };
+      notice.textContent = "";
+      o.service.refresh();
+      doneEditing();
+      return true;
+    } catch (e) {
+      fail("save", e);
+      return false;
+    }
+  }
+
   function renameForm() {
+    editing = true;
     const input = h("input", { value: info.name, "aria-label": "Collection name", autocomplete: "off" });
     const form = h(
       "form",
@@ -276,11 +307,11 @@ export async function mountCollection(root: HTMLElement, o: PageOptions): Promis
             e.preventDefault();
             void change({ name: input.value });
           },
-          keydown: (e) => e.key === "Escape" && renderHead(),
+          keydown: (e) => e.key === "Escape" && doneEditing(),
         },
         signal,
       },
-      [input, h("button", { type: "submit" }, "Save"), btn("Cancel", renderHead, "link")],
+      [input, h("button", { type: "submit" }, "Save"), btn("Cancel", doneEditing, "link")],
     );
     actions.replaceChildren(form);
     input.focus();
@@ -288,8 +319,9 @@ export async function mountCollection(root: HTMLElement, o: PageOptions): Promis
   }
 
   function confirmDelete() {
+    editing = true;
     actions.replaceChildren(
-      h("span", {}, `Delete “${info.name}” and its ${info.items} items? This can't be undone.`),
+      h("span", {}, `Delete “${info.name}”${info.items ? ` and its ${count(info.items)}` : ""}? This can't be undone.`),
       btn(
         "Delete collection",
         async () => {
@@ -299,35 +331,33 @@ export async function mountCollection(root: HTMLElement, o: PageOptions): Promis
             o.navigate("/");
           } catch (e) {
             fail("delete it", e);
-            renderHead();
           }
         },
         "danger",
       ),
-      btn("Cancel", renderHead, "link"),
+      btn("Cancel", doneEditing, "link"),
     );
+    actions.querySelector("button")?.focus();
   }
 
   function renderHead() {
     if (signal.aborted) return;
     heading.replaceChildren(icon(h), " ", info.name);
-    const following = o.list().subs.some((c) => c.id === id);
-    metaLine.replaceChildren(
-      [
-        ownerName && (mine ? "Yours" : `By ${ownerName}`),
-        info.public ? "Public" : "🔒 Private",
-        `${info.items} ${info.items === 1 ? "item" : "items"}`,
-      ]
-        .filter(Boolean)
-        .join(" · "),
-    );
+    metaLine.textContent = [mine ? "Yours" : ownerName && `By ${ownerName}`, info.public ? "Public" : "🔒 Private", count(info.items)]
+      .filter(Boolean)
+      .join(" · ");
+    const following = lists(o).subs.some((c) => c.id === id);
+    const key = [info.public, following].join();
+    if (editing || key === drawn) return;
+    drawn = key;
+    const focused = [...actions.children].findIndex((c) => c.contains(document.activeElement));
     if (mine) {
       actions.replaceChildren(
         btn("Rename", renameForm),
         btn(info.public ? "Make private" : "Make public", () => change({ public: !info.public })),
         btn("Delete", confirmDelete, "danger"),
       );
-    } else if (me && info.public) {
+    } else if (me && (info.public || following)) {
       const b = btn(following ? "Unsubscribe" : "Subscribe", async () => {
         b.disabled = true;
         try {
@@ -337,25 +367,61 @@ export async function mountCollection(root: HTMLElement, o: PageOptions): Promis
         } catch (e) {
           fail(following ? "unsubscribe" : "subscribe", e);
         }
+        drawn = "";
         renderHead();
       });
       b.setAttribute("aria-pressed", String(following));
       actions.replaceChildren(b);
     } else actions.replaceChildren();
+    if (focused >= 0) (actions.children[focused] as HTMLElement | undefined)?.focus();
   }
   renderHead();
-  signal.addEventListener("abort", o.watch(renderHead), { once: true });
+
+  /** The newest item's `created` (or the collection's last_added), to send as seen once the tab is visible. */
+  let unseen = "";
+  function markSeen() {
+    if (!unseen || document.visibilityState !== "visible" || !lists(o).subs.some((c) => c.id === id)) return;
+    const at = unseen;
+    unseen = "";
+    // Not while the store is telling its listeners of a change: the badge goes with the next one.
+    queueMicrotask(() => signal.aborted || o.service.seen(id, at));
+  }
+  document.addEventListener("visibilitychange", markSeen, { signal });
+
+  /** The collection as the store has it (yours, or followed), last time: what changed since. */
+  const listed = () => [...lists(o).mine, ...lists(o).subs].find((c) => c.id === id);
+  let last = listed();
+  function follow() {
+    const c = listed();
+    if (c) {
+      info = { ...info, name: c.name, public: c.public, items: c.items };
+      if (last && c.last_added !== last.last_added) void newer();
+      if (c.new) {
+        unseen = c.last_added;
+        markSeen();
+      }
+    } else if (last) {
+      // Gone from the list: made private, deleted, or no longer followed.
+      void call.get(id, signal).then(
+        (m) => {
+          info = { ...info, ...m };
+          renderHead();
+        },
+        (e: { status?: number }) => e.status === 404 && gone(),
+      );
+    }
+    last = c;
+    renderHead();
+  }
+  signal.addEventListener("abort", o.watch(follow), { once: true });
 
   let month = "";
   let fresh = 0;
-  function add(it: CollectionItem) {
+  /** An item's cell, at the end (a page of older ones) or at the top (`added`: new while the page is open). */
+  function add(it: CollectionItem, added = false) {
     const mo = monthOf.format(dateOf(it.created));
-    if (mo !== month) {
-      month = mo;
-      grid.append(h("h3", {}, mo));
-    }
-    const isNew = !!seenAt && it.created > seenAt;
-    if (isNew) fresh++;
+    const isNew = added || (!!seenAt && it.created > seenAt);
+    if (isNew && !added) fresh++;
     const label = `${it.name}${it.video ? ", video" : ""}${isNew ? ", new" : ""}`;
     const tile = h(
       "button",
@@ -394,39 +460,60 @@ export async function mountCollection(root: HTMLElement, o: PageOptions): Promis
             class: "coll-remove",
             "aria-label": `Remove ${it.name} from the collection`,
             title: "Remove from collection",
-            on: {
-              click: async () => {
-                try {
-                  await call.unsave(it.id);
-                  cell.remove();
-                  info = { ...info, items: Math.max(0, info.items - 1) };
-                  renderHead();
-                  o.service.refresh();
-                } catch (e) {
-                  fail("remove it", e);
-                }
-              },
-            },
+            on: { click: () => void remove(it, cell) },
             signal,
           },
           "×",
         ),
       );
     }
-    grid.append(cell);
+    if (!added) {
+      if (mo !== month) grid.append(h("h3", {}, mo));
+      month = mo;
+      grid.append(cell);
+    } else if (grid.firstElementChild?.textContent === mo) grid.firstElementChild.after(cell);
+    else {
+      grid.prepend(h("h3", {}, mo), cell);
+      month ||= mo;
+    }
+  }
+
+  async function remove(it: CollectionItem, cell: HTMLElement) {
+    try {
+      await call.unsave(it.id);
+    } catch (e) {
+      return fail("remove it", e);
+    }
+    const cells = [...grid.querySelectorAll(".coll-cell")];
+    const at = cells.indexOf(cell);
+    const to = cells[at + 1] ?? cells[at - 1];
+    const [before, after] = [cell.previousElementSibling, cell.nextElementSibling];
+    cell.remove();
+    pages.items.splice(pages.items.indexOf(it), 1);
+    // The last of its month: the month's heading goes too.
+    if (before?.tagName === "H3" && (!after || after.tagName === "H3")) {
+      before.remove();
+      if (!after) month = "";
+    }
+    if (pages.done && !pages.items.length) status.textContent = empty();
+    info = { ...info, items: Math.max(0, info.items - 1) };
+    renderHead();
+    // Focus stays in the grid (the next one's Remove), or goes to the actions once it is empty.
+    (to?.querySelector<HTMLElement>(".coll-remove") ?? actions.querySelector("button"))?.focus();
+    o.service.refresh();
   }
 
   async function more() {
-    if (pages.done) return;
+    const p = pages;
+    if (p.done) return;
     status.textContent = "Loading…";
     try {
-      const page = await pages.next();
-      if (signal.aborted) return;
+      const page = await p.next();
+      if (signal.aborted || p !== pages) return;
       for (const it of page) add(it);
-      status.textContent =
-        pages.done && !pages.items.length ? (mine ? "Nothing here yet. Save images and videos from the chat." : "Nothing here yet.") : "";
+      status.textContent = p.done && !p.items.length ? empty() : "";
     } catch {
-      if (signal.aborted) return;
+      if (signal.aborted || p !== pages) return;
       seen.unobserve(status);
       status.replaceChildren(
         "Couldn't load the collection. ",
@@ -435,27 +522,50 @@ export async function mountCollection(root: HTMLElement, o: PageOptions): Promis
       return;
     }
     seen.unobserve(status);
-    if (!pages.done) seen.observe(status);
+    if (!p.done) seen.observe(status);
+  }
+
+  /** From the start again (the page was empty, or more was added than a page holds). */
+  function reset() {
+    pages = pager(o, id, signal);
+    grid.replaceChildren();
+    month = "";
+    return more();
+  }
+
+  /** Items added while the page is open: at the top, marked new. */
+  async function newer() {
+    const top = pages.items[0];
+    if (!top) return reset();
+    const got = await call.items(id, top, signal, true).catch(() => null);
+    if (!got || signal.aborted) return;
+    if (got.more) return reset();
+    const shown = new Set(pages.items.map((x) => x.id));
+    const added = got.items.filter((x) => !shown.has(x.id));
+    pages.items.unshift(...added);
+    for (const it of added.reverse()) add(it, true);
+    if (added.length) status.textContent = "";
   }
 
   async function open(it: CollectionItem, opener: HTMLElement) {
     const images = (): ViewerImage[] => [...pages.items].reverse().map((x) => ({ message: asMessage(x), file: x.file, video: x.video }));
     const all = images();
+    const p = pages;
     try {
       const { openViewer } = await import("../room/viewer.ts");
       if (signal.aborted) return;
       await openViewer({
         images: all,
         start: all.findIndex((x) => x.message.id === it.id),
-        more: [!pages.done, false],
+        more: [!p.done, false],
         page: async (older) => {
-          const got = older ? await pages.next() : [];
-          return { messages: got.map(asMessage).reverse(), done: !older || pages.done };
+          const got = older ? await p.next() : [];
+          return { messages: got.map(asMessage).reverse(), done: !older || p.done };
         },
-        media: (m) => [{ message: m, file: m.files![0]!, video: pages.items.find((x) => x.id === m.id)?.video ?? false }],
+        media: (m) => [{ message: m, file: m.files![0]!, video: p.items.find((x) => x.id === m.id)?.video ?? false }],
         h,
         name: (m, f) => m.file_names?.[f] ?? f,
-        when: (m) => o.when(m.created),
+        when: (m) => `Added ${o.when(m.created)}`,
         fileUrl: (m, f) => api.itemUrl({ id: m.id, file: f }),
         refreshFileToken: () => api.fileToken(true),
         ...(me ? { onSave: (m: Message, _f: string, b: HTMLElement) => openSave({ ...o, from: { item: m.id }, opener: b }) } : {}),
@@ -477,16 +587,8 @@ export async function mountCollection(root: HTMLElement, o: PageOptions): Promis
     newLine.textContent = `${fresh >= 60 ? "60+" : fresh} new since your last visit`;
   }
   // Seen once it is on screen in a visible tab: the sidebar's count goes.
-  const newest = pages.items[0];
-  if (newest && o.list().subs.some((c) => c.id === id)) {
-    const mark = () => {
-      if (document.visibilityState !== "visible") return;
-      document.removeEventListener("visibilitychange", mark);
-      o.service.seen(id, newest.created);
-    };
-    document.addEventListener("visibilitychange", mark, { signal });
-    mark();
-  }
+  unseen = pages.items[0]?.created ?? "";
+  markSeen();
 }
 
 // ---------------------------------------------------------------- the save menu
@@ -543,12 +645,6 @@ export async function openSave(o: SaveOptions): Promise<void> {
   let saved: Record<string, string> = {};
   const busy = new Set<string>();
 
-  const reason = (e: unknown) => {
-    const err = e as { fields?: Record<string, string>; message?: string; status?: number };
-    if (err?.status === 0) return "Can't reach the server. Check your connection.";
-    return Object.values(err?.fields ?? {})[0] || err?.message || "Something went wrong.";
-  };
-
   async function toggle(id: string, on: boolean) {
     busy.add(id);
     render();
@@ -570,7 +666,7 @@ export async function openSave(o: SaveOptions): Promise<void> {
   }
 
   function render() {
-    const mine = o.list().mine;
+    const mine = lists(o).mine;
     list.replaceChildren(
       ...mine.map((c: Collection) => {
         const box = h("input", { type: "checkbox", checked: !!saved[c.id], disabled: busy.has(c.id) });
@@ -629,7 +725,7 @@ export async function openPicker(o: PickOptions): Promise<void> {
   const scope = new AbortController();
   const { signal } = scope;
   o.signal.addEventListener("abort", () => close(), { signal });
-  const { mine, subs } = o.list();
+  const { mine, subs } = lists(o);
   const all = [...mine, ...subs];
   const title = h("h2", { id: "coll-pick-title" }, [icon(h), " Attach from collections"]);
   const select = h(
@@ -656,7 +752,11 @@ export async function openPicker(o: PickOptions): Promise<void> {
   let pages = pager(o, "", signal);
 
   function update() {
-    count.textContent = picked.size ? `${picked.size} picked${picked.size >= o.max ? " (the most a message takes)" : ""}` : "";
+    count.textContent = picked.size
+      ? `${picked.size} picked${picked.size >= o.max ? " (the most a message takes)" : ""}`
+      : o.max
+        ? ""
+        : "The message has all the files it can take.";
     attach.disabled = !picked.size;
     attach.textContent = picked.size ? `Attach ${picked.size}` : "Attach";
   }
@@ -779,8 +879,7 @@ export async function openCreate(o: CreateOptions): Promise<void> {
             close(false);
             o.onCreated(id);
           } catch (e) {
-            const x = e as { fields?: Record<string, string>; message?: string };
-            err.textContent = Object.values(x.fields ?? {})[0] || x.message || "Couldn't create it.";
+            err.textContent = reason(e);
           } finally {
             submit.disabled = false;
           }

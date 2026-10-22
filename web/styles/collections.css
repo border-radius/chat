@@ -6,6 +6,14 @@
   padding: 1rem 1.25rem 2rem;
 }
 
+/* "← Rooms": narrow screens only (app.css hides .back on wide ones). */
+@media (max-width: 720px) {
+  .coll-head .back {
+    display: inline-block;
+    margin-bottom: 0.5rem;
+  }
+}
+
 .coll-head h1 {
   display: flex;
   gap: 0.4rem;
@@ -109,10 +117,6 @@
 }
 
 .coll-remove {
-  opacity: 1;
-}
-
-.coll-remove {
   position: absolute;
   bottom: 4px;
   right: 4px;
@@ -135,7 +139,11 @@
 .coll-cell:hover .att-save,
 .coll-cell:focus-within .att-save,
 .coll-cell:hover .coll-remove,
-.coll-cell:focus-within /* The save menu and the picker. */
+.coll-cell:focus-within .coll-remove {
+  opacity: 1;
+}
+
+/* The save menu and the picker. */
 dialog.coll-dialog {
   width: min(28rem, 100%);
   max-height: min(40rem, 100%);
@@ -204,6 +212,19 @@ dialog.coll-dialog::backdrop {
   gap: 0.4rem;
   align-items: center;
   padding: 0.35rem 0;
+}
+
+/* Not app.css's full-width inputs: a box before its label, a name field next to its button. */
+.coll-dialog input[type="checkbox"] {
+  flex: none;
+  width: auto;
+  accent-color: var(--accent);
+}
+
+.coll-new-form input {
+  flex: 1;
+  width: auto;
+  min-width: 0;
 }
 
 .coll-pick .media-tile[aria-pressed="true"] {

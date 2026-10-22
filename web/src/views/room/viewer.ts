@@ -190,7 +190,7 @@ export async function openViewer(o: ViewerOptions): Promise<void> {
     const { message: m, file } = shown();
     const name = o.name(m, file);
     title.textContent = name;
-    meta.textContent = `${m.expand?.author?.name ?? "Unknown"} · ${o.when(m)}`;
+    meta.textContent = m.author ? `${m.expand?.author?.name ?? "Unknown"} · ${o.when(m)}` : o.when(m);
     download.download = name;
     sign();
     update();
