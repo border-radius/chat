@@ -1,7 +1,7 @@
 // Link previews (§28), end to end against their own PocketBase (previews on) and a stub web site. The worker runs on a
 // cron job and on POST /api/previews/tick; checks wait for its work with `eventually`, since either may do it.
 
-import { createServer, type Server } from "node:http";
+import { createServer, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import PocketBase, { type RecordModel } from "pocketbase";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -26,10 +26,52 @@ const PAGES: Record<string, [string, string | Uint8Array]> = {
   // Terminal colours, a bell, a right-to-left override, a tab: what a page's title can hold (QA BUG-110).
   "/junk": ["text/html", "<title>Bell&#7; esc&#27;[31m red &#x202E;desrever&#x202C; tab&#9;x\u200b</title>"],
   "/doc.pdf": ["application/pdf", "%PDF-1.4"],
+  // Tags that never end, and titles that never close, after the one that counts: read in one pass, each regex that
+  // tried again from every "<" took minutes.
+  "/unclosed": [
+    "text/html",
+    `<title>Unclosed</title>${"<title>".repeat(30_000)}<meta ${"a".repeat(20_000)}<meta content="${'x="'.repeat(10_000)}${"<meta ".repeat(30_000)}`,
+  ],
   "/i.png": ["image/png", PNG],
   "/big.png": ["image/png", new Uint8Array(20 * 1024)],
   "/favicon.ico": ["application/octet-stream", ICO],
 };
+
+/** Redirects: path → Location. */
+const REDIRECTS: Record<string, () => string> = {
+  "/to-plain": () => "/plain?redirected",
+  "/to-icon-page": () => `${base}/og?redirected`,
+  // An inward address (by name, and by a port that isn't the default one) behind a link that passes the checks.
+  "/to-local": () => `http://localhost:${base.split(":").at(-1)}/og?inward`,
+  "/to-loop": () => "/to-loop",
+};
+
+/** Pages that ignore Range and go on for HUGE_BYTES: [content type, start]. */
+const HUGE: Record<string, [string, string | Uint8Array]> = {
+  "/huge": ["text/html", "<title>Huge</title>"],
+  "/huge-icon": ["text/html", `<title>Huge icon</title><link rel="icon" href="/huge.png">`],
+  "/huge.png": ["image/png", PNG],
+};
+const HUGE_BYTES = 256 * 1024 * 1024;
+/** Bytes of each huge response the server got to send before the worker stopped reading: path → bytes. */
+const sent = new Map<string, number>();
+
+/** `start`, then zeros up to HUGE_BYTES, as fast as the reader takes them. */
+function stream(path: string, res: ServerResponse, type: string, start: string | Uint8Array) {
+  res.writeHead(200, { "content-type": type });
+  const chunk = Buffer.alloc(1024 * 1024, 0x20);
+  let n = 0;
+  res.on("close", () => sent.set(path, n));
+  const more = () => {
+    while (n < HUGE_BYTES && !res.destroyed) {
+      const b = n ? chunk : Buffer.from(start);
+      n += b.length;
+      if (!res.write(b)) return void res.once("drain", more);
+    }
+    res.end();
+  };
+  more();
+}
 
 let site: Server;
 let base = "";
@@ -49,6 +91,10 @@ beforeAll(async () => {
       setTimeout(() => res.writeHead(200, { "content-type": "text/html" }).end("<title>Late</title>"), NEVER_MS);
       return;
     }
+    const to = REDIRECTS[(req.url ?? "/").split("?")[0]!];
+    if (to) return res.writeHead(302, { location: to() }).end();
+    const huge = HUGE[(req.url ?? "/").split("?")[0]!];
+    if (huge) return stream(req.url!, res, huge[0], huge[1]);
     const page = PAGES[(req.url ?? "/").split("?")[0]!];
     if (!page) return res.writeHead(404).end();
     res.writeHead(200, { "content-type": page[0] }).end(page[1]);
@@ -204,5 +250,47 @@ describe("link previews", () => {
     const m = await send(me, room.id, `${local.join(" ")} ${base}/plain`);
     await eventually(async () => expect(await previewsOf(me, m.id)).toMatchObject([{ title: "Plain title" }]));
     expect(asked.every((h) => h === base.slice("http://".length))).toBe(true);
+  });
+
+  it("follows redirects, each checked like a link: never one inward, nor round and round", async () => {
+    const me = await signUp();
+    const room = await roomOf(me);
+    asked.length = 0;
+    paths.length = 0;
+    const m = await send(me, room.id, `${base}/to-local ${base}/to-loop ${base}/to-plain ${base}/to-icon-page`);
+    await eventually(async () =>
+      expect(await previewsOf(me, m.id)).toEqual([
+        { url: `${base}/to-plain`, title: "Plain title", icon: expect.stringMatching(/^data:image\/x-icon;base64,/) },
+        // The page's icon, against the page it was sent on to.
+        { url: `${base}/to-icon-page`, title: "Tom & Jerry's page", icon: `data:image/png;base64,${PNG_BASE64}` },
+      ]),
+    );
+    expect(asked.every((h) => h === base.slice("http://".length))).toBe(true);
+    expect(paths).not.toContain("/og?inward");
+    // The link and three redirects, by each worker that may have taken the message.
+    expect(paths.filter((p) => p === "/to-loop").length).toBeLessThanOrEqual(8);
+  });
+
+  it("reads only the start of what ignores Range: a huge page, a huge icon", async () => {
+    const me = await signUp();
+    const room = await roomOf(me);
+    const m = await send(me, room.id, `${base}/huge ${base}/huge-icon`);
+    await eventually(async () =>
+      expect(await previewsOf(me, m.id)).toEqual([
+        { url: `${base}/huge`, title: "Huge", icon: expect.stringMatching(/^data:image\/x-icon;base64,/) },
+        // Too big to keep: the site's /favicon.ico instead.
+        { url: `${base}/huge-icon`, title: "Huge icon", icon: expect.stringMatching(/^data:image\/x-icon;base64,/) },
+      ]),
+    );
+    // Stopped after the start, give or take what the sockets held: not all 256 MB (`$http.send` read it all).
+    await eventually(() => expect(sent.size).toBe(3));
+    for (const n of sent.values()) expect(n).toBeLessThan(32 * 1024 * 1024);
+  });
+
+  it("a page of tags that never end doesn't hold up the worker", async () => {
+    const me = await signUp();
+    const room = await roomOf(me);
+    const m = await send(me, room.id, `${base}/unclosed`);
+    await eventually(async () => expect(await previewsOf(me, m.id)).toMatchObject([{ title: "Unclosed" }]));
   });
 });

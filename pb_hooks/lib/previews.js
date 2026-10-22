@@ -5,22 +5,31 @@
 // LINK_PREVIEWS=off.
 //
 // The server fetches what anyone links to, so it only goes to public web addresses: http(s) on the default port, a
-// host name with a dot that isn't a local one, or a public IPv4 address; never userinfo or IPv6 literals. Hosts in
-// LINK_PREVIEWS_ALLOW_HOSTS (comma-separated, host or host:port; tests) are let through. Names are not resolved here (the JSVM can't),
-// so a public name pointing at a private address, or a redirect to one, still gets through: only a page's title and
-// icon are ever kept from it.
+// host name with a dot that isn't a local one, or a public IPv4 address; never userinfo or IPv6 literals. A name is
+// looked up first (getent) and all its addresses must be public; curl then connects to the one checked and no other,
+// so a name that answers differently the second time can't send it inward. Redirects are followed here, not by curl,
+// each checked the same way. Hosts in LINK_PREVIEWS_ALLOW_HOSTS (comma-separated, host or host:port; tests) are let
+// through without checks.
+//
+// curl, not $http.send: that follows redirects anywhere and reads a whole response into memory, however big (a page
+// ignoring Range took 1.1 GB). Of a response only the start is read, from curl's output; then curl is stopped.
 
 const { tidy } = require(`${__hooks}/lib/text.js`);
 
 /** Links looked at in one message. */
 const MAX_LINKS = 5;
-/** Of a page, only the start is read for its title and icon: the rest is never asked for (Range). */
+/** Of a page, only the start is read for its title and icon: the rest is never asked for (Range), nor read. */
 const PAGE_BYTES = 256 * 1024;
 /** A bigger icon is left out: it is kept in the message, as a data: URL. */
 const MAX_ICON = 16 * 1024;
 const MAX_TITLE = 200;
+/** Of a title (or og:title) as written, only the start is cleaned: plenty for MAX_TITLE characters. */
+const MAX_RAW_TITLE = 4096;
+/** Seconds for a page, or an icon, redirects included. */
 const PAGE_TIMEOUT = 4;
 const ICON_TIMEOUT = 3;
+const LOOKUP_TIMEOUT = 3;
+const MAX_REDIRECTS = 3;
 /**
  * A message's links are looked at for this long (ms) at most: links after it get no line. A message linking to sites
  * that never answer would otherwise hold up everyone's previews behind it, for minutes.
@@ -90,27 +99,43 @@ function parse(url) {
 }
 
 const LOCAL = /(^|\.)(localhost|local|localdomain|internal|intranet|lan|home\.arpa)$/;
+const IPV4 = /^\d+\.\d+\.\d+\.\d+$/;
 
-/**
- * May the server fetch from `host`? A public-looking name, or a public IPv4 address.
- * @param {string} host
- */
-function publicHost(host) {
-  const allowed = $os
+/** LINK_PREVIEWS_ALLOW_HOSTS: fetched without checks (tests). */
+const allowedHosts = () =>
+  $os
     .getenv("LINK_PREVIEWS_ALLOW_HOSTS")
     .split(",")
     .map((h) => h.trim().toLowerCase())
     .filter(Boolean);
-  if (allowed.includes(host)) return true;
+
+/**
+ * May the server fetch from `host`? A public-looking name (its addresses are checked when it is fetched), or a
+ * public IPv4 address.
+ * @param {string} host
+ */
+function publicHost(host) {
+  if (allowedHosts().includes(host)) return true;
   if (/:\d+$/.test(host)) return false; // not the default port
   const h = host.replace(/\.$/, "");
-  if (/^\d+\.\d+\.\d+\.\d+$/.test(h)) return publicIPv4(h.split(".").map(Number));
-  // A name needs a dot, a last label of letters (not 0x7f.1 or 2130706433), and not to be a local one.
-  return h.includes(".") && /\.[a-z][a-z0-9-]*$|\.xn--[a-z0-9-]+$/.test(h) && !LOCAL.test(h);
+  if (IPV4.test(h)) return publicIPv4(h);
+  // A name: ASCII labels that don't start with "-" (it goes to getent and curl as an argument), a dot, a last label of
+  // letters (not 0x7f.1 or 2130706433), and not a local one.
+  return (
+    h.length <= 253 &&
+    h.split(".").every((l) => /^[a-z0-9_][a-z0-9_-]*$/.test(l)) &&
+    /\.[a-z][a-z0-9-]*$|\.xn--[a-z0-9-]+$/.test(h) &&
+    !LOCAL.test(h)
+  );
 }
 
-/** @param {number[]} ip */
-function publicIPv4([a, b, c, d]) {
+/**
+ * A public IPv4 address, in plain decimal: "0177.0.0.1" is 127.0.0.1 to curl, so a leading zero is refused.
+ * @param {string} ip
+ */
+function publicIPv4(ip) {
+  if (!IPV4.test(ip) || /(^|\.)0\d/.test(ip)) return false;
+  const [a, b, c, d] = ip.split(".").map(Number);
   if ([a, b, c, d].some((n) => n > 255)) return false;
   return !(
     a === 0 ||
@@ -120,20 +145,33 @@ function publicIPv4([a, b, c, d]) {
     (a === 169 && b === 254) ||
     (a === 172 && b >= 16 && b < 32) ||
     (a === 192 && b === 168) ||
-    (a === 192 && b === 0 && c === 0) ||
+    (a === 192 && b === 0 && (c === 0 || c === 2)) ||
     (a === 198 && (b === 18 || b === 19)) ||
+    (a === 198 && b === 51 && c === 100) ||
+    (a === 203 && b === 0 && c === 113) ||
     a >= 224
   );
 }
 
-/** @param {string} url */
-const fetchable = (url) => {
-  const u = parse(url);
-  return !!u && publicHost(u.host);
-};
+/**
+ * The address to connect to for a public host: an IPv4 address as is; a name's first address, looked up as the
+ * system does (getent), and "" when any of its addresses isn't public (a name may answer with an inward one among
+ * others). Throws when the lookup fails.
+ * @param {string} host
+ */
+function addressOf(host) {
+  const h = host.replace(/\.$/, "");
+  if (IPV4.test(h)) return publicIPv4(h) ? h : "";
+  const out = toString($os.cmd("timeout", String(LOOKUP_TIMEOUT), "getent", "ahostsv4", h).output());
+  const ips = out
+    .split("\n")
+    .map((line) => line.split(/\s/)[0])
+    .filter((ip) => IPV4.test(ip));
+  return ips.length && ips.every(publicIPv4) ? ips[0] : "";
+}
 
 /**
- * `ref` (an href from a page) against the page's URL.
+ * `ref` (an href from a page, a redirect's Location) against the page's URL.
  * @param {string} ref
  * @param {string} base
  */
@@ -149,34 +187,134 @@ function resolve(ref, base) {
   return b.origin + (dir || "/") + r;
 }
 
-// ---------------------------------------------------------------- pages and icons
+// ---------------------------------------------------------------- fetching
+
+/** Are curl, getent and timeout there? Looked up once: without them, links get no previews. */
+function tools(/** @type {core.App} */ app) {
+  return /** @type {boolean} */ (
+    app.store().getOrSet("previews.tools", () => {
+      try {
+        $os.cmd("sh", "-c", "command -v curl && command -v getent && command -v timeout").output();
+        return true;
+      } catch {
+        app.logger().warn("previews: no curl, getent or timeout, links get no previews");
+        return false;
+      }
+    })
+  );
+}
 
 /**
- * GET `url`, null on any failure or a status other than 200/206. A host that didn't answer (a timeout, a refused
- * connection) goes in `dead` and isn't asked again for this message: its links to a site that never answers cost one
- * timeout, not one each.
- * @param {string} url
- * @param {Record<string, string>} headers
- * @param {number} timeout
- * @param {Set<string>} dead
+ * @typedef {{ status: number, headers: Record<string, string>, body: any, url?: string }} Response `headers` by
+ * lowercased name (the first of each); `body` the start of it, as bytes; `url` where it came from, after redirects.
  */
-function get(url, headers, timeout, dead) {
-  const host = fetchable(url) ? parse(url)?.host : "";
-  if (!host || dead.has(host)) return null;
+
+/**
+ * One GET with curl, connecting to `ip` ("": as curl looks the host up, for allowed hosts), reading at most `max`
+ * bytes of the body. Throws when there is no response (a timeout, a refused connection).
+ * @param {{ origin: string, path: string, scheme: string }} u
+ * @param {string} ip
+ * @param {Record<string, string>} headers
+ * @param {number} seconds
+ * @param {number} max
+ * @returns {Response}
+ */
+function request(u, ip, headers, seconds, max) {
+  const head = `${$os.tempDir()}/chat-preview-${$security.randomString(16)}`;
+  // No ~/.curlrc, no proxy (it would look the host up itself), no globbing of [] and {} in the URL; no redirects (get
+  // checks each). The headers go to a file, written as they come: there even when curl is stopped mid-body.
+  const args = ["-q", "--silent", "--globoff", "--noproxy", "*", "--proto", "=http,https", "--max-time", seconds.toFixed(1)];
+  // Whatever host curl makes of the URL, it connects here.
+  if (ip) args.push("--connect-to", `::${ip}:${u.scheme === "https" ? 443 : 80}`);
+  args.push("--user-agent", UA);
+  for (const [k, v] of Object.entries(headers)) args.push("--header", `${k}: ${v}`);
+  args.push("--dump-header", head, "--output", "-", "--url", u.origin + u.path);
   try {
-    const res = $http.send({ url, method: "GET", headers: { "User-Agent": UA, ...headers }, timeout });
-    return res.statusCode === 200 || res.statusCode === 206 ? res : null;
-  } catch {
-    dead.add(host);
-    return null;
+    const cmd = $os.cmd("curl", ...args);
+    const out = cmd.stdoutPipe();
+    cmd.start();
+    let body;
+    try {
+      body = toBytes(out, max);
+    } finally {
+      // The rest of a big body is never read: curl stops at the next write.
+      try {
+        cmd.process?.kill();
+      } catch {
+        // done already
+      }
+      try {
+        cmd.wait();
+      } catch {
+        // killed, or failed: the headers tell
+      }
+    }
+    let status = 0;
+    /** @type {Record<string, string>} */
+    let fields = Object.create(null);
+    for (const line of toString($os.readFile(head)).split(/\r?\n/)) {
+      const s = /^HTTP\/[\d.]+\s+(\d{3})/.exec(line);
+      if (s) {
+        status = Number(s[1]);
+        fields = Object.create(null);
+        continue;
+      }
+      const colon = line.indexOf(":");
+      const name = line.slice(0, colon).trim().toLowerCase();
+      if (colon > 0 && !(name in fields)) fields[name] = line.slice(colon + 1).trim();
+    }
+    if (!status) throw new Error("no response");
+    return { status, headers: fields, body };
+  } finally {
+    try {
+      $os.remove(head);
+    } catch {
+      // never written: no response
+    }
   }
 }
 
-/** @param {{ headers: Record<string, string[]> }} res @param {string} name */
-const header = (res, name) => {
-  for (const k of Object.keys(res.headers || {})) if (k.toLowerCase() === name) return String((res.headers[k] || [])[0] || "");
-  return "";
-};
+const REDIRECT = [301, 302, 303, 307, 308];
+
+/**
+ * GET `url` (following up to MAX_REDIRECTS redirects, each checked like the link), null on any failure or a final
+ * status other than 200/206. A host that didn't answer (a timeout, a refused connection, a failed lookup) goes in
+ * `dead` and isn't asked again for this message: its links to a site that never answers cost one timeout, not one
+ * each.
+ * @param {string} url
+ * @param {Record<string, string>} headers
+ * @param {number} timeout seconds, for all of it
+ * @param {number} max body bytes read
+ * @param {Set<string>} dead
+ */
+function get(url, headers, timeout, max, dead) {
+  const until = Date.now() + timeout * 1000;
+  let at = url;
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    const u = parse(at);
+    const left = (until - Date.now()) / 1000;
+    if (!u || !publicHost(u.host) || dead.has(u.host) || left < 0.1) return null;
+    /** @type {Response} */
+    let res;
+    try {
+      let ip = "";
+      if (!allowedHosts().includes(u.host)) {
+        ip = addressOf(u.host);
+        if (!ip) return null;
+      }
+      res = request(u, ip, headers, left, max);
+    } catch {
+      dead.add(u.host);
+      return null;
+    }
+    if (res.status === 200 || res.status === 206) return { ...res, url: at };
+    if (!REDIRECT.includes(res.status) || !res.headers.location) return null;
+    at = resolve(res.headers.location, at);
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------- pages and icons
 
 /** @type {Record<string, string>} */
 const ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", ndash: "–", mdash: "—", hellip: "…" };
@@ -196,7 +334,7 @@ function decode(s) {
  * @param {string} s
  */
 function clean(s) {
-  const t = tidy(decode(s));
+  const t = tidy(decode(s.slice(0, MAX_RAW_TITLE)));
   const chars = [...t];
   return chars.length > MAX_TITLE
     ? `${chars
@@ -206,31 +344,103 @@ function clean(s) {
     : t;
 }
 
+// A page is anyone's text, so it is read in one pass, never with a regex that can try again from every "<": a page of
+// "<meta <meta …" kept the worker busy for minutes.
+
 /**
- * A tag's attributes, names lowercased.
+ * The page's <meta> and <link> tags, "<" to ">". A tag that never ends ends the search: no tag after it could.
+ * @param {string} html
+ */
+function tags(html) {
+  /** @type {string[]} */
+  const out = [];
+  const start = /<(?:meta|link)\b/gi;
+  for (let m = start.exec(html); m; m = start.exec(html)) {
+    const end = html.indexOf(">", m.index);
+    if (end < 0) break;
+    out.push(html.slice(m.index, end + 1));
+    start.lastIndex = end + 1;
+  }
+  return out;
+}
+
+const SPACE = " \t\n\r\f";
+
+/**
+ * A tag's attributes, names lowercased, the first of each.
  * @param {string} tag
  */
 function attrs(tag) {
   /** @type {Record<string, string>} */
-  const out = {};
-  const re = /([a-z_:.-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/gi;
-  for (let m = re.exec(tag); m; m = re.exec(tag)) out[m[1].toLowerCase()] = m[2] ?? m[3] ?? m[4] ?? "";
+  const out = Object.create(null);
+  const n = tag.length;
+  let i = 1;
+  while (i < n && !`${SPACE}/>`.includes(tag[i])) i++; // the tag's name
+  while (i < n) {
+    while (i < n && `${SPACE}/`.includes(tag[i])) i++;
+    if (i >= n || tag[i] === ">") break;
+    const from = i;
+    while (i < n && !`${SPACE}=/>`.includes(tag[i])) i++;
+    if (i === from) {
+      i++; // a stray "="
+      continue;
+    }
+    const name = tag.slice(from, i).toLowerCase();
+    while (i < n && SPACE.includes(tag[i])) i++;
+    let value = "";
+    if (tag[i] === "=") {
+      i++;
+      while (i < n && SPACE.includes(tag[i])) i++;
+      const q = tag[i];
+      if (q === '"' || q === "'") {
+        const end = tag.indexOf(q, i + 1);
+        value = tag.slice(i + 1, end < 0 ? n : end);
+        i = end < 0 ? n : end + 1;
+      } else {
+        const at = i;
+        while (i < n && !`${SPACE}>`.includes(tag[i])) i++;
+        value = tag.slice(at, i);
+      }
+    }
+    if (!(name in out)) out[name] = value;
+  }
   return out;
 }
 
 /**
+ * The text of the page's first <title>, "" when there is none.
+ * @param {string} html
+ */
+function titleOf(html) {
+  const open = /<title\b/i.exec(html);
+  const start = open ? html.indexOf(">", open.index) : -1;
+  if (start < 0) return "";
+  const close = /<\/title\s*>/gi;
+  close.lastIndex = start + 1;
+  const end = close.exec(html);
+  return end ? html.slice(start + 1, end.index) : "";
+}
+
+/**
  * A page's text: UTF-8, or Latin-1 (and Windows-1252, near enough) byte for byte. null for any other charset.
- * @param {any} res
+ * @param {Response} res
  */
 function pageText(res) {
   const body = res.body || [];
-  const head = toString(body, 4096);
-  const charset = (/charset=["']?([\w-]+)/i.exec(header(res, "content-type")) ||
-    /<meta[^>]+charset=["']?([\w-]+)/i.exec(head) || ["", "utf-8"])[1].toLowerCase();
-  if (charset === "utf-8" || charset === "utf8" || charset === "us-ascii") return toString(body, PAGE_BYTES);
+  const text = toString(body); // at most PAGE_BYTES: all that was read
+  let charset = /charset=["']?([\w-]+)/i.exec(res.headers["content-type"] || "")?.[1];
+  if (!charset) {
+    for (const tag of tags(text.slice(0, 4096))) {
+      const a = attrs(tag);
+      charset = a.charset || /charset=([\w-]+)/i.exec(a.content || "")?.[1];
+      if (charset) break;
+    }
+  }
+  charset = (charset || "utf-8").toLowerCase();
+  if (charset === "utf-8" || charset === "utf8" || charset === "us-ascii") return text;
   if (!/^(iso-8859-1|latin1|windows-1252|cp1252)$/.test(charset)) return null;
   let s = "";
-  for (let i = 0; i < Math.min(body.length, PAGE_BYTES); i++) s += String.fromCharCode(body[i]);
+  for (let i = 0; i < body.length; i++) s += String.fromCharCode(body[i]);
   return s;
 }
 
@@ -250,17 +460,17 @@ function base64(bytes) {
 
 /**
  * An image's type: the one it is served as, else what its first bytes say.
- * @param {any} res
+ * @param {Response} res
  * @param {ArrayLike<number>} b
  */
 function imageType(res, b) {
-  const served = header(res, "content-type").split(";")[0].trim().toLowerCase();
+  const served = (res.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
   if (/^image\/[a-z0-9.+-]+$/.test(served)) return served;
   if (b[0] === 0x89 && b[1] === 0x50) return "image/png";
   if (b[0] === 0 && b[1] === 0 && b[2] === 1 && b[3] === 0) return "image/x-icon";
   if (b[0] === 0x47 && b[1] === 0x49) return "image/gif";
   if (b[0] === 0xff && b[1] === 0xd8) return "image/jpeg";
-  if (/^\s*<(\?xml|svg)/.test(toString(b, 64))) return "image/svg+xml";
+  if (/^\s*<(\?xml|svg)/.test(toString(b).slice(0, 64))) return "image/svg+xml";
   return "";
 }
 
@@ -270,10 +480,11 @@ function imageType(res, b) {
  * @param {Set<string>} dead
  */
 function icon(url, dead) {
-  const res = url ? get(url, { Accept: "image/*" }, ICON_TIMEOUT, dead) : null;
+  // One byte more than kept: a bigger icon shows by its length, and no more of it is read.
+  const res = url ? get(url, { Accept: "image/*" }, ICON_TIMEOUT, MAX_ICON + 1, dead) : null;
   const b = res?.body;
   if (!b?.length || b.length > MAX_ICON) return "";
-  const type = imageType(res, b);
+  const type = imageType(/** @type {Response} */ (res), b);
   return type ? `data:${type};base64,${base64(b)}` : "";
 }
 
@@ -284,21 +495,23 @@ function icon(url, dead) {
  * @returns {{ url: string, title: string, icon: string } | null}
  */
 function preview(url, dead) {
-  const res = get(url, { Accept: "text/html,application/xhtml+xml", Range: `bytes=0-${PAGE_BYTES - 1}` }, PAGE_TIMEOUT, dead);
-  if (!res || !/html/i.test(header(res, "content-type"))) return null;
+  const accept = { Accept: "text/html,application/xhtml+xml", Range: `bytes=0-${PAGE_BYTES - 1}` };
+  const res = get(url, accept, PAGE_TIMEOUT, PAGE_BYTES, dead);
+  if (!res || !/html/i.test(res.headers["content-type"] || "")) return null;
   const html = pageText(res);
   if (html === null) return null;
   let title = "";
   let iconRef = "";
-  for (const m of html.match(/<(meta|link)\b[^>]*>/gi) || []) {
-    const a = attrs(m);
+  for (const tag of tags(html)) {
+    const a = attrs(tag);
     if (!title && /^og:title$/i.test(a.property || a.name || "")) title = clean(a.content || "");
-    if (!iconRef && a.href && /^link/i.test(m.slice(1)) && (a.rel || "").toLowerCase().split(/\s+/).includes("icon")) iconRef = a.href;
+    if (!iconRef && a.href && /^<link/i.test(tag) && (a.rel || "").toLowerCase().split(/\s+/).includes("icon")) iconRef = a.href;
   }
-  if (!title) title = clean((/<title[^>]*>([\s\S]*?)<\/title>/i.exec(html) || ["", ""])[1]);
+  if (!title) title = clean(titleOf(html));
   if (!title) return null;
-  const page = parse(url);
-  const found = iconRef ? icon(resolve(decode(iconRef), url), dead) : "";
+  const at = res.url || url;
+  const page = parse(at);
+  const found = iconRef ? icon(resolve(decode(iconRef), at), dead) : "";
   return { url, title, icon: found || (page ? icon(`${page.origin}/favicon.ico`, dead) : "") };
 }
 
@@ -328,7 +541,7 @@ function fill(app, id) {
   } catch {
     return;
   }
-  if (msg.getBool("deleted")) return;
+  if (msg.getBool("deleted") || !tools(app)) return;
   const text = msg.getString("text");
   const until = Date.now() + MESSAGE_MS;
   /** @type {Set<string>} */

@@ -206,7 +206,8 @@ project: servers without it get no pushes, ANDROID.md §17.4), and links to room
 ## Link previews
 
 Messages show a line under them for each link: the page's favicon and title ([`docs/DESIGN.md` §28](docs/DESIGN.md)).
-The server fetches them, only from public addresses. Set `LINK_PREVIEWS=off` to turn it off.
+The server fetches them with `curl` (in the Docker image), only from public addresses. Set `LINK_PREVIEWS=off` to turn
+it off.
 
 ## Media grid
 

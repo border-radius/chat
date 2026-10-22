@@ -22,7 +22,8 @@ RUN sh scripts/fetch-pocketbase.sh
 FROM alpine:3.22
 # ffmpeg: the media worker makes each video's poster frame for the room and the media grid (DESIGN.md §30.1). Without it (or with
 # -e FFMPEG=off) the room loads videos to draw their first frame, as before. busybox's `timeout` stops a run that hangs.
-RUN apk add --no-cache ca-certificates tzdata ffmpeg \
+# curl: the link previews worker fetches pages with it (DESIGN.md §28.1), connecting only to addresses it has checked.
+RUN apk add --no-cache ca-certificates tzdata ffmpeg curl \
   && adduser -D -H -u 32767 chat \
   && mkdir /pb_data && chown chat /pb_data
 WORKDIR /app

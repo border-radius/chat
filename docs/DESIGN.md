@@ -830,7 +830,7 @@ Playwright traces are uploaded when a test fails. The job runs on every push and
 | Filter injection | `pb.filter()` with bound params everywhere. |
 | Email harvesting | `emailVisibility = false`, and `fields` requests never include email. |
 | Spam and flooding | PocketBase rate limits, the 2000-char cap, and signup rate limiting. The limits are per client IP: behind a reverse proxy, `TRUSTED_PROXY=X-Forwarded-For` (applied on start by `trustProxy` in `http.js`, set in the Docker image) makes them per client rather than one for everyone; the rightmost address is used, so clients can't choose theirs. |
-| Server-side request forgery (link previews) | The previews worker fetches only http(s) on default ports from public-looking hosts (§28.1): no local names, private IPv4, IPv6 literals or userinfo. Names aren't resolved, so DNS pointing inward or a redirect still gets through, and only a title and a small icon are kept. `LINK_PREVIEWS=off` turns it off. |
+| Server-side request forgery (link previews) | The previews worker fetches only http(s) on default ports from public hosts (§28.1): no local names, private IPv4, IPv6 literals or userinfo. Names are looked up first and refused when any address is private; curl connects only to the address checked. Redirects are checked the same way, one by one. Only the start of a response is read (256 KB, 16 KB for icons), so a huge one can't fill memory. `LINK_PREVIEWS=off` turns it off. |
 | Untrusted video files (video posters) | ffmpeg reads uploads to make posters (§30.1): only the local file, the container's own demuxer (no playlists, no other protocols), one thread, 20 s at most, not as root. `FFMPEG=off` turns it off. |
 | Filling the disk | Uploads are capped per file, per message and by the message rate limit; forwards copy nothing (§21.3). |
 | Token theft | The token is stored in `localStorage` by the client (`pb.ts`). The CSP greatly lowers XSS risk. Moving to HttpOnly cookies is noted as future work. |
@@ -2347,16 +2347,23 @@ the link in the text (§7.6.3).
   connection) isn't asked again for that message. So a message linking to sites that never answer holds up the queue
   for ~12 s, not minutes. The previews are saved in a transaction unless the text changed meanwhile (the edit queued it
   again). Everyone sees them live, as an update. A link that fails gets no line and isn't tried again.
-- **Fetching:** the page with `Range: bytes=0-262143` (4 s timeout), `text/html` only, its UTF-8 or Latin-1 text.
+- **Fetching:** with `curl` (`$os.cmd`, as ffmpeg in §30.1; `$http.send` follows redirects anywhere and reads a whole
+  response into memory: a page that ignored `Range` took 1.1 GB). The page with `Range: bytes=0-262143` (4 s timeout,
+  redirects included), `text/html` only, its UTF-8 or Latin-1 text. Only the start of a response is read (256 KB of a
+  page, 16 KB + 1 byte of an icon), from curl's output, and then curl is stopped, whatever the site sends. The page
+  is read in one pass (its `<meta>`/`<link>` tags, attributes and `<title>`), never with a regex that tries again
+  from every `<`: a page of unclosed tags kept the worker busy for minutes.
   The title is `og:title`, else `<title>`, entities decoded, cleaned like a name (`tidy`: no control, invisible or
   bidi characters, QA BUG-110), whitespace collapsed, at most 200 characters; no title, no line. The icon is the first `<link rel="… icon …">`, else `/favicon.ico` (3 s), an image of at most 16 KB, its
   type as served or sniffed (PNG, ICO, GIF, JPEG, SVG).
 - **Where the server may go** (server-side request forgery): http(s) on the default port, a public IPv4 address or a
   name with a dot whose last label is letters and isn't a local one (`localhost`, `.local`, `.internal`, `.lan`,
-  `.home.arpa`…); no userinfo, no IPv6 literals, no single-label names (Docker service names). The JSVM can't resolve
-  names, so a public name pointing at a private address, or a redirect to one, gets through: what could come back is a
-  page's title and a small image, never its body. `$http.send` reads a whole response, so a server that ignores
-  `Range` is read until the timeout.
+  `.home.arpa`…); no userinfo, no IPv6 literals, no single-label names (Docker service names), only ASCII
+  names (no IDN: `getent` wouldn't find them). A name is looked up first (`getent ahostsv4`, 3 s) and refused when any of its
+  addresses isn't public; curl then connects to the address checked and no other (`--connect-to`), so a name that
+  answers differently the second time can't send it inward. No proxy, no `~/.curlrc`, no URL globbing. IPv4 literals
+  in plain decimal only (`0177.0.0.1` is 127.0.0.1 to curl). Redirects (at most 3) are followed by the worker, each
+  checked like a link. Without `curl`, `getent` or `timeout` (looked up once), links get no previews.
 - **Settings:** `LINK_PREVIEWS=off` turns it off (test servers default to off, so tests never fetch what they link
   to). `LINK_PREVIEWS_ALLOW_HOSTS` (comma-separated `host` or `host:port`) lets hosts through the checks: tests.
 
@@ -2372,7 +2379,8 @@ come.
 - **Integration** (`previews.test.ts`, its own PocketBase with previews on, a stub site): titles (og:title first,
   entities, Latin-1) and icons (the page's, `/favicon.ico`, too big); each link once; no line for an untitled page or a
   PDF, none past the 5th link; clients can't set them; an edit replaces them and a delete clears them; a forward shows
-  its original's; local and private addresses are never fetched.
+  its original's; local and private addresses are never fetched; redirects are followed, never inward and at most 3;
+  only the start of a huge page or icon that ignores `Range` is read; a page of tags that never end is quick.
 - **Unit** (room view): lines with favicon and title; a `javascript:` URL and a non-`data:` icon left out; titles as
   text.
 
