@@ -13,8 +13,10 @@
 // - POST /api/chat/subs { collection, on }: follow or stop following; POST /api/chat/subs/seen { collection, at? }:
 //   seen up to `at`, as POST /api/chat/reads does for a room (§18.2).
 //
-// Files are copied by Go, never through JS: PocketBase reads the stored file from its path, or, kept in S3, from a copy
-// in the temp folder (media.js tempCopy), removed once the save is done.
+// Files are copied by Go, never through JS. A save copies the stored file straight to the new item's folder (fs.copy: in
+// S3 the bucket copies it, CopyObject, so it isn't downloaded and uploaded again). An attach adds uploads to a message
+// being created: PocketBase reads the stored file from its path, or, kept in S3, from a copy in the temp folder
+// (media.js tempCopy), removed once the save is done.
 
 const { cleanName, fieldError, recordOf } = require(`${__hooks}/lib/records.js`);
 const { nameKey } = require(`${__hooks}/lib/text.js`);
@@ -271,21 +273,26 @@ function saveItem(e) {
   if (e.app.countRecords("collection_items", $dbx.hashExp({ collection: coll.id, origin: src.origin }))) throw taken();
 
   const fs = e.app.newFilesystem();
-  /** @type {string[]} */
-  const temps = [];
+  /** The copy, until the item that names it is saved. */
+  let copied = "";
   try {
-    const copy = copyOf(e.app, fs, src.dir, src.file, src.name);
-    if (!copy) throw new NotFoundError("The file doesn't exist.");
-    if (copy.temp) temps.push(copy.temp);
+    if (!fs.exists(`${src.dir}/${src.file}`)) throw new NotFoundError("The file doesn't exist.");
     const item = new Record(e.app.findCollectionByNameOrId("collection_items"));
+    // Its id first: the copy goes in its folder before it is saved, under a name of its own (as an upload's would be).
+    item.set("id", $security.randomStringWithAlphabet(15, "abcdefghijklmnopqrstuvwxyz0123456789"));
+    const file = storedName(src.file);
+    fs.copy(`${src.dir}/${src.file}`, `${dirOf(item)}/${file}`);
+    copied = `${dirOf(item)}/${file}`;
     item.set("collection", coll.id);
-    item.set("file", copy.upload);
+    item.set("file", file);
     item.set("name", src.name || src.file);
     item.set("video", media.isVideo(src.file));
     item.set("origin", src.origin);
     try {
       e.app.runInTransaction((tx) => {
-        tx.save(item);
+        // Not validated: PocketBase takes only uploads as a new record's files, and this one is in place already.
+        // Every field here is the route's own, checked above; the unique (collection, origin) index still holds.
+        tx.saveNoValidate(item);
         const c = tx.findRecordById("collections", coll.id);
         c.set("items", c.getInt("items") + 1);
         c.set("last_added", new DateTime());
@@ -296,6 +303,7 @@ function saveItem(e) {
       if (e.app.countRecords("collection_items", $dbx.hashExp({ collection: coll.id, origin: src.origin }))) throw taken();
       throw err;
     }
+    copied = "";
     // A video saved from one that has its poster: the poster comes along, ffmpeg needn't run again.
     if (item.getBool("video")) {
       const from = media.posterKey(src.dir, src.file);
@@ -307,8 +315,15 @@ function saveItem(e) {
     }
     return e.json(200, itemOut(item));
   } finally {
+    // Not saved (a race lost, an error): no file is left behind without its item.
+    if (copied) {
+      try {
+        fs.delete(copied);
+      } catch {
+        // already gone
+      }
+    }
     fs.close();
-    removeAll(temps);
   }
 }
 

@@ -1,7 +1,7 @@
 // Media collections (§31): the collections rules and hooks, saving copies (POST /api/chat/items), attaching items to
 // messages, badges, subscriptions and their new counts, and the worker's thumbnails and posters for items.
 
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { RecordModel } from "pocketbase";
 import { beforeAll, describe, expect, inject, it } from "vitest";
@@ -146,6 +146,24 @@ describe("POST /api/chat/items (§31)", () => {
     expect(await status(save(b, { collection: coll.id, message: msg.id, file: msg.files[0] }))).toBe(404);
     await a.pb.collection("collections").update(coll.id, { public: true });
     expect(await status(save(b, { collection: coll.id, message: msg.id, file: msg.files[0] }))).toBe(403);
+  });
+
+  it("keeps one copy when the same file is saved at once: the others' copies are removed", async () => {
+    const a = await newUser();
+    const room = await newRoom(a);
+    const msg = await send(a, room.id, { files: [png("race.png")] });
+    const coll = await newCollection(a);
+    const dir = join(inject("pbDataDir"), "storage", itemsId);
+    const before = new Set(existsSync(dir) ? readdirSync(dir) : []);
+    const codes = await Promise.all(
+      Array.from({ length: 20 }, () => status(save(a, { collection: coll.id, message: msg.id, file: msg.files[0] }))),
+    );
+    expect(codes.filter((c) => c === 200)).toHaveLength(1);
+    expect(codes.filter((c) => c !== 200).every((c) => c === 409)).toBe(true);
+    const [item] = await a.pb.collection("collection_items").getFullList({ filter: `collection = "${coll.id}"` });
+    // Of the new folders (other tests add theirs), only the saved item's has a copy of race.png.
+    const copies = readdirSync(dir).filter((id) => !before.has(id) && readdirSync(join(dir, id)).some((f) => f.startsWith("race_")));
+    expect(copies).toEqual([item?.id]);
   });
 
   it("saves only what you can see: not a private room's file, but a forward's original you read", async () => {

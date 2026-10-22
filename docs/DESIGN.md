@@ -2540,8 +2540,12 @@ last looked. Collections are listed in the sidebar. Decisions: §13 (2026-10-21)
 message: its file would follow the message's room rules (a subscriber couldn't see a file saved from a DM) and its
 lifetime (a delete wipes it, §17.1). So an item outlives the message it came from, and a message outlives the item
 and the collection it was attached from: the media grid, the viewer, forwards and the Telegram bridge see an ordinary
-file. The copy is Go's: PocketBase reads the stored file from its path (`$filesystem.fileFromPath`), or, kept in S3,
-from a copy in the temp folder (`media.js` `tempCopy`), removed once the save is done. A video's poster comes along
+file. The copy is Go's. A save copies the stored file straight into the new item's folder (`fs.copy`; in S3 that is
+CopyObject, so the bucket copies it and PocketBase neither downloads nor uploads it) and saves the item without
+PocketBase's validation, which takes only uploads as a new record's files (every field is the route's own); a save
+that loses the race to the unique index removes its copy. An attach adds uploads to the message being created:
+PocketBase reads the stored file from its path (`$filesystem.fileFromPath`), or, kept in S3, from a copy in the temp
+folder (`media.js` `tempCopy`), removed once the save is done. A video's poster comes along
 when the file it was saved from has one; otherwise the media worker (§30.1) makes the item's grid thumbnail or poster.
 
 ### 31.2 Routes (`pb_hooks/lib/collections.js`)
@@ -2607,7 +2611,7 @@ when the file it was saved from has one; otherwise the media worker (§30.1) mak
 - **Integration** (`collections.test.ts`): names unique per owner whatever the case; counters, owner and limits kept
   by the server; who sees which collection and item file (owner, others, guests; public and private); saving (a copy
   that outlives the message, the original name, 409 twice, only media, not deleted, only what you can see, a
-  forward's original, copying an item); `/saved`; removing; attaching (after uploads, names, `file_sources`, the room's
+  forward's original, copying an item, saved at once: one copy kept); `/saved`; removing; attaching (after uploads, names, `file_sources`, the room's
   rules for the copy, JSON and form bodies, forwards, only yours or public, no `file_sources` from a client, 10 at
   most, cleared by a delete); badges; subscriptions (not your own, not private, new counts, seen, unsubscribe; turned
   private: hidden and told live); the count's query plan; item thumbnails and posters (copied along, or made by
