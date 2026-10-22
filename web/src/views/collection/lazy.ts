@@ -643,10 +643,12 @@ export async function openSave(o: SaveOptions): Promise<void> {
   ]);
   /** Collection id → the item there (ticked). */
   let saved: Record<string, string> = {};
-  const busy = new Set<string>();
+  /** Collection id → ticked or unticked, while that is saving. */
+  const busy = new Map<string, boolean>();
 
   async function toggle(id: string, on: boolean) {
-    busy.add(id);
+    busy.set(id, on);
+    status.textContent = on ? "Saving…" : "Removing…";
     render();
     try {
       if (on) saved[id] = (await call.save(id, o.from)).id;
@@ -669,12 +671,19 @@ export async function openSave(o: SaveOptions): Promise<void> {
     const mine = lists(o).mine;
     list.replaceChildren(
       ...mine.map((c: Collection) => {
-        const box = h("input", { type: "checkbox", checked: !!saved[c.id], disabled: busy.has(c.id) });
+        const box = h("input", { type: "checkbox", checked: busy.get(c.id) ?? !!saved[c.id], disabled: busy.has(c.id) });
         box.addEventListener("change", () => void toggle(c.id, box.checked), { signal });
+        // Saving copies the file on the server, which can take a while: a spinner on the row until it is done.
         return h(
           "li",
-          {},
-          h("label", {}, [box, " ", c.name, h("span", { class: "coll-meta" }, c.public ? " · Public: anyone can see it" : " 🔒")]),
+          { "aria-busy": busy.has(c.id) ? "true" : "false" },
+          h("label", {}, [
+            box,
+            " ",
+            c.name,
+            h("span", { class: "coll-meta" }, c.public ? " · Public: anyone can see it" : " 🔒"),
+            busy.has(c.id) ? h("span", { class: "coll-spin", "aria-hidden": "true" }) : null,
+          ]),
         );
       }),
     );

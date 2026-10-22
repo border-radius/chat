@@ -134,8 +134,24 @@ test("collections: the viewer saves too, and unticking takes it out (§31)", asy
   const viewer = a.locator("dialog.viewer");
   await viewer.getByRole("button", { name: "Save to collection" }).click();
   const menu = a.getByRole("dialog", { name: "Save to collection" });
-  await menu.getByRole("checkbox", { name: "Skies" }).check();
+  // A slow copy: the row spins, the box stays ticked and the status says so until it is done.
+  let release = () => {};
+  const held = new Promise<void>((r) => {
+    release = r;
+  });
+  await a.route("**/api/chat/items", async (route) => {
+    await held;
+    await route.continue();
+  });
+  await menu.getByRole("checkbox", { name: "Skies" }).click();
+  await expect(menu.getByRole("status")).toHaveText("Saving…");
+  await expect(menu.locator("li[aria-busy=true] .coll-spin")).toBeVisible();
+  await expect(menu.getByRole("checkbox", { name: "Skies" })).toBeChecked();
+  await expect(menu.getByRole("checkbox", { name: "Skies" })).toBeDisabled();
+  release();
   await expect(menu.getByRole("status")).toHaveText("Saved.");
+  await expect(menu.locator(".coll-spin")).toHaveCount(0);
+  await a.unroute("**/api/chat/items");
   // Unticked: taken out again.
   await menu.getByRole("checkbox", { name: "Skies" }).uncheck();
   await expect(menu.getByRole("status")).toHaveText("Removed.");
