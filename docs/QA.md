@@ -1510,4 +1510,4 @@ Not changed, by design or for a decision:
 - A DM partner's rename shows in the DM's name (sidebar, header, tab title, Jump to) only after a reload, as before
   Jump to; user records aren't followed live.
 - The tab title on a collection's page is the site's title alone (§22.4 names only rooms).
-- `app.js` is 47.02 of 46.05 KB gzipped (+0.08 KB from these fixes; it was already over before this pass).
+- `app.js` is 47.03 KB gzipped (+0.08 KB from these fixes); the budgets were then raised (§13): JS 47.10 KB, CSS 7.10 KB, collections chunk 6.65 KB.

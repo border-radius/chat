@@ -545,13 +545,13 @@ while its first page loads.
 
 | Asset | Budget (gzipped) |
 |---|---|
-| `app.js` (including the PocketBase client) | **≤ 46.05 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, the room cache without waiting for the network, the QA pass 12 fixes, prefetching rooms not yet kept, the QA pass 13 fixes, thumbnail caching, the QA pass 14 fixes, Ctrl+Up/Down to pick the reply, link previews, the room access dialog fix, who can post, message search, message permalinks, the media grid, the QA pass 16 fixes, video posters in the room, the QA pass 17 fixes, media collections, see §13) |
-| `app.css` | **≤ 6.85 KB** (5 KB until §21, 5.5 KB until §23, 6 KB until audio attachments, 6.05 KB until §18.5, 6.10 KB until §28, 6.15 KB until the room access dialog fix, 6.20 KB until §29, 6.35 KB until message permalinks, 6.40 KB until §31, see §13) |
+| `app.js` (including the PocketBase client) | **≤ 47.10 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, the room cache without waiting for the network, the QA pass 12 fixes, prefetching rooms not yet kept, the QA pass 13 fixes, thumbnail caching, the QA pass 14 fixes, Ctrl+Up/Down to pick the reply, link previews, the room access dialog fix, who can post, message search, message permalinks, the media grid, the QA pass 16 fixes, video posters in the room, the QA pass 17 fixes, media collections, Jump to, Appearance, the room in the tab title, the QA pass 19 fixes, see §13) |
+| `app.css` | **≤ 7.10 KB** (5 KB until §21, 5.5 KB until §23, 6 KB until audio attachments, 6.05 KB until §18.5, 6.10 KB until §28, 6.15 KB until the room access dialog fix, 6.20 KB until §29, 6.35 KB until message permalinks, 6.40 KB until §31, 6.85 KB until Jump to and Appearance, see §13) |
 | `index.html` | ≤ 1.5 KB |
 | Image viewer (§17.7), loaded on first use | ≤ 4 KB script, ≤ 1.5 KB stylesheet |
 | Message search (§29), loaded on first use | ≤ 2 KB script (its styles are in `app.css`) |
 | Media grid (§30), loaded on first use | ≤ 3 KB script, ≤ 1 KB stylesheet |
-| Media collections (§31), loaded on first use | ≤ 6 KB script, ≤ 1.5 KB stylesheet |
+| Media collections (§31), loaded on first use | ≤ 6.65 KB script, ≤ 1.5 KB stylesheet |
 | Web fonts | **none** (system font stack) |
 | Requests on first load | 3 (html, js, css) + API; the manifest, its icons and `sw.js` (§27) come after, off the critical path |
 
@@ -1012,6 +1012,7 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 | The badge for your own private collection | Its name (with 🔒) and a link, to you; others see "Private collection", not a link. |
 | Buttons | The collections icon alone (named for screen readers) on every collection button: Save to collection, Attach from collections. |
 | Bundle budget (media collections) | `app.js` raised from 43.91 KB to 46.05 KB and `app.css` from 6.40 KB to 6.85 KB gzipped (§7.7), the user's call: the sidebar section and its live new counts (`collections.ts`), the badge and Save on the room's tiles, the composer's button and the route took them to 45.96 KB and 6.83 KB. The page, the save menu, the picker, the new-collection dialog and their requests are a lazy chunk (5.05 KB, stylesheet 1.09 KB). |
+| Bundle budget (Jump to, Appearance, QA pass 19) | `app.js` raised from 46.05 KB to 47.10 KB, `app.css` from 6.85 KB to 7.10 KB and the collections chunk from 6 KB to 6.65 KB (§7.7), the user's call (2026-10-23): Jump to's shortcut and options (§32, the dialog itself a lazy chunk), the Appearance switch (§7.8), the room in the tab title and the QA pass 19 fixes took them to 47.03 KB and 7.06 KB; the collections chunk was at 6.58 KB. |
 
 ### Still open
 
