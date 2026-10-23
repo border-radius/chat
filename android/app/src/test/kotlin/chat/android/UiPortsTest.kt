@@ -1,6 +1,10 @@
 package chat.android
 
+import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasScrollAction
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -19,6 +23,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -104,5 +109,28 @@ class UiPortsTest {
         } finally {
             chat.android.nav.ShareInbox.pending = null
         }
+    }
+
+    @Test fun `unread rooms are listed first, and a folded section lists only them`() {
+        val a = newUser()
+        val b = newUser()
+        // By name, both would be at the end of the shared server's long list.
+        val quiet = runBlocking { a.api.createRoom("zz-quiet-${uniq()}") }
+        val busy = runBlocking { a.api.createRoom("zz-busy-${uniq()}") }
+        val services = ui.signedIn(b)
+        ui.until { services.store.get().let { it.counted && quiet.id in it.rooms && busy.id in it.rooms } }
+        runBlocking { a.api.send(NewMessage(newId(), busy.id, "hello")) }
+        ui.until { services.store.get().unread[busy.id] == 1 }
+        // At the top, without scrolling.
+        ui.waitFor(hasText(busy.name))
+        val list = compose.onNode(hasScrollAction())
+        compose.onNode(hasText("Rooms") and hasClickAction(), useUnmergedTree = false).performClick()
+        ui.until { "rooms" in services.settings.folded.value }
+        ui.pump()
+        assertTrue(runCatching { list.performScrollToNode(hasText(quiet.name)) }.isFailure)
+        list.performScrollToNode(hasText(busy.name))
+        compose.onNode(hasText("Rooms") and hasClickAction()).performScrollTo().performClick()
+        ui.until { "rooms" !in services.settings.folded.value }
+        ui.showRoom(quiet.name)
     }
 }

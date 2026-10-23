@@ -176,8 +176,8 @@ enum class ThemeChoice(val label: String) {
 }
 
 /**
- * This device's settings, kept across sessions: whether screens with messages are kept out of screenshots (§10), and
- * the theme. [read] and [write] take a key of [Keys].
+ * This device's settings, kept across sessions: whether screens with messages are kept out of screenshots (§10), the
+ * theme, and which room list sections are folded (the web keeps those in localStorage). [read] and [write] take a key of [Keys].
  */
 class DeviceSettings(private val read: suspend (String) -> String?, private val write: suspend (String, String) -> Unit, private val scope: CoroutineScope) {
     /** Kept in [db] (tests, and services without accounts). */
@@ -187,15 +187,25 @@ class DeviceSettings(private val read: suspend (String) -> String?, private val 
     val secureScreens: kotlinx.coroutines.flow.StateFlow<Boolean> = secureState
     private val themeState = kotlinx.coroutines.flow.MutableStateFlow(ThemeChoice.System)
     val theme: kotlinx.coroutines.flow.StateFlow<ThemeChoice> = themeState
+    private val foldedState = kotlinx.coroutines.flow.MutableStateFlow(emptySet<String>())
+    /** The room list's folded sections: only their unread rows (and the open one) are listed. */
+    val folded: kotlinx.coroutines.flow.StateFlow<Set<String>> = foldedState
 
     suspend fun load() {
         secureState.value = read(Keys.SECURE_SCREENS) == "1"
         themeState.value = ThemeChoice.of(read(Keys.THEME))
+        foldedState.value = read(Keys.FOLDED).orEmpty().split(' ').filter { it.isNotEmpty() }.toSet()
     }
 
     fun setSecureScreens(on: Boolean) {
         secureState.value = on
         scope.launch { write(Keys.SECURE_SCREENS, if (on) "1" else "0") }
+    }
+
+    fun toggleFolded(section: String) {
+        val now = foldedState.value.let { if (section in it) it - section else it + section }
+        foldedState.value = now
+        scope.launch { write(Keys.FOLDED, now.joinToString(" ")) }
     }
 
     fun setTheme(t: ThemeChoice) {

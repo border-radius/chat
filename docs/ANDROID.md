@@ -533,8 +533,8 @@ Device settings (screenshots, §10) are the device's, in that file too, not an a
 - **First launch:** the build's default server (`chat.server`, §12.2) when it has one, on the Log in screen; without
   one, the app asks for a server first.
 - **Log in and Sign up** show the server they act on, with **Change server**.
-- **Your profile** lists your accounts (name, server), switches between them, and has **Add account**: choose a
-  server, then log in or sign up there. Backing out of it returns to the account you were on.
+- **Accounts** (the brand at the top of the room list; it was in the profile until 2026-10-23) lists your accounts
+  (name, server), switches between them, and has **Add account**: choose a server, then log in or sign up there. Backing out of it returns to the account you were on.
 - The rooms screen shows the active account's server under its title when you have more than one account.
 
 An address is checked before it is used:
@@ -587,8 +587,8 @@ An address is checked before it is used:
 ### 17.7 Implementation (2026-10-19)
 
 `core/data` `repo/Accounts.kt` (the accounts, their index and lifecycle), `lib/Servers.kt` (addresses and links);
-`app` `AppAccounts.kt` (where they live on the device); `feature/auth` `ServerScreen.kt`; the account list in the
-profile; `AppRoot` in `nav/ChatNav.kt` (a back stack per account). Tested by `AccountsTest` and `ServersTest`
+`app` `AppAccounts.kt` (where they live on the device); `feature/auth` `ServerScreen.kt`; `feature/profile`
+`AccountsScreen.kt`; `AppRoot` in `nav/ChatNav.kt` (a back stack per account). Tested by `AccountsTest` and `ServersTest`
 (`:core:data`) and `UiAccountsTest` (`:app`); the tests use the test server by two addresses (127.0.0.1 and
 localhost) as two servers. An idle account's session is renewed each time the app starts (one the server refuses is
 removed, as a log out would). Nothing migrates the single session of the 2026-10-18 build: it never shipped.
@@ -719,3 +719,19 @@ background thread, so its state sometimes never reached the screen. The save and
 67 JVM tests in `:core:data` and 32 in `:app` pass; release lint passes. While here, the viewer's seek bar got the
 Media3 opt-in that release lint required. The release APK is 3.53 MB (+0.05 MB; budget 6 MB). Not yet tried on the
 emulator.
+
+## 20. Room list folding, unread first, accounts screen (2026-10-23)
+
+- **Folding** (the web's, DESIGN.md §7.1): the Direct messages, Rooms and Collections headings fold their section;
+  folded, it lists only the rooms with unread messages (collections you follow with new items). Which sections are
+  folded is a device setting (`DeviceSettings.folded`, kept in the accounts index like the theme), as the web keeps it
+  in the browser.
+- **Unread first**, on the web too: `roomSections` takes the unread counts and lists rooms and DMs with a badge first,
+  each group in its usual order (by name, by activity). Prefetch warms them first too.
+- **Accounts** moved from the profile to their own screen (`AccountsScreen`, route `AccountList`), opened by tapping the
+  brand (logo and title) on the room list (§17.2).
+- **Profile order**, as on the web: picture, display name, Appearance, This device, Password, Session (Log out).
+
+Tests: `RoomSectionsTest` (`:core:data`); `UiPortsTest` "unread rooms are listed first, and a folded section lists
+only them"; `UiAccountsTest` switches through the brand's account list. All 69 JVM tests in `:core:data` and 34 in
+`:app` pass.

@@ -35,7 +35,7 @@ data class AccountRef(val id: String, val server: String, val used: Long = 0)
 
 /** What is kept of the accounts, with the device's own settings (§17.1). */
 @Serializable
-data class AccountIndex(val accounts: List<AccountRef> = emptyList(), val active: String = "", val secureScreens: Boolean = false, val theme: String = "system")
+data class AccountIndex(val accounts: List<AccountRef> = emptyList(), val active: String = "", val secureScreens: Boolean = false, val theme: String = "system", val folded: String = "")
 
 /** An account as the switcher shows it: [user] is null on the Log in screen of a server (a guest). */
 data class AccountInfo(val id: String, val server: String, val user: User?, val avatarUrl: String)
@@ -91,10 +91,20 @@ class Accounts(
 
     /** The device's settings, the same whichever account is active. */
     val settings = DeviceSettings(
-        read = { k -> if (k == chat.android.data.db.Keys.THEME) index.theme else if (index.secureScreens) "1" else "0" },
+        read = { k ->
+            when (k) {
+                chat.android.data.db.Keys.THEME -> index.theme
+                chat.android.data.db.Keys.FOLDED -> index.folded
+                else -> if (index.secureScreens) "1" else "0"
+            }
+        },
         write = { k, v ->
             lock.withLock {
-                index = if (k == chat.android.data.db.Keys.THEME) index.copy(theme = v) else index.copy(secureScreens = v == "1")
+                index = when (k) {
+                    chat.android.data.db.Keys.THEME -> index.copy(theme = v)
+                    chat.android.data.db.Keys.FOLDED -> index.copy(folded = v)
+                    else -> index.copy(secureScreens = v == "1")
+                }
                 env.writeIndex(index)
             }
         },

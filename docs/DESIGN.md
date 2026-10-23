@@ -348,13 +348,13 @@ Filters are always built with `pb.filter()` and never by string concatenation, w
 
 **The room list has three sections:**
 
-1. **Rooms:** active rooms that aren't hidden, sorted by name.
+1. **Rooms:** active rooms that aren't hidden, sorted by name, those with unread messages first.
 2. **Hidden rooms:** collapsed by default and shown with a count. Each row has an "Unhide" action.
 3. **Archived:** collapsed by default. Rooms here are read-only and still browsable.
 
 A room hidden by the user that is also archived appears only under Archived.
 
-The Rooms, Direct messages and Collections headings are buttons (`aria-expanded`) that fold their section. A folded section still lists its unread rooms (collections with new items) and the open one, so nothing new is missed. Which sections are folded is kept in this browser (`localStorage`, `chat.folded`).
+The Rooms, Direct messages and Collections headings are buttons (`aria-expanded`) that fold their section. A folded section still lists its unread rooms (collections with new items) and the open one, so nothing new is missed. Unfolded, the rooms and DMs with unread messages are listed first (each group in its usual order), so they are at the top either way (2026-10-23). Which sections are folded is kept in this browser (`localStorage`, `chat.folded`).
 
 **The room header menu (⋯) has three actions:**
 
@@ -647,7 +647,7 @@ View tests run against a real, throwaway PocketBase (temp data dir) using the re
 - Cursor builder: produces the correct `(created, id)` filter strings for older and newer pages, built with `pb.filter` parameters.
 
 **`store.test.ts`**
-- `roomSections`: hidden rooms go to Hidden, archived rooms go to Archived (even when also hidden), and the rest go to Rooms, sorted by name.
+- `roomSections`: hidden rooms go to Hidden, archived rooms go to Archived (even when also hidden), and the rest go to Rooms, sorted by name; rooms and DMs with unread messages come first.
 
 **`lib/id.test.ts`**
 - Ids are 15 chars and match `/^[a-z0-9]{15}$/`.
@@ -1886,7 +1886,8 @@ it sends (`api.onRejected`, checked at most every 30 s) or when its tab comes ba
 (`refreshAuth`) then fails and it goes to the login screen (QA BUG-51).
 
 The profile page has a "Password" form (current, new, confirm; checked in the page first, each error under its field)
-and a "Session" section with **Log out**, which moved there from the app bar.
+and a "Session" section with **Log out**, which moved there from the app bar. The Password form is the last section
+before Session (after Appearance; moved 2026-10-23, the app too).
 
 ### 22.3 Drafts survive a reload
 

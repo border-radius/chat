@@ -18,7 +18,7 @@ Test classes: `UiFlowTest`, `UiFeaturesTest`, `UiPortsTest`, `UiCollectionsTest`
 | `realtime` | `UiFlowTest`: a live message; `ServicesTest`, `ChatApiTest`: realtime events | Covered |
 | `reconnect` | `ChatApiTest`: reconnect after a pause says events may have been missed | Partial: gap fill after it |
 | `history` | `ServicesTest`: opens around a message far back, jumps to the latest | Partial: scrolling the edges |
-| `unread` | `ServicesTest`: live counts, read on the server | Partial: the badge and the "New" line on screen |
+| `unread` | `ServicesTest`: live counts, read on the server; `UiPortsTest`: unread rooms listed first, a folded section lists only them; `RoomSectionsTest` | Partial: the badge and the "New" line on screen |
 | `edit` | `UiFeaturesTest`: edit, delete; `ServicesTest`: edit, delete | Covered |
 | `reactions` | `UiFeaturesTest`: quick reactions; `ServicesTest`; `HelpersTest`: the web's reaction cases | Covered |
 | `replies` | `UiFeaturesTest`: reply and its quote; `ChatApiTest` | Partial: going to the original |
@@ -39,5 +39,5 @@ Test classes: `UiFlowTest`, `UiFeaturesTest`, `UiPortsTest`, `UiCollectionsTest`
 | `theme` | `UiPortsTest`: Appearance set to Dark is kept | Covered |
 | `collections` | `UiCollectionsTest`: make one from the room list, save from a tile, a badge to a public one, subscribe, "1 new" live and seen, attach from the picker with its badge, save and unsave in the viewer; `CollectionsTest` | Partial: uploading (the photo picker can't be driven on Robolectric), axe |
 | `pwa` | — | Not applicable: the app is the installed app (§3) |
-| — (Android only) | Servers and accounts (ANDROID.md §17): `AccountsTest`, `ServersTest` (add, switch, links and pushes find their account, refused sessions, addresses), `UiAccountsTest` (add an account on another server, switch from the profile, a bad address, log out to another account) | Covered |
+| — (Android only) | Servers and accounts (ANDROID.md §17): `AccountsTest`, `ServersTest` (add, switch, links and pushes find their account, refused sessions, addresses), `UiAccountsTest` (add an account on another server, switch from the account list opened by the brand, a bad address, log out to another account) | Covered |
 | — (Android only) | `push.test.ts` (server): who gets a push, ids only, tokens owner-only, App Links, minimum version | Covered on the server; not yet on a device |

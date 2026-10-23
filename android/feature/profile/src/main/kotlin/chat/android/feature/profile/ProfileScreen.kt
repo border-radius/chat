@@ -1,5 +1,6 @@
-// Your profile (DESIGN.md §15, §22.1–2; web/src/views/profile.ts): picture, display name, password, log out, your
-// accounts (ANDROID.md §17), and this device's setting for keeping messages out of screenshots (§10).
+// Your profile (DESIGN.md §15, §22.1–2; web/src/views/profile.ts): picture, display name, the theme, this device's
+// setting for keeping messages out of screenshots (§10), password, log out. Your accounts (ANDROID.md §17) are on
+// their own screen (AccountsScreen), opened from the brand on the room list.
 package chat.android.feature.profile
 
 import android.net.Uri
@@ -54,10 +55,7 @@ import chat.android.ui.Avatar
 import chat.android.ui.Chat
 import chat.android.ui.ChatIcons
 import chat.android.ui.ImagePrep
-import chat.android.ui.LocalAccounts
 import chat.android.ui.LocalServices
-import chat.android.data.lib.serverLabel
-import androidx.compose.foundation.clickable
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -82,10 +80,8 @@ private fun fieldMessage(e: Throwable, field: String) = (e as? ApiError)?.fields
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProfileScreen(onAddAccount: () -> Unit, onBack: () -> Unit) {
+fun ProfileScreen(onBack: () -> Unit) {
     val services = LocalServices.current
-    val accounts = LocalAccounts.current
-    val all = accounts?.list?.collectAsStateWithLifecycle()?.value.orEmpty().filter { it.user != null }
     val context = LocalContext.current
     val s by services.store.flow.collectAsStateWithLifecycle()
     val secure by services.settings.secureScreens.collectAsStateWithLifecycle()
@@ -184,6 +180,30 @@ fun ProfileScreen(onAddAccount: () -> Unit, onBack: () -> Unit) {
                 }) { Text("Save") }
                 HorizontalDivider(color = Chat.colors.border)
 
+                Section("Appearance")
+                val theme by services.settings.theme.collectAsStateWithLifecycle()
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    ThemeChoice.entries.forEachIndexed { i, t ->
+                        SegmentedButton(
+                            selected = theme == t,
+                            onClick = { services.settings.setTheme(t) },
+                            shape = SegmentedButtonDefaults.itemShape(i, ThemeChoice.entries.size),
+                            label = { Text(t.label) },
+                        )
+                    }
+                }
+                HorizontalDivider(color = Chat.colors.border)
+
+                Section("This device")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Hide messages from screenshots")
+                        Text("Screens with messages can't be captured, and are blank in recent apps.", style = MaterialTheme.typography.bodySmall, color = Chat.colors.muted)
+                    }
+                    Switch(secure, onCheckedChange = services.settings::setSecureScreens)
+                }
+                HorizontalDivider(color = Chat.colors.border)
+
                 Section("Password")
                 PasswordField("Current password", current, pwErrors["current"]) { current = it }
                 PasswordField("New password", next, pwErrors["next"]) { next = it }
@@ -207,52 +227,6 @@ fun ProfileScreen(onAddAccount: () -> Unit, onBack: () -> Unit) {
                             }
                     }
                 }) { Text("Change password") }
-                HorizontalDivider(color = Chat.colors.border)
-
-                Section("Accounts")
-                for (a in all) {
-                    val user = a.user ?: continue
-                    val current = a.id == services.accountId
-                    Row(
-                        Modifier.fillMaxWidth()
-                            .clickable(enabled = !current && accounts != null) { accounts?.scope?.launch { accounts.switchTo(a.id) } }
-                            .padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Avatar(user, 36.dp, url = a.avatarUrl)
-                        Column(Modifier.weight(1f)) {
-                            Text(user.name)
-                            Text(serverLabel(a.server), style = MaterialTheme.typography.bodySmall, color = Chat.colors.muted)
-                        }
-                        if (current) Text("In use", style = MaterialTheme.typography.bodySmall, color = Chat.colors.muted)
-                    }
-                }
-                if (accounts != null) OutlinedButton(onClick = onAddAccount) { Text("Add account") }
-                HorizontalDivider(color = Chat.colors.border)
-
-                Section("Appearance")
-                val theme by services.settings.theme.collectAsStateWithLifecycle()
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                    ThemeChoice.entries.forEachIndexed { i, t ->
-                        SegmentedButton(
-                            selected = theme == t,
-                            onClick = { services.settings.setTheme(t) },
-                            shape = SegmentedButtonDefaults.itemShape(i, ThemeChoice.entries.size),
-                            label = { Text(t.label) },
-                        )
-                    }
-                }
-                HorizontalDivider(color = Chat.colors.border)
-
-                Section("This device")
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Hide messages from screenshots")
-                        Text("Screens with messages can't be captured, and are blank in recent apps.", style = MaterialTheme.typography.bodySmall, color = Chat.colors.muted)
-                    }
-                    Switch(secure, onCheckedChange = services.settings::setSecureScreens)
-                }
                 HorizontalDivider(color = Chat.colors.border)
 
                 Section("Session")

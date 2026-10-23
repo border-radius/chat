@@ -1,5 +1,5 @@
-// Profile (§15.5, §22.2): change or remove your avatar, change your display name (unique, §22.1), change your
-// password, pick this device's theme (§7.8), log out.
+// Profile (§15.5, §22.2): change or remove your avatar, change your display name (unique, §22.1), pick this
+// device's theme (§7.8), change your password, log out.
 
 import { ApiError, errorMessage } from "../api.ts";
 import type { Ctx } from "../context.ts";
@@ -283,6 +283,11 @@ export function createProfileView({ api, store, logOut }: Ctx): View {
             h("div", { class: "row" }, [nameInput, saveBtn]),
             nameStatus,
           ]),
+          h("fieldset", { class: "profile-theme", "aria-describedby": `${vid}-theme-hint` }, [
+            h("legend", {}, "Appearance"),
+            themeChoices,
+            h("p", { id: `${vid}-theme-hint`, class: "field-status" }, "Auto follows your system. Saved on this device."),
+          ]),
           h(
             "form",
             {
@@ -294,11 +299,6 @@ export function createProfileView({ api, store, logOut }: Ctx): View {
             },
             [h("h2", { id: `${vid}-pw-title` }, "Password"), pw.current.el, pw.next.el, pw.confirm.el, pwBtn, pwStatus],
           ),
-          h("fieldset", { class: "profile-theme", "aria-describedby": `${vid}-theme-hint` }, [
-            h("legend", {}, "Appearance"),
-            themeChoices,
-            h("p", { id: `${vid}-theme-hint`, class: "field-status" }, "Auto follows your system. Saved on this device."),
-          ]),
           h("section", { class: "profile-session", "aria-labelledby": `${vid}-session-title` }, [
             h("h2", { id: `${vid}-session-title` }, "Session"),
             h("button", { type: "button", class: "danger", on: { click: () => logOut() }, signal }, "Log out"),

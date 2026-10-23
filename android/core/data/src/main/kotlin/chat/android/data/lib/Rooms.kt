@@ -62,8 +62,9 @@ private val byActivity = Comparator<Room> { a, b ->
 /**
  * Room list sections (§7.1, §16.5). Archived wins over hidden. Open DMs by activity; closed (hidden) DMs left out. A
  * DM nobody has written in yet is listed only for the member who opened it, and while it is open (QA BUG-29, BUG-37).
+ * Rooms and DMs with unread messages are listed first.
  */
-fun roomSections(rooms: Collection<Room>, hidden: Set<String>, me: String?, activeRoomId: String?): RoomSections {
+fun roomSections(rooms: Collection<Room>, hidden: Set<String>, me: String?, activeRoomId: String?, unread: Map<String, Int> = emptyMap()): RoomSections {
     val open = mutableListOf<Room>()
     val dms = mutableListOf<Room>()
     val hid = mutableListOf<Room>()
@@ -79,7 +80,9 @@ fun roomSections(rooms: Collection<Room>, hidden: Set<String>, me: String?, acti
             else -> open += r
         }
     }
-    return RoomSections(open.sortedWith(byName), dms.sortedWith(byActivity), hid.sortedWith(byName), archived.sortedWith(byName))
+    // Rooms and DMs with unread messages first, each group in its usual order.
+    val unreadFirst = compareBy<Room> { unreadBadge(it, unread, hidden, activeRoomId) == 0 }
+    return RoomSections(open.sortedWith(unreadFirst.then(byName)), dms.sortedWith(unreadFirst.then(byActivity)), hid.sortedWith(byName), archived.sortedWith(byName))
 }
 
 /** The badge for a room (§18.4): none for the room you are in, and none for hidden or archived rooms (§13). */

@@ -1,6 +1,7 @@
 // The room list (DESIGN.md §5, §16.5, §18.4; web/src/views/rooms.ts): DMs, rooms, your media collections and those you
-// follow (§31.3), and the hidden and archived rooms folded away; unread badges; a row's menu (hide, close, archive). A
-// guest sees the Open Air rooms (§23.3).
+// follow (§31.3), and the hidden and archived rooms folded away; unread badges, unread rows first; a row's menu (hide,
+// close, archive). A section's heading folds it, as on the web: then only its unread rows stay listed. A guest sees the
+// Open Air rooms (§23.3). The brand at the top opens your accounts (ANDROID.md §17.2).
 package chat.android.feature.rooms
 
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -101,7 +102,7 @@ private enum class Section { Rooms, Dms, Hidden, Archived }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RoomsScreen(onOpenRoom: (String) -> Unit, onProfile: () -> Unit, onLogIn: () -> Unit, onOpenCollection: (String) -> Unit = {}) {
+fun RoomsScreen(onOpenRoom: (String) -> Unit, onProfile: () -> Unit, onLogIn: () -> Unit, onOpenCollection: (String) -> Unit = {}, onAccounts: () -> Unit = {}) {
     val services = LocalServices.current
     val s by services.store.flow.collectAsStateWithLifecycle()
     val me = s.user
@@ -111,7 +112,8 @@ fun RoomsScreen(onOpenRoom: (String) -> Unit, onProfile: () -> Unit, onLogIn: ()
     var newDm by rememberSaveable { mutableStateOf(false) }
     var newCollection by rememberSaveable { mutableStateOf(false) }
     var archiving by remember { mutableStateOf<Room?>(null) }
-    val sections = remember(s.rooms, s.hidden, me, s.activeRoomId) { roomSections(s.rooms.values, s.hidden.keys, me?.id, s.activeRoomId) }
+    val sections = remember(s.rooms, s.hidden, me, s.activeRoomId, s.unread) { roomSections(s.rooms.values, s.hidden.keys, me?.id, s.activeRoomId, s.unread) }
+    val folded by services.settings.folded.collectAsStateWithLifecycle()
 
     fun act(label: String, room: Room, block: suspend () -> Unit) {
         scope.launch {
@@ -167,7 +169,11 @@ fun RoomsScreen(onOpenRoom: (String) -> Unit, onProfile: () -> Unit, onLogIn: ()
             }
             TopAppBar(
                 title = {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        Modifier.clickable(onClickLabel = "Accounts", onClick = onAccounts).semantics(mergeDescendants = true) {},
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
                         chat.android.ui.BrandMark(s.site.logo, 32.dp)
                         Column {
                             Text(s.site.title, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -238,18 +244,22 @@ fun RoomsScreen(onOpenRoom: (String) -> Unit, onProfile: () -> Unit, onLogIn: ()
                 items(sections.rooms, key = { it.id }) { r -> RoomRow(r, s, me?.id, onOpenRoom, emptyList()) }
                 return@LazyColumn
             }
+            // A folded section lists only its unread rows (the open room has no badge: it is never listed folded).
+            fun shown(section: String, list: List<Room>) =
+                if (section in folded) list.filter { unreadBadge(it, s.unread, s.hidden.keys, s.activeRoomId) > 0 } else list
+            val toggle = services.settings::toggleFolded
             if (sections.dms.isNotEmpty()) {
-                header("Direct messages")
-                items(sections.dms, key = { it.id }) { r ->
+                foldHeader("dms", "Direct messages", "dms" in folded, toggle)
+                items(shown("dms", sections.dms), key = { it.id }) { r ->
                     RoomRow(r, s, me.id, onOpenRoom, listOf("Close conversation" to { act("close", r) { services.actions.hide(r.id) } }))
                 }
             }
-            header("Rooms")
+            foldHeader("rooms", "Rooms", "rooms" in folded, toggle)
             if (sections.rooms.isEmpty() && s.roomsStatus == LoadStatus.Ready) {
                 empty(if (sections.hidden.isNotEmpty() || sections.archived.isNotEmpty()) "No other rooms. Hidden and archived ones are listed below." else "No rooms yet. Create the first one.")
             }
-            items(sections.rooms, key = { it.id }) { r -> RoomRow(r, s, me.id, onOpenRoom, menuItems(r, Section.Rooms, s, me.id, ::act, { archiving = it }, services)) }
-            collections(s.collections, onOpenCollection) { newCollection = true }
+            items(shown("rooms", sections.rooms), key = { it.id }) { r -> RoomRow(r, s, me.id, onOpenRoom, menuItems(r, Section.Rooms, s, me.id, ::act, { archiving = it }, services)) }
+            collections(s.collections, "collections" in folded, { toggle("collections") }, onOpenCollection) { newCollection = true }
             if (sections.hidden.isNotEmpty()) {
                 fold("Hidden", sections.hidden.size, showHidden) { showHidden = !showHidden }
                 if (showHidden) items(sections.hidden, key = { "h" + it.id }) { r -> RoomRow(r, s, me.id, onOpenRoom, menuItems(r, Section.Hidden, s, me.id, ::act, { archiving = it }, services)) }
@@ -347,18 +357,47 @@ private fun LazyListScope.header(text: String) = item(key = "header-$text") {
     )
 }
 
-/** Yours (🔒 when private), then those you follow with their owner's name and how many items are new (§31.3). */
-private fun LazyListScope.collections(c: chat.android.data.model.Collections?, onOpen: (String) -> Unit, onNew: () -> Unit) {
+/**
+ * Yours (🔒 when private), then those you follow with their owner's name and how many items are new (§31.3). Folded:
+ * only those you follow with new items.
+ */
+private fun LazyListScope.collections(c: chat.android.data.model.Collections?, folded: Boolean, toggle: () -> Unit, onOpen: (String) -> Unit, onNew: () -> Unit) {
     item(key = "header-collections") {
-        Row(Modifier.fillMaxWidth().padding(start = 16.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Collections", style = MaterialTheme.typography.titleSmall, color = Chat.colors.muted, modifier = Modifier.weight(1f).semantics { heading() })
+        Row(Modifier.fillMaxWidth().padding(end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            FoldTitle("Collections", folded, toggle, Modifier.weight(1f))
             IconButton(onClick = onNew) { Icon(ChatIcons.Add, contentDescription = "New collection", tint = Chat.colors.muted) }
         }
     }
     if (c == null) return
     if (c.mine.isEmpty() && c.subs.isEmpty()) empty("No collections yet. Save images and videos from the chat to one.")
-    items(c.mine, key = { "c" + it.id }) { CollectionRow(it, onOpen) }
-    items(c.subs, key = { "s" + it.id }) { CollectionRow(it, onOpen) }
+    if (!folded) items(c.mine, key = { "c" + it.id }) { CollectionRow(it, onOpen) }
+    items(if (folded) c.subs.filter { it.new > 0 } else c.subs, key = { "s" + it.id }) { CollectionRow(it, onOpen) }
+}
+
+/** A section's heading that folds it (the web's fold buttons). */
+private fun LazyListScope.foldHeader(section: String, text: String, folded: Boolean, toggle: (String) -> Unit) = item(key = "header-$section") {
+    FoldTitle(text, folded, { toggle(section) }, Modifier.fillMaxWidth())
+}
+
+@Composable
+private fun FoldTitle(text: String, folded: Boolean, toggle: () -> Unit, modifier: Modifier) {
+    Row(
+        modifier
+            .heightIn(min = 48.dp)
+            .clickable(onClickLabel = if (folded) "Expand" else "Collapse", onClick = toggle)
+            .padding(start = 16.dp, end = 12.dp)
+            .semantics(mergeDescendants = true) { heading() },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(text, style = MaterialTheme.typography.titleSmall, color = Chat.colors.muted)
+        Icon(
+            ChatIcons.Down,
+            contentDescription = if (folded) "folded" else null,
+            tint = Chat.colors.muted,
+            modifier = Modifier.size(18.dp).rotate(if (folded) -90f else 0f),
+        )
+    }
 }
 
 @Composable

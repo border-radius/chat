@@ -144,6 +144,7 @@ const byActivity = (a: Room, b: Room) => {
  * (hidden) DMs are left out entirely, and a DM is never archived. A DM nobody has written in yet is listed only for
  * the member who opened it, so just opening one doesn't show up for the other person (QA BUG-29), and while it is
  * open: the other member may have opened it too, and their DM must not be missing from their own list (QA BUG-37).
+ * Rooms and DMs with unread messages are listed first.
  */
 export function roomSections(s: AppState): { rooms: Room[]; dms: Room[]; hidden: Room[]; archived: Room[] } {
   const rooms: Room[] = [];
@@ -158,5 +159,13 @@ export function roomSections(s: AppState): { rooms: Room[]; dms: Room[]; hidden:
     else if (s.hidden.has(r.id)) hidden.push(r);
     else rooms.push(r);
   }
-  return { rooms: rooms.sort(byName), dms: dms.sort(byActivity), hidden: hidden.sort(byName), archived: archived.sort(byName) };
+  // Rooms and DMs with unread messages first, each group in its usual order.
+  const unreadFirst = (by: (a: Room, b: Room) => number) => (a: Room, b: Room) =>
+    Number(!unreadCount(s, a)) - Number(!unreadCount(s, b)) || by(a, b);
+  return {
+    rooms: rooms.sort(unreadFirst(byName)),
+    dms: dms.sort(unreadFirst(byActivity)),
+    hidden: hidden.sort(byName),
+    archived: archived.sort(byName),
+  };
 }

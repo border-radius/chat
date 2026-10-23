@@ -1,5 +1,8 @@
 package chat.android
 
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasSetTextAction
@@ -38,17 +41,25 @@ class UiAccountsTest {
         ui.waitFor("Your profile")
     }
 
+    /** Your accounts: the brand at the top of the room list. */
+    private fun accountList() {
+        val brand = SemanticsMatcher("opens Accounts") { it.config.getOrNull(SemanticsActions.OnClick)?.label == "Accounts" }
+        ui.waitFor(brand, merged = true)
+        compose.onNode(brand).performClick()
+        ui.waitFor("Add account")
+    }
+
     private fun logIn(u: TestServer.TestUser) {
         compose.onNode(hasSetTextAction() and hasText("Email")).performTextInput(u.email)
         compose.onNode(hasSetTextAction() and hasText("Password")).performTextInput(TestServer.PASSWORD)
         compose.onAllNodes(hasText("Log in"))[1].performScrollTo().performClick()
     }
 
-    @Test fun `add an account on another server, then switch back from your profile`() {
+    @Test fun `add an account on another server, then switch back from the brand's account list`() {
         val u = newUser()
         val v = newUser()
         ui.signedIn(u)
-        profile()
+        accountList()
         compose.onNodeWithText("Add account").performScrollTo().performClick()
         ui.waitFor("Choose your server")
         compose.onNode(hasSetTextAction() and hasText("Server address")).performTextInput(other)
@@ -59,7 +70,7 @@ class UiAccountsTest {
         assertEquals(other, ui.services!!.server)
         ui.waitFor(serverLabel(other)) // under the rooms title: there are two accounts now
 
-        profile()
+        accountList()
         ui.waitFor(hasText(u.user.name) and hasClickAction(), merged = true)
         compose.onNode(hasText(u.user.name) and hasClickAction()).performScrollTo().performClick()
         ui.until { ui.services?.store?.get()?.user?.id == u.user.id }

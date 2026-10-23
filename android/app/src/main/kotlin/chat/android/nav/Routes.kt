@@ -11,6 +11,8 @@ import kotlinx.serialization.Serializable
 @Serializable data class RoomAccess(val id: String) : NavKey
 @Serializable data class Viewer(val roomId: String, val msgId: String, val file: String) : NavKey
 @Serializable data object Profile : NavKey
+/** Your accounts: switch, or add one (ANDROID.md §17.2). */
+@Serializable data object AccountList : NavKey
 /** A room's images and videos (DESIGN.md §30). */
 @Serializable data class Media(val roomId: String) : NavKey
 /** A media collection's page (DESIGN.md §31.3), and the viewer over its items. */

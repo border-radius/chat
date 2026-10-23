@@ -38,7 +38,7 @@ class Prefetch(
             if (!warmed && s.roomsStatus == LoadStatus.Ready && s.counted) {
                 warmed = true
                 dueUnread(s)
-                val sections = roomSections(s.rooms.values, s.hidden.keys, user, s.activeRoomId)
+                val sections = roomSections(s.rooms.values, s.hidden.keys, user, s.activeRoomId, s.unread)
                 for (room in (sections.dms + sections.rooms).take(WARM)) cold += room.id
                 drain(r, user)
             }

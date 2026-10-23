@@ -41,6 +41,7 @@ import androidx.navigation3.ui.NavDisplay
 import chat.android.BuildConfig
 import chat.android.feature.auth.AuthMode
 import chat.android.feature.auth.AuthScreen
+import chat.android.feature.profile.AccountsScreen
 import chat.android.feature.profile.ProfileScreen
 import chat.android.feature.room.RoomAccessScreen
 import chat.android.feature.room.RoomNav
@@ -122,6 +123,7 @@ fun ChatNav(linked: NavKey?, onLinkTaken: () -> Unit, onSignedIn: () -> Unit) {
                     onProfile = { stack += Profile },
                     onLogIn = { guest = false; stack.reset(Login) },
                     onOpenCollection = { stack += CollectionPage(it) },
+                    onAccounts = { stack += AccountList },
                 )
             }
             entry<Room> { key ->
@@ -153,7 +155,8 @@ fun ChatNav(linked: NavKey?, onLinkTaken: () -> Unit, onSignedIn: () -> Unit) {
             }
             entry<RoomAccess> { key -> RoomAccessScreen(key.id) { stack.removeAt(stack.lastIndex) } }
             entry<Viewer> { key -> ViewerScreen(key.roomId, key.msgId, key.file) { stack.removeAt(stack.lastIndex) } }
-            entry<Profile> { ProfileScreen(onAddAccount = { stack += ChooseServer }) { stack.removeAt(stack.lastIndex) } }
+            entry<Profile> { ProfileScreen { stack.removeAt(stack.lastIndex) } }
+            entry<AccountList> { AccountsScreen(onAddAccount = { stack += ChooseServer }) { stack.removeAt(stack.lastIndex) } }
             entry<SharePicker> {
                 SharePickerScreen(forwardTargets(s), s.user?.id, onPick = { room ->
                     ShareInbox.pending = ShareInbox.pending?.copy(target = room)

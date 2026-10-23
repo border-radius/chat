@@ -153,6 +153,29 @@ describe("roomSections (§7.1)", () => {
       expect(rooms.map((r) => r.id)).toEqual(["p"]);
     });
 
+    it("lists rooms and DMs with unread messages first, each group in its usual order", () => {
+      const s = mine(
+        state([
+          dm("a", "2026-03-01 00:00:00.000Z"),
+          dm("b", "2026-04-01 00:00:00.000Z"),
+          dm("c", "2026-05-01 00:00:00.000Z"),
+          room("p", "alpha"),
+          room("q", "beta"),
+          room("r", "gamma"),
+        ]),
+      );
+      const unread = new Map([
+        ["a", 2],
+        ["r", 1],
+        ["q", 3],
+      ]);
+      const { rooms, dms } = roomSections({ ...s, unread });
+      expect(dms.map((r) => r.id)).toEqual(["a", "c", "b"]);
+      expect(rooms.map((r) => r.id)).toEqual(["q", "r", "p"]);
+      // The open room has no badge, so it keeps its usual place.
+      expect(roomSections({ ...s, unread, activeRoomId: "q" }).rooms.map((r) => r.id)).toEqual(["r", "p", "q"]);
+    });
+
     it("closed (hidden) DMs are left out entirely; a DM is never in Hidden or Archived", () => {
       const s = mine(state([dm("a", ""), dm("b", "", undefined, { archived: true })], ["a"]));
       const { dms, hidden, archived } = roomSections(s);
