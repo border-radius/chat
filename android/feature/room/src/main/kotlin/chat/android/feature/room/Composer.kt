@@ -32,8 +32,11 @@ import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -136,70 +139,86 @@ fun Composer(vm: RoomViewModel, placeholder: String, focus: FocusRequester, onCo
             if (error.isNotEmpty()) {
                 Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp).semantics { liveRegion = LiveRegionMode.Polite })
             }
-            Row(Modifier.padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.Bottom) {
-                IconButton(onClick = onEmoji) { Icon(ChatIcons.Emoji, contentDescription = "Insert emoji", tint = Chat.colors.muted) }
-                if (vm.editing == null) {
-                    Box {
-                        IconButton(onClick = { attachMenu = true }) { Icon(ChatIcons.Attach, contentDescription = "Attach files", tint = Chat.colors.muted) }
-                        DropdownMenu(attachMenu, onDismissRequest = { attachMenu = false }) {
-                            DropdownMenuItem(text = { Text("Photos and videos") }, leadingIcon = { Icon(ChatIcons.Image, contentDescription = null) }, onClick = {
-                                attachMenu = false
-                                pickMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
-                            })
-                            DropdownMenuItem(text = { Text("Files") }, leadingIcon = { Icon(ChatIcons.File, contentDescription = null) }, onClick = { attachMenu = false; pickFiles.launch(arrayOf("*/*")) })
-                            if (onCollections != null) {
-                                DropdownMenuItem(
-                                    text = { Text("From a collection") },
-                                    leadingIcon = { Icon(ChatIcons.Collection, contentDescription = null) },
-                                    onClick = { attachMenu = false; onCollections() },
-                                )
-                            }
-                        }
-                    }
-                }
-                TextField(
-                    value = vm.text,
-                    onValueChange = vm::onText,
-                    placeholder = { Text(placeholder, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                    maxLines = 6,
-                    shape = RoundedCornerShape(20.dp),
-                    colors = TextFieldDefaults.colors(
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent,
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    ),
-                    modifier = Modifier
+            // One rounded field with emoji at its start and attach at its end, both kept at the bottom as the text
+            // grows, then Send: the text gets the width, as in the messengers people know.
+            Row(Modifier.padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.Bottom) {
+                Row(
+                    Modifier
                         .weight(1f)
-                        .heightIn(min = 48.dp)
-                        .focusRequester(focus)
-                        .semantics { contentDescription = "Message" }
-                        .onPreviewKeyEvent { e ->
-                            if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                            when {
-                                e.key == Key.Enter && !e.isShiftPressed -> { vm.submit(); true }
-                                e.key == Key.Escape && vm.editing != null -> { vm.cancelEdit(); true }
-                                e.key == Key.Escape && vm.replyTo != null -> { vm.cancelReply(); true }
-                                e.key == Key.DirectionUp && e.isCtrlPressed -> { vm.moveReply(up = true); true }
-                                e.key == Key.DirectionDown && e.isCtrlPressed -> { vm.moveReply(up = false); true }
-                                e.key == Key.DirectionUp && vm.text.text.isEmpty() -> vm.editLast()
-                                else -> false
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                        .heightIn(min = 48.dp),
+                    verticalAlignment = Alignment.Bottom,
+                ) {
+                    IconButton(onClick = onEmoji) { Icon(ChatIcons.Emoji, contentDescription = "Insert emoji", tint = Chat.colors.muted) }
+                    val textColor = MaterialTheme.colorScheme.onSurface
+                    BasicTextField(
+                        value = vm.text,
+                        onValueChange = vm::onText,
+                        maxLines = 6,
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(color = textColor, lineHeight = 22.sp),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(vertical = 13.dp)
+                            .focusRequester(focus)
+                            .semantics { contentDescription = "Message" }
+                            .onPreviewKeyEvent { e ->
+                                if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                                when {
+                                    e.key == Key.Enter && !e.isShiftPressed -> { vm.submit(); true }
+                                    e.key == Key.Escape && vm.editing != null -> { vm.cancelEdit(); true }
+                                    e.key == Key.Escape && vm.replyTo != null -> { vm.cancelReply(); true }
+                                    e.key == Key.DirectionUp && e.isCtrlPressed -> { vm.moveReply(up = true); true }
+                                    e.key == Key.DirectionDown && e.isCtrlPressed -> { vm.moveReply(up = false); true }
+                                    e.key == Key.DirectionUp && vm.text.text.isEmpty() -> vm.editLast()
+                                    else -> false
+                                }
+                            },
+                        decorationBox = { field ->
+                            Box {
+                                if (vm.text.text.isEmpty()) {
+                                    Text(placeholder, style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 22.sp), color = Chat.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                                field()
                             }
                         },
-                )
+                    )
+                    if (vm.editing == null) {
+                        Box {
+                            IconButton(onClick = { attachMenu = true }) { Icon(ChatIcons.Attach, contentDescription = "Attach files", tint = Chat.colors.muted) }
+                            DropdownMenu(attachMenu, onDismissRequest = { attachMenu = false }) {
+                                DropdownMenuItem(text = { Text("Photos and videos") }, leadingIcon = { Icon(ChatIcons.Image, contentDescription = null) }, onClick = {
+                                    attachMenu = false
+                                    pickMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+                                })
+                                DropdownMenuItem(text = { Text("Files") }, leadingIcon = { Icon(ChatIcons.File, contentDescription = null) }, onClick = { attachMenu = false; pickFiles.launch(arrayOf("*/*")) })
+                                if (onCollections != null) {
+                                    DropdownMenuItem(
+                                        text = { Text("From a collection") },
+                                        leadingIcon = { Icon(ChatIcons.Collection, contentDescription = null) },
+                                        onClick = { attachMenu = false; onCollections() },
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        Spacer(Modifier.width(12.dp))
+                    }
+                }
                 val canSend = (!isBlank(vm.text.text) || ((vm.attachments.isNotEmpty() || vm.items.isNotEmpty()) && vm.editing == null)) && n <= Limits.MESSAGE_TEXT
-                Spacer(Modifier.width(6.dp))
+                Spacer(Modifier.width(8.dp))
                 val bg by androidx.compose.animation.animateColorAsState(if (canSend) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh, label = "send")
                 val fg by androidx.compose.animation.animateColorAsState(if (canSend) MaterialTheme.colorScheme.onPrimary else Chat.colors.muted, label = "sendIcon")
                 androidx.compose.material3.FilledIconButton(
                     onClick = vm::submit,
                     enabled = canSend,
                     colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = bg, contentColor = fg, disabledContainerColor = bg, disabledContentColor = fg),
-                    modifier = Modifier.padding(bottom = 2.dp).size(44.dp),
+                    modifier = Modifier.size(48.dp),
                 ) {
                     Icon(if (vm.editing != null) ChatIcons.Check else ChatIcons.Send, contentDescription = if (vm.editing != null) "Save" else "Send", modifier = Modifier.size(20.dp))
                 }
-                Spacer(Modifier.width(4.dp))
             }
         }
     }

@@ -53,6 +53,26 @@ class UiFeaturesTest {
 
     private fun send() = compose.onNodeWithContentDescription("Send").performClick()
 
+    @Test fun `a message sent at the bottom of a full room shows whole, above the composer`() {
+        val a = newUser()
+        val b = newUser()
+        val room = runBlocking { a.api.createRoom("fu-${uniq()}") }
+        runBlocking { for (i in 1..12) b.api.send(NewMessage(newId(), room.id, "filler $i")) }
+        ui.signedIn(a)
+        ui.showRoom(room.name)
+        compose.onNodeWithText(room.name).performClick()
+        ui.waitFor("filler 12")
+        type("line one\nline two\nline three\nline four")
+        send()
+        ui.waitFor("line four")
+        repeat(10) { ui.pump() }
+        // Before the fix the list kept its old bottom row in place: the new message sat under the composer.
+        val sent = compose.onNodeWithText("line four", substring = true).fetchSemanticsNode().boundsInRoot
+        val composer = compose.onNode(hasContentDescription("Message")).fetchSemanticsNode().boundsInRoot
+        assertTrue("the message ends at ${sent.bottom}, the composer starts at ${composer.top}", sent.bottom <= composer.top)
+        assertTrue(compose.onAllNodes(hasContentDescription("Jump to latest", substring = true)).fetchSemanticsNodes().isEmpty())
+    }
+
     @Test fun `replies quote the message (replies spec)`() {
         val a = newUser()
         val room = runBlocking { a.api.createRoom("rp-${uniq()}") }

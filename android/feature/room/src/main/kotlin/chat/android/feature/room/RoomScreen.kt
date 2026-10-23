@@ -146,6 +146,9 @@ fun RoomScreen(roomId: String, msgId: String?, nav: RoomNav, incoming: Pair<Stri
 
     val atBottom by remember { derivedStateOf { list.firstVisibleItemIndex == 0 && list.firstVisibleItemScrollOffset < 64 } }
     LaunchedEffect(atBottom, rows) { vm.onAtBottom(atBottom) }
+    // The newest row the list has been given (composed, so its next layout has it), for Scroll.Bottom to wait on.
+    val composedFirst = remember { kotlinx.coroutines.flow.MutableStateFlow<String?>(null) }
+    androidx.compose.runtime.SideEffect { composedFirst.value = (rows.firstOrNull() as? ListRow.Msg)?.m?.id }
     // Shared into the app (§9.3): into the composer, as if typed and attached here.
     LaunchedEffect(incoming) {
         val (text, uris) = incoming ?: return@LaunchedEffect
@@ -172,7 +175,13 @@ fun RoomScreen(roomId: String, msgId: String?, nav: RoomNav, incoming: Pair<Stri
         c.scrolls.collect { s ->
             runCatching {
                 when (s) {
-                    Scroll.Bottom -> list.scrollToItem(0)
+                    Scroll.Bottom -> {
+                        // Wait until the list has the newest row: scrolled before that, the list keeps the row that
+                        // was at the bottom in place, and a message just sent lands below the composer.
+                        val newest = c.state.value.items.lastOrNull()?.id
+                        if (newest != null) withTimeoutOrNull(1000) { composedFirst.first { it == newest } }
+                        list.scrollToItem(0)
+                    }
                     Scroll.Top -> withTimeoutOrNull(1000) { vm.rows.first { it.isNotEmpty() } }?.let { list.scrollToItem(it.lastIndex) }
                     Scroll.Target -> {
                         val key = c.state.value.targetId ?: c.state.value.unreadId ?: return@runCatching
@@ -304,7 +313,7 @@ fun RoomScreen(roomId: String, msgId: String?, nav: RoomNav, incoming: Pair<Stri
                     TextButton(onClick = c::retry) { Text("Retry") }
                 }
                 Phase.Ready -> {
-                    LazyColumn(state = list, reverseLayout = true, modifier = Modifier.fillMaxSize().semantics { contentDescription = "Messages" }) {
+                    LazyColumn(state = list, reverseLayout = true, contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 8.dp), modifier = Modifier.fillMaxSize().semantics { contentDescription = "Messages" }) {
                         items(rows, key = { it.key }, contentType = { it::class }) { row ->
                             when (row) {
                                 is ListRow.Msg -> MessageRow(row.m, row.first, row.target, me?.id, vm.selecting, row.m.id in vm.selected, actions)

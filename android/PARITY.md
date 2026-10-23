@@ -10,7 +10,7 @@ Test classes: `UiFlowTest`, `UiFeaturesTest`, `UiPortsTest`, `UiCollectionsTest`
 
 | Web spec | Android | Status |
 |---|---|---|
-| `smoke` | `UiFlowTest`: log in, open a room, send, the server has it | Covered |
+| `smoke` | `UiFlowTest`: log in, open a room, send, the server has it; `UiFeaturesTest`: a message sent at the bottom of a full room shows whole | Covered |
 | `signup` | `UiFeaturesTest`: signing up logs you in; `ChatApiTest`: sign up | Covered |
 | `session` | `UiFlowTest`: a wrong password says so; `ServicesTest`: logging out clears the session's data | Partial: a session revoked elsewhere, two sessions |
 | `accounts` | `UiFeaturesTest`: renaming yourself | Partial: password change |

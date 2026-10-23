@@ -232,11 +232,15 @@ is a route.
   composition.
 - About 300 messages in memory at once, like the web's DOM window (§7.5).
 - Pinning: when you are at the bottom, new messages keep you there; scrolled up, they don't move you and the Jump to
-  latest button counts them (§22.7; the scroll pinning fixes of QA pass 15 apply).
+  latest button counts them (§22.7; the scroll pinning fixes of QA pass 15 apply). A message you send is followed once
+  the outbox has read it back from the database and the list has composed its row: scrolled before that, the lazy list
+  keeps the old bottom row in place and the new message lands under the composer.
 
 ### 7.2 Composer
 
-Multi-line field with the 2,000-character limit counted in code points (`textLength`); emoji, attach, send. Enter makes
+Multi-line field with the 2,000-character limit counted in code points (`textLength`); emoji, attach, send. One rounded
+field holds emoji at its start and attach at its end, both kept at the bottom as the text grows to six lines, then the
+send circle: the text gets the width. Enter makes
 a new line; a hardware keyboard sends with Enter and Ctrl+Up/Down pick the reply as on the web. Replying and editing
 show a bar above the field. A room you may only read shows why instead of the composer (archived, Open Air guest, not a
 writer: §23.6).

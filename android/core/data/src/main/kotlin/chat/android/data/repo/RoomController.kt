@@ -47,9 +47,11 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** How long a message gone to (a quote, a search result) stays highlighted. */
 const val HIGHLIGHT_MS = 3000L
@@ -588,6 +590,8 @@ class RoomController(
             )
             pill = null
             writes.launch { outbox.enqueue(owner, msg) }.join()
+            // The outbox reads back from the database a moment later: follow the message once it is shown, not before.
+            withTimeoutOrNull(2000) { outbox.messages.first { q -> q.any { it.id == msg.id } } }
             publish(Scroll.Bottom)
         }
         return true

@@ -176,12 +176,12 @@ fun MessageRow(
             if (selecting) {
                 Checkbox(selected, onCheckedChange = null, modifier = Modifier.padding(end = 4.dp))
             }
-            Box(Modifier.width(40.dp)) { if (first) Avatar(author, 36.dp) }
+            Box(Modifier.padding(top = 2.dp).width(48.dp)) { if (first) Avatar(author, 36.dp) }
             Column(Modifier.weight(1f)) {
                 if (first) {
-                    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(author.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                        Text(Formats.time(m.created), color = Chat.colors.muted, style = MaterialTheme.typography.labelSmall)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(author.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false).alignByBaseline())
+                        Text(Formats.time(m.created), color = Chat.colors.muted, style = MaterialTheme.typography.labelSmall, modifier = Modifier.alignByBaseline())
                     }
                 }
                 if (m.forwardedFrom.isNotEmpty()) {
@@ -222,7 +222,7 @@ fun MessageRow(
                                     withStyle(androidx.compose.ui.text.SpanStyle(color = muted, fontSize = 12.sp)) { append("(edited)") }
                                 }
                             }
-                            Text(text, style = MaterialTheme.typography.bodyLarge, modifier = if (edited) Modifier.semantics { stateDescription = "Edited ${Formats.full(m.editedAt)}" } else Modifier)
+                            Text(text, style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 21.sp), modifier = if (edited) Modifier.semantics { stateDescription = "Edited ${Formats.full(m.editedAt)}" } else Modifier)
                         } else if (m.editedAt.isNotEmpty()) {
                             Text("(edited)", color = Chat.colors.muted, style = MaterialTheme.typography.labelSmall, modifier = Modifier.semantics { contentDescription = "Edited ${Formats.full(m.editedAt)}" })
                         }
