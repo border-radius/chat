@@ -263,9 +263,10 @@ function beforeMessageUpdate(e) {
     // Deletion is final; API rules already refuse this, so this only guards superuser edits.
     throw fieldError("deleted", "Deleted messages cannot be changed.");
   }
-  // Backs up the update rule, which field modifiers could get around (§19).
+  // Backs up the update rule (§19), superusers included. PocketBase 0.40.4 counts field modifiers (`author+`) as set
+  // for `:isset`, so the rule refuses them (QA BUG-150), but nothing else would if a version stopped doing so.
   if (rec.getString("reply_to") !== orig.getString("reply_to")) throw fieldError("reply_to", "This field can't be changed.");
-  for (const f of ["forwarded_from", "forward_of"]) {
+  for (const f of ["author", "room", "forwarded_from", "forward_of"]) {
     if (rec.getString(f) !== orig.getString(f)) throw fieldError(f, "This field can't be changed.");
   }
 
@@ -288,7 +289,7 @@ function beforeMessageUpdate(e) {
   if (rec.getString("reactions") === orig.getString("reactions")) {
     rec.set("reactions", e.app.findRecordById("messages", rec.id).get("reactions"));
   }
-  // Attachments are immutable after sending (backs up the update rule, which field modifiers could get around).
+  // Attachments are immutable after sending (backs up the update rule, as above).
   const files = fileNames(rec);
   if (files.join("/") !== orig.getStringSlice("files").join("/")) throw fieldError("files", "Attachments can't be changed.");
   assertText(rec, files.length > 0 || isForward(rec));

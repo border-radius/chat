@@ -246,6 +246,28 @@ describe("Telegram bridge (§26)", () => {
     expect(Object.values(list[1]!.file_names)).toEqual(["Report 2026.pdf"]);
   });
 
+  it("an album item delivered twice (a webhook retry) comes over once, with the rest of the album (QA BUG-147)", async () => {
+    const owner = await signUp();
+    const { room, chat } = await linkedRoom(owner);
+    stub.addFile("r1", PNG, "photos/r1.jpg");
+    stub.addFile("r2", PNG, "photos/r2.jpg");
+    const album = `album-${uniq()}`;
+    const first = tgMessage(chat, { media_group_id: album, caption: "twice", photo: [{ file_id: "r1", width: 9, height: 9 }] });
+    await deliver({ message: first });
+    await deliver({ message: first });
+    await deliver({ message: tgMessage(chat, { media_group_id: album, photo: [{ file_id: "r2", width: 9, height: 9 }] }) });
+    await deliver({ message: tgMessage(chat, { text: "after" }) });
+    const list = await eventually(async () => {
+      const l = await messagesOf(room.id);
+      expect(l).toHaveLength(2);
+      return l;
+    });
+    expect(list.map((m) => [m.text, m.files.length])).toEqual([
+      ["twice", 2],
+      ["after", 0],
+    ]);
+  });
+
   it("an album that ends a conversation comes over once it is quiet", async () => {
     const owner = await signUp();
     const { room, chat } = await linkedRoom(owner);
@@ -437,6 +459,21 @@ describe("Telegram bridge (§26)", () => {
     );
   }, 30_000);
 
+  it("a queued send claimed by another pass isn't sent again until its claim runs out (QA BUG-147)", async () => {
+    const owner = await signUp();
+    const { room, chat } = await linkedRoom(owner);
+    const sent = () => stub.callsOf("sendMessage").filter((c) => c.params.chat_id === String(chat)).length;
+    const m = await owner.pb.collection("messages").create({ room: room.id, author: owner.user.id, text: "claimed" });
+    const [row] = await admin.collection("tg_queue").getFullList({ filter: admin.filter("message = {:m}", { m: m.id }) });
+    if (!row) return; // the cron's worker sent it already: nothing to claim
+    const at = (ms: number) => new Date(Date.now() + ms).toISOString().replace("T", " ");
+    await admin.collection("tg_queue").update(row.id, { locked_until: at(60_000) });
+    await tick();
+    expect(sent()).toBe(0);
+    await admin.collection("tg_queue").update(row.id, { locked_until: at(-1000) });
+    await eventually(() => expect(sent()).toBe(1));
+  });
+
   it("nothing goes either way while a link is disabled or its room archived", async () => {
     const owner = await signUp();
     const { room, chat } = await linkedRoom(owner);
@@ -454,11 +491,20 @@ describe("Telegram bridge (§26)", () => {
   });
 
   it('only stand-ins are named "… (TG)": a chat user can\'t pass for a Telegram person (QA BUG-86)', async () => {
-    for (const name of [`Ann ${uniq()} (TG)`, `Ann ${uniq()} (tg)`, `Ann ${uniq()}（ＴＧ）`, `Ann ${uniq()}(TG)`]) {
+    // Control and invisible characters after it are cleaned away before the name is stored (QA BUG-142).
+    const tails = ["\u0001", "\u007f", "\u009f", "\u200b", "\u202e", "\t\u0085"];
+    for (const name of [
+      `Ann ${uniq()} (TG)`,
+      `Ann ${uniq()} (tg)`,
+      `Ann ${uniq()}（ＴＧ）`,
+      `Ann ${uniq()}(TG)`,
+      ...tails.map((t) => `Ann ${uniq()} (TG)${t}`),
+    ]) {
       expect(await status(signUp(name)), name).toBe(400);
     }
     const u = await signUp();
     expect(await status(u.pb.collection("users").update(u.user.id, { name: `Ann ${uniq()} (TG)` }))).toBe(400);
+    expect(await status(u.pb.collection("users").update(u.user.id, { name: `Bob ${uniq()} (TG)\u0001` }))).toBe(400);
     expect(await status(u.pb.collection("users").update(u.user.id, { name: `TG fan ${uniq()}` }))).toBe(200);
     // Superusers name anyone as they like (the admin UI).
     expect(await status(admin.collection("users").update(u.user.id, { name: `Ann ${uniq()} (TG)` }))).toBe(200);

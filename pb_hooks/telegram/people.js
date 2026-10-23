@@ -157,7 +157,8 @@ function refuseStandInName(e) {
   if (!rec || e.hasSuperuserAuth()) return;
   const name = rec.getString("name");
   if (!rec.isNew() && name === rec.original().getString("name")) return;
-  if (nameKey(name).replace(/\s+/g, "").endsWith(nameKey(SUFFIX).trim())) {
+  // The name as it will be stored (cleanName tidies it after this hook): "Ann (TG)\u0001" is "Ann (TG)" (QA BUG-142).
+  if (nameKey(tidy(name)).replace(/\s+/g, "").endsWith(nameKey(SUFFIX).trim())) {
     throw fieldError("name", "Names ending in (TG) are for people on Telegram. Choose another one.");
   }
 }

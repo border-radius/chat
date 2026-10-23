@@ -98,7 +98,9 @@ class ChatServices(
         prefetch.stop()
         rooms.stop()
         tokens.reset()
-        if (!first) {
+        // A session that ran out while the app was closed was never ended: what it saved goes now, before it shows
+        // (its rooms, DMs included, to a guest; QA BUG-145).
+        if (!first || api.forgetExpired().isNotEmpty()) {
             // Nothing of the last session may show for the next person (ANDROID.md §10).
             cache.clearMemory()
             db.clearSession()

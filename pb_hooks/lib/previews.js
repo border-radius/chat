@@ -210,16 +210,17 @@ function tools(/** @type {core.App} */ app) {
  */
 
 /**
- * One GET with curl, connecting to `ip` ("": as curl looks the host up, for allowed hosts), reading at most `max`
- * bytes of the body. Throws when there is no response (a timeout, a refused connection).
+ * One GET with curl (a POST of `data` when given), connecting to `ip` ("": as curl looks the host up, for allowed
+ * hosts), reading at most `max` bytes of the body. Throws when there is no response (a timeout, a refused connection).
  * @param {{ origin: string, path: string, scheme: string }} u
  * @param {string} ip
  * @param {Record<string, string>} headers
  * @param {number} seconds
  * @param {number} max
+ * @param {string} [data]
  * @returns {Response}
  */
-function request(u, ip, headers, seconds, max) {
+function request(u, ip, headers, seconds, max, data) {
   const head = `${$os.tempDir()}/chat-preview-${$security.randomString(16)}`;
   // No ~/.curlrc, no proxy (it would look the host up itself), no globbing of [] and {} in the URL; no redirects (get
   // checks each). The headers go to a file, written as they come: there even when curl is stopped mid-body.
@@ -228,6 +229,8 @@ function request(u, ip, headers, seconds, max) {
   if (ip) args.push("--connect-to", `::${ip}:${u.scheme === "https" ? 443 : 80}`);
   args.push("--user-agent", UA);
   for (const [k, v] of Object.entries(headers)) args.push("--header", `${k}: ${v}`);
+  // --data-raw: as is, never "@file".
+  if (data !== undefined) args.push("--data-raw", data);
   args.push("--dump-header", head, "--output", "-", "--url", u.origin + u.path);
   try {
     const cmd = $os.cmd("curl", ...args);
@@ -312,6 +315,29 @@ function get(url, headers, timeout, max, dead) {
     at = resolve(res.headers.location, at);
   }
   return null;
+}
+
+/**
+ * POST `data` to `url`, once: to a public address only (or a host in `allow`), connecting to the address checked,
+ * and never following a redirect, which is answered as the status it is. For UnifiedPush (lib/push.js): $http.send
+ * follows a redirect anywhere, inward too. Returns the status; throws when there is no answer or the host may not be
+ * reached.
+ * @param {string} url
+ * @param {Record<string, string>} headers
+ * @param {string} data
+ * @param {number} seconds
+ * @param {string[]} allow
+ */
+function post(url, headers, data, seconds, allow) {
+  const u = parse(url);
+  if (!u) throw new Error("not an http(s) URL");
+  let ip = "";
+  if (!allow.includes(u.host)) {
+    if (!publicHost(u.host)) throw new Error("not a public host");
+    ip = addressOf(u.host);
+    if (!ip) throw new Error("not a public address");
+  }
+  return request(u, ip, headers, seconds, 4096, data).status;
 }
 
 // ---------------------------------------------------------------- pages and icons
@@ -626,4 +652,4 @@ function tick(e) {
   return e.noContent(204);
 }
 
-module.exports = { enabled, linksOf, publicHost, resolve, queue, run, tick };
+module.exports = { enabled, linksOf, publicHost, resolve, post, queue, run, tick };

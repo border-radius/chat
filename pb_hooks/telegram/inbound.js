@@ -133,7 +133,10 @@ function ensureMember(app, room, userId) {
  */
 function bringOver(app, link, room, msgs) {
   const chatId = link.getString("chat_id");
-  msgs = msgs.filter((m) => !mapped(app, chatId, m.message_id)); // delivered twice (a webhook retry)
+  // Delivered twice (a webhook retry): brought over already, or an album item queued twice, which would fail the save
+  // of the whole album on the unique (chat_id, tg_message_id) (QA BUG-147).
+  const seen = new Set();
+  msgs = msgs.filter((m) => !seen.has(m.message_id) && seen.add(m.message_id) && !mapped(app, chatId, m.message_id));
   if (!msgs.length) return;
   msgs.sort((a, b) => a.message_id - b.message_id);
   const first = msgs[0];
@@ -248,12 +251,13 @@ function takeAlbum(app, chatId, album) {
 
 /**
  * Bring over queued albums: those of `chatId` except `except` (something else came after them, so they are complete),
- * or with no chat given, those quiet for ALBUM_QUIET_MS or full.
+ * or with no chat given, those quiet for ALBUM_QUIET_MS or full. `renew` (the worker's lock) after each one.
  * @param {core.App} app
  * @param {string} [chatId]
  * @param {string} [except]
+ * @param {() => void} [renew]
  */
-function flushAlbums(app, chatId, except) {
+function flushAlbums(app, chatId, except, renew) {
   const rows = chatId
     ? app.findRecordsByFilter("tg_queue", "op = 'album' && chat_id = {:chat}", "created", 0, 0, { chat: chatId })
     : app.findRecordsByFilter("tg_queue", "op = 'album'", "created", 0, 0);
@@ -278,6 +282,7 @@ function flushAlbums(app, chatId, except) {
     } catch (err) {
       app.logger().error("telegram: album", "chat", g.chat, "error", String(err));
     }
+    renew?.();
   }
 }
 

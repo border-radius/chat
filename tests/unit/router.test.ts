@@ -300,6 +300,18 @@ describe("createRouter", () => {
       expect(log).toEqual([`mount room {"id":"42"}`]);
     });
 
+    it("QA BUG-146: with slashes that would make another site's URL (#//host), stay on this one", () => {
+      for (const hash of ["#//evil.example/r/42", "#/\\evil.example/r/42", "#///r/42"]) {
+        history.replaceState(null, "", `/${hash}`);
+        const origin = location.origin;
+        expect(() => router.start()).not.toThrow();
+        expect(location.origin).toBe(origin);
+        expect(location.pathname).not.toMatch(/^[/\\]{2}/);
+        router.stop();
+      }
+      expect(log).toContain(`mount room {"id":"42"}`); // #///r/42 is /r/42
+    });
+
     it("are followed when one is opened in the tab", async () => {
       router.start();
       location.hash = "#/r/7";

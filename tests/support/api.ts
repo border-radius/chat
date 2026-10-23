@@ -172,6 +172,7 @@ const SYNC = new Set<keyof Api>([
   "currentUser",
   "sessionExpiry",
   "logOut",
+  "forgetExpired",
   "onAuthChange",
   "onRejected",
   "onConnect",

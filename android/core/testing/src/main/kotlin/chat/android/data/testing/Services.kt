@@ -19,10 +19,20 @@ fun closeServices() = runBlocking {
     open.clear()
 }
 
-/** The app's services against the test server, as [user] (null: a guest), on a main thread of their own. */
-fun services(user: TestServer.TestUser?): ChatServices {
-    val db = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext(), ChatDatabase::class.java).allowMainThreadQueries().build()
-    val auth = MemoryAuthStore(user?.api?.pb?.authStore?.session?.value ?: chat.android.data.pb.Session.NONE)
+/** An empty in-memory database, as the services use. */
+fun testDb(): ChatDatabase =
+    Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext(), ChatDatabase::class.java).allowMainThreadQueries().build()
+
+/**
+ * The app's services against the test server, as [user] (null: a guest), on a main thread of their own. [session]:
+ * the stored session instead of [user]'s; [db]: one with data in it already.
+ */
+fun services(
+    user: TestServer.TestUser?,
+    session: chat.android.data.pb.Session? = null,
+    db: ChatDatabase = testDb(),
+): ChatServices {
+    val auth = MemoryAuthStore(session ?: user?.api?.pb?.authStore?.session?.value ?: chat.android.data.pb.Session.NONE)
     val main = Executors.newSingleThreadExecutor { r -> Thread(r, "test-main").apply { isDaemon = true } }.asCoroutineDispatcher()
     return ChatServices(TestServer.url, TestServer.http, auth, db, main).also {
         open += it

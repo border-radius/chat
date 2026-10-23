@@ -72,6 +72,25 @@ describe("attachments (§17.1)", () => {
     expect(res.status).toBe(413);
   }, 60_000);
 
+  it("holds a chunked body (no Content-Length) to 32 MB too, and takes a small one (QA BUG-143)", async () => {
+    const a = await newUser();
+    /** POST `body` to `path` in chunks: no Content-Length, so the limit must count what is read. */
+    const chunked = (path: string, body: string, token = "") =>
+      fetch(`${a.pb.baseURL}${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: token } : {}) },
+        body: new Response(body).body,
+        duplex: "half",
+      } as RequestInit);
+    const big = JSON.stringify({ room: "x".repeat(40 * 1024 * 1024) });
+    expect((await chunked("/api/chat/reads", big, a.pb.authStore.token)).status).toBe(413);
+    // As a guest, logging in.
+    expect((await chunked("/api/collections/users/auth-with-password", JSON.stringify({ identity: big, password: "x" }))).status).toBe(413);
+    // A small one is taken as ever (the Android app sends chunked uploads when it can't tell a file's size).
+    const room = await newRoom(a);
+    expect((await chunked("/api/chat/reads", JSON.stringify({ room: room.id }), a.pb.authStore.token)).status).toBe(200);
+  }, 60_000);
+
   it("attachments can't be added, removed or replaced by an edit; a text edit keeps them", async () => {
     const a = await newUser();
     const room = await newRoom(a);

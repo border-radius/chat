@@ -12,7 +12,7 @@ Test classes: `UiFlowTest`, `UiFeaturesTest`, `UiPortsTest`, `UiCollectionsTest`
 |---|---|---|
 | `smoke` | `UiFlowTest`: log in, open a room, send, the server has it; `UiFeaturesTest`: a message sent at the bottom of a full room shows whole | Covered |
 | `signup` | `UiFeaturesTest`: signing up logs you in; `ChatApiTest`: sign up | Covered |
-| `session` | `UiFlowTest`: a wrong password says so; `ServicesTest`: logging out clears the session's data | Partial: a session revoked elsewhere, two sessions |
+| `session` | `UiFlowTest`: a wrong password says so; `ServicesTest`: logging out clears the session's data, and so does a session that ran out while the app was closed (QA BUG-145, web: `app.test.ts`) | Partial: a session revoked elsewhere, two sessions |
 | `accounts` | `UiFeaturesTest`: renaming yourself | Partial: password change |
 | `avatar` | — | Not yet (the photo picker can't be driven on Robolectric) |
 | `realtime` | `UiFlowTest`: a live message; `ServicesTest`, `ChatApiTest`: realtime events | Covered |

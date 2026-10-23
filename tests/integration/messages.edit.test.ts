@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { expectRejected, newRoom, newUser, post } from "./helpers.ts";
+import { adminClient, expectRejected, newRoom, newUser, post } from "./helpers.ts";
 
 describe("messages edit (§5.3, §5.6, §7.6.1)", () => {
   it("the author can edit; edited_at is stamped", async () => {
@@ -46,6 +46,12 @@ describe("messages edit (§5.3, §5.6, §7.6.1)", () => {
     const m = await post(a, room.id, "stay");
     await expectRejected(a.pb.collection("messages").update(m.id, { author: b.user.id }));
     await expectRejected(a.pb.collection("messages").update(m.id, { room: other.id }));
+    await expectRejected(a.pb.collection("messages").update(m.id, { "author+": b.user.id, "author-": a.user.id }));
+    await expectRejected(a.pb.collection("messages").update(m.id, { "room+": other.id }));
+    // Not even a superuser, whom no rule holds: the hook backs the rule up (QA BUG-150).
+    const admin = await adminClient();
+    await expectRejected(admin.collection("messages").update(m.id, { author: b.user.id }));
+    await expectRejected(admin.collection("messages").update(m.id, { room: other.id }));
     await expectRejected(a.pb.collection("messages").update(m.id, { edited_at: "2020-01-01 00:00:00.000Z" }));
     expect(await a.pb.collection("messages").getOne(m.id)).toMatchObject({ author: a.user.id, room: room.id, edited_at: "" });
   });

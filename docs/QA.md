@@ -1511,3 +1511,83 @@ Not changed, by design or for a decision:
   Jump to; user records aren't followed live.
 - The tab title on a collection's page is the site's title alone (§22.4 names only rooms).
 - `app.js` is 47.03 KB gzipped (+0.08 KB from these fixes); the budgets were then raised (§13): JS 47.10 KB, CSS 7.10 KB, collections chunk 6.65 KB.
+
+---
+
+# Security audit — external report, 2026-10-23
+
+An outside security review of the server (hooks, migrations), the web client and the scripts at the commit "Pasting
+into collection", with reproducers against the pinned PocketBase 0.40.4 (report CHAT-01…CHAT-11). Each finding was
+checked against the code, then fixed with a test that fails without the fix. Numbering continues from BUG-139.
+
+| # | Report | Severity | Area | Summary | Status |
+|---|---|---|---|---|---|
+| BUG-140 | CHAT-01 | High | Collections | An image uploaded into a collection skipped the 25-megapixel check (BUG-24): a 65-byte PNG declaring 30 000×30 000 was taken, and its thumbnail would need gigabytes | Fixed |
+| BUG-141 | CHAT-02 | Medium | Push | UnifiedPush delivery followed redirects (`$http.send`), so a registered endpoint could send the server's POST to 127.0.0.1, 169.254.169.254 or the intranet | Fixed |
+| BUG-142 | CHAT-03 | Medium | Telegram | "Ann (TG)\u0001" passed the "(TG)" name guard (BUG-86) and was stored as "Ann (TG)": the guard checked the name before it was tidied | Fixed |
+| BUG-143 | CHAT-04 | Medium | HTTP | The 32 MB body limit went by `Content-Length`: a chunked body (none) was read up to 201 MB on our own routes and logins, guests' too | Fixed |
+| BUG-144 | CHAT-05 | Low | Unread | `GET /api/chat/unread`, the heaviest read, had only the `/api/` rate limit | Fixed |
+| BUG-145 | CHAT-06 | Low | Session | A session that ran out while the app was closed was never ended: its drafts, kept rooms and thumbnails stayed (web); on Android a guest saw its rooms and DMs until the list loaded | Fixed |
+| BUG-146 | CHAT-07 | Low | Router | `/#//host` crashed the app at start: replaceState refused `//host` as another site's URL | Fixed |
+| BUG-147 | CHAT-08 | Low | Telegram | Worker races: an album item delivered twice lost the whole album; a pass over 90 s let a second run take the lock and send the same rows again, and the first run's unlock removed the second's lock | Fixed |
+| BUG-148 | CHAT-09 | Info | Collections | `GET /api/chat/saved?item=` for an item that isn't there or can't be seen listed every collection holding an upload of yours | Fixed |
+| BUG-149 | CHAT-10 | Info | Collections | An uploaded item's name kept bidi overrides and its full length, unlike attachment names | Fixed |
+| BUG-150 | — | Info | Messages | Comments said `:isset` misses field modifiers (`author+`); on 0.40.4 it sees them. The update hook didn't back up the rule for `author` and `room` | Fixed |
+| — | CHAT-11 | Info | Collections | `/api/chat/badges` tells a private collection from a missing one | Not changed |
+
+## BUG-140 — Image bombs in collections (High)
+
+**Steps:** `POST /api/chat/items` multipart `{ collection, file }` with a PNG whose header declares 30 000×30 000.
+**Expected:** 400, as for an attachment or an avatar. **Actual:** 200; the media worker (or any `?thumb=`) decodes it whole.
+**Cause:** collections (§31) came after BUG-24's `assertImagesFit`, and only messages and avatars called it.
+**Fix:** a `collection_items` create hook calls it for every upload (a saved copy has none: its file was checked where
+it came from). Test: `images.limit.test.ts`, PNG/GIF/JPEG/WebP into a collection, and a 25 MP one still taken.
+
+## BUG-141 — UnifiedPush followed redirects (Medium)
+
+**Cause:** the endpoint's host was checked as a string, then `$http.send` connected (resolving again) and followed any
+redirect. **Fix:** delivery goes through the link previews' fetcher (`previews.js` `post`): getent, every address
+public, curl pinned to the checked one with `--connect-to`, no redirects. A redirect is answered as its status
+(logged). Test: `push.test.ts`, an endpoint answering 307 to another path; nothing reaches it.
+
+## BUG-143 — Chunked bodies past the 32 MB limit (Medium)
+
+**Cause:** `lib/http.js` compared `Content-Length` (−1 for chunked); PocketBase's records API counts its own limit, so
+only our routes and the auth routes were open. **Fix:** the middleware runs PocketBase's own limiter at 32 MB (it
+counts what is read) for everything but a message create. Chunked bodies aren't refused: the Android app sends one
+for a collection upload whose size it can't tell. Test: `messages.files.test.ts`, 40 MB chunked to
+`/api/chat/reads` and to a login → 413, a small chunked one → 200.
+
+## BUG-145 — An expired session's leftovers (Low)
+
+**Fix:** `api.forgetExpired()` at start: a stored session that ran out is forgotten and the drafts, room cache and
+`chat-files` of its user cleared (web, `app.test.ts`). The Android app had it worse — `rooms.loadSaved()` showed the
+expired user's rooms to the guest — and gets the same (`ChatApi.forgetExpired`, `ServicesTest`). The report's second
+point (drafts not cleared when someone else logs in) is the same bug: the store's user is only null there after such
+a start.
+
+## BUG-147 — Telegram worker races (Low)
+
+**Fix:** `bringOver` drops repeated message ids; the lock carries its run's id, is renewed after every album and send,
+and is let go only by its run (a run that lost it stops at its next item); each send is claimed in a transaction
+(`locked_until`, 10 min) before it goes, so no two passes send one row. Tests: an album item delivered twice; a
+claimed row isn't sent until its claim runs out. Not changed: the webhook still brings over a chat's earlier albums
+when a later message comes (a single message's files are downloaded there too): that is what keeps a group's
+messages in order.
+
+## BUG-142, BUG-144, BUG-146, BUG-148, BUG-149, BUG-150
+
+- **BUG-142:** the guard checks `nameKey(tidy(name))`, the name as stored. Test: C0/C1 controls, ZWSP, RLO after "(TG)".
+- **BUG-144:** `GET /api/chat/unread` 120 per 60 s per IP, as reads (migration `1760000031_unread_limit.js`).
+- **BUG-146:** `here()` makes any run of leading slashes or backslashes one. Test: `router.test.ts` (it threw
+  `SecurityError` before).
+- **BUG-148:** `{}` when the item isn't one you may see.
+- **BUG-149:** the name is cleaned with `tidy`, `unescapeUploadName` and `clipFileName`, as attachments' are.
+- **BUG-150:** comments in `messages.js`, `rooms.js` and DESIGN.md §16/§19 corrected; `beforeMessageUpdate` refuses a
+  change of `author` or `room`, superusers included. Test: `messages.edit.test.ts`.
+
+## Not changed
+
+- **CHAT-11:** `/api/chat/badges` answers `{ private: true }` for a private collection and `null` for a missing one.
+  That difference is what the room shows ("Private collection", or no badge), and the ids it reveals are in every
+  message's `file_sources` already; 15 random characters can't be enumerated.

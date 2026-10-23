@@ -4,7 +4,7 @@
 
 import { createRoomActions } from "./actions.ts";
 import { type Api, ApiError } from "./api.ts";
-import { createCache, forgetGone } from "./cache.ts";
+import { type Cache, createCache, forgetGone } from "./cache.ts";
 import { createCollections } from "./collections.ts";
 import type { Ctx } from "./context.ts";
 import { clear, h } from "./dom.ts";
@@ -95,14 +95,26 @@ function withSidebar(sidebar: () => View, main: () => View, layoutClass = ""): (
   };
 }
 
+/** The rooms kept for opening fast (§7.5), and the thumbnails the service worker kept (sw.ts, FILES). */
+function forgetCached(cache: Cache) {
+  cache.clear();
+  void globalThis.caches?.delete("chat-files").catch(() => {});
+}
+
 export function startApp(deps: { api: Api; root: HTMLElement }): App {
   const { api, root } = deps;
+  // A session that ran out while the app was closed was never ended (endSession): what it left goes now.
+  const expired = api.forgetExpired();
   const store = createStore<AppState>({ ...initialState(), user: api.currentUser(), away: document.visibilityState === "hidden" });
   const sync = createSync({ api, store });
   const unread = createUnread({ api, store });
   const collections = createCollections({ api, store });
   const drafts = createDrafts(() => store.get().user?.id ?? "");
   const cache = createCache();
+  if (expired) {
+    drafts.clear(expired);
+    forgetCached(cache);
+  }
   const offGone = forgetGone(cache, store);
   const prefetch = createPrefetch({ api, store, cache });
   /** Start following the rooms (and, signed in, the unread counts and prefetching, §7.5) as whoever is logged in now, or as a guest. */
@@ -139,9 +151,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     sync.stop();
     void api.unsubscribeAll().catch(() => {});
     drafts.clear(store.get().user?.id ?? "");
-    cache.clear();
-    // The thumbnails the service worker kept (sw.ts, FILES).
-    void globalThis.caches?.delete("chat-files").catch(() => {});
+    forgetCached(cache);
     store.set({ ...initialState(), site: store.get().site });
   }
 

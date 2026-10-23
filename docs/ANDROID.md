@@ -280,7 +280,8 @@ its token after the first frame of a session and deletes it on log out. FCM `UNR
 - The payload carries **ids only** (room, message). The app fetches the message with its own session, so message text
   never passes through Google. DMs go at high priority, rooms at normal priority.
 - Settings: `FCM_SERVICE_ACCOUNT` (JSON) turns FCM on; without it nothing is queued. UnifiedPush tokens are endpoint
-  URLs, POSTed to directly, with the same address checks as link previews (§28.1).
+  URLs, POSTed to directly, with the same address checks as link previews (§28.1), and with their fetcher (curl, the
+  checked address pinned): a redirect isn't followed (QA BUG-141), so an endpoint must answer where it is registered.
 
 ### 8.3 On the device
 
@@ -322,7 +323,9 @@ The app declares the server's host for `/r/*`, so a link to a room or a message 
 - Message text is shown as text. Links follow the web's allow-list (§7.6.3) and open in Custom Tabs, never in the app.
 - File tokens as in §7.3; a URL with a token is never written to the disk cache key.
 - Log out clears the database, Coil's caches, pending work, notifications and the push token, as the web clears
-  IndexedDB and the service worker's cache.
+  IndexedDB and the service worker's cache. So does a session found expired at start (the app not opened before it
+  ran out): it is forgotten and its data cleared before anything shows, its rooms and DMs included (QA BUG-145, as
+  the web's `forgetExpired`).
 - Access control stays on the server: the app hides what you can't do, but never relies on it.
 - An opt-in setting sets `FLAG_SECURE` on screens with messages.
 

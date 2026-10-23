@@ -119,6 +119,33 @@ describe("app boot (§7.1)", () => {
     expect(meLink()).not.toBeNull();
   });
 
+  it("QA BUG-145: a session that ran out while the app was closed leaves no drafts, kept rooms or thumbnails", async () => {
+    const ada = await signedUp("Ada");
+    const client = createClient(inject("pbUrl"));
+    const exp = Math.floor(Date.now() / 1000) - 60;
+    const token = `x.${btoa(JSON.stringify({ exp })).replace(/=+$/, "")}.x`;
+    client.authStore.save(token, { id: ada.user.id, collectionName: "users", collectionId: "users" } as never);
+    const api = createApi(client);
+    localStorage.setItem(`chat.draft.${ada.user.id}.room1`, "half-written");
+    localStorage.setItem("chat.draft.someone-else.room1", "theirs");
+    const deleted: string[] = [];
+    vi.stubGlobal("caches", { delete: async (name: string) => deleted.push(name) > 0 });
+    try {
+      app = startApp({ api, root });
+      expect(app.store.get().user).toBeNull();
+      expect(localStorage.getItem(`chat.draft.${ada.user.id}.room1`)).toBeNull();
+      expect(localStorage.getItem("chat.draft.someone-else.room1")).toBe("theirs");
+      expect(deleted).toEqual(["chat-files"]);
+      // Forgotten: the next start has nothing left to clear.
+      expect(client.authStore.record).toBeNull();
+      expect(api.forgetExpired()).toBe("");
+    } finally {
+      vi.unstubAllGlobals();
+      localStorage.removeItem("chat.draft.someone-else.room1");
+      await api.unsubscribeAll();
+    }
+  });
+
   it("the app bar shows your avatar and name, linking to /me, and follows profile changes (§15.4)", async () => {
     const { api } = await signedUp("Ada Lovelace");
     app = startApp({ api, root });

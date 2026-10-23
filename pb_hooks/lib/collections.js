@@ -21,7 +21,7 @@
 // (media.js tempCopy), removed once the save is done.
 
 const { cleanName, fieldError, recordOf } = require(`${__hooks}/lib/records.js`);
-const { nameKey } = require(`${__hooks}/lib/text.js`);
+const { clipFileName, nameKey, tidy, unescapeUploadName } = require(`${__hooks}/lib/text.js`);
 const media = require(`${__hooks}/lib/media.js`);
 
 const MAX_COLLECTIONS = 50;
@@ -393,7 +393,10 @@ function uploaded(e) {
  * @param {filesystem.File} upload
  */
 function addUpload(app, coll, upload) {
-  const name = upload.originalName || upload.name;
+  // Cleaned as an attachment's name is (records.js originalNames): no bidi overrides ("cat‮gpj.exe"), capped in length
+  // with the extension kept (QA BUG-149). Subscribers of a public collection see it.
+  const name = clipFileName(tidy(unescapeUploadName(upload.originalName))) || upload.name;
+  upload.originalName = name;
   if (!media.isMedia(name)) throw badRequest("file", "Only images and videos can be added.");
   const item = new Record(app.findCollectionByNameOrId("collection_items"));
   item.set("collection", coll.id);
@@ -423,6 +426,8 @@ function saved(e) {
   if (itemId) {
     const item = find(e.app, "collection_items", itemId);
     if (item && canView(e, item)) origin = item.getString("origin") || `i:${item.id}`;
+    // Not one you may see: in none of yours. An empty origin would match every upload of yours (QA BUG-148).
+    if (!origin) return e.json(200, {});
   } else origin = `m:${q?.get("message") ?? ""}/${q?.get("file") ?? ""}`;
   const rows = arrayOf(new DynamicModel({ collection: "", id: "" }));
   e.app

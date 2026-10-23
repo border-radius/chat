@@ -219,6 +219,17 @@ class ChatApi(val pb: PbClient) {
 
     fun logOut() = pb.authStore.clear()
 
+    /**
+     * A stored session that ran out (the app wasn't opened before its expiry): forgotten, and the id of the user it was,
+     * "" when there is none. What it left is then cleared (QA BUG-145, as the web app's `forgetExpired`).
+     */
+    fun forgetExpired(): String {
+        val s = pb.authStore.session.value
+        if (s.record == null || s.isValid()) return ""
+        pb.authStore.clear()
+        return s.userId
+    }
+
     // ---- site (§24, ANDROID.md §12.4)
 
     /** PocketBase's health check: the server is up (ANDROID.md §17.2). */

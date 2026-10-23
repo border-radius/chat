@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 import { gifHeader, jpegHeader, pngHeader, pngOf, webpHeader } from "../support/images.ts";
-import { expectRejected, newRoom, newUser, status } from "./helpers.ts";
+import { expectRejected, newRoom, newUser, status, uniq } from "./helpers.ts";
 
 const file = (bytes: Buffer, name: string, type: string) => new File([new Uint8Array(bytes)], name, { type });
 const BIG = 30_000;
@@ -36,6 +36,22 @@ describe("image size limit (BUG-24)", () => {
         files: [file(pngOf(10, 10), "ok.png", "image/png"), file(pngHeader(BIG, BIG), "bad.png", "image/png")],
       }),
     );
+  });
+
+  it("rejects uploads into a collection in every thumbnailed format, and keeps ordinary ones (BUG-140)", async () => {
+    const a = await newUser();
+    const coll = await a.pb.collection("collections").create({ owner: a.user.id, name: `c-${uniq()}` });
+    const up = (f: File) => a.pb.send("/api/chat/items", { method: "POST", body: { collection: coll.id, file: f } });
+    const err = await up(file(pngHeader(BIG, BIG), "bomb.png", "image/png")).catch(
+      (e: { status: number; response: { data: Record<string, { code: string }> } }) => e,
+    );
+    expect((err as { status: number }).status).toBe(400);
+    expect((err as { response: { data: Record<string, { code: string }> } }).response.data.file?.code).toBe("validation_image_too_large");
+    await expectRejected(up(file(gifHeader(65_535, 65_535), "a.gif", "image/gif")));
+    await expectRejected(up(file(jpegHeader(BIG, BIG), "a.jpg", "image/jpeg")));
+    await expectRejected(up(file(webpHeader(BIG, BIG), "a.webp", "image/webp")));
+    expect(await status(up(file(pngHeader(5000, 5000), "max.png", "image/png")))).toBe(200);
+    expect((await a.pb.collection("collections").getOne(coll.id)).items).toBe(1);
   });
 
   it("accepts ordinary images up to 25 megapixels, and non-images regardless of content", async () => {

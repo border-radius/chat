@@ -244,6 +244,23 @@ describe("POST /api/chat/items (§31)", () => {
     const copy = await save(a, { collection: other.id, item: item.id });
     expect(await a.pb.send("/api/chat/saved", { query: { item: item.id } })).toEqual({ [coll.id]: item.id, [other.id]: copy.id });
     expect(await b.pb.send("/api/chat/saved", { query: q })).toEqual({});
+    // An item that isn't there, or that you may not see, is in none of yours, though your uploads have no origin
+    // (QA BUG-148).
+    const up = await save(a, { collection: other.id, file: png("own.png") });
+    expect(up.id).toBeTruthy();
+    expect(await a.pb.send("/api/chat/saved", { query: { item: "nosuchitem0000a" } })).toEqual({});
+    const hidden = await savedItem(b);
+    expect(await a.pb.send("/api/chat/saved", { query: { item: hidden.item.id } })).toEqual({});
+  });
+
+  it("cleans an uploaded item's name as an attachment's: no bidi overrides, capped with its extension (QA BUG-149)", async () => {
+    const a = await newUser();
+    const coll = await newCollection(a);
+    const item = await save(a, { collection: coll.id, file: png("cat\u202Egpj.exe.png") });
+    expect(item.name).toBe("catgpj.exe.png");
+    const long = await save(a, { collection: coll.id, file: png(`${"é".repeat(150)}.png`) });
+    expect(new TextEncoder().encode(long.name).length).toBeLessThanOrEqual(200);
+    expect(long.name).toMatch(/\.png$/);
   });
 
   it("DELETE /api/chat/items/{id}: the owner removes one, and the count follows", async () => {

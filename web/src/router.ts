@@ -36,9 +36,11 @@ const LOGIN = "/login";
 
 /**
  * The page we are on, as a path (what routes match). An old-style URL (`/#/r/abc`, from before paths) is its hash's.
- * A trailing slash (`/r/abc/`, typed or pasted) is dropped.
+ * A trailing slash (`/r/abc/`, typed or pasted) is dropped, and leading ones are one: `#//host` as a URL is another
+ * site's, which replaceState refuses, and the app never started (QA BUG-146).
  */
-export const here = (): string => (location.hash.startsWith("#/") ? location.hash.slice(1) : location.pathname).replace(/(.)\/$/, "$1");
+export const here = (): string =>
+  (location.hash.startsWith("#/") ? location.hash.slice(1) : location.pathname).replace(/^[/\\]+/, "/").replace(/(.)\/$/, "$1");
 
 /** An old-style URL: show it as its path (`/r/abc`) instead. True if it was one. */
 function fromLegacyHash(): boolean {

@@ -97,7 +97,7 @@ const dmValue = (rec, field) => (field === "members" ? rec.getStringSlice(field)
 
 /**
  * rooms create through the API: only public rooms (DMs come from POST /api/chat/dms). Backs up the create rule,
- * including against field modifiers such as `members+`.
+ * field modifiers such as `members+` included (PocketBase 0.40.4's `:isset` sees them too, QA BUG-150).
  * @param {core.RecordRequestEvent} e
  */
 function beforeRoomCreateRequest(e) {

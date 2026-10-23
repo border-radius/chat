@@ -30,6 +30,8 @@ const fcm: Sent[] = [];
 const up: { path: string; body: string; urgency: string }[] = [];
 const claims: Record<string, unknown>[] = [];
 let badSignatures = 0;
+/** What reached /inside, which only a followed redirect leads to. */
+const inside: string[] = [];
 
 const fromB64url = (s: string) => Buffer.from(s.replace(/-/g, "+").replace(/_/g, "/"), "base64");
 
@@ -67,6 +69,11 @@ beforeAll(async () => {
       }
       fcm.push({ token: message.token, data: message.data, priority: message.android.priority, body: text });
       return res.writeHead(200, { "content-type": "application/json" }).end('{"name":"x"}');
+    }
+    if (req.url === "/up/redirect") return res.writeHead(307, { location: `${base}/inside` }).end();
+    if (req.url === "/inside") {
+      inside.push(text);
+      return res.writeHead(200).end();
     }
     if (req.url?.startsWith("/up/")) {
       up.push({ path: req.url, body: text, urgency: String(req.headers.urgency) });
@@ -218,6 +225,17 @@ describe("pushes (§8.2)", () => {
     const hit = up.find((u) => base + u.path === endpoint)!;
     expect(JSON.parse(hit.body)).toEqual({ room: room.id, message: m.id, kind: "room", user: b.user.id });
     expect(await status(gone.pb.collection("push_tokens").getOne(goneRow.id))).toBe(404);
+  });
+
+  it("never follow a UnifiedPush endpoint's redirect: it could lead inward (QA BUG-141)", async () => {
+    const a = await device();
+    const b = await signUp();
+    const row = await b.pb.collection("push_tokens").create({ user: b.user.id, token: `${base}/up/redirect`, provider: "unifiedpush" });
+    const room = await a.pb.collection("rooms").create({ name: `p-${uniq()}`, created_by: a.user.id });
+    await send(a, room.id, "hello");
+    await tick();
+    expect(inside).toEqual([]);
+    expect((await b.pb.collection("push_tokens").getOne(row.id)).id).toBe(row.id);
   });
 
   it("aren't queued for service messages", async () => {

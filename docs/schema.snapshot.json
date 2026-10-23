@@ -2107,6 +2107,12 @@
       "maxRequests": 10
     },
     {
+      "label": "GET /api/chat/unread",
+      "audience": "",
+      "duration": 60,
+      "maxRequests": 120
+    },
+    {
       "label": "messages:create",
       "audience": "",
       "duration": 5,

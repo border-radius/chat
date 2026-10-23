@@ -15,10 +15,7 @@ routerUse((e) => {
 // Bodies up to 10 attachments of 20 MB (§17.1): replaces PocketBase's default limit (same middleware id); lib/http.js
 // keeps the default for everything but a message create.
 routerUse($apis.bodyLimit(require(`${__hooks}/lib/http.js`).MESSAGE_BODY_LIMIT));
-routerUse((e) => {
-  require(`${__hooks}/lib/http.js`).bodyLimit(e);
-  return e.next();
-});
+routerUse((e) => require(`${__hooks}/lib/http.js`).bodyLimit(e));
 
 // Not the app's index.html (PocketBase's fallback for any other path, §7.1) for a missing asset or API.
 routerAdd("GET", "/assets/{path...}", (e) => require(`${__hooks}/lib/http.js`).asset(e));
@@ -145,6 +142,13 @@ onRecordAfterDeleteSuccess((e) => {
   if (e.record) require(`${__hooks}/lib/collections.js`).tellBadges(e.app, e.record.id);
   e.next();
 }, "collections");
+
+// An image uploaded into a collection is held to the size messages and avatars are (QA BUG-24, BUG-140): its
+// thumbnails decode it whole. A saved copy has no upload; its file was checked where it came from.
+onRecordCreate((e) => {
+  if (e.record) require(`${__hooks}/lib/images.js`).assertImagesFit(e.record, "file");
+  e.next();
+}, "collection_items");
 
 onRecordCreate((e) => {
   const messages = require(`${__hooks}/lib/messages.js`);

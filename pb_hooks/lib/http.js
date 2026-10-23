@@ -40,15 +40,16 @@ const MESSAGE_BODY_LIMIT = 10 * 20 * 1024 * 1024 + (1 << 20);
 
 /**
  * The body limit is MESSAGE_BODY_LIMIT for every route (main.pb.js replaces PocketBase's default, as one route can't
- * have its own: the records API is PocketBase's): refuse a body over the default anywhere but a message create. A body
- * of unknown length (chunked) is still held to MESSAGE_BODY_LIMIT.
+ * have its own: the records API is PocketBase's): hold a body to the default anywhere but a message create, as
+ * PocketBase's limiter does, counting what is read. Not by Content-Length alone: a chunked body has none (-1), and was
+ * let through to MESSAGE_BODY_LIMIT, signups and logins too (QA BUG-143). The Android app sends chunked uploads when a
+ * file's size is unknown, so those are limited, not refused. Goes on with the request (e.next) when within it.
  * @param {core.RequestEvent} e
  */
 function bodyLimit(e) {
   const req = e.request;
-  if (!req || req.contentLength <= DEFAULT_BODY_LIMIT) return;
-  if (req.method === "POST" && req.url?.path === "/api/collections/messages/records") return;
-  throw new ApiError(413, "Request entity too large");
+  if (req?.method === "POST" && req.url?.path === "/api/collections/messages/records") return e.next();
+  return $apis.bodyLimit(DEFAULT_BODY_LIMIT).func(e);
 }
 
 /** The directory the app is served from: `--publicDir`, else PocketBase's default, pb_public beside the executable. */

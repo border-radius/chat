@@ -8,7 +8,8 @@
 // - FCM: on with FCM_SERVICE_ACCOUNT (the service account's JSON). FCM_ENDPOINT replaces https://fcm.googleapis.com
 //   (tests). A token FCM no longer knows is deleted.
 // - UnifiedPush: on with UNIFIEDPUSH=on. Its tokens are endpoint URLs, POSTed to directly, only on public addresses (the
-//   link previews' rules, §28.1; hosts in PUSH_ALLOW_HOSTS are let through, for tests). A 404 or 410 deletes it.
+//   link previews' rules, §28.1, checked again when sending, and sent with their curl: no redirects followed; hosts in
+//   PUSH_ALLOW_HOSTS are let through, for tests). A 404 or 410 deletes it.
 // Without either, nothing is queued.
 
 const { SEES_SQL } = require(`${__hooks}/lib/access.js`);
@@ -36,6 +37,14 @@ function fcmAccount() {
 const unifiedPush = () => $os.getenv("UNIFIEDPUSH").trim().toLowerCase() === "on";
 const enabled = () => !!fcmAccount() || unifiedPush();
 
+/** PUSH_ALLOW_HOSTS: endpoints on these hosts are POSTed to without checks (tests). */
+const allowedHosts = () =>
+  $os
+    .getenv("PUSH_ALLOW_HOSTS")
+    .split(",")
+    .map((h) => h.trim().toLowerCase())
+    .filter(Boolean);
+
 /**
  * May the server POST to this UnifiedPush endpoint? https (or an allowed test host) on a public address.
  * @param {string} url
@@ -44,12 +53,7 @@ function endpointAllowed(url) {
   const m = /^(https?):\/\/([^/?#@\s]+)/i.exec(url);
   if (!m) return false;
   const host = m[2].toLowerCase();
-  const allow = $os
-    .getenv("PUSH_ALLOW_HOSTS")
-    .split(",")
-    .map((h) => h.trim().toLowerCase())
-    .filter(Boolean);
-  if (allow.includes(host)) return true;
+  if (allowedHosts().includes(host)) return true;
   return m[1].toLowerCase() === "https" && require(`${__hooks}/lib/previews.js`).publicHost(host);
 }
 
@@ -172,15 +176,17 @@ function sendFcm(app, account, to, data, high) {
  */
 function sendUnifiedPush(app, to, data, high) {
   if (!endpointAllowed(to.token)) return dropToken(app, to.id);
-  const res = $http.send({
-    url: to.token,
-    method: "POST",
-    headers: { "content-type": "application/json", ttl: String(TTL_S), urgency: high ? "high" : "normal" },
-    body: JSON.stringify(data),
-    timeout: 10,
-  });
-  if (res.statusCode === 404 || res.statusCode === 410) dropToken(app, to.id);
-  else if (res.statusCode >= 400) app.logger().warn("push: unifiedpush", "status", res.statusCode);
+  // With curl, as link previews fetch (QA BUG-141): its name looked up and every address checked public, then connected
+  // to that address only, and a redirect not followed. $http.send would follow one inward (to 127.0.0.1, 169.254.…).
+  const status = require(`${__hooks}/lib/previews.js`).post(
+    to.token,
+    { "content-type": "application/json", ttl: String(TTL_S), urgency: high ? "high" : "normal" },
+    JSON.stringify(data),
+    10,
+    allowedHosts(),
+  );
+  if (status === 404 || status === 410) dropToken(app, to.id);
+  else if (status >= 300) app.logger().warn("push: unifiedpush", "status", status);
 }
 
 /**

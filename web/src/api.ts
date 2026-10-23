@@ -81,6 +81,11 @@ export interface Api {
   sessionExpiry(): number;
   logOut(): void;
   /**
+   * A stored session that ran out (the browser was closed past its expiry): forgotten, and the id of the user it was,
+   * or "" when there is none. Their drafts and cached rooms are then cleared (QA BUG-145).
+   */
+  forgetExpired(): string;
+  /**
    * Called whenever the stored session changes, including from another tab of the same browser (they share
    * it). Read `currentUser()` to see who is logged in now. Returns an unsubscribe function.
    */
@@ -429,6 +434,12 @@ export function createApi(client: PbClient): Api {
     sessionExpiry: () => pb.authStore.expiresAt,
     logOut() {
       pb.authStore.clear();
+    },
+    forgetExpired() {
+      const r = pb.authStore.record;
+      if (!r || pb.authStore.isValid) return "";
+      pb.authStore.clear();
+      return r.id;
     },
     onAuthChange(fn) {
       // A localStorage-backed store also fires this when another tab saves or clears the shared session.

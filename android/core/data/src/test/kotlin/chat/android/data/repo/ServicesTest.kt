@@ -11,6 +11,12 @@ import chat.android.data.testing.TestServer.uniq
 import chat.android.data.testing.eventually
 import chat.android.data.testing.closeServices
 import chat.android.data.testing.services
+import chat.android.data.testing.testDb
+import chat.android.data.db.DraftEntity
+import chat.android.data.db.RoomEntity
+import chat.android.data.model.Room
+import chat.android.data.pb.PbJson
+import chat.android.data.pb.Session
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -150,5 +156,22 @@ class ServicesTest {
         s.logOut()
         eventually(what = "cleared") { s.store.get().user == null && runBlocking { s.db.rooms().all().none { it.json.contains("\"private\"") } } }
         assertNull(s.api.currentUser())
+    }
+
+    @Test fun `a session that ran out while the app was closed leaves nothing of it, even for a moment (QA BUG-145)`() = runBlocking {
+        val a = newUser()
+        val secret = a.api.createRoom("secret-${uniq()}", Visibility.Private)
+        val db = testDb()
+        db.rooms().upsert(listOf(RoomEntity(secret.id, PbJson.encodeToString(Room.serializer(), secret))))
+        db.drafts().put(DraftEntity(a.user.id, secret.id, "half-written"))
+        val stored = a.api.pb.authStore.session.value
+        val exp = System.currentTimeMillis() / 1000 - 60
+        val payload = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString("""{"exp":$exp}""".toByteArray())
+        val s = services(null, session = Session("x.$payload.x", stored.record), db = db)
+        assertNull(s.store.get().user)
+        assertFalse(secret.id in s.store.get().rooms)
+        assertTrue(db.rooms().all().none { it.id == secret.id })
+        assertNull(db.drafts().get(a.user.id, secret.id))
+        assertNull(s.api.pb.authStore.session.value.record)
     }
 }

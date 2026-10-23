@@ -1197,8 +1197,9 @@ message events, even with a `"*"` subscription and no filter.
 **Defense in depth (hooks):** `beforeMessageCreate` also checks that a DM's author is a member, in case
 `@request.body.room.members` traversal behaves differently in the pinned PocketBase version (like the archived
 guard, §5.6). Request-only hooks (`onRecordCreateRequest` / `onRecordUpdateRequest` on `rooms`) reject `kind`,
-`members` and `last_message_at` in API writes, including field modifiers such as `members+`, which `:isset` rules
-don't see. They don't fire for the route's and hooks' own `$app.save`.
+`members` and `last_message_at` in API writes, including field modifiers such as `members+`. PocketBase 0.40.4's
+`:isset` sees those too (checked, QA BUG-150), so the hooks only back the rules up, in case a version stops doing so.
+They don't fire for the route's and hooks' own `$app.save`.
 
 **Query cost:** the `messages` list rule adds a join to `rooms` and, for DMs, a `json_each` over two members. The
 history query still filters by `room` first, so `idx_messages_room_created` keeps serving it. The pagination
@@ -1281,8 +1282,10 @@ users (§26) have it, and a user may set it on their own record (the profile doe
 
 PocketBase's default request body limit (32 MB) doesn't fit 10 × 20 MB, and the records API is PocketBase's own, so
 one route can't get its own limit: `main.pb.js` replaces the default with 201 MB (`$apis.bodyLimit`, same middleware
-id), and a middleware (`lib/http.js` `bodyLimit`) answers 413 to any other request declaring more than 32 MB. A test
-pins both.
+id), and a middleware (`lib/http.js` `bodyLimit`) holds any other request to 32 MB with PocketBase's own limiter,
+which counts what is read: 413 for one declaring more, and for a chunked one (no `Content-Length`) once it goes over
+(QA BUG-143; it went through to 201 MB, guests' logins too). Chunked bodies are still taken: the Android app sends
+one when it can't tell a file's size. Tests pin all three.
 
 **Text becomes optional when files are attached:** the hook rule "text is non-empty" (§5.6) changes to "text is
 non-empty **or** at least one file is attached". A message with neither is still rejected.
@@ -1499,7 +1502,9 @@ No row means "read up to your signup" (`users.created`): history from before you
   **stopping at 100** (the badge shows `99+`; without the cap a 50k backlog took ~200 ms per request). Each count is
   a correlated subquery, so it is a range scan on `idx_messages_room_created` (an integration test pins the query
   plan). Hidden and archived rooms are counted
-  too; the client decides what to show (§18.4), and a room you unhide shows its real backlog.
+  too; the client decides what to show (§18.4), and a room you unhide shows its real backlog. Rate limit: 120 per 60 s
+  per IP, as for reads (QA BUG-144: the heaviest read, 237 ms with 1 000 rooms, had only the `/api/` limit); the
+  client asks at most every 250 ms, and only when something changed.
 - **`POST /api/chat/reads`** `{ room, at? }`: you have read `room` up to `at` (a message's `created`; default now).
   The position only moves forward and never past now; `at` must be a date (`""` is a 400, not "now"). A room you can't see (someone else's DM, no such room) is a
   404. Two tabs racing to create the row end up with one (the unique index, then an update). Rate limit: 120 per
@@ -1594,7 +1599,7 @@ wherever it is in the history.
 soft-deleted, so the relation never dangles: a reply to a deleted message quotes "Message deleted".
 
 - **Set on create only.** The update rule adds `@request.body.reply_to:isset = false`, and `beforeMessageUpdate`
-  refuses any change to it (backing up the rule against field modifiers).
+  refuses any change to it, as to `author` and `room` (backing up the rule, field modifiers included).
 - **Same room, not deleted** (`assertReplyTarget` in `pb_hooks/lib/messages.js`). Without the room check, a reply could
   point into a DM you aren't in, and its expanded quote would show you that message.
 - **Hard deletes still work.** When a superuser deletes a message (or a room) for good, PocketBase clears
@@ -2263,7 +2268,10 @@ Telegram (`outbound.js`):
 
 A cron job (`* * * * *`) starts `worker.js`, which runs for 57 s, once a second: it brings over albums that are
 complete, then sends what is queued, oldest first (polling Telegram first, when there's no webhook). One run at a time
-(a lock in the app store). A failure that may pass (no answer, 5xx, 429) is retried after `retry_after` or 2, 4, 8…
+(a lock in the app store, renewed after every item; a run that took over a stale lock is the only one to let it go,
+and the slow one stops at its next item). Each queued send is claimed first (`locked_until`, 10 min, in a
+transaction): even two passes at once never send one twice (QA BUG-147). An album item delivered twice is brought
+over once, not making the album's save fail. A failure that may pass (no answer, 5xx, 429) is retried after `retry_after` or 2, 4, 8…
 seconds, up to 8 tries, and holds back that group's later items so they arrive in order; one Telegram refuses for good
 (4xx) is dropped and logged. `POST /api/telegram/tick` (superusers) runs one pass at once. A message whose send fails
 halfway (some of its files sent) isn't sent again.
@@ -2573,9 +2581,11 @@ when the file it was saved from has one; otherwise the media worker (§30.1) mak
   for someone else's you can see, 404 for one you can't); a message file you can see by the messages **view** rule (a
   forward's reader saves its original's, §21.3), not deleted, an image or video; or an item you can see. 409 when it
   is in there already. As multipart `{ collection, file }`: an image or video of your own (20 MB at most) uploaded
-  straight into a collection of yours, a new item with no `origin` (two uploads of one file are two items).
+  straight into a collection of yours, a new item with no `origin` (two uploads of one file are two items); an image
+  over 25 megapixels is refused as an attachment is (QA BUG-140), and its name cleaned as one's (QA BUG-149).
   `DELETE /api/chat/items/{id}`: the owner takes one out.
 - **`GET /api/chat/saved?message=&file=`** (or `?item=`) → `{ collection: item }`: which of your collections have it.
+  `{}` for an item that isn't there or that you can't see (QA BUG-148).
 - **Attaching:** a message create may name items (`items`, their ids: a JSON list in a form). They must be yours or in
   a public collection; their files are added after the uploads (10 in all), copied, with their names in `file_names`
   and their collections in `file_sources`.

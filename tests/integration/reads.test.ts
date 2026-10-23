@@ -3,7 +3,20 @@
 import { readFileSync } from "node:fs";
 import type { RecordModel } from "pocketbase";
 import { describe, expect, inject, it } from "vitest";
-import { client, collect, eventually, expectRejected, newRoom, newUser, openDm, post, rawDb, status, type TestUser } from "./helpers.ts";
+import {
+  adminClient,
+  client,
+  collect,
+  eventually,
+  expectRejected,
+  newRoom,
+  newUser,
+  openDm,
+  post,
+  rawDb,
+  status,
+  type TestUser,
+} from "./helpers.ts";
 
 const counts = (u: TestUser) =>
   u.pb.send<{ at: string; rooms: Record<string, number>; ids: string[] }>("/api/chat/unread", { method: "GET" });
@@ -132,6 +145,15 @@ describe("GET /api/chat/unread (§18.2)", () => {
       ).toBe(false);
     } finally {
       db.close();
+    }
+  });
+});
+
+describe("rate limits (§18.2)", () => {
+  it("hold GET /api/chat/unread to what POST /api/chat/reads gets, 120 a minute per IP (QA BUG-144)", async () => {
+    const { rateLimits } = await (await adminClient()).settings.getAll();
+    for (const label of ["GET /api/chat/unread", "POST /api/chat/reads"]) {
+      expect(rateLimits.rules).toContainEqual(expect.objectContaining({ label, duration: 60, maxRequests: 120 }));
     }
   });
 });
