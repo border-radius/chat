@@ -472,6 +472,17 @@ export async function mountCollection(root: HTMLElement, o: PageOptions): Promis
       },
       { signal },
     );
+    // Pasted (Ctrl+V) anywhere on the page, unless a dialog (the viewer, a menu's) is open over it.
+    document.addEventListener(
+      "paste",
+      (e) => {
+        const pasted = [...(e.clipboardData?.files ?? [])];
+        if (!pasted.length || document.querySelector("dialog[open]")) return;
+        e.preventDefault();
+        upload(pasted);
+      },
+      { signal },
+    );
   }
 
   /** The newest item's `created` (or the collection's last_added), to send as seen once the tab is visible. */

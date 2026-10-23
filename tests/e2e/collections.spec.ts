@@ -313,7 +313,7 @@ test("collections: the page drops what is taken out elsewhere: the save menu, an
   }
 });
 
-test("collections: the owner uploads images straight into one, with the button or by dropping them (§31)", async ({ browser }) => {
+test("collections: the owner uploads images straight into one, with the button, by dropping or pasting them (§31)", async ({ browser }) => {
   const ada = await apiUser("Ada");
   const room = await apiRoom(ada);
   const { id } = await apiCollection(ada, "Uploads", false);
@@ -345,6 +345,18 @@ test("collections: the owner uploads images straight into one, with the button o
   await a.locator(".coll-grid").dispatchEvent("drop", { dataTransfer: drop });
   await expect(a.locator(".coll-grid .media-tile")).toHaveCount(3);
   await expect(a.locator(".coll-grid .media-tile").first()).toHaveAccessibleName(/^three\.png/);
+
+  // Pasted (Ctrl+V) on the page.
+  await a.evaluate(
+    (png) => {
+      const dt = new DataTransfer();
+      dt.items.add(new File([new Uint8Array(png)], "image.png", { type: "image/png" }));
+      document.body.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+    },
+    [...PNG],
+  );
+  await expect(a.locator(".coll-grid .media-tile")).toHaveCount(4);
+  await expect(a.locator(".coll-grid .media-tile").first()).toHaveAccessibleName(/^image\.png/);
 
   // Someone else's collection has no Upload.
   const bob = await apiUser("Bob");

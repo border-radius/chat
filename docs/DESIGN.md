@@ -2597,7 +2597,7 @@ when the file it was saved from has one; otherwise the media worker (§30.1) mak
 - **Sidebar:** a Collections section after Direct messages: yours (🔒 when private), then those you follow with their
   owner's name and a badge of new items (`99+`, " new" for screen readers). "+" opens the new-collection dialog.
 - **The page, `/c/:id`:** in the room pane, the sidebar kept. Its name, whose it is, Public or Private and how many
-  items; the owner can upload images and videos into it (Upload, several at once, or dropped on the page: one at a
+  items; the owner can upload images and videos into it (Upload, several at once, dropped on the page or pasted: one at a
   time with the percentage sent, what isn't an image or video or is over 20 MB named and left out, a rate limit
   waited out), rename it, make it public or private and delete it (confirmed); others Subscribe or
   Unsubscribe. The items as square tiles, newest first under month headings, 60 at a time (the records API, cursor
