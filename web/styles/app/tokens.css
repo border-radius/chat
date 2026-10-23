@@ -31,8 +31,10 @@
     sans-serif;
 }
 
+/* The system's theme (auto), unless the profile page's choice (§7.8, web/src/theme.ts) says otherwise. The two dark
+   blocks must stay the same (contrast.test.ts checks). */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #1a1726;
     --surface: #13111d;
     --raised: #242036;
@@ -45,4 +47,23 @@
     --highlight: #3d3314;
     --shadow: 0 8px 28px rgb(0 0 0 / 55%);
   }
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #1a1726;
+  --surface: #13111d;
+  --raised: #242036;
+  --fg: #efecfa;
+  --muted: #a8a2c0;
+  --border: #2f2a45;
+  --hover: #2a2540;
+  --accent: #a99bff;
+  --danger: #ff7a8f;
+  --highlight: #3d3314;
+  --shadow: 0 8px 28px rgb(0 0 0 / 55%);
 }

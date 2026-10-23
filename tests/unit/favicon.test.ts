@@ -71,18 +71,30 @@ describe("favicon unread badge (§22.4)", () => {
     expect(document.head.querySelectorAll('link[rel="icon"]')).toHaveLength(1);
     store.set(clearUnread("a"));
     store.set(bumpUnread("a"));
-    store.set({ activeRoomId: "b" }); // opening a room: its messages are being read
-    expect(document.title).toBe("(1) Chat");
+    store.set({ activeRoomId: "b" }); // opening a room: its messages are being read, and its name is in the title
+    expect(document.title).toBe("(1) #b – Chat");
     store.set(bumpUnread("b"));
-    expect(document.title).toBe("(1) Chat");
+    expect(document.title).toBe("(1) #b – Chat");
     // The tab away: nobody is reading the open room, so its messages count too.
     store.set({ away: true });
-    expect(document.title).toBe("(4) Chat");
+    expect(document.title).toBe("(4) #b – Chat");
     store.set({ away: false });
-    expect(document.title).toBe("(1) Chat");
+    expect(document.title).toBe("(1) #b – Chat");
     store.set(clearUnread("b"));
     store.set(clearUnread("a"));
     expect(icon().href).toBe(faviconUrl(""));
+    expect(document.title).toBe("#b – Chat");
+    // A DM is called after the other member; leaving the room leaves the site's title.
+    store.set({
+      user: { id: "me", name: "Me" } as AppState["user"],
+      rooms: new Map([
+        ...store.get().rooms,
+        ["dm", room("dm", { kind: "dm", members: ["me", "x"], expand: { members: [{ id: "x", name: "Xia" }] } } as Partial<Room>)],
+      ]),
+      activeRoomId: "dm",
+    });
+    expect(document.title).toBe("Xia – Chat");
+    store.set({ activeRoomId: null });
     expect(document.title).toBe("Chat");
     store.set(bumpUnread("a"));
     stop();

@@ -83,6 +83,7 @@ test("the tab shows how many messages are unread, in the favicon and the title",
   const room = await apiRoom(bob);
   const home = await apiRoom(ada);
   const page = await openRoom(browser, ada, home);
+  let open = home.name; // the title names the open room
   // Other specs post in their own public rooms meanwhile, which count too: compare with the room list's badges.
   const tab = () =>
     page.evaluate(() => {
@@ -93,7 +94,7 @@ test("the tab shows how many messages are unread, in the favicon and the title",
   const consistent = async () => {
     const t = await tab();
     const label = t.sum > 99 ? "99+" : t.sum ? String(t.sum) : "";
-    return t.title === (label ? `(${label}) Chat` : "Chat") && t.icon === label;
+    return t.title === `${label ? `(${label}) ` : ""}#${open} – Chat` && t.icon === label;
   };
   await expect.poll(consistent).toBe(true);
 
@@ -102,10 +103,11 @@ test("the tab shows how many messages are unread, in the favicon and the title",
   const badge = page.locator("aside.sidebar li").filter({ hasText: room.name }).locator(".badge");
   await expect(badge).toContainText("2");
   await expect.poll(consistent).toBe(true);
-  await expect(page).toHaveTitle(/^\(\d+\+?\) Chat$/);
+  await expect(page).toHaveTitle(new RegExp(`^\\(\\d+\\+?\\) #${home.name} – Chat$`));
 
   // Reading the room takes its messages off the count.
   await page.locator("aside.sidebar").getByRole("link", { name: room.name }).click();
+  open = room.name;
   await expect(badge).toHaveCount(0);
   await expect.poll(consistent).toBe(true);
   await page.context().close();

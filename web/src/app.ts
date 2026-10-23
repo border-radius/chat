@@ -10,11 +10,13 @@ import type { Ctx } from "./context.ts";
 import { clear, h } from "./dom.ts";
 import { createDrafts } from "./drafts.ts";
 import { startFavicon } from "./favicon.ts";
+import { otherMember, VISIBILITY, visibilityOf } from "./lib/rooms.ts";
+import { toPb } from "./lib/time.ts";
 import type { User } from "./lib/types.ts";
 import { createPrefetch } from "./prefetch.ts";
 import { createRouter, here, type Router, type View } from "./router.ts";
 import { startSite } from "./site.ts";
-import { type AppState, createStore, initialState, type Store } from "./store.ts";
+import { type AppState, createStore, initialState, roomSections, type Store, unreadCount } from "./store.ts";
 import { createSync } from "./sync.ts";
 import { avatar } from "./ui/avatar.ts";
 import { createUnread } from "./unread.ts";
@@ -24,6 +26,7 @@ import { createLoginView } from "./views/login.ts";
 import { createProfileView } from "./views/profile.ts";
 import { createRoomView } from "./views/room.ts";
 import { createRoomsView } from "./views/rooms.ts";
+import type { Switcher } from "./views/switcher.ts";
 
 export interface App {
   store: Store<AppState>;
@@ -307,8 +310,58 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     ],
   });
 
+  /** Jump to (§32): Ctrl+K or Ctrl+P (⌘ too) anywhere. A lazy chunk, loaded on the first press. */
+  let switcher: Promise<Switcher> | undefined;
+  /** When each room and collection was last opened, for Jump to's "most recent first" (QA BUG-134). */
+  const opened = new Map<string, string>();
+  const onKey = (e: KeyboardEvent) => {
+    // By the letter typed, or by the key's place when it types no Latin letter (a Cyrillic layout).
+    const k = /^[a-z]$/i.test(e.key) ? e.key.toLowerCase() : e.code;
+    if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || !/^(k|p|KeyK|KeyP)$/.test(k)) return;
+    e.preventDefault(); // not the browser's search bar or printing
+    if (e.repeat) return; // held down: not open, closed, open… (QA BUG-137)
+    switcher ??= import("./views/switcher.ts").then(
+      (m) => {
+        const s = m.createSwitcher({
+          h,
+          state: store.get,
+          sections: roomSections,
+          unread: unreadCount,
+          other: otherMember,
+          icon: (r) => VISIBILITY[visibilityOf(r)].icon,
+          avatar: (u) => avatar(u, 24, api.avatarUrl),
+          navigate: (path) => router.navigate(path),
+          opened: (id) => opened.get(id) ?? "",
+        });
+        root.append(s.el);
+        return s;
+      },
+      (err: unknown) => {
+        switcher = undefined; // tried again next time
+        throw err;
+      },
+    );
+    switcher.then(
+      (s) => s.toggle(),
+      () => {},
+    );
+  };
+  document.addEventListener("keydown", onKey);
+
   const offStore = store.subscribe((s, prev) => {
+    // The page left too: the first one may have opened before this listened.
+    const open = s.activeRoomId ?? s.activeCollectionId;
+    const left = prev.activeRoomId ?? prev.activeCollectionId;
+    if (open !== left) for (const id of [left, open]) if (id) opened.set(id, toPb(Date.now()));
     if (s.site !== prev.site) renderHeader();
+    if (s.user?.id !== prev.user?.id) {
+      // Someone else's rooms from here on: not the last user's list, nor where they went (QA BUG-136).
+      opened.clear();
+      switcher?.then(
+        (x) => x.el.close(),
+        () => {},
+      );
+    }
     if (s.user === prev.user) return;
     renderHeader();
     if (s.user && !prev.user) scheduleRenew();
@@ -343,6 +396,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
       window.removeEventListener("dragover", swallowFileDrag);
       window.removeEventListener("drop", swallowFileDrag);
       document.removeEventListener("visibilitychange", onVisible);
+      document.removeEventListener("keydown", onKey);
       clearTimeout(renewTimer);
       stopFavicon();
       stopSite();

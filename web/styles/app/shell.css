@@ -112,10 +112,12 @@ html {
   background: var(--surface);
 }
 
-/* The pane is a rounded sheet laid on the sidebar's color. */
+/* The pane is a rounded sheet laid on the sidebar's color. A page taller than it (the profile, a collection) scrolls
+   in it, not with the sidebar (QA BUG-135). */
 .pane {
   flex: 1;
   min-width: 0;
+  overflow-y: auto;
   border-top-left-radius: 1.25rem;
   background: var(--bg);
 }

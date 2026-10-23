@@ -70,6 +70,25 @@ dialog.forward.busy .forward-list {
   pointer-events: none;
 }
 
+/* Jump to (§32): the forward dialog's look, an option chosen with the arrow keys shown as hovered. */
+.switcher .person {
+  padding: 0.4rem 0.9rem;
+  cursor: pointer;
+}
+
+.switcher .person:hover,
+.switcher [aria-selected="true"] {
+  background: var(--hover);
+}
+
+.switcher .unread {
+  font-weight: 700;
+}
+
+.switcher small {
+  color: var(--muted);
+}
+
 dialog.forward .cancel {
   align-self: flex-end;
 }

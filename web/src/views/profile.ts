@@ -1,5 +1,5 @@
 // Profile (§15.5, §22.2): change or remove your avatar, change your display name (unique, §22.1), change your
-// password, log out.
+// password, pick this device's theme (§7.8), log out.
 
 import { ApiError, errorMessage } from "../api.ts";
 import type { Ctx } from "../context.ts";
@@ -9,6 +9,7 @@ import { LIMITS, textLength } from "../lib/limits.ts";
 import type { User } from "../lib/types.ts";
 import type { View } from "../router.ts";
 import { createScope } from "../scope.ts";
+import { savedTheme, setTheme, THEME_KEY, THEMES, type Theme } from "../theme.ts";
 import { avatar } from "../ui/avatar.ts";
 
 /** Longest edge of an uploaded avatar (§15.3). */
@@ -82,6 +83,21 @@ export function createProfileView({ api, store, logOut }: Ctx): View {
   };
   const pwBtn = h("button", { type: "submit", class: "primary" }, "Change password");
   const pwStatus = h("p", { class: "field-status", role: "status" });
+
+  // Appearance (§7.8): this device's theme, not the account's.
+  const THEME_LABELS: Record<Theme, string> = { auto: "Auto", light: "Light", dark: "Dark" };
+  const themeRadios = new Map<Theme, HTMLInputElement>();
+  const themeChoices = h("div", { class: "segmented" }, [
+    ...THEMES.map((t) => {
+      const input = h("input", { type: "radio", name: `${vid}-theme`, value: t });
+      themeRadios.set(t, input);
+      return h("label", {}, [input, THEME_LABELS[t]]);
+    }),
+  ]);
+  const showTheme = () => {
+    const theme = savedTheme();
+    for (const [t, input] of themeRadios) input.checked = t === theme;
+  };
 
   function dropPreview() {
     if (preview) URL.revokeObjectURL(preview);
@@ -278,6 +294,11 @@ export function createProfileView({ api, store, logOut }: Ctx): View {
             },
             [h("h2", { id: `${vid}-pw-title` }, "Password"), pw.current.el, pw.next.el, pw.confirm.el, pwBtn, pwStatus],
           ),
+          h("fieldset", { class: "profile-theme", "aria-describedby": `${vid}-theme-hint` }, [
+            h("legend", {}, "Appearance"),
+            themeChoices,
+            h("p", { id: `${vid}-theme-hint`, class: "field-status" }, "Auto follows your system. Saved on this device."),
+          ]),
           h("section", { class: "profile-session", "aria-labelledby": `${vid}-session-title` }, [
             h("h2", { id: `${vid}-session-title` }, "Session"),
             h("button", { type: "button", class: "danger", on: { click: () => logOut() }, signal }, "Log out"),
@@ -287,6 +308,17 @@ export function createProfileView({ api, store, logOut }: Ctx): View {
       clear(root);
       root.append(shell);
       renderPicture();
+      showTheme();
+      themeChoices.addEventListener(
+        "change",
+        (e) => {
+          const t = (e.target as HTMLInputElement).value as Theme;
+          if ((THEMES as readonly string[]).includes(t)) setTheme(t);
+        },
+        { signal },
+      );
+      // Chosen in another tab (theme.ts applies it): show it here too.
+      addEventListener("storage", (e) => (e.key === THEME_KEY || e.key === null) && showTheme(), { signal });
       scope.defer(
         store.subscribe((s, prev) => {
           if (s.user === prev.user) return;

@@ -219,6 +219,58 @@ describe("app boot (§7.1)", () => {
     await again.unsubscribeAll();
   });
 
+  it("Ctrl+K or Ctrl+P (⌘ too, any keyboard layout) opens Jump to from anywhere, and goes to the room picked (§32)", async () => {
+    const { api } = await signedUp("Ada");
+    const r1 = await api.createRoom(`one-${newId()}`);
+    const r2 = await api.createRoom(`two-${newId()}`);
+    const r3 = await api.createRoom(`three-${newId()}`); // the newest, but never opened
+    history.replaceState(null, "", `/r/${r1.id}`);
+    app = startApp({ api, root });
+    await vi.waitFor(() => expect(root.querySelector("header.room-header h1")?.textContent).toBe(`#${r1.name}`));
+    await vi.waitFor(() => expect(app!.store.get().rooms.has(r3.id)).toBe(true));
+    const press = (init: KeyboardEventInit, at: Element = document.activeElement ?? document.body) => {
+      const e = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init });
+      at.dispatchEvent(e);
+      return e.defaultPrevented;
+    };
+    const dialog = () => root.querySelector<HTMLDialogElement>("dialog.switcher");
+    // Not with Shift or Alt (Ctrl+Shift+P is a private window), nor without Ctrl.
+    expect(press({ key: "P", code: "KeyP", ctrlKey: true, shiftKey: true })).toBe(false);
+    expect(press({ key: "k", code: "KeyK" })).toBe(false);
+    // From the composer; a Cyrillic layout types "л" on K.
+    expect(press({ key: "л", code: "KeyK", ctrlKey: true }, root.querySelector("form.composer textarea")!)).toBe(true);
+    await vi.waitFor(() => expect(dialog()?.open).toBe(true));
+    // Held down: the repeats don't close it (QA BUG-137).
+    expect(press({ key: "л", code: "KeyK", ctrlKey: true, repeat: true })).toBe(true);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(dialog()!.open).toBe(true);
+    expect(press({ key: "p", code: "KeyP", metaKey: true })).toBe(true); // again: closes
+    await vi.waitFor(() => expect(dialog()!.open).toBe(false));
+    press({ key: "p", code: "KeyP", ctrlKey: true });
+    await vi.waitFor(() => expect(dialog()!.open).toBe(true));
+    const input = dialog()!.querySelector("input")!;
+    input.value = r2.name;
+    input.dispatchEvent(new Event("input"));
+    press({ key: "Enter" }, input);
+    await vi.waitFor(() => expect(root.querySelector("header.room-header h1")?.textContent).toBe(`#${r2.name}`));
+    expect(location.pathname).toBe(`/r/${r2.id}`);
+    expect(dialog()!.open).toBe(false);
+    // Ctrl+K Enter: back where you were, though no message says the room was recent (QA BUG-134).
+    press({ key: "k", ctrlKey: true });
+    await vi.waitFor(() => expect(dialog()!.open).toBe(true));
+    press({ key: "Enter" }, input);
+    await vi.waitFor(() => expect(location.pathname).toBe(`/r/${r1.id}`));
+    // Logging out closes it: it lists the last user's rooms (QA BUG-136).
+    press({ key: "k", ctrlKey: true });
+    await vi.waitFor(() => expect(dialog()!.open).toBe(true));
+    app.logOut();
+    await vi.waitFor(() => expect(dialog()!.open).toBe(false));
+    app.stop();
+    app = undefined;
+    expect(press({ key: "k", ctrlKey: true })).toBe(false); // gone with the app
+    await api.unsubscribeAll();
+  });
+
   it("switching rooms keeps the sidebar mounted: no refetch, and a half-typed room name survives", async () => {
     const { api } = await signedUp("Ada");
     const ctl = instrument(api);

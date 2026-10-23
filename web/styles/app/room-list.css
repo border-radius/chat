@@ -55,6 +55,24 @@
   cursor: pointer;
 }
 
+/* A heading that folds its section, marked like the Hidden and Archived summaries. */
+.fold {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+}
+
+.fold::before {
+  content: "▾ ";
+}
+
+.fold[aria-expanded="false"]::before {
+  content: "▸ ";
+}
+
 .room-section ul {
   margin: 0;
   padding: 0;
@@ -159,7 +177,7 @@
   list-style: none;
 }
 
-.search-results button.person {
+.search-results .person {
   display: flex;
   gap: 0.5rem;
   align-items: center;
@@ -171,7 +189,8 @@
 }
 
 /* A long name ends in "…" rather than running out of the list. */
-.search-results button.person > span:last-child {
+.search-results .person > span:last-child,
+.switcher .name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

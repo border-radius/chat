@@ -290,7 +290,7 @@ The hooks are kept small. They only do things the rules can't express:
 - **Edit stamp:** on a `messages` update where `text` actually changed (and it isn't a delete), set `edited_at = now`. An update that doesn't change the text leaves it untouched.
 - **Archive stamp:** on a `rooms` update, set `archived_at = now` when `archived` becomes true, and clear it when `archived` becomes false.
 - **Archived-room guard (defense in depth):** reject a message create, update or delete when the target room is archived. This repeats the API rule in case rule traversal through `@request.body.room.archived` behaves differently in the pinned PocketBase version. Integration tests cover both layers.
-- **Security headers** via `routerUse`: every response gets `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`. Static app paths also get `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`. The CSP is *not* applied to `/api/*` or to the admin UI `/_/`, which sends its own CSP.
+- **Security headers** via `routerUse`: every response gets `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`. Static app paths also get `Content-Security-Policy: default-src 'self'; script-src 'self' 'sha256-…'; style-src 'self'; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`. The hash allows index.html's one inline script, which sets the chosen theme before the first paint (§7.8). The CSP is *not* applied to `/api/*` or to the admin UI `/_/`, which sends its own CSP.
 - **Cache headers:** `/assets/*` (content-hashed) gets `Cache-Control: public, max-age=31536000, immutable`. Every other static path, including `/` and `index.html`, gets `no-cache`.
 - **No `index.html` for a missing asset or API:** PocketBase serves `index.html` for any path that isn't a file (§7.1). Under `/assets/` (a route of ours, `GET /assets/{path...}`) a missing file is a 404 with `Cache-Control: no-store` instead: an old build's lazy chunk, asked for by a tab left open across a deploy, would otherwise get HTML (useless as a script) cached for a year under its hashed name. An unknown `/api/` path is a JSON 404 too, not the app's page.
 - **Rate limiting:** PocketBase's built-in limiter, enabled from the init migration. The limits are per client IP:
@@ -353,6 +353,8 @@ Filters are always built with `pb.filter()` and never by string concatenation, w
 3. **Archived:** collapsed by default. Rooms here are read-only and still browsable.
 
 A room hidden by the user that is also archived appears only under Archived.
+
+The Rooms, Direct messages and Collections headings are buttons (`aria-expanded`) that fold their section. A folded section still lists its unread rooms (collections with new items) and the open one, so nothing new is missed. Which sections are folded is kept in this browser (`localStorage`, `chat.folded`).
 
 **The room header menu (⋯) has three actions:**
 
@@ -567,7 +569,9 @@ Other rules:
 ### 7.8 Styling
 
 - One plain CSS file with custom properties for theming.
-- `prefers-color-scheme` light and dark themes.
+- `prefers-color-scheme` light and dark themes. The profile page's Appearance switch (Auto, Light, Dark) overrides it on
+  this device: kept in localStorage (`chat.theme`), not the account, and set as `<html data-theme>` by an inline script
+  in `index.html` before the first paint (allowed by its CSP hash, §5.6), so a reload never flashes the other theme.
 - Mobile-first layout using flexbox and grid. The sidebar collapses below 720 px.
 - Accessibility basics:
   - Semantic HTML (`<main>`, `<nav>`, `<form>`, `<ol>` for messages).
@@ -1894,7 +1898,8 @@ else) removes that user's drafts. Storage that is full or disabled only means no
 
 `web/src/favicon.ts` sums the room list's badges (§18.4: not the open room, hidden or archived ones) and draws an SVG
 favicon (a speech bubble in the app's gradient) with a red badge holding the count (`99+` past 99); the title becomes
-"(3) Chat". `index.html` carries the plain icon, so the tab has one before the script runs.
+"(3) Chat". In a room, the title also names it as the room list does (`#name`, or the other member's name in a DM):
+"(3) #general – Chat". `index.html` carries the plain icon, so the tab has one before the script runs.
 
 While the tab is away (`document.visibilityState` is `hidden`, kept as `AppState.away` by `app.ts`), nobody is
 reading the open room, so its new messages count too: `unread.ts` counts them live, keeps the server's count for it
@@ -2564,7 +2569,9 @@ when the file it was saved from has one; otherwise the media worker (§30.1) mak
 - **`POST /api/chat/items`** `{ collection, message, file }` or `{ collection, item }` → the item. Yours only (403
   for someone else's you can see, 404 for one you can't); a message file you can see by the messages **view** rule (a
   forward's reader saves its original's, §21.3), not deleted, an image or video; or an item you can see. 409 when it
-  is in there already. `DELETE /api/chat/items/{id}`: the owner takes one out.
+  is in there already. As multipart `{ collection, file }`: an image or video of your own (20 MB at most) uploaded
+  straight into a collection of yours, a new item with no `origin` (two uploads of one file are two items).
+  `DELETE /api/chat/items/{id}`: the owner takes one out.
 - **`GET /api/chat/saved?message=&file=`** (or `?item=`) → `{ collection: item }`: which of your collections have it.
 - **Attaching:** a message create may name items (`items`, their ids: a JSON list in a form). They must be yours or in
   a public collection; their files are added after the uploads (10 in all), copied, with their names in `file_names`
@@ -2589,7 +2596,9 @@ when the file it was saved from has one; otherwise the media worker (§30.1) mak
 - **Sidebar:** a Collections section after Direct messages: yours (🔒 when private), then those you follow with their
   owner's name and a badge of new items (`99+`, " new" for screen readers). "+" opens the new-collection dialog.
 - **The page, `/c/:id`:** in the room pane, the sidebar kept. Its name, whose it is, Public or Private and how many
-  items; the owner can rename it, make it public or private and delete it (confirmed); others Subscribe or
+  items; the owner can upload images and videos into it (Upload, several at once, or dropped on the page: one at a
+  time with the percentage sent, what isn't an image or video or is over 20 MB named and left out, a rate limit
+  waited out), rename it, make it public or private and delete it (confirmed); others Subscribe or
   Unsubscribe. The items as square tiles, newest first under month headings, 60 at a time (the records API, cursor
   on `(created, id)`). Items added since your `seen_at` have a ring and a dot, and "*n* new since your last visit" says
   how many; once they are on screen in a visible tab the page sends `seen` with the newest item's `created`, and the
@@ -2619,7 +2628,8 @@ when the file it was saved from has one; otherwise the media worker (§30.1) mak
 - **Integration** (`collections.test.ts`): names unique per owner whatever the case; counters, owner and limits kept
   by the server; who sees which collection and item file (owner, others, guests; public and private); saving (a copy
   that outlives the message, the original name, 409 twice, only media, not deleted, only what you can see, a
-  forward's original, copying an item, saved at once: one copy kept); `/saved`; removing; attaching (after uploads, names, `file_sources`, the room's
+  forward's original, copying an item, saved at once: one copy kept); uploading (yours only, media only, 20 MB, its
+  thumbnail, then saved and attached as any item); `/saved`; removing; attaching (after uploads, names, `file_sources`, the room's
   rules for the copy, JSON and form bodies, forwards, only yours or public, no `file_sources` from a client, 10 at
   most, cleared by a delete); badges; subscriptions (not your own, not private, new counts, seen, unsubscribe; turned
   private: hidden and told live); the count's query plan; item thumbnails and posters (copied along, or made by
@@ -2628,4 +2638,42 @@ when the file it was saved from has one; otherwise the media worker (§30.1) mak
 - **E2E** (`collections.spec.ts`): make one from the sidebar, save from a tile, its page; another user subscribes,
   sees "1 new" live, opens it with the new item highlighted and the badge gone; attaches it from the picker and the
   message's badge links to it; made private, the badge says "Private collection" (not a link) to others and still
-  names it to the owner; axe on the page. Saving and unsaving from the viewer.
+  names it to the owner; axe on the page. Saving and unsaving from the viewer. Uploading with the button (a PDF
+  refused by name) and by dropping; no Upload on someone else's.
+
+## 32. Jump to
+
+**Ctrl+K** or **Ctrl+P** (⌘K, ⌘P on a Mac) anywhere in the app, the composer included, opens a "Jump to" dialog: a
+field and the rooms, DMs and collections you can go to. Typing narrows the list; ↑/↓ choose (wrapping), Enter or a
+click goes there, Escape, a click outside or the shortcut again closes it. The browser's own meaning of those keys
+(the search bar, printing) is prevented; Ctrl+Shift+P (a private window) and anything with Alt are left alone. On a
+layout that types no Latin letter there (Cyrillic: Ctrl+Л) the key's place counts (`KeyK`, `KeyP`). Guests jump
+between the Open Air rooms.
+
+- **What is listed:** the sidebar's rooms, open DMs (titled after the other member, with their avatar) and your
+  collections and those you follow, from the store: no request. Hidden and archived rooms are found when typed for,
+  marked "Hidden" / "Archived", after the others that match as well. Unread rooms and collections with new items
+  carry the sidebar's badge.
+- **With nothing typed:** most recent first, by the later of a DM's latest message (`last_message_at`; rooms have
+  none, §16), a collection's latest item or a room's creation, and when it was last open in this tab (`app.ts`
+  notes it as you go, forgotten on reload and when the session changes); the page you are on last: Ctrl+K Enter goes
+  back to where you were before. At most 50 shown, where you are still last.
+- **Matching** (`matches` in `views/switcher.ts`): names folded (case, accents, width: "ete" finds "Été"), a leading
+  `#` or `@` ignored. Best first: the whole name, its start, a word's start (`ops` in `dev-ops`), inside a word, then
+  its letters in order (`gnrl`); then not hidden or archived, then most recent.
+- **Accessibility:** a modal `<dialog>` named "Jump to"; the field a `combobox` controlling a `listbox` of options,
+  the chosen one by `aria-activedescendant`, so focus stays in the field; "Nothing found." in a `role=status` line.
+  Closing gives focus back to where it was; going to a room focuses its composer as usual (§22.5).
+- **Loading:** `views/switcher.ts` is a lazy chunk like search (§29), imported on the first press and appended to the
+  app's root (removed with it). Types only; `app.ts` gives it `h`, the store, `roomSections`, `unreadCount`,
+  `otherMember`, the visibility icon, the avatar, `navigate` and when each page was last open. It closes when the
+  session changes (logging out, another account), and a held-down shortcut doesn't toggle it on every repeat. Its few styles are the forward dialog's (§21.3) plus
+  a chosen option, in `selection.css`.
+
+### 32.1 Tests
+
+- **Unit** (`views/switcher.test.ts`): folding, ranking, the empty-query order (most recent, current last, no hidden
+  or archived), `#`/`@`, notes and badges; the dialog: focus, arrows wrapping, Enter, click, "Nothing found.",
+  opening again starts empty. `app.test.ts`: Ctrl+K from the composer (by key place on a Cyrillic layout), ⌘P again
+  closes, a repeat ignored, Ctrl+Shift+P and plain K ignored, Enter goes to the room, Ctrl+K Enter back to the room
+  before (a newer room never opened notwithstanding), closed on logout, nothing after the app stops.

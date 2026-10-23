@@ -6,7 +6,8 @@ const { resolve } = process.getBuiltinModule("node:path") as typeof import("node
 
 const css = readFileSync(resolve(import.meta.dirname, "../../../web/styles/app/tokens.css"), "utf8");
 
-/** The color tokens of the first block of `css` that declares `--bg` after `from` (light: `:root`, dark: its media query). */
+/** The color tokens of the first block of `css` that declares `--bg` after `from` (light: `:root`, dark: its media query or
+ * `[data-theme="dark"]`). */
 function tokens(from: number): Record<string, string> {
   const start = css.indexOf("--bg:", from);
   const block = css.slice(start, css.indexOf("}", start));
@@ -29,6 +30,14 @@ function contrast(a: string, b: string): number {
 
 describe("theme colors (WCAG 2.1 AA, 4.5:1 for text)", () => {
   const themes = { light: tokens(0), dark: tokens(css.indexOf("prefers-color-scheme: dark")) };
+
+  it("the chosen dark theme is the system's dark theme (§7.8)", () => {
+    const chosen = css.indexOf('[data-theme="dark"]');
+    expect(chosen).toBeGreaterThan(0);
+    expect(tokens(chosen)).toEqual(themes.dark);
+    const shadow = (from: number) => css.slice(from).match(/--shadow:[^;]*;/)?.[0];
+    expect(shadow(chosen)).toBe(shadow(css.indexOf("prefers-color-scheme: dark")));
+  });
 
   for (const [theme, t] of Object.entries(themes)) {
     it(`${theme}: red text (Delete, errors) is readable on every background, hovered buttons included (QA BUG-57)`, () => {

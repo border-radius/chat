@@ -114,6 +114,35 @@ describe("POST /api/chat/items (§31)", () => {
     expect(new Uint8Array(await res.arrayBuffer())).toEqual(new Uint8Array(pngOf(64, 48)));
   });
 
+  it("uploads an image or video straight into a collection of yours, which can then be saved and attached", async () => {
+    const a = await newUser();
+    const b = await newUser();
+    const coll = await newCollection(a);
+    const up = (u: TestUser, body: Record<string, unknown>) => u.pb.send<Item>("/api/chat/items", { method: "POST", body });
+    const item = await up(a, { collection: coll.id, file: png("dog.png") });
+    expect(item).toMatchObject({ collection: coll.id, name: "dog.png", video: false });
+    const res = await fetch(fileUrl(item, item.file, await a.pb.files.getToken()));
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(new Uint8Array(pngOf(64, 48)));
+    const after = await a.pb.collection("collections").getOne(coll.id);
+    expect(after.items).toBe(1);
+    expect(after.last_added).not.toBe("");
+    // Twice is two items: an upload is never taken for a copy of another.
+    expect(await status(up(a, { collection: coll.id, file: png("dog.png") }))).toBe(200);
+    expect(await status(up(a, { collection: coll.id, file: pdf("doc.pdf") }))).toBe(400);
+    expect(await status(up(a, { collection: coll.id, file: new File([new Uint8Array(20 * 1024 * 1024 + 1)], "big.png") }))).toBe(400);
+    expect(await status(up(b, { collection: coll.id, file: png("x.png") }))).toBe(404);
+    await a.pb.collection("collections").update(coll.id, { public: true });
+    expect(await status(up(b, { collection: coll.id, file: png("x.png") }))).toBe(403);
+    expect((await a.pb.collection("collections").getOne(coll.id)).items).toBe(2);
+    // As any item: saved into another collection, and attached to a message.
+    const copy = await save(a, { collection: (await newCollection(a)).id, item: item.id });
+    expect(copy.name).toBe("dog.png");
+    const msg = await send(a, (await newRoom(a)).id, { items: [item.id] });
+    expect(msg.file_names[msg.files[0]]).toBe("dog.png");
+    await tick();
+    expect(stored(item.id, `thumbs_${item.file}/240x240_${item.file}`)).toBe(true);
+  });
+
   it("keeps a private collection's files to its owner, a public one's to anyone (guests too)", async () => {
     const a = await newUser();
     const b = await newUser();

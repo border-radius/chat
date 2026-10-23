@@ -60,6 +60,10 @@ type From = { message: string; file: string } | { item: string };
 /** A collection's page of items, as the media grid's (§30.2). */
 const PAGE = 60;
 const RECORDS = "/api/collections/collections/records";
+/** What can be uploaded into a collection: the images and videos of lib/files.ts (not imported: app.js has it), at most 20 MB. */
+const MEDIA = /\.(jpe?g|png|gif|webp|avif|mp4|m4v|webm|mov|ogv)$/i;
+const ACCEPT = ".jpg,.jpeg,.png,.gif,.webp,.avif,.mp4,.m4v,.webm,.mov,.ogv";
+const MAX_BYTES = 20 * 1024 * 1024;
 /** A value in a records filter (ids and dates here), quoted and escaped. */
 const lit = (v: string) => JSON.stringify(v);
 
@@ -96,9 +100,23 @@ function calls(api: Api) {
       const { items } = await api.request<{ items: CollectionItem[] }>("/api/collections/collection_items/records", { query, signal });
       return { items: items.slice(0, PAGE), more: items.length > PAGE };
     },
+    /** The ids of a collection's items from `oldest` on (it included): which of those shown are still there. */
+    async idsSince(collection: string, oldest: CollectionItem, signal: AbortSignal) {
+      const ids = new Set<string>();
+      const filter = `collection = ${lit(collection)} && (created > ${lit(oldest.created)} || (created = ${lit(oldest.created)} && id >= ${lit(oldest.id)}))`;
+      for (let page = 1; ; page++) {
+        const query = { filter, sort: "-created,-id", page, perPage: 1000, skipTotal: true, fields: "id" };
+        const { items } = await api.request<{ items: { id: string }[] }>("/api/collections/collection_items/records", { query, signal });
+        for (const x of items) ids.add(x.id);
+        if (items.length < 1000) return ids;
+      }
+    },
     /** A copy of a message's file or of an item in a collection of yours. 409: it is in there already. */
     save: (collection: string, from: From) =>
       api.request<CollectionItem>("/api/chat/items", { method: "POST", body: { collection, ...from } }),
+    /** An image or video of your own, uploaded straight into a collection of yours. */
+    upload: (collection: string, file: File, onUpload: (fraction: number) => void) =>
+      api.request<CollectionItem>("/api/chat/items", { method: "POST", body: { collection, file }, onUpload }),
     unsave: (item: string) => api.request(`/api/chat/items/${item}`, { method: "DELETE" }),
     /** Your collections that have the file already: collection id → item id. */
     savedIn: (from: From, signal: AbortSignal) => api.request<Record<string, string>>("/api/chat/saved", { query: from, signal }),
@@ -269,10 +287,70 @@ export async function mountCollection(root: HTMLElement, o: PageOptions): Promis
   const btn = (label: string, run: () => unknown, cls = "") =>
     h("button", { type: "button", class: cls, on: { click: () => void run() }, signal }, label);
   const count = (n: number) => `${n} ${n === 1 ? "item" : "items"}`;
-  const empty = () => (mine ? "Nothing here yet. Save images and videos from the chat." : "Nothing here yet.");
+  const empty = () => (mine ? "Nothing here yet. Upload images and videos, or save them from the chat." : "Nothing here yet.");
+
+  /** Files waiting to be uploaded (the owner's), one at a time; each comes in at the top once the store hears of it. */
+  const queue: File[] = [];
+  let sent = 0;
+  let busy = false;
+  let failed: string[] = [];
+  const picker = h("input", {
+    type: "file",
+    multiple: true,
+    accept: ACCEPT,
+    hidden: true,
+    on: {
+      change: () => {
+        upload([...(picker.files ?? [])]);
+        picker.value = "";
+      },
+    },
+    signal,
+  });
+  function upload(files: File[]) {
+    for (const f of files) {
+      if (!MEDIA.test(f.name)) failed.push(`${f.name}: not an image or video`);
+      else if (f.size > MAX_BYTES) failed.push(`${f.name}: larger than 20 MB`);
+      else queue.push(f);
+    }
+    if (busy) return;
+    if (!queue.length) return report();
+    busy = true;
+    void (async () => {
+      while (queue.length && !signal.aborted) {
+        const f = queue[0]!;
+        const at = `Uploading ${sent + 1} of ${sent + queue.length}…`;
+        notice.textContent = at;
+        try {
+          await call.upload(id, f, (x) => (notice.textContent = `${at} ${Math.round(x * 100)}%`));
+        } catch (e) {
+          // Too many at once (the server's rate limit): wait, then the same one again.
+          if ((e as { status?: number }).status === 429) {
+            notice.textContent = "Waiting for the server…";
+            await new Promise((r) => setTimeout(r, 10_000));
+            continue;
+          }
+          failed.push(`${f.name}: ${reason(e)}`);
+        }
+        queue.shift();
+        sent++;
+        o.service.refresh();
+      }
+      sent = 0;
+      busy = false;
+      report();
+    })();
+  }
+  /** After an upload: what didn't go, or nothing. */
+  function report() {
+    notice.textContent = failed.length ? `Couldn't upload ${failed.join("; ")}` : "";
+    failed = [];
+  }
 
   /** Renaming or confirming a delete: the actions stay as they are while the store changes. */
   let editing = false;
+  /** The button that was pressed to edit (Rename or Delete): it gets focus back. */
+  let back = "";
   /** What the actions were drawn for: they are drawn again only when that changes, so focus stays. */
   let drawn = "";
   function doneEditing() {
@@ -297,6 +375,7 @@ export async function mountCollection(root: HTMLElement, o: PageOptions): Promis
 
   function renameForm() {
     editing = true;
+    back = "Rename";
     const input = h("input", { value: info.name, "aria-label": "Collection name", autocomplete: "off" });
     const form = h(
       "form",
@@ -320,6 +399,7 @@ export async function mountCollection(root: HTMLElement, o: PageOptions): Promis
 
   function confirmDelete() {
     editing = true;
+    back = "Delete";
     actions.replaceChildren(
       h("span", {}, `Delete “${info.name}”${info.items ? ` and its ${count(info.items)}` : ""}? This can't be undone.`),
       btn(
@@ -353,6 +433,7 @@ export async function mountCollection(root: HTMLElement, o: PageOptions): Promis
     const focused = [...actions.children].findIndex((c) => c.contains(document.activeElement));
     if (mine) {
       actions.replaceChildren(
+        btn("Upload", () => picker.click()),
         btn("Rename", renameForm),
         btn(info.public ? "Make private" : "Make public", () => change({ public: !info.public })),
         btn("Delete", confirmDelete, "danger"),
@@ -373,9 +454,25 @@ export async function mountCollection(root: HTMLElement, o: PageOptions): Promis
       b.setAttribute("aria-pressed", String(following));
       actions.replaceChildren(b);
     } else actions.replaceChildren();
-    if (focused >= 0) (actions.children[focused] as HTMLElement | undefined)?.focus();
+    const kids = [...actions.children] as HTMLElement[];
+    if (focused >= 0) (kids.find((c) => back && c.textContent === back) ?? kids[focused])?.focus();
+    back = "";
   }
   renderHead();
+  if (mine) {
+    root.firstElementChild!.append(picker);
+    const files = (e: DragEvent) => e.dataTransfer?.types.includes("Files");
+    root.addEventListener("dragover", (e) => files(e) && e.preventDefault(), { signal });
+    root.addEventListener(
+      "drop",
+      (e) => {
+        if (!files(e)) return;
+        e.preventDefault();
+        upload([...(e.dataTransfer?.files ?? [])]);
+      },
+      { signal },
+    );
+  }
 
   /** The newest item's `created` (or the collection's last_added), to send as seen once the tab is visible. */
   let unseen = "";
@@ -396,6 +493,8 @@ export async function mountCollection(root: HTMLElement, o: PageOptions): Promis
     if (c) {
       info = { ...info, name: c.name, public: c.public, items: c.items };
       if (last && c.last_added !== last.last_added) void newer();
+      // Some may have been taken out (the save menu, another tab): the gone ones leave the grid.
+      if (last && c.items < last.items + (c.last_added !== last.last_added ? 1 : 0)) void prune();
       if (c.new) {
         unseen = c.last_added;
         markSeen();
@@ -487,20 +586,41 @@ export async function mountCollection(root: HTMLElement, o: PageOptions): Promis
     const cells = [...grid.querySelectorAll(".coll-cell")];
     const at = cells.indexOf(cell);
     const to = cells[at + 1] ?? cells[at - 1];
-    const [before, after] = [cell.previousElementSibling, cell.nextElementSibling];
-    cell.remove();
-    pages.items.splice(pages.items.indexOf(it), 1);
-    // The last of its month: the month's heading goes too.
-    if (before?.tagName === "H3" && (!after || after.tagName === "H3")) {
-      before.remove();
-      if (!after) month = "";
-    }
-    if (pages.done && !pages.items.length) status.textContent = empty();
+    drop(it);
     info = { ...info, items: Math.max(0, info.items - 1) };
     renderHead();
     // Focus stays in the grid (the next one's Remove), or goes to the actions once it is empty.
     (to?.querySelector<HTMLElement>(".coll-remove") ?? actions.querySelector("button"))?.focus();
     o.service.refresh();
+  }
+
+  /** An item no longer in the collection: its cell goes, and its month's heading when it was the last of it. */
+  function drop(it: CollectionItem) {
+    const at = pages.items.indexOf(it);
+    if (at < 0) return;
+    pages.items.splice(at, 1);
+    const cell = [...grid.querySelectorAll<HTMLElement>(".coll-cell")].find((c) => c.dataset.item === it.id);
+    if (cell) {
+      const [before, after] = [cell.previousElementSibling, cell.nextElementSibling];
+      if (cell.contains(document.activeElement)) (after?.querySelector<HTMLElement>("button") ?? actions.querySelector("button"))?.focus();
+      cell.remove();
+      if (before?.tagName === "H3" && (!after || after.tagName === "H3")) {
+        before.remove();
+        if (!after) month = "";
+      }
+    }
+    if (pages.done && !pages.items.length) status.textContent = empty();
+  }
+
+  /** Taken out elsewhere (the save menu, another tab): those shown that are gone go from the grid. */
+  let pruned = 0;
+  async function prune() {
+    const seq = ++pruned;
+    const shown = [...pages.items];
+    const oldest = shown.at(-1);
+    const ids = oldest && (await call.idsSince(id, oldest, signal).catch(() => null));
+    if (!ids || seq !== pruned || signal.aborted) return;
+    for (const it of shown.filter((x) => !ids.has(x.id))) drop(it);
   }
 
   async function more() {

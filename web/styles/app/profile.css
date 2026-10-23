@@ -39,8 +39,57 @@ label.button.disabled {
 
 .profile-name,
 .profile-password,
+.profile-theme,
 .profile-session {
   margin-top: 1.5rem;
+}
+
+/* Appearance (§7.8): Auto / Light / Dark as one pill of radio buttons. */
+.profile-theme {
+  margin-inline: 0;
+  padding: 0;
+  border: 0;
+}
+
+.profile-theme legend {
+  margin-bottom: 0.5rem;
+  padding: 0;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.segmented {
+  display: inline-flex;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--pill);
+  background: var(--surface);
+}
+
+.segmented label {
+  position: relative;
+  padding: 0.35rem 1rem;
+  border-radius: var(--pill);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.segmented label:has(input:checked) {
+  background: var(--raised);
+  color: var(--accent);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 15%);
+}
+
+.segmented label:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.segmented input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .profile-password {

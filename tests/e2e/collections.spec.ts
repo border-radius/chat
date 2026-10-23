@@ -248,13 +248,16 @@ test("collections: the page follows changes; renaming, removing and the dialogs 
   await a.getByRole("button", { name: /^Remove cat\.png/ }).click();
   await expect(a.locator(".coll-grid h3")).toHaveCount(0);
   await expect(a.locator(".collection .media-status")).toHaveText(/Nothing here yet/);
-  await expect(a.getByRole("button", { name: "Rename" })).toBeFocused();
+  await expect(a.getByRole("button", { name: "Upload" })).toBeFocused();
   await a.getByRole("button", { name: "Delete" }).click();
   await expect(a.locator(".coll-actions")).toContainText("Delete “Pets”? This can't be undone.");
 
   // BUG-132: the picker says why nothing can be picked when the message is full.
   await a.goto(`/r/${room.id}`);
-  await attach(a, Array.from({ length: 10 }, (_, i) => ({ name: `f${i}.png`, mimeType: "image/png", buffer: Buffer.from(PNG) })));
+  await attach(
+    a,
+    Array.from({ length: 10 }, (_, i) => ({ name: `f${i}.png`, mimeType: "image/png", buffer: Buffer.from(PNG) })),
+  );
   await a.getByRole("button", { name: "Attach from collections" }).click();
   await expect(a.getByRole("dialog", { name: "Attach from collections" })).toContainText("The message has all the files it can take.");
   await a.keyboard.press("Escape");
@@ -264,4 +267,90 @@ test("collections: the page follows changes; renaming, removing and the dialogs 
   await a.setViewportSize({ width: 375, height: 700 });
   await a.getByRole("link", { name: "Back to rooms" }).click();
   await expect(a).toHaveURL(/\/$/);
+});
+
+test("collections: the page drops what is taken out elsewhere: the save menu, another tab", async ({ browser }) => {
+  const ada = await apiUser("Ada");
+  const bob = await apiUser("Bob");
+  const room = await apiRoom(ada);
+  const cat = await sendImages(ada, room, "cat", ["cat.png"]);
+  const dog = await sendImages(ada, room, "dog", ["dog.png"]);
+  const { id } = await apiCollection(ada, "Pets", true);
+  await apiSave(ada, id, cat);
+  await apiSave(ada, id, dog);
+  const a = await openRoom(browser, ada, room);
+  await a.goto(`/c/${id}`);
+  await expect(a.locator(".coll-grid .media-tile")).toHaveCount(2);
+  const b = await openRoom(browser, bob, room);
+  await b.goto(`/c/${id}`);
+  await b.getByRole("button", { name: "Subscribe" }).click();
+  await expect(sidebarRow(b, "Pets")).toBeVisible();
+
+  // Unticked in the tile's save menu: the tile goes, for the owner and for a follower.
+  await a.getByRole("button", { name: "Save dog.png to collection" }).click();
+  const menu = a.getByRole("dialog", { name: "Save to collection" });
+  await menu.getByRole("checkbox", { name: "Pets" }).uncheck();
+  await expect(menu.getByRole("status")).toHaveText("Removed.");
+  await a.keyboard.press("Escape");
+  await expect(a.locator(".coll-grid .media-tile")).toHaveCount(1);
+  await expect(a.locator(".coll-grid .media-tile")).toHaveAccessibleName("cat.png");
+  await expect(a.locator(".coll-head .coll-meta")).toContainText("1 item");
+  await expect(b.locator(".coll-grid .media-tile")).toHaveCount(1);
+  await expect(b.locator(".coll-grid .media-tile")).toHaveAccessibleName("cat.png");
+
+  // Taken out through the API (another tab): the last one goes, with its month, and the page says it is empty.
+  const { items } = (await (
+    await fetch(`${E2E_BASE}/api/collections/collection_items/records?filter=${encodeURIComponent(`collection = "${id}"`)}`, {
+      headers: { authorization: ada.token },
+    })
+  ).json()) as { items: { id: string }[] };
+  const res = await fetch(`${E2E_BASE}/api/chat/items/${items[0]!.id}`, { method: "DELETE", headers: { authorization: ada.token } });
+  expect(res.ok).toBe(true);
+  for (const p of [a, b]) {
+    await expect(p.locator(".coll-grid .media-tile")).toHaveCount(0);
+    await expect(p.locator(".coll-grid h3")).toHaveCount(0);
+    await expect(p.locator(".collection .media-status")).toHaveText(/Nothing here yet/);
+  }
+});
+
+test("collections: the owner uploads images straight into one, with the button or by dropping them (§31)", async ({ browser }) => {
+  const ada = await apiUser("Ada");
+  const room = await apiRoom(ada);
+  const { id } = await apiCollection(ada, "Uploads", false);
+  const a = await openRoom(browser, ada, room);
+  await a.goto(`/c/${id}`);
+  await expect(a.getByText("Nothing here yet. Upload images", { exact: false })).toBeVisible();
+
+  // Two images and a PDF: the images go in, the PDF is named as refused.
+  const chooser = a.waitForEvent("filechooser");
+  await a.getByRole("button", { name: "Upload" }).click();
+  await (await chooser).setFiles([
+    { name: "one.png", mimeType: "image/png", buffer: Buffer.from(PNG) },
+    { name: "two.png", mimeType: "image/png", buffer: Buffer.from(PNG) },
+    { name: "doc.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4") },
+  ]);
+  await expect(a.locator(".coll-grid .media-tile")).toHaveCount(2);
+  await expect(a.locator(".coll-notice")).toHaveText(/Couldn't upload doc\.pdf: not an image or video/);
+  await expect(a.locator(".coll-head .coll-meta")).toHaveText("Yours · 🔒 Private · 2 items");
+
+  // Dropped on the page.
+  const drop = await a.evaluateHandle(
+    (png) => {
+      const dt = new DataTransfer();
+      dt.items.add(new File([new Uint8Array(png)], "three.png", { type: "image/png" }));
+      return dt;
+    },
+    [...PNG],
+  );
+  await a.locator(".coll-grid").dispatchEvent("drop", { dataTransfer: drop });
+  await expect(a.locator(".coll-grid .media-tile")).toHaveCount(3);
+  await expect(a.locator(".coll-grid .media-tile").first()).toHaveAccessibleName(/^three\.png/);
+
+  // Someone else's collection has no Upload.
+  const bob = await apiUser("Bob");
+  const pub = await apiCollection(ada, "Shown", true);
+  const b = await openRoom(browser, bob, room);
+  await b.goto(`/c/${pub.id}`);
+  await expect(b.getByRole("button", { name: "Subscribe" })).toBeVisible();
+  await expect(b.getByRole("button", { name: "Upload" })).toHaveCount(0);
 });

@@ -1441,3 +1441,73 @@ Not changed, by design or for a decision:
 - A collection that turned private stays followed (§31.1): its follower can't unsubscribe until it is public again.
 - The picker doesn't mark the items already in the tray; picking one again adds nothing.
 - An item removed in another tab keeps its tile on an open page until it is opened again; opening it fails to load.
+
+---
+
+# QA pass 19 — Jump to, Appearance, the tab title, then the whole app
+
+Exploratory testing of the features added since pass 18: Jump to (§32), the Appearance switch (§7.8) and the room name
+in the tab title (§22.4), 2026-10-23. A production build on a fresh PocketBase server, in Chromium (390 and 1000–1100 px
+wide, the system light or dark under each Appearance choice), as members, DM partners and guests, plus four randomized
+runs (desktop and phone, with and without the service worker; switching, reloads, Back, permalinks, the media grid,
+sends and now Jump to, checked against the server after every step: no mismatch, no page error). Numbering continues
+from BUG-133. Each fix lands with a test that fails without it.
+
+| # | Severity | Area | Summary | Status |
+|---|---|---|---|---|
+| BUG-134 | Medium | Jump to | With nothing typed, rooms came newest-created first, whatever you had been doing: only DMs carry a latest-message time. Ctrl+K Enter went to the newest room, not back to where you were | Fixed |
+| BUG-135 | Medium | Layout | A page taller than the window (the profile since Appearance, a long collection) scrolled the whole layout: the sidebar slid away with it and left an empty strip | Fixed |
+| BUG-136 | Low | Jump to | Left open in another tab, Jump to kept listing the last user's rooms after logging out (or into another account) | Fixed |
+| BUG-137 | Low | Jump to | Holding Ctrl+K opened and closed the dialog on every key repeat | Fixed |
+| BUG-138 | Low | Jump to | An emoji in what you typed never matched by letters in order ("🍕z" didn't find "🍕 pizza") | Fixed |
+| BUG-139 | Low | Jump to | With more than 50 rooms, the room you are in (listed last) was the one cut off; the e2e test failed on a busy server | Fixed |
+
+## BUG-134 — Jump to's "most recent first" wasn't (Medium)
+
+**Steps:** in a few rooms with messages, open one, then another; press Ctrl+K.
+**Expected:** the room you came from first (§32: Ctrl+K Enter goes back).
+**Actual:** the rooms in the order they were created, newest first; Ctrl+K Enter opened a room you hadn't been in.
+**Cause:** the order went by `last_message_at`, which only DMs have (a hook sets it, §16); a room fell back to its
+`created`. The unit tests gave every room a `last_message_at`, so they passed.
+**Fix:** `app.ts` notes when each room and collection was last open (the page entered and the page left, since the
+first may have opened before it listened), and Jump to sorts by the later of that and the room's own time. In memory
+only, forgotten when the session changes.
+
+## BUG-135 — The sidebar scrolled away with a tall page (Medium)
+
+**Steps:** at a window under ~930 px high, open your profile (or a collection with many items) and scroll down.
+**Expected:** the page scrolls; the sidebar stays.
+**Actual:** `.app-main` scrolled, sidebar and all: the room list slid up and its background ended mid-window.
+**Fix:** `.pane` scrolls on its own (`overflow-y: auto`). The room view was always the pane's height, so nothing else
+changes; a collection's pages still load as you scroll (130 of 130 items, wide and narrow).
+
+## BUG-136, BUG-137, BUG-138, BUG-139 (Low)
+
+- **BUG-136:** the dialog closes when the user changes (by id: a rename keeps it), and the last-open times are
+  forgotten.
+- **BUG-137:** a repeated keydown is ignored (still prevented, so the browser's search bar doesn't open either).
+- **BUG-138:** the letters of a query are split by code point, as the name is read.
+- **BUG-139:** with nothing typed, the others are cut to make room for where you are. Found by `switcher.spec.ts` in
+  a full e2e run (70 rooms by then), not alone.
+
+## Checked and fine
+
+- **Jump to:** from the composer, a menu, selection mode, the forward and new-room dialogs, the media grid, the viewer
+  and message search (each left behind or closed, and Back right after); a DM by the partner's name; hidden and
+  archived rooms only when typed, opening into a working room; collections; the room you are in (no new history
+  entry); IME composition Enter (doesn't go); a pointer resting where the list opens doesn't choose; Escape, the
+  shortcut again, focus back to the composer; a room created while it is open (found when typed); phone width; guests;
+  a draft kept across jumps; axe in both themes, empty and with results.
+- **Appearance:** each choice under a light and a dark system, across the room, Jump to, the media grid, a collection;
+  another tab follows; arrow keys between the choices with a visible focus ring; `theme-color` follows; no CSP report
+  for the inline script; axe on the profile in both themes.
+- **Tab title:** room, DM, after a rename (live), after losing access to a private room, on the profile and a
+  collection (site title), unread count in front.
+- Typecheck, lint, unit (674), integration (407) and the Chromium e2e suite (71) after the fixes; in one full run the
+  viewer specs at attachments.spec.ts:456 and :493 timed out waiting for an upload under load, and passed 8/8 alone.
+
+Not changed, by design or for a decision:
+- A DM partner's rename shows in the DM's name (sidebar, header, tab title, Jump to) only after a reload, as before
+  Jump to; user records aren't followed live.
+- The tab title on a collection's page is the site's title alone (§22.4 names only rooms).
+- `app.js` is 47.02 of 46.05 KB gzipped (+0.08 KB from these fixes; it was already over before this pass).

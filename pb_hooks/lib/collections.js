@@ -4,8 +4,9 @@
 // - collections hooks: a clean name, unique among the owner's (case folded), at most MAX_COLLECTIONS each; when one
 //   turns private or public, its subscribers hear of it (their own collection_subs rows are saved again).
 // - POST /api/chat/items: a copy of a message's image or video (or of another collection's item) in a collection of
-//   yours. DELETE /api/chat/items/{id}: the owner takes one out. GET /api/chat/saved?message=&file= (or ?item=): which
-//   of your collections have that file already.
+//   yours, or (multipart { collection, file }) an image or video uploaded straight into one. DELETE
+//   /api/chat/items/{id}: the owner takes one out. GET /api/chat/saved?message=&file= (or ?item=): which of your
+//   collections have that file already.
 // - Messages: a create may name collection items (`items`) whose files it attaches, copied into the message
 //   (attachItems), and file_sources says which collection each came from.
 // - GET /api/chat/collections: yours and the public ones you follow, with how many items are new in those.
@@ -240,7 +241,7 @@ const itemOut = (item) => ({
 /**
  * POST /api/chat/items { collection, message, file } or { collection, item } → the new item: a copy of a message's
  * image or video (one you can see: a forward's original too, §21.3) or of an item you can see, in a collection of
- * yours. 409 when the same file is in it already.
+ * yours. 409 when the same file is in it already. Multipart { collection, file }: the upload itself (addUpload).
  * @param {core.RequestEvent} e
  */
 function saveItem(e) {
@@ -251,6 +252,8 @@ function saveItem(e) {
   if (!coll || !canView(e, coll)) throw new NotFoundError("The collection doesn't exist.");
   if (coll.getString("owner") !== user.id) throw new ForbiddenError("You can only add to your own collections.");
   if (coll.getInt("items") >= MAX_ITEMS) throw badRequest("collection", `A collection holds at most ${MAX_ITEMS} items.`);
+  const upload = uploaded(e);
+  if (upload) return e.json(200, itemOut(addUpload(e.app, coll, upload)));
 
   /** @type {{ dir: string, file: string, name: string, origin: string }} */
   let src;
@@ -325,6 +328,50 @@ function saveItem(e) {
     }
     fs.close();
   }
+}
+
+/**
+ * The file of a multipart POST /api/chat/items (`file`), or null for a JSON one (a save).
+ * @param {core.RequestEvent} e
+ * @returns {filesystem.File | null}
+ */
+function uploaded(e) {
+  if (!(e.request?.header.get("Content-Type") ?? "").startsWith("multipart/")) return null;
+  /** @type {(filesystem.File | undefined)[]} */
+  let files = [];
+  try {
+    files = e.findUploadedFiles("file");
+  } catch {
+    files = [];
+  }
+  if (files.length !== 1 || !files[0]) throw badRequest("file", "Upload one image or video.");
+  return files[0];
+}
+
+/**
+ * An image or video uploaded straight into a collection (§31.2): a new item of its own (no `origin`, so it is never
+ * taken for a copy of something else). The field's limits (20 MB) are checked by the save; the media worker makes its
+ * grid thumbnail or poster, as for a saved one.
+ * @param {core.App} app
+ * @param {core.Record} coll
+ * @param {filesystem.File} upload
+ */
+function addUpload(app, coll, upload) {
+  const name = upload.originalName || upload.name;
+  if (!media.isMedia(name)) throw badRequest("file", "Only images and videos can be added.");
+  const item = new Record(app.findCollectionByNameOrId("collection_items"));
+  item.set("collection", coll.id);
+  item.set("file", upload);
+  item.set("name", name.slice(0, 200));
+  item.set("video", media.isVideo(name));
+  app.runInTransaction((tx) => {
+    tx.save(item);
+    const c = tx.findRecordById("collections", coll.id);
+    c.set("items", c.getInt("items") + 1);
+    c.set("last_added", new DateTime());
+    tx.save(c);
+  });
+  return item;
 }
 
 /**

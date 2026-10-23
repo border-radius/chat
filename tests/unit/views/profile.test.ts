@@ -225,6 +225,25 @@ describe("profile view (§15.5)", () => {
     });
   });
 
+  it("Appearance switches this device's theme: Auto, Light, Dark (§7.8)", () => {
+    localStorage.removeItem("chat.theme");
+    mount();
+    const radio = (label: string) =>
+      [...root.querySelectorAll<HTMLLabelElement>(".profile-theme label")].find((l) => l.textContent === label)!.querySelector("input")!;
+    expect(radio("Auto").checked).toBe(true);
+    radio("Dark").click();
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(localStorage.getItem("chat.theme")).toBe("dark");
+    radio("Auto").click();
+    expect(document.documentElement.dataset.theme).toBeUndefined();
+    expect(localStorage.getItem("chat.theme")).toBeNull();
+    // Chosen in another tab.
+    localStorage.setItem("chat.theme", "light");
+    dispatchEvent(new StorageEvent("storage", { key: "chat.theme" }));
+    expect(radio("Light").checked).toBe(true);
+    localStorage.removeItem("chat.theme");
+  });
+
   it("Log out is here (§22.2)", () => {
     mount();
     const btn = [...root.querySelectorAll("button")].find((b) => b.textContent === "Log out")!;

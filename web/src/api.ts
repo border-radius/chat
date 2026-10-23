@@ -60,6 +60,8 @@ export interface Request {
   body?: Record<string, unknown>;
   query?: Query;
   signal?: AbortSignal;
+  /** With files in `body`: how much has been sent, 0 to 1. */
+  onUpload?: (fraction: number) => void;
 }
 
 /**

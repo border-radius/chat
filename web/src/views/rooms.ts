@@ -20,6 +20,13 @@ import { chunkContext, collectionChunk } from "./collection.ts";
 
 type Section = "rooms" | "dms" | "hidden" | "archived";
 
+const FOLD_KEY = "chat.folded";
+/** Sections folded by their heading (Rooms, Direct messages, Collections), remembered in this browser. */
+const folded = new Set<string>();
+try {
+  for (const s of JSON.parse(localStorage.getItem(FOLD_KEY) ?? "[]")) folded.add(s);
+} catch {}
+
 function nameError(err: unknown): string {
   if (err instanceof ApiError && err.codes.name === "validation_not_unique") return "A room with this name already exists.";
   if (err instanceof ApiError && err.fields.name) return err.fields.name;
@@ -307,18 +314,46 @@ export function createRoomsView({ api, store, sync, unread, actions, navigate, c
       },
       "+",
     );
+    // A section's heading folds it: then only its unread rows and the open one stay listed.
+    const head = (section: string, title: string, add: HTMLElement) =>
+      h("div", { class: "section-head" }, [
+        h(
+          "h2",
+          {},
+          h(
+            "button",
+            {
+              type: "button",
+              class: "fold",
+              dataset: { fold: section },
+              on: {
+                click: () => {
+                  if (!folded.delete(section)) folded.add(section);
+                  try {
+                    localStorage.setItem(FOLD_KEY, JSON.stringify([...folded]));
+                  } catch {}
+                  render();
+                },
+              },
+              signal: scope.signal,
+            },
+            title,
+          ),
+        ),
+        add,
+      ]);
     return {
       newRoomToggle,
       newDm,
       main: h("div", { class: "room-section", dataset: { section: "rooms" } }),
-      mainHead: h("div", { class: "section-head" }, [h("h2", {}, "Rooms"), newRoomToggle]),
+      mainHead: head("rooms", "Rooms", newRoomToggle),
       rooms: h("ul"),
       empty: h("p", { class: "empty" }),
       direct: h("div", { class: "room-section", dataset: { section: "dms" } }),
-      directHead: h("div", { class: "section-head" }, [h("h2", {}, "Direct messages"), newDm]),
+      directHead: head("dms", "Direct messages", newDm),
       dms: h("ul"),
       newColl,
-      collHead: h("div", { class: "section-head" }, [h("h2", {}, "Collections"), newColl]),
+      collHead: head("collections", "Collections", newColl),
       colls: h("div", { class: "room-section", dataset: { section: "collections" } }),
       collList: h("ul"),
       hidden: collapsible("hidden"),
@@ -337,10 +372,12 @@ export function createRoomsView({ api, store, sync, unread, actions, navigate, c
     const focused = nav.contains(document.activeElement) ? (document.activeElement as HTMLElement) : null;
     shell.setAttribute("aria-busy", String(loading));
     const p = parts;
+    const keep = (r: Room) => unreadCount(s, r) || s.activeRoomId === r.id;
+    const shown = <T>(section: string, list: T[], keep: (x: T) => unknown) => (folded.has(section) ? list.filter(keep) : list);
     p.newRoomToggle.setAttribute("aria-expanded", String(creating));
     reconcile(
       p.rooms,
-      rooms.map((r) => roomRow(r, "rooms", live)),
+      shown("rooms", rooms, keep).map((r) => roomRow(r, "rooms", live)),
     );
     // Rooms you hid (or that were archived) are still there, under their own sections (QA BUG-44).
     p.empty.textContent =
@@ -355,7 +392,7 @@ export function createRoomsView({ api, store, sync, unread, actions, navigate, c
     p.newDm.setAttribute("aria-expanded", String(!!search));
     reconcile(
       p.dms,
-      dms.map((r) => roomRow(r, "dms", live)),
+      shown("dms", dms, keep).map((r) => roomRow(r, "dms", live)),
     );
     reconcile(
       p.direct,
@@ -363,7 +400,7 @@ export function createRoomsView({ api, store, sync, unread, actions, navigate, c
     );
     const c = s.collections;
     const all = c ? [...c.mine, ...c.subs] : [];
-    reconcile(p.collList, all.map(collectionRow));
+    reconcile(p.collList, shown("collections", all, (x) => (x.owner && x.new) || s.activeCollectionId === x.id).map(collectionRow));
     for (const id of collRows.keys()) if (!all.some((x) => x.id === id)) collRows.delete(id);
     reconcile(
       p.colls,
@@ -381,6 +418,8 @@ export function createRoomsView({ api, store, sync, unread, actions, navigate, c
       );
     }
     reconcile(nav, [p.main, p.direct, p.colls, p.hidden.el, p.archived.el]);
+    for (const b of nav.querySelectorAll<HTMLElement>("[data-fold]"))
+      b.setAttribute("aria-expanded", String(!folded.has(b.dataset.fold as string)));
     if (focused?.isConnected && document.activeElement !== focused) focused.focus();
     forget(live);
   }

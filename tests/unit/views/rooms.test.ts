@@ -416,6 +416,42 @@ describe("rooms view (§7.1)", () => {
     });
   });
 
+  describe("folding", () => {
+    const fold = (s: string) => root.querySelector<HTMLButtonElement>(`button[data-fold="${s}"]`)!;
+    // Folding is kept for the page's lifetime: leave the sections open for the other tests.
+    afterEach(() => {
+      if (fold("rooms")?.getAttribute("aria-expanded") === "false") fold("rooms").click();
+    });
+
+    it("a heading folds its section to its unread rooms and the open one, remembered across mounts", async () => {
+      const quiet = await room();
+      const busy = await room();
+      const open = await room();
+      store.set({ activeRoomId: open.id });
+      await mount();
+      store.set({ unread: new Map([[busy.id, 2]]) });
+      expect(fold("rooms").getAttribute("aria-expanded")).toBe("true");
+      expect(fold("rooms").closest("h2")!.textContent).toBe("Rooms");
+
+      fold("rooms").click();
+      expect(fold("rooms").getAttribute("aria-expanded")).toBe("false");
+      expect(row(quiet)).toBeNull();
+      expect(row(busy)).not.toBeNull();
+      expect(row(open)).not.toBeNull();
+      expect(fold("dms").getAttribute("aria-expanded")).toBe("true"); // the others stay as they were
+      store.set({ unread: new Map() });
+      expect(row(busy)).toBeNull();
+
+      view!.unmount();
+      await mount();
+      expect(fold("rooms").getAttribute("aria-expanded")).toBe("false");
+      expect(row(quiet)).toBeNull();
+      fold("rooms").click();
+      expect(row(quiet)).not.toBeNull();
+      expect(localStorage.getItem("chat.folded")).toBe("[]");
+    });
+  });
+
   describe("realtime room list", () => {
     it("a room created elsewhere appears", async () => {
       await mount();
