@@ -20,6 +20,7 @@ class ServersTest {
         assertEquals("https://chat.example.org", address("https://chat.example.org/_/#/collections"))
         assertEquals("https://chat.example.org", address("https://chat.example.org/?x=1#top"))
         assertEquals("https://example.org/chat", address("https://example.org/chat/r/abcdefghij12345"))
+        assertEquals("https://chat.example.org", address("https://chat.example.org/c/abcdefghij12345"))
         assertEquals("https://chat.example.org", address("https://me:secret@chat.example.org"))
     }
 

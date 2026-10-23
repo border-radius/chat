@@ -17,6 +17,12 @@ class RoutesTest {
         assertEquals(Room("abcdefghij12345"), route("http://chat.example.org/r/abcdefghij12345"))
     }
 
+    @Test fun `a collection`() {
+        assertEquals(chat.android.nav.CollectionPage("abcdefghij12345"), route("https://chat.example.org/c/abcdefghij12345"))
+        assertEquals(chat.android.nav.CollectionPage("abcdefghij12345"), route("https://example.org/chat/c/abcdefghij12345", "https://example.org/chat"))
+        assertNull(route("https://chat.example.org/c/short"))
+    }
+
     @Test fun `on a server under a path, or on a port`() {
         assertEquals(Room("abcdefghij12345"), route("https://example.org/chat/r/abcdefghij12345", "https://example.org/chat"))
         assertNull(route("https://example.org/r/abcdefghij12345", "https://example.org/chat"))

@@ -646,7 +646,7 @@ the accent; the app's version at the end of the profile.
 | Appearance: System, Light, Dark (DESIGN.md §7.8) | Profile → Appearance; kept in the device settings (`DeviceSettings.theme`, the account index's `theme`), the system bars follow it |
 | Media grid (§30) | The room's 🖼 button → `MediaScreen`: `GET /api/chat/media/{room}`, month headings, 60 a page, posters, a tile opens the viewer |
 | Jump to (§32) | The room list's search button (or Ctrl+K / Ctrl+P): `lib/Jump.kt` ports `matches`/`score`; rooms you just had open come first (`RecentlyOpened`) |
-| Media collections (§31) | Not yet |
+| Media collections (§31) | §19 |
 
 ### 18.5 Tests
 
@@ -660,3 +660,58 @@ the viewer (swiping, a video with its controls), the audio player, the media gri
 (private, adding a member), creating a room, hiding one, Appearance, guests in an Open Air room, a link to a room,
 sharing text in, realtime messages from another user. Not on the device: pinch zoom (adb has no multi-touch), saving
 an edit and deleting (both covered by `UiFeaturesTest`), push notifications (no Firebase credentials here).
+
+## 19. Media collections (2026-10-23)
+
+DESIGN.md §31, the last web feature the app lacked, ported from `web/src/collections.ts` and
+`web/src/views/collection/lazy.ts`. The server is unchanged.
+
+### 19.1 Data
+
+- Models (`Models.kt`): `MediaCollection` (not `Collection`, which Kotlin already has), `Collections`,
+  `CollectionItem`, `CollectionMeta`, `Badge` and `SaveFrom` (a message's file, or an item). `Message.fileSources`
+  (`file_sources`, now in `MSG_FIELDS`), and `Message.localItems`, the items a message on its way attaches.
+- `ChatApi`: `collections`, `markSeen`, `badges`, `collection`, `createCollection`, `updateCollection`,
+  `deleteCollection`, `collectionItems` (60 a page, cursor on `(created, id)`, older or newer), `itemIdsSince`,
+  `saveItem`, `uploadItem`, `removeItem`, `savedIn`, `follow`, `itemUrl`, `itemPosterUrl`,
+  `subscribeCollections` (yours, your subscriptions, and one topic per collection you follow). `NewMessage.items`: a
+  JSON list in a JSON body, a JSON string in a form.
+- `CollectionsSync` (`repo/`) ports `collections.ts`. It is started with the session for a signed-in user, keeps
+  `AppState.collections`, refetches 250 ms after a live change and on every reconnect, and `seen()` clears a badge at
+  once.
+- The outbox keeps a message's items with it (`Outgoing.items`), so Retry sends the same ids.
+- `Badges` (`repo/`), one per room screen: it asks `/api/chat/badges` once per collection while the room is open, in
+  batches of at most 50. A rename shows the next time the room is opened, as on the web.
+
+### 19.2 Screens
+
+| Web | App |
+|---|---|
+| Sidebar section | The room list's Collections section, after Rooms: yours (a lock when private), then those you follow with their owner and a "99+" badge of new items. Its "+" (and the New button's "New collection") opens `NewCollectionDialog` |
+| `/c/:id` | `CollectionScreen` (`feature/room`): name, whose it is, Public or Private, count; month headings; new items ringed with a dot and "*n* new since your last visit", sent as seen while the app is in view; follows the store (items added come in at the top; items taken out elsewhere leave; private or deleted: "This collection doesn't exist."). The owner gets Upload in the bar (the photo picker, several at once, one at a time with the percentage, images and videos of 20 MB at most, a 429 waited out) and Rename, Make public/private and Delete in the menu, plus × on each tile. Others get Subscribe / Unsubscribe |
+| Save on a tile, in the viewer | A round collections button on every image and video tile of a message, on every tile of a collection page and in the viewer's bar (signed in only) → `SaveToCollectionSheet` (`core/ui`): tick to save, untick to take out, or make a new private one there |
+| Attach from collections | The + menu's "From a collection" (a fourth button next to + would leave the phone's text field too narrow) → `CollectionPickerSheet`: a chip per collection, a grid, at most what the message still takes; the items join the tray after the files |
+| The badge | Over a tile from a collection: the name with a lock for your private one, which opens the collection; "Private collection" (not tappable) for someone else's private one; nothing for one that is gone |
+| Viewer | `CollectionViewerScreen`: the items around the one opened, oldest first, captioned "Added …" |
+| Links | `/c/:id` links open the collection page (`routeOf`, the manifest's App Links) |
+
+The web's drag-and-drop and paste upload have no phone equivalent. Guests see public collections and badges, but
+can't save, subscribe or attach.
+
+### 19.3 Tests and checks
+
+`CollectionsTest` (`:core:data`): saving and `/saved` (409 twice, taking it out), paging both ways, the store's list
+with live new counts, seen, and a collection turning private, and attaching through the outbox with `file_sources` and
+badges for the owner, another user, and a deleted collection. `UiCollectionsTest` (`:app`): making a collection
+from the room list and saving a room's image to it; a badge leading another user to a public collection, subscribing,
+the room list's "1 new" and the page's "1 new since your last visit" until seen; attaching from the picker and the
+sent message's badge; saving and unsaving from the viewer opened on a collection page. `RoutesTest`, `ServersTest`:
+`/c/` links. Upload isn't covered: Robolectric can't drive the photo picker.
+
+Robolectric found one problem in sheets. A sheet is its own window, and in tests its coroutines finished on a
+background thread, so its state sometimes never reached the screen. The save and picker sheets now run on
+`services.main`, as the services do.
+
+67 JVM tests in `:core:data` and 32 in `:app` pass; release lint passes. While here, the viewer's seek bar got the
+Media3 opt-in that release lint required. The release APK is 3.53 MB (+0.05 MB; budget 6 MB). Not yet tried on the
+emulator.

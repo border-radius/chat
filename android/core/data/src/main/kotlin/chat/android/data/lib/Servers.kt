@@ -46,4 +46,4 @@ private fun HttpUrl.effectivePort(): Int = if (port == HttpUrl.defaultPort(schem
 private fun String.encodeSegment(): String = HttpUrl.Builder().scheme("https").host("x").addPathSegment(this).build().encodedPath.drop(1)
 
 /** The app's own paths: what follows them isn't part of the server's address. */
-private val APP_PATHS = setOf("r", "_", "api")
+private val APP_PATHS = setOf("r", "c", "_", "api")

@@ -63,11 +63,10 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-private val monthFormat = DateTimeFormatter.ofPattern("LLLL yyyy", Locale.getDefault())
-
-private fun month(sent: String): String {
+/** A grid's month heading ("October 2026"), in the locale of the moment (media grid, collection page). */
+internal fun month(sent: String): String {
     val ms = parsePb(sent)
-    return if (ms == Long.MIN_VALUE) "" else monthFormat.format(Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()))
+    return if (ms == Long.MIN_VALUE) "" else DateTimeFormatter.ofPattern("LLLL yyyy", Locale.getDefault()).format(Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()))
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

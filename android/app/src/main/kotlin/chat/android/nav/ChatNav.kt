@@ -75,7 +75,7 @@ fun AppRoot(accounts: Accounts, linked: Linked?, onLinkTaken: () -> Unit, onSign
 }
 
 @Composable
-fun ChatNav(linked: Room?, onLinkTaken: () -> Unit, onSignedIn: () -> Unit) {
+fun ChatNav(linked: NavKey?, onLinkTaken: () -> Unit, onSignedIn: () -> Unit) {
     val services = LocalServices.current
     val s by services.store.flow.collectAsStateWithLifecycle()
     if (s.site.minAndroidVersion > BuildConfig.VERSION_CODE) return UpdateRequired()
@@ -121,6 +121,7 @@ fun ChatNav(linked: Room?, onLinkTaken: () -> Unit, onSignedIn: () -> Unit) {
                     onOpenRoom = { stack += Room(it) },
                     onProfile = { stack += Profile },
                     onLogIn = { guest = false; stack.reset(Login) },
+                    onOpenCollection = { stack += CollectionPage(it) },
                 )
             }
             entry<Room> { key ->
@@ -135,6 +136,7 @@ fun ChatNav(linked: Room?, onLinkTaken: () -> Unit, onSignedIn: () -> Unit) {
                         viewer = { r, m, f -> stack += Viewer(r, m, f) },
                         logIn = { guest = false; stack.reset(Login) },
                         media = { stack += Media(it) },
+                        collection = { stack += CollectionPage(it) },
                     ),
                     incoming = incoming?.let { it.text to it.uris },
                     onIncomingTaken = { ShareInbox.pending = null },
@@ -142,6 +144,12 @@ fun ChatNav(linked: Room?, onLinkTaken: () -> Unit, onSignedIn: () -> Unit) {
             }
             entry<Media> { key ->
                 chat.android.feature.room.MediaScreen(key.roomId, onOpen = { m, f -> stack += Viewer(key.roomId, m, f) }) { stack.removeAt(stack.lastIndex) }
+            }
+            entry<CollectionPage> { key ->
+                chat.android.feature.room.CollectionScreen(key.id, onOpen = { stack += CollectionViewer(key.id, it) }) { stack.removeAt(stack.lastIndex) }
+            }
+            entry<CollectionViewer> { key ->
+                chat.android.feature.viewer.CollectionViewerScreen(key.collection, key.item) { stack.removeAt(stack.lastIndex) }
             }
             entry<RoomAccess> { key -> RoomAccessScreen(key.id) { stack.removeAt(stack.lastIndex) } }
             entry<Viewer> { key -> ViewerScreen(key.roomId, key.msgId, key.file) { stack.removeAt(stack.lastIndex) } }

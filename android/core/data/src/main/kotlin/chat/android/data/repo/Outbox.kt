@@ -36,7 +36,13 @@ enum class DrainResult { Done, Retry }
 
 /** What the outbox keeps of an optimistic message: the message, and its files (paths in app storage). */
 @Serializable
-private data class Outgoing(val message: Message, val files: List<chat.android.data.model.LocalFile> = emptyList(), val serverErrors: Int = 0)
+private data class Outgoing(
+    val message: Message,
+    val files: List<chat.android.data.model.LocalFile> = emptyList(),
+    val serverErrors: Int = 0,
+    /** Collection items it attaches (DESIGN.md §31): a retry sends the same ids. */
+    val items: List<chat.android.data.model.CollectionItem> = emptyList(),
+)
 
 class Outbox(
     private val api: ChatApi,
@@ -62,12 +68,12 @@ class Outbox(
 
     private fun OutboxEntity.toMessage(): Message? = runCatching {
         val o = PbJson.decodeFromString(Outgoing.serializer(), json)
-        o.message.copy(status = if (state == 0) SendStatus.Pending else SendStatus.Failed, localFiles = o.files)
+        o.message.copy(status = if (state == 0) SendStatus.Pending else SendStatus.Failed, localFiles = o.files, localItems = o.items)
     }.getOrNull()
 
     /** Queue [m] (pending, with its client id and local files) and start sending. */
     suspend fun enqueue(user: String, m: Message) {
-        db.outbox().put(OutboxEntity(m.id, m.room, user, PbJson.encodeToString(Outgoing.serializer(), Outgoing(m, m.localFiles)), 0, System.currentTimeMillis()))
+        db.outbox().put(OutboxEntity(m.id, m.room, user, PbJson.encodeToString(Outgoing.serializer(), Outgoing(m, m.localFiles, items = m.localItems)), 0, System.currentTimeMillis()))
         kick()
     }
 
@@ -130,7 +136,7 @@ class Outbox(
         val msg = o.message
         val files = o.files.map { f -> UploadFile(f.name, f.type, File(f.uri).asRequestBody(f.type.toMediaTypeOrNull())) }
         return try {
-            val saved = api.send(NewMessage(msg.id, msg.room, msg.text, files, msg.replyTo)) { fraction ->
+            val saved = api.send(NewMessage(msg.id, msg.room, msg.text, files, msg.replyTo, o.items.map { it.id })) { fraction ->
                 progressFlow.value += msg.id to fraction
             }
             Delivered.Saved(saved)

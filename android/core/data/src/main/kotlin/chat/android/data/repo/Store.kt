@@ -22,6 +22,8 @@ data class AppState(
     val counted: Boolean = false,
     val roomsStatus: LoadStatus = LoadStatus.Idle,
     val activeRoomId: String? = null,
+    /** Your media collections and those you follow (DESIGN.md §31): null until loaded (and for a guest). */
+    val collections: chat.android.data.model.Collections? = null,
     /** The app isn't visible (§22.4): nobody is reading the open room, so its new messages count too. */
     val away: Boolean = false,
     /** Branding and signup policy (§24): not the session's, so it stays when the session ends. */

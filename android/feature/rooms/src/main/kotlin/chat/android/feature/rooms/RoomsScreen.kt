@@ -1,5 +1,6 @@
-// The room list (DESIGN.md §5, §16.5, §18.4; web/src/views/rooms.ts): DMs, rooms, and the hidden and archived ones
-// folded away; unread badges; a row's menu (hide, close, archive). A guest sees the Open Air rooms (§23.3).
+// The room list (DESIGN.md §5, §16.5, §18.4; web/src/views/rooms.ts): DMs, rooms, your media collections and those you
+// follow (§31.3), and the hidden and archived rooms folded away; unread badges; a row's menu (hide, close, archive). A
+// guest sees the Open Air rooms (§23.3).
 package chat.android.feature.rooms
 
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -100,7 +101,7 @@ private enum class Section { Rooms, Dms, Hidden, Archived }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RoomsScreen(onOpenRoom: (String) -> Unit, onProfile: () -> Unit, onLogIn: () -> Unit) {
+fun RoomsScreen(onOpenRoom: (String) -> Unit, onProfile: () -> Unit, onLogIn: () -> Unit, onOpenCollection: (String) -> Unit = {}) {
     val services = LocalServices.current
     val s by services.store.flow.collectAsStateWithLifecycle()
     val me = s.user
@@ -108,6 +109,7 @@ fun RoomsScreen(onOpenRoom: (String) -> Unit, onProfile: () -> Unit, onLogIn: ()
     val snackbar = remember { SnackbarHostState() }
     var newRoom by rememberSaveable { mutableStateOf(false) }
     var newDm by rememberSaveable { mutableStateOf(false) }
+    var newCollection by rememberSaveable { mutableStateOf(false) }
     var archiving by remember { mutableStateOf<Room?>(null) }
     val sections = remember(s.rooms, s.hidden, me, s.activeRoomId) { roomSections(s.rooms.values, s.hidden.keys, me?.id, s.activeRoomId) }
 
@@ -193,6 +195,7 @@ fun RoomsScreen(onOpenRoom: (String) -> Unit, onProfile: () -> Unit, onLogIn: ()
                     DropdownMenu(menu, onDismissRequest = { menu = false }) {
                         DropdownMenuItem(text = { Text("New room") }, leadingIcon = { Icon(ChatIcons.Tag, contentDescription = null) }, onClick = { menu = false; newRoom = true })
                         DropdownMenuItem(text = { Text("New message") }, leadingIcon = { Icon(ChatIcons.Chat, contentDescription = null) }, onClick = { menu = false; newDm = true })
+                        DropdownMenuItem(text = { Text("New collection") }, leadingIcon = { Icon(ChatIcons.Collection, contentDescription = null) }, onClick = { menu = false; newCollection = true })
                     }
                 }
             }
@@ -246,6 +249,7 @@ fun RoomsScreen(onOpenRoom: (String) -> Unit, onProfile: () -> Unit, onLogIn: ()
                 empty(if (sections.hidden.isNotEmpty() || sections.archived.isNotEmpty()) "No other rooms. Hidden and archived ones are listed below." else "No rooms yet. Create the first one.")
             }
             items(sections.rooms, key = { it.id }) { r -> RoomRow(r, s, me.id, onOpenRoom, menuItems(r, Section.Rooms, s, me.id, ::act, { archiving = it }, services)) }
+            collections(s.collections, onOpenCollection) { newCollection = true }
             if (sections.hidden.isNotEmpty()) {
                 fold("Hidden", sections.hidden.size, showHidden) { showHidden = !showHidden }
                 if (showHidden) items(sections.hidden, key = { "h" + it.id }) { r -> RoomRow(r, s, me.id, onOpenRoom, menuItems(r, Section.Hidden, s, me.id, ::act, { archiving = it }, services)) }
@@ -266,6 +270,7 @@ fun RoomsScreen(onOpenRoom: (String) -> Unit, onProfile: () -> Unit, onLogIn: ()
             dismissButton = { TextButton(onClick = { archiving = null }) { Text("Cancel") } },
         )
     }
+    if (newCollection) chat.android.ui.NewCollectionDialog(onCreated = { newCollection = false; onOpenCollection(it) }, onDismiss = { newCollection = false })
     if (newRoom) NewRoomDialog(onCreated = { newRoom = false; onOpenRoom(it.id) }, onDismiss = { newRoom = false })
     if (newDm) {
         UserSearchDialog(
@@ -340,6 +345,56 @@ private fun LazyListScope.header(text: String) = item(key = "header-$text") {
         color = Chat.colors.muted,
         modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp).semantics { heading() },
     )
+}
+
+/** Yours (🔒 when private), then those you follow with their owner's name and how many items are new (§31.3). */
+private fun LazyListScope.collections(c: chat.android.data.model.Collections?, onOpen: (String) -> Unit, onNew: () -> Unit) {
+    item(key = "header-collections") {
+        Row(Modifier.fillMaxWidth().padding(start = 16.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Collections", style = MaterialTheme.typography.titleSmall, color = Chat.colors.muted, modifier = Modifier.weight(1f).semantics { heading() })
+            IconButton(onClick = onNew) { Icon(ChatIcons.Add, contentDescription = "New collection", tint = Chat.colors.muted) }
+        }
+    }
+    if (c == null) return
+    if (c.mine.isEmpty() && c.subs.isEmpty()) empty("No collections yet. Save images and videos from the chat to one.")
+    items(c.mine, key = { "c" + it.id }) { CollectionRow(it, onOpen) }
+    items(c.subs, key = { "s" + it.id }) { CollectionRow(it, onOpen) }
+}
+
+@Composable
+private fun CollectionRow(c: chat.android.data.model.MediaCollection, onOpen: (String) -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 56.dp)
+            .clickable { onOpen(c.id) }
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .semantics(mergeDescendants = true) {},
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Box(Modifier.size(40.dp).background(MaterialTheme.colorScheme.surfaceContainerHigh, CircleShape), contentAlignment = Alignment.Center) {
+            Icon(ChatIcons.Collection, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+        }
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(c.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = if (c.new > 0) FontWeight.Bold else FontWeight.Normal, modifier = Modifier.weight(1f, fill = false))
+            if (c.owner == null && !c.public) Icon(ChatIcons.Lock, contentDescription = "private", tint = Chat.colors.muted, modifier = Modifier.size(14.dp))
+            c.owner?.let { Text("· ${it.name}", color = Chat.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+        }
+        if (c.new > 0) {
+            Box(
+                Modifier.heightIn(min = 22.dp).widthIn(min = 22.dp).background(Chat.colors.gradient, CircleShape).padding(horizontal = 7.dp, vertical = 2.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    if (c.new > 99) "99+" else c.new.toString(),
+                    color = androidx.compose.ui.graphics.Color.White,
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.semantics { contentDescription = "${c.new} new" },
+                )
+            }
+        }
+    }
 }
 
 private fun LazyListScope.empty(text: String) = item(key = "empty-$text") {

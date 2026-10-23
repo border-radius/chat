@@ -67,7 +67,7 @@ import chat.android.ui.Chat
 import chat.android.ui.ChatIcons
 
 @Composable
-fun Composer(vm: RoomViewModel, placeholder: String, focus: FocusRequester, onEmoji: () -> Unit) {
+fun Composer(vm: RoomViewModel, placeholder: String, focus: FocusRequester, onCollections: (() -> Unit)? = null, onEmoji: () -> Unit) {
     val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(Limits.ATTACHMENTS)) { vm.attach(it) }
     val pickFiles = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { vm.attach(it) }
     var attachMenu by remember { mutableStateOf(false) }
@@ -79,7 +79,7 @@ fun Composer(vm: RoomViewModel, placeholder: String, focus: FocusRequester, onEm
             vm.replyTo?.let { r ->
                 Bar("Replying to ${r.expand?.author?.name ?: "Unknown"}", r.quote().line(), "Cancel reply", vm::cancelReply)
             }
-            if (vm.attachments.isNotEmpty()) {
+            if (vm.attachments.isNotEmpty() || vm.items.isNotEmpty()) {
                 LazyRow(Modifier.padding(horizontal = 8.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     items(vm.attachments, key = { it.uri }) { f ->
                         // An image shows itself; other files their name.
@@ -112,6 +112,23 @@ fun Composer(vm: RoomViewModel, placeholder: String, focus: FocusRequester, onEm
                             trailingIcon = { Icon(ChatIcons.Close, contentDescription = "Remove ${f.name}", modifier = Modifier.size(16.dp)) },
                         )
                     }
+                    // From a collection (§31.3): after the uploads, as the server attaches them.
+                    items(vm.items, key = { "item-" + it.id }) { it ->
+                        Box(Modifier.size(64.dp)) {
+                            chat.android.ui.ItemPicture(it, Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp)).semantics { contentDescription = it.name + ", from a collection" })
+                            Box(
+                                Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(3.dp)
+                                    .size(22.dp)
+                                    .clip(androidx.compose.foundation.shape.CircleShape)
+                                    .background(Color.Black.copy(alpha = 0.6f))
+                                    .clickable { vm.removeItem(it) }
+                                    .semantics { contentDescription = "Remove ${it.name}" },
+                                contentAlignment = Alignment.Center,
+                            ) { Icon(ChatIcons.Close, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp)) }
+                        }
+                    }
                 }
             }
             val n = textLength(vm.text.text)
@@ -125,11 +142,18 @@ fun Composer(vm: RoomViewModel, placeholder: String, focus: FocusRequester, onEm
                     Box {
                         IconButton(onClick = { attachMenu = true }) { Icon(ChatIcons.Attach, contentDescription = "Attach files", tint = Chat.colors.muted) }
                         DropdownMenu(attachMenu, onDismissRequest = { attachMenu = false }) {
-                            DropdownMenuItem(text = { Text("Photos and videos") }, onClick = {
+                            DropdownMenuItem(text = { Text("Photos and videos") }, leadingIcon = { Icon(ChatIcons.Image, contentDescription = null) }, onClick = {
                                 attachMenu = false
                                 pickMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
                             })
-                            DropdownMenuItem(text = { Text("Files") }, onClick = { attachMenu = false; pickFiles.launch(arrayOf("*/*")) })
+                            DropdownMenuItem(text = { Text("Files") }, leadingIcon = { Icon(ChatIcons.File, contentDescription = null) }, onClick = { attachMenu = false; pickFiles.launch(arrayOf("*/*")) })
+                            if (onCollections != null) {
+                                DropdownMenuItem(
+                                    text = { Text("From a collection") },
+                                    leadingIcon = { Icon(ChatIcons.Collection, contentDescription = null) },
+                                    onClick = { attachMenu = false; onCollections() },
+                                )
+                            }
                         }
                     }
                 }
@@ -163,7 +187,7 @@ fun Composer(vm: RoomViewModel, placeholder: String, focus: FocusRequester, onEm
                             }
                         },
                 )
-                val canSend = (!isBlank(vm.text.text) || (vm.attachments.isNotEmpty() && vm.editing == null)) && n <= Limits.MESSAGE_TEXT
+                val canSend = (!isBlank(vm.text.text) || ((vm.attachments.isNotEmpty() || vm.items.isNotEmpty()) && vm.editing == null)) && n <= Limits.MESSAGE_TEXT
                 Spacer(Modifier.width(6.dp))
                 val bg by androidx.compose.animation.animateColorAsState(if (canSend) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh, label = "send")
                 val fg by androidx.compose.animation.animateColorAsState(if (canSend) MaterialTheme.colorScheme.onPrimary else Chat.colors.muted, label = "sendIcon")

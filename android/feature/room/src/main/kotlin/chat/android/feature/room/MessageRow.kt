@@ -86,6 +86,12 @@ class RowActions(
     val onAddReaction: ((Message) -> Unit)? = null,
     /** Swiping a message to the right replies to it (ANDROID.md §3), or null where you can't reply. */
     val onSwipeReply: ((Message) -> Unit)? = null,
+    /** Save a file to your collections (§31.3), or null for a guest. */
+    val onSave: ((Message, String) -> Unit)? = null,
+    /** What the badge of a file from this collection says; null until known, or for one that is gone. */
+    val badge: (String) -> chat.android.data.model.Badge? = { null },
+    /** Open a collection's page (a badge was tapped). */
+    val onCollection: (String) -> Unit = {},
 )
 
 /** How far a message is dragged before letting go replies to it. */

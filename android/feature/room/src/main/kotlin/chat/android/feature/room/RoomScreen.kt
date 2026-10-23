@@ -105,6 +105,8 @@ class RoomNav(
     val viewer: (roomId: String, msgId: String, file: String) -> Unit,
     val logIn: () -> Unit,
     val media: (String) -> Unit = {},
+    /** A collection's page (§31.3). */
+    val collection: (String) -> Unit = {},
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -132,6 +134,9 @@ fun RoomScreen(roomId: String, msgId: String?, nav: RoomNav, incoming: Pair<Stri
     var composerEmoji by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf<List<String>?>(null) }
     var forwarding by remember { mutableStateOf<List<String>?>(null) }
+    var saving by remember { mutableStateOf<chat.android.data.model.SaveFrom?>(null) }
+    var pickingItems by remember { mutableStateOf(false) }
+    val badges by vm.badges.state.collectAsStateWithLifecycle()
     var roomMenu by remember { mutableStateOf(false) }
 
     // Back undoes the mode you are in before it leaves the room: selection, search, then an edit.
@@ -148,6 +153,8 @@ fun RoomScreen(roomId: String, msgId: String?, nav: RoomNav, incoming: Pair<Stri
         if (uris.isNotEmpty()) vm.attach(uris)
         onIncomingTaken()
     }
+    // The badges the window's files need (§31.3), asked once each.
+    LaunchedEffect(state.items) { vm.badges.want(state.items.flatMap { it.fileSources.values }) }
     LaunchedEffect(vm.toast) { vm.toast?.let { snackbar.showSnackbar(it); vm.toast = null } }
 
     // The list nears an end: extend the window there.
@@ -205,6 +212,10 @@ fun RoomScreen(roomId: String, msgId: String?, nav: RoomNav, incoming: Pair<Stri
             }
         }),
         onAddReaction = if (me == null || room?.archived == true) null else ({ m -> if (!vm.selecting && c.reactable(m)) emojiFor = m }),
+        // A forward's files are its original's (§21.3).
+        onSave = if (me == null) null else ({ m, f -> saving = chat.android.data.model.SaveFrom.File(m.forwardOf.ifEmpty { m.id }, f) }),
+        badge = { badges[it] },
+        onCollection = nav.collection,
     )
 
     Scaffold(
@@ -279,7 +290,7 @@ fun RoomScreen(roomId: String, msgId: String?, nav: RoomNav, incoming: Pair<Stri
                     room.archived -> ReadOnly("This room is archived. History is read-only.")
                     !room.canPost(me.id) -> ReadOnly("Only some people can post in this room. You can read along and react.")
                     vm.selecting -> {}
-                    else -> Composer(vm, "Message ${room.title(me.id)}", focus) { composerEmoji = true }
+                    else -> Composer(vm, "Message ${room.title(me.id)}", focus, onCollections = { pickingItems = true }) { composerEmoji = true }
                 }
             }
         },
@@ -360,6 +371,8 @@ fun RoomScreen(roomId: String, msgId: String?, nav: RoomNav, incoming: Pair<Stri
             dismissButton = { TextButton(onClick = { confirmDelete = null }) { Text("Cancel") } },
         )
     }
+    saving?.let { from -> chat.android.ui.SaveToCollectionSheet(from) { saving = null } }
+    if (pickingItems) CollectionPickerSheet(vm.filesLeft, onPick = { pickingItems = false; vm.attachItems(it) }) { pickingItems = false }
     forwarding?.let { ids ->
         ForwardSheet(ids.size, forwardTargets(app_), me?.id, onPick = { r -> forwarding = null; vm.forward(ids, r.id) {} }, onDismiss = { forwarding = null })
     }

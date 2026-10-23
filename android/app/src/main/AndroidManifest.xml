@@ -41,6 +41,7 @@
                 <data android:scheme="http" />
                 <data android:host="${appLinksHost}" />
                 <data android:pathPrefix="/r/" />
+                <data android:pathPrefix="/c/" />
             </intent-filter>
             <!-- Sharing text and files into a room (ANDROID.md §9.3). -->
             <intent-filter>

@@ -89,6 +89,11 @@ class RoomViewModel(
         private set
     var attachments by mutableStateOf<List<LocalFile>>(emptyList())
         private set
+    /** Collection items picked to attach (DESIGN.md §31.3): sent after the files, as the server attaches them. */
+    var items by mutableStateOf<List<chat.android.data.model.CollectionItem>>(emptyList())
+        private set
+    /** What the "from collection" badges of the room's files say (§31.3), asked once while the room is open. */
+    val badges = chat.android.data.repo.Badges(services.api, viewModelScope)
     /** A problem with what is being written ("" for none). */
     var composerError by mutableStateOf("")
         private set
@@ -199,11 +204,12 @@ class RoomViewModel(
             viewModelScope.launch { if (saved?.await() == false) toast = "Couldn't save your edit." }
             return
         }
-        if (isBlank(body) && attachments.isEmpty()) return
+        if (isBlank(body) && attachments.isEmpty() && items.isEmpty()) return
         tooLong(body)?.let { return run { composerError = it } }
-        if (!controller.send(body.trim(), attachments, replyTo)) return
+        if (!controller.send(body.trim(), attachments, replyTo, items)) return
         text = TextFieldValue("")
         attachments = emptyList()
+        items = emptyList()
         replyTo = null
         draftJob?.cancel()
         services.drafts.set(me, roomId, "", "")
@@ -214,11 +220,25 @@ class RoomViewModel(
         viewModelScope.launch {
             val dir = File(app.filesDir, "outbox/${services.accountId}/${UUID.randomUUID()}").apply { mkdirs() }
             val picked = withContext(Dispatchers.IO) { uris.mapNotNull { copy(it, dir) } }
-            val check = checkFiles(attachments.size, picked, { it.name }, { it.size })
+            val check = checkFiles(attachments.size + items.size, picked, { it.name }, { it.size })
             for (f in picked - check.accepted.toSet()) File(f.uri).delete()
             attachments = attachments + check.accepted
             composerError = check.rejected.joinToString(" ") { (name, why) -> "“$name” wasn't added: $why." }
         }
+    }
+
+    /** How many more files the message takes. */
+    val filesLeft: Int get() = (Limits.ATTACHMENTS - attachments.size - items.size).coerceAtLeast(0)
+
+    /** Items picked from a collection join the tray (each once, as many as the message still takes). */
+    fun attachItems(picked: List<chat.android.data.model.CollectionItem>) {
+        val have = items.map { it.id }.toSet()
+        items = items + picked.filter { it.id !in have }.take(filesLeft)
+        composerError = ""
+    }
+
+    fun removeItem(it: chat.android.data.model.CollectionItem) {
+        items = items - it
     }
 
     fun removeAttachment(f: LocalFile) {

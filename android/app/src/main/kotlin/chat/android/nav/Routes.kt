@@ -13,21 +13,28 @@ import kotlinx.serialization.Serializable
 @Serializable data object Profile : NavKey
 /** A room's images and videos (DESIGN.md §30). */
 @Serializable data class Media(val roomId: String) : NavKey
+/** A media collection's page (DESIGN.md §31.3), and the viewer over its items. */
+@Serializable data class CollectionPage(val id: String) : NavKey
+@Serializable data class CollectionViewer(val collection: String, val item: String) : NavKey
 /** Shared files or text waiting for a room to go to (§9.3). */
 @Serializable data object SharePicker : NavKey
 
 /** Choose a server: for the first account, another one, or instead of this one (ANDROID.md §17.2). */
 @Serializable data object ChooseServer : NavKey
 
-/** A room to open in an account (a link, a notification: §17.3). */
-data class Linked(val account: String, val room: Room)
+/** A room (or a collection) to open in an account (a link, a notification: §17.3). */
+data class Linked(val account: String, val room: NavKey)
 
-/** The route of a link's path on its server (`/r/:id` or `/r/:id/m/:msgId`: pathOnServer), or null. */
-fun routeOf(seg: List<String>): Room? {
+/**
+ * The route of a link's path on its server (`/r/:id`, `/r/:id/m/:msgId` or a collection's `/c/:id`: pathOnServer), or
+ * null.
+ */
+fun routeOf(seg: List<String>): NavKey? {
     if (seg.size >= 2 && seg[0] == "r" && seg[1].matches(ID)) {
         val msg = if (seg.size >= 4 && seg[2] == "m" && seg[3].matches(ID)) seg[3] else null
         return Room(seg[1], msg)
     }
+    if (seg.size >= 2 && seg[0] == "c" && seg[1].matches(ID)) return CollectionPage(seg[1])
     return null
 }
 

@@ -60,12 +60,18 @@ import java.io.File
 /** Most image and video tiles a message shows; the last says how many more there are. */
 const val MAX_TILES = 4
 
-/** A file of a message: a stored name on the server, or a local one while it is on its way. */
-private data class Item(val name: String, val label: String, val local: String?)
+/**
+ * A file of a message: a stored name on the server, or a local one while it is on its way ([local]: its path; "" for a
+ * collection item being attached, whose picture is [thumb]).
+ */
+private data class Item(val name: String, val label: String, val local: String?, val thumb: okhttp3.HttpUrl? = null)
 
 @Composable
 fun Attachments(m: Message, actions: RowActions) {
-    val items = if (m.localFiles.isNotEmpty()) m.localFiles.map { Item(it.name, it.name, it.uri) } else m.files.map { Item(it, m.attachmentName(it), null) }
+    val services = LocalServices.current
+    val items = if (m.status != null) {
+        m.localFiles.map { Item(it.name, it.name, it.uri) } + m.localItems.map { Item(it.file, it.name, "", itemThumb(services, it)) }
+    } else m.files.map { Item(it, m.attachmentName(it), null) }
     if (items.isEmpty()) return
     val media = items.filter { isMedia(it.label) }
     val others = items.filter { !isMedia(it.label) }
@@ -75,10 +81,16 @@ fun Attachments(m: Message, actions: RowActions) {
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 media.take(MAX_TILES).forEachIndexed { i, f ->
                     val more = if (i == MAX_TILES - 1 && media.size > MAX_TILES) media.size - MAX_TILES else 0
-                    if (one && (f.local == null || !isVideo(f.label))) {
-                        SingleImage(m, f) { actions.onOpenMedia(m, f.name) }
-                    } else {
-                        MediaTile(m, f, if (one) 240 else 112, if (one) "800x480f" else "480x240f", more) { actions.onOpenMedia(m, f.name) }
+                    Box {
+                        if (one && (f.local == null || !isVideo(f.label))) {
+                            SingleImage(m, f) { actions.onOpenMedia(m, f.name) }
+                        } else {
+                            MediaTile(m, f, if (one) 240 else 112, if (one) "800x480f" else "480x240f", more) { actions.onOpenMedia(m, f.name) }
+                        }
+                        if (f.local == null) {
+                            m.fileSources[f.name]?.let { from -> actions.badge(from)?.let { b -> SourceBadge(b, Modifier.align(Alignment.BottomStart)) { actions.onCollection(from) } } }
+                            if (more == 0) actions.onSave?.let { save -> chat.android.ui.SaveToCollectionButton("Save ${f.label} to collection", { save(m, f.name) }, Modifier.align(Alignment.TopEnd)) }
+                        }
                     }
                 }
             }
@@ -105,12 +117,13 @@ private fun MediaTile(m: Message, f: Item, height: Int, thumb: String, more: Int
         contentAlignment = Alignment.Center,
     ) {
         when {
+            f.thumb != null && !video -> AsyncImage(Images.request(context, f.thumb), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(height.dp))
             f.local != null && !video -> AsyncImage(File(f.local), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.height(height.dp))
             video -> Box(Modifier.size(if (height > 200) 240.dp else 112.dp, height.dp).background(Color(0xFF13111D)), contentAlignment = Alignment.Center) {
                 // The poster frame when the server has made one; a dark tile until then.
-                if (f.local == null) {
+                if (f.local == null || f.thumb != null) {
                     AsyncImage(
-                        Images.request(context, services.api.posterUrl(m, f.name, services.tokens.current)),
+                        Images.request(context, f.thumb ?: services.api.posterUrl(m, f.name, services.tokens.current)),
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),
@@ -144,6 +157,7 @@ private fun SingleImage(m: Message, f: Item, onOpen: () -> Unit) {
     val context = LocalContext.current
     val video = isVideo(f.label)
     val url = when {
+        f.thumb != null -> f.thumb
         f.local != null -> null
         video -> services.api.posterUrl(m, f.name, services.tokens.current)
         else -> services.api.fileUrl(m, f.name, if (isGif(f.label)) null else "800x480f", services.tokens.current)
@@ -184,6 +198,38 @@ private fun SingleImage(m: Message, f: Item, onOpen: () -> Unit) {
                 Icon(ChatIcons.Play, contentDescription = null, tint = Color.White, modifier = Modifier.size(30.dp))
             }
         }
+    }
+}
+
+/** A collection item's picture while the message attaching it is on its way: its thumbnail, or a video's poster. */
+private fun itemThumb(services: chat.android.data.repo.ChatServices, it: chat.android.data.model.CollectionItem): okhttp3.HttpUrl? = when {
+    it.video && it.poster -> services.api.itemPosterUrl(it.id, it.file, services.tokens.current)
+    it.video -> null
+    else -> services.api.itemUrl(it.id, it.file, "240x240", services.tokens.current)
+}
+
+/**
+ * Over a file attached from a collection (§31.3): the collection's name, a link to it, when it is public or yours (🔒
+ * after a private one of yours); "Private collection", not a link, when it is someone else's private one.
+ */
+@Composable
+private fun SourceBadge(b: chat.android.data.model.Badge, modifier: Modifier, onOpen: () -> Unit) {
+    val shape = RoundedCornerShape(8.dp)
+    Row(
+        modifier
+            .padding(6.dp)
+            .clip(shape)
+            .background(Color.Black.copy(alpha = 0.6f))
+            .then(if (b.private) Modifier else Modifier.clickable(onClickLabel = "Open the collection", onClick = onOpen))
+            .padding(horizontal = 6.dp, vertical = 3.dp)
+            .widthIn(max = 160.dp)
+            .semantics(mergeDescendants = true) { contentDescription = if (b.private) "From a private collection" else "From the collection ${b.name}" + if (b.public) "" else ", private" },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Icon(ChatIcons.Collection, contentDescription = null, tint = Color.White, modifier = Modifier.size(12.dp))
+        Text(if (b.private) "Private collection" else b.name, color = Color.White, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+        if (!b.private && !b.public) Icon(ChatIcons.Lock, contentDescription = null, tint = Color.White, modifier = Modifier.size(11.dp))
     }
 }
 

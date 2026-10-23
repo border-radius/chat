@@ -565,7 +565,7 @@ class RoomController(
      * Send optimistically, as a reply to [replyTo] if given (§19). [files] are already in app storage (the outbox
      * deletes them once sent). False when sending isn't possible (no user, archived, not allowed to post: §23.6).
      */
-    fun send(text: String, files: List<LocalFile> = emptyList(), replyTo: Message? = null): Boolean {
+    fun send(text: String, files: List<LocalFile> = emptyList(), replyTo: Message? = null, items: List<chat.android.data.model.CollectionItem> = emptyList()): Boolean {
         val user = me() ?: return false
         if (room() == null || !posting()) return false
         val quoted = replyTo?.quote()
@@ -584,6 +584,7 @@ class RoomController(
                 expand = MessageExpand(author = user, replyTo = quoted),
                 status = SendStatus.Pending,
                 localFiles = files,
+                localItems = items,
             )
             pill = null
             writes.launch { outbox.enqueue(owner, msg) }.join()

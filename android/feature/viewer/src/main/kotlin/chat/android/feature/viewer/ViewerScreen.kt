@@ -1,5 +1,5 @@
-// The image and video viewer (DESIGN.md §17.7): every image and video of the room around the one opened, swiped
-// through, pinch or double-tap to zoom. A tap shows or hides the bars. Videos play with Media3, which only this module
+// The image and video viewer (DESIGN.md §17.7): every image and video of the room around the one opened (or of a
+// collection, §31.3), swiped through, pinch or double-tap to zoom. A tap shows or hides the bars. Videos play with Media3, which only this module
 // carries (ANDROID.md §4.1, §11).
 package chat.android.feature.viewer
 
@@ -42,6 +42,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -79,6 +80,7 @@ import chat.android.data.lib.isMedia
 import chat.android.data.lib.isVideo
 import chat.android.data.model.Cursor
 import chat.android.data.model.Message
+import chat.android.data.model.SaveFrom
 import chat.android.data.repo.ChatServices
 import chat.android.ui.ChatIcons
 import chat.android.ui.Formats
@@ -90,7 +92,21 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
-private data class Item(val m: Message, val file: String)
+/** One image or video: a message's file, or a collection item's ([item]: the message is the item as one). */
+private data class Item(val m: Message, val file: String, val item: chat.android.data.model.CollectionItem? = null) {
+    val key get() = "${m.id}/$file"
+    val name get() = item?.name ?: m.attachmentName(file)
+    val video get() = item?.video ?: isVideo(name)
+    /** What Save copies: a message's file (a forward's original's, §21.3), or the item. */
+    val from: SaveFrom get() = if (item != null) SaveFrom.Item(item.id) else SaveFrom.File(m.forwardOf.ifEmpty { m.id }, file)
+
+    fun url(services: ChatServices, token: String?) =
+        if (item != null) services.api.itemUrl(item.id, file, token = token) else services.api.fileUrl(m, file, token = token)
+}
+
+/** An item as the viewer takes it: a message of its own with one file. */
+private fun asItem(it: chat.android.data.model.CollectionItem) =
+    Item(Message(id = it.id, room = "", created = it.created, files = listOf(it.file), fileNames = mapOf(it.file to it.name)), it.file, it)
 
 private const val MAX_ZOOM = 5f
 private const val DOUBLE_TAP_ZOOM = 2.5f
@@ -98,8 +114,6 @@ private const val DOUBLE_TAP_ZOOM = 2.5f
 @Composable
 fun ViewerScreen(roomId: String, msgId: String, file: String, onClose: () -> Unit) {
     val services = LocalServices.current
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val items by produceState<List<Item>?>(null, roomId, msgId) {
         value = runCatching {
             val m = services.api.getMessage(msgId)
@@ -111,6 +125,45 @@ fun ViewerScreen(roomId: String, msgId: String, file: String, onClose: () -> Uni
             }.flatMap { msg -> msg.files.filter { isMedia(msg.attachmentName(it)) }.map { Item(msg, it) } }
         }.getOrElse { listOf() }
     }
+    Viewer(items, "$msgId/$file", onClose)
+}
+
+/** A collection's items around the one opened (§31.3), oldest first as a room's are. */
+@Composable
+fun CollectionViewerScreen(collection: String, itemId: String, onClose: () -> Unit) {
+    val services = LocalServices.current
+    val items by produceState<List<Item>?>(null, collection, itemId) {
+        value = runCatching {
+            val (page, _) = services.api.collectionItems(collection)
+            // The one opened, wherever it is: the newest page, or the pages around it.
+            val at = page.firstOrNull { it.id == itemId } ?: run {
+                var last: chat.android.data.model.CollectionItem? = null
+                var found: chat.android.data.model.CollectionItem? = null
+                while (found == null) {
+                    val (more, has) = services.api.collectionItems(collection, last)
+                    found = more.firstOrNull { it.id == itemId }
+                    last = more.lastOrNull()
+                    if (!has || last == null) break
+                }
+                found
+            } ?: return@runCatching emptyList()
+            coroutineScope {
+                val newer = async { services.api.collectionItems(collection, at, newer = true).first }
+                val older = async { services.api.collectionItems(collection, at).first }
+                older.await().reversed() + at + newer.await()
+            }.map(::asItem)
+        }.getOrElse { listOf() }
+    }
+    Viewer(items, "$itemId/", onClose)
+}
+
+@Composable
+private fun Viewer(items: List<Item>?, startKey: String, onClose: () -> Unit) {
+    val services = LocalServices.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val signedIn = services.store.flow.collectAsState().value.user != null
+    var saving by remember { mutableStateOf<SaveFrom?>(null) }
     var chrome by remember { mutableStateOf(true) }
     BackHandler(onBack = onClose)
     SystemBars(chrome)
@@ -120,15 +173,14 @@ fun ViewerScreen(roomId: String, msgId: String, file: String, onClose: () -> Uni
             list == null -> CircularProgressIndicator(Modifier.align(Alignment.Center), color = Color.White)
             list.isEmpty() -> Text("That message isn't available any more.", color = Color.White, modifier = Modifier.align(Alignment.Center))
             else -> {
-                val start = list.indexOfFirst { it.m.id == msgId && it.file == file }.coerceAtLeast(0)
+                val start = list.indexOfFirst { it.key.startsWith(startKey) }.coerceAtLeast(0)
                 val pager = rememberPagerState(initialPage = start) { list.size }
-                HorizontalPager(pager, Modifier.fillMaxSize(), beyondViewportPageCount = 1, key = { "${list[it].m.id}/${list[it].file}" }) { page ->
+                HorizontalPager(pager, Modifier.fillMaxSize(), beyondViewportPageCount = 1, key = { list[it].key }) { page ->
                     val item = list[page]
-                    val name = item.m.attachmentName(item.file)
-                    if (isVideo(name)) {
-                        Video(item.m, item.file, pager.currentPage == page, chrome) { chrome = !chrome }
+                    if (item.video) {
+                        Video(item, pager.currentPage == page, chrome) { chrome = !chrome }
                     } else {
-                        Picture(item.m, item.file, name, pager.currentPage == page) { chrome = !chrome }
+                        Picture(item, pager.currentPage == page) { chrome = !chrome }
                     }
                 }
                 val current = list[pager.currentPage]
@@ -142,7 +194,7 @@ fun ViewerScreen(roomId: String, msgId: String, file: String, onClose: () -> Uni
                     ) {
                         current.m.expand?.author?.let { Text(it.name, color = Color.White, style = MaterialTheme.typography.titleSmall) }
                         Text(
-                            Formats.time(current.m.created) + " · " + current.m.attachmentName(current.file),
+                            (if (current.item != null) "Added " else "") + Formats.time(current.m.created) + " · " + current.name,
                             color = Color.White.copy(alpha = 0.75f),
                             style = MaterialTheme.typography.bodySmall,
                             maxLines = 1,
@@ -166,13 +218,19 @@ fun ViewerScreen(roomId: String, msgId: String, file: String, onClose: () -> Uni
                             style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.weight(1f),
                         )
-                        IconButton(onClick = { scope.launch { download(context, services, current.m, current.file) } }) {
+                        if (signedIn) {
+                            IconButton(onClick = { saving = current.from }) {
+                                Icon(ChatIcons.Collection, contentDescription = "Save to collection", tint = Color.White)
+                            }
+                        }
+                        IconButton(onClick = { scope.launch { download(context, services, current) } }) {
                             Icon(ChatIcons.Download, contentDescription = "Download", tint = Color.White)
                         }
                     }
                 }
             }
         }
+        saving?.let { from -> chat.android.ui.SaveToCollectionSheet(from) { saving = null } }
         if (list.isNullOrEmpty()) {
             IconButton(onClick = onClose, modifier = Modifier.align(Alignment.TopStart).statusBarsPadding().padding(4.dp)) {
                 Icon(ChatIcons.Back, contentDescription = "Close", tint = Color.White)
@@ -213,7 +271,7 @@ private fun SystemBars(shown: Boolean) {
  * next image works. Two fingers always zoom.
  */
 @Composable
-private fun Picture(m: Message, file: String, name: String, active: Boolean, onTap: () -> Unit) {
+private fun Picture(item: Item, active: Boolean, onTap: () -> Unit) {
     val services = LocalServices.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -230,10 +288,10 @@ private fun Picture(m: Message, file: String, name: String, active: Boolean, onT
         return Offset(o.x.coerceIn(-maxX, maxX), o.y.coerceIn(-maxY, maxY))
     }
 
-    val url = services.api.fileUrl(m, file, token = token)
+    val url = item.url(services, token)
     SubcomposeAsyncImage(
         model = Images.request(context, url),
-        contentDescription = name,
+        contentDescription = item.name,
         contentScale = ContentScale.Fit,
         loading = { Box(Modifier.fillMaxSize()) { CircularProgressIndicator(Modifier.align(Alignment.Center), color = Color.White) } },
         error = { Box(Modifier.fillMaxSize()) { Text("Couldn't load image.", color = Color.White, modifier = Modifier.align(Alignment.Center)) } },
@@ -295,7 +353,7 @@ private fun Picture(m: Message, file: String, name: String, active: Boolean, onT
 // ContentFrame is Media3's Compose surface, still marked unstable API.
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
-private fun Video(m: Message, file: String, active: Boolean, chrome: Boolean, onTap: () -> Unit) {
+private fun Video(item: Item, active: Boolean, chrome: Boolean, onTap: () -> Unit) {
     val services = LocalServices.current
     val context = LocalContext.current
     var failed by remember { mutableStateOf(false) }
@@ -312,15 +370,15 @@ private fun Video(m: Message, file: String, active: Boolean, chrome: Boolean, on
             player.release()
         }
     }
-    LaunchedEffect(m.id, file) {
+    LaunchedEffect(item.key) {
         val token = runCatching { services.tokens.ensure() }.getOrDefault("")
-        player.setMediaItem(MediaItem.fromUri(services.api.fileUrl(m, file, token = token).toString()))
+        player.setMediaItem(MediaItem.fromUri(item.url(services, token).toString()))
         player.prepare()
     }
     // The page in view plays; one swiped away pauses.
     LaunchedEffect(active) { player.playWhenReady = active }
     Box(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures(onTap = { onTap() }) }, contentAlignment = Alignment.Center) {
-        ContentFrame(player, Modifier.fillMaxSize().semantics { contentDescription = m.attachmentName(file) }, contentScale = ContentScale.Fit)
+        ContentFrame(player, Modifier.fillMaxSize().semantics { contentDescription = item.name }, contentScale = ContentScale.Fit)
         if (failed) Text("Couldn't play this video.", color = Color.White)
         val playPause = rememberPlayPauseButtonState(player)
         AnimatedVisibility(chrome && !failed, enter = fadeIn(), exit = fadeOut()) {
@@ -344,6 +402,7 @@ private fun Video(m: Message, file: String, active: Boolean, chrome: Boolean, on
 }
 
 @Composable
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 private fun Seek(player: Player) {
     val progress = rememberProgressStateWithTickInterval(player, 250)
     var dragging by remember { mutableStateOf<Float?>(null) }
@@ -376,10 +435,10 @@ private fun clock(ms: Long): String {
 }
 
 /** Download a file with the system's download manager (a fresh file token in its URL, §17.3). */
-private suspend fun download(context: Context, services: ChatServices, m: Message, file: String) {
+private suspend fun download(context: Context, services: ChatServices, item: Item) {
     val token = runCatching { services.tokens.ensure() }.getOrDefault("")
-    val url = services.api.fileUrl(m, file, token = token).toString()
-    val name = m.attachmentName(file)
+    val url = item.url(services, token).toString()
+    val name = item.name
     val req = DownloadManager.Request(Uri.parse(url))
         .setTitle(name)
         .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)

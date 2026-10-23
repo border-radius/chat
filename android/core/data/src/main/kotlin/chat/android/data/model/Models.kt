@@ -110,11 +110,15 @@ data class Message(
     /** The message a forward shows (§21.3); its files are that message's. */
     @SerialName("forward_of") val forwardOf: String = "",
     val previews: List<LinkPreview> = emptyList(),
+    /** Stored name → the collection the file was attached from (§31); a forward's are its original's. */
+    @SerialName("file_sources") val fileSources: Map<String, String> = emptyMap(),
     val expand: MessageExpand? = null,
     /** Client only: not on the server yet (§7.5). Never sent, never decoded. */
     @kotlinx.serialization.Transient val status: SendStatus? = null,
     /** Client only: attachments of a message not on the server yet, as content URIs (§17.4). */
     @kotlinx.serialization.Transient val localFiles: List<LocalFile> = emptyList(),
+    /** Client only: collection items a message not on the server yet attaches (§31), after its files. */
+    @kotlinx.serialization.Transient val localItems: List<CollectionItem> = emptyList(),
 ) {
     val isService: Boolean get() = author.isEmpty()
 }
@@ -171,3 +175,67 @@ data class MediaAuthor(val id: String, val name: String = "")
 
 @Serializable
 data class MediaPage(val items: List<MediaItem> = emptyList(), val more: Boolean = false)
+
+/** A media collection (DESIGN.md §31): yours, or someone else's public one that you follow. */
+@Serializable
+data class MediaCollection(
+    val id: String,
+    val name: String = "",
+    val public: Boolean = false,
+    val items: Int = 0,
+    @SerialName("last_added") val lastAdded: String = "",
+    /** Someone else's that you follow: whose it is, up to when you've seen it, and how many items are new (at most 100). */
+    val owner: CollectionOwner? = null,
+    @SerialName("seen_at") val seenAt: String = "",
+    val new: Int = 0,
+)
+
+@Serializable
+data class CollectionOwner(val id: String, val name: String = "")
+
+/** What GET /api/chat/collections answers: yours and those you follow, by name. */
+@Serializable
+data class Collections(val mine: List<MediaCollection> = emptyList(), val subs: List<MediaCollection> = emptyList()) {
+    fun find(id: String): MediaCollection? = mine.firstOrNull { it.id == id } ?: subs.firstOrNull { it.id == id }
+}
+
+/** One image or video of a collection (§31). */
+@Serializable
+data class CollectionItem(
+    val id: String,
+    val collection: String = "",
+    val file: String = "",
+    /** The original file name. */
+    val name: String = "",
+    val video: Boolean = false,
+    /** A video's poster frame is ready (GET /api/chat/posters/items/{id}/{file}). */
+    val poster: Boolean = false,
+    val created: String = "",
+)
+
+/** A collection as its page shows it: with its owner's name (guests can't look users up). */
+@Serializable
+data class CollectionMeta(
+    val id: String,
+    val name: String = "",
+    val public: Boolean = false,
+    val owner: String = "",
+    val items: Int = 0,
+    val expand: CollectionMetaExpand? = null,
+)
+
+@Serializable
+data class CollectionMetaExpand(val owner: User? = null)
+
+/**
+ * What a "from collection" badge may say (§31): a public one's (or your own) [name], or [private] for someone else's
+ * private one. A collection that is gone has none (null).
+ */
+@Serializable
+data class Badge(val name: String = "", val public: Boolean = false, val mine: Boolean = false, val private: Boolean = false)
+
+/** What to save to a collection: a message's file (a forward's original's, §21.3), or another collection's item. */
+sealed interface SaveFrom {
+    data class File(val message: String, val file: String) : SaveFrom
+    data class Item(val item: String) : SaveFrom
+}

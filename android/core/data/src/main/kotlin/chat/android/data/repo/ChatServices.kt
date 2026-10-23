@@ -61,6 +61,7 @@ class ChatServices(
     val site = SiteRepository(api, db, store)
     val rooms = RoomsSync(api, store, db, main)
     val unread = Unread(api, store, db, main)
+    val collections = CollectionsSync(api, store, main)
     val prefetch = Prefetch(api, store, cache, main)
     val outbox = Outbox(api, db, appScope) { hooks.scheduleOutbox() }
     val actions = RoomActions(api, store)
@@ -93,6 +94,7 @@ class ChatServices(
         val first = who == null
         who = id
         unread.stop()
+        collections.stop()
         prefetch.stop()
         rooms.stop()
         tokens.reset()
@@ -113,6 +115,7 @@ class ChatServices(
         rooms.start()
         if (user != null) {
             unread.start()
+            collections.start()
             prefetch.start()
             outbox.drain()
             appScope.launch { runCatching { hooks.onSignedIn(user) } }
@@ -173,6 +176,7 @@ class ChatServices(
     /** Stop everything (tests; the process ending needs nothing). */
     suspend fun close() = withContext(main) {
         unread.stop()
+        collections.stop()
         prefetch.stop()
         rooms.stop()
         pb.realtime.unsubscribeAll()

@@ -4,6 +4,10 @@ package chat.android.data.api
 
 import chat.android.data.lib.PAGE_SIZE
 import chat.android.data.lib.PageQuery
+import chat.android.data.model.Badge
+import chat.android.data.model.CollectionItem
+import chat.android.data.model.CollectionMeta
+import chat.android.data.model.Collections
 import chat.android.data.model.Cursor
 import chat.android.data.model.MediaItem
 import chat.android.data.model.MediaPage
@@ -11,6 +15,7 @@ import chat.android.data.model.Message
 import chat.android.data.model.Posting
 import chat.android.data.model.Room
 import chat.android.data.model.RoomRow
+import chat.android.data.model.SaveFrom
 import chat.android.data.model.Site
 import chat.android.data.model.UnreadCounts
 import chat.android.data.model.User
@@ -39,7 +44,7 @@ import okhttp3.HttpUrl
 
 /** Only what the UI renders; never user emails (§6). The web's MSG_FIELDS. */
 const val MSG_FIELDS =
-    "id,room,text,created,updated,edited_at,deleted,files,file_names,reactions,previews,author,expand.author.id,expand.author.name,expand.author.avatar,expand.author.no_dms," +
+    "id,room,text,created,updated,edited_at,deleted,files,file_names,file_sources,reactions,previews,author,expand.author.id,expand.author.name,expand.author.avatar,expand.author.no_dms," +
         "reply_to,expand.reply_to.id,expand.reply_to.author,expand.reply_to.text,expand.reply_to.deleted,expand.reply_to.files," +
         "expand.reply_to.expand.author.id,expand.reply_to.expand.author.name," +
         "forwarded_from,forward_of,expand.forwarded_from.id,expand.forwarded_from.name"
@@ -55,6 +60,9 @@ private const val SITE_FIELDS = "id,title,logo,invite_only,min_android_version"
 private const val ACTIVITY_FIELDS = "id,room,author,deleted"
 /** What the profile calls return: never the email, even your own. */
 private const val USER_FIELDS = "id,name,avatar"
+private const val ITEM_FIELDS = "id,collection,file,name,video,poster,created"
+/** A collection's page of items, as the media grid's (DESIGN.md §30.2). */
+const val COLLECTION_PAGE = 60
 
 /** A normalized error: views never depend on PbError. */
 class ApiError(message: String, val status: Int, val fields: Map<String, String> = emptyMap(), val codes: Map<String, String> = emptyMap()) :
@@ -97,7 +105,15 @@ data class Change<T>(val action: Action, val record: T)
 data class Activity(val id: String, val room: String = "", val author: String = "", val deleted: Boolean = false)
 
 /** A message to send: its client-made id, so retries can't duplicate (§17.4). */
-class NewMessage(val id: String, val room: String, val text: String, val files: List<UploadFile> = emptyList(), val replyTo: String = "")
+class NewMessage(
+    val id: String,
+    val room: String,
+    val text: String,
+    val files: List<UploadFile> = emptyList(),
+    val replyTo: String = "",
+    /** Collection items to attach, after the files (DESIGN.md §31.2). */
+    val items: List<String> = emptyList(),
+)
 
 class ChatApi(val pb: PbClient) {
     private val rejectedListeners = mutableSetOf<() -> Unit>()
@@ -333,7 +349,13 @@ class ChatApi(val pb: PbClient) {
             put("text", m.text)
             if (m.replyTo.isNotEmpty()) put("reply_to", m.replyTo)
         }
-        val body = if (m.files.isEmpty()) Body.Json(JsonObject(fields.mapValues { JsonPrimitive(it.value) })) else Body.Multipart(fields, mapOf("files" to m.files), onUpload = onUpload)
+        val items = JsonArray(m.items.map { JsonPrimitive(it) })
+        val body = if (m.files.isEmpty()) {
+            Body.Json(JsonObject(fields.mapValues { JsonPrimitive(it.value) } + if (m.items.isEmpty()) emptyMap() else mapOf("items" to items)))
+        } else {
+            // In a form, the items are a JSON list (§31.2).
+            Body.Multipart(if (m.items.isEmpty()) fields else fields + ("items" to items.toString()), mapOf("files" to m.files), onUpload = onUpload)
+        }
         return decode(call(records("messages"), "POST", MSG_OPTS, body))
     }
 
@@ -392,6 +414,131 @@ class ChatApi(val pb: PbClient) {
     /** A video's poster frame (DESIGN.md §30: made by the server's media worker; 404 until then, or without ffmpeg). */
     fun posterUrl(m: Message, filename: String, token: String? = null): HttpUrl =
         pb.url("/api/chat/posters/${m.forwardOf.ifEmpty { m.id }}/$filename", mapOf("token" to token?.ifEmpty { null }))
+
+    // ---- collections (DESIGN.md §31)
+
+    /** Yours and the public ones you follow, by name; those followed with how many of their items are new. */
+    suspend fun collections(): Collections = get("/api/chat/collections")
+
+    /** You have seen a collection you follow up to [at] (its newest item's `created`), or up to now. Forward only. */
+    suspend fun markSeen(collection: String, at: String = "") {
+        call("/api/chat/subs/seen", "POST", body = Body.Json(buildJsonObject { put("collection", collection); if (at.isNotEmpty()) put("at", at) }))
+    }
+
+    /** What the badges of files attached from these collections may say; null for one that is gone. At most 50. */
+    suspend fun badges(ids: List<String>): Map<String, Badge?> = get("/api/chat/badges", mapOf("ids" to ids.joinToString(",")))
+
+    /** A collection with its owner's name. 404 for one you can't see (or that is gone). */
+    suspend fun collection(id: String): CollectionMeta =
+        get(record("collections", id), mapOf("expand" to "owner", "fields" to "id,name,public,owner,items,expand.owner.id,expand.owner.name"))
+
+    /** A new collection of yours; its id. */
+    suspend fun createCollection(name: String, public: Boolean): String = (call(
+        records("collections"),
+        "POST",
+        mapOf("fields" to "id"),
+        Body.Json(buildJsonObject { put("owner", me()); put("name", name); put("public", public) }),
+    ).obj["id"] as JsonPrimitive).content
+
+    /** Rename yours, or make it public or private. */
+    suspend fun updateCollection(id: String, name: String? = null, public: Boolean? = null): CollectionMeta = decode(
+        call(record("collections", id), "PATCH", mapOf("fields" to "id,name,public,owner,items"), Body.Json(buildJsonObject {
+            if (name != null) put("name", name)
+            if (public != null) put("public", public)
+        })),
+    )
+
+    suspend fun deleteCollection(id: String) {
+        call(record("collections", id), "DELETE")
+    }
+
+    /**
+     * A page of a collection's items, newest first: older than [after] (the oldest shown), or the newest; with [newer],
+     * those added after [after] (the newest shown), the oldest of them first. [more]: there are more than a page.
+     */
+    suspend fun collectionItems(collection: String, after: CollectionItem? = null, newer: Boolean = false, size: Int = COLLECTION_PAGE): Pair<List<CollectionItem>, Boolean> {
+        val op = if (newer) ">" else "<"
+        val cursor = if (after == null) "" else " && (created $op {:c} || (created = {:c} && id $op {:i}))"
+        val filter = pb.filter("collection = {:coll}$cursor", mapOf("coll" to collection, "c" to after?.created, "i" to after?.id))
+        val list = items(
+            call(records("collection_items"), query = mapOf(
+                "filter" to filter,
+                "sort" to if (newer) "created,id" else "-created,-id",
+                "page" to 1,
+                "perPage" to size + 1,
+                "skipTotal" to true,
+                "fields" to ITEM_FIELDS,
+            )),
+            CollectionItem.serializer(),
+        )
+        return list.take(size) to (list.size > size)
+    }
+
+    /** The ids of a collection's items from [oldest] on (it included): which of those shown are still there. */
+    suspend fun itemIdsSince(collection: String, oldest: CollectionItem): Set<String> {
+        val filter = pb.filter("collection = {:coll} && (created > {:c} || (created = {:c} && id >= {:i}))", mapOf("coll" to collection, "c" to oldest.created, "i" to oldest.id))
+        return fullList("collection_items", mapOf("filter" to filter, "sort" to "-created,-id", "fields" to "id"), chat.android.data.model.RoomRow.serializer()).map { it.id }.toSet()
+    }
+
+    /** A copy of a message's file, or of an item, in a collection of yours. 409: it is in there already. */
+    suspend fun saveItem(collection: String, from: SaveFrom): CollectionItem = decode(
+        call("/api/chat/items", "POST", body = Body.Json(buildJsonObject {
+            put("collection", collection)
+            when (from) {
+                is SaveFrom.File -> { put("message", from.message); put("file", from.file) }
+                is SaveFrom.Item -> put("item", from.item)
+            }
+        })),
+    )
+
+    /** An image or video of your own, uploaded straight into a collection of yours (20 MB at most). */
+    suspend fun uploadItem(collection: String, file: UploadFile, onUpload: ((Float) -> Unit)? = null): CollectionItem = decode(
+        call("/api/chat/items", "POST", body = Body.Multipart(mapOf("collection" to collection), mapOf("file" to listOf(file)), onUpload = onUpload)),
+    )
+
+    /** Take an item out of a collection of yours. */
+    suspend fun removeItem(item: String) {
+        call("/api/chat/items/$item", "DELETE")
+    }
+
+    /** Your collections that have the file already: collection id → item id. */
+    suspend fun savedIn(from: SaveFrom): Map<String, String> = get(
+        "/api/chat/saved",
+        when (from) {
+            is SaveFrom.File -> mapOf("message" to from.message, "file" to from.file)
+            is SaveFrom.Item -> mapOf("item" to from.item)
+        },
+    )
+
+    /** Follow someone else's public collection ([on]), or stop. */
+    suspend fun follow(collection: String, on: Boolean) {
+        call("/api/chat/subs", "POST", body = Body.Json(buildJsonObject { put("collection", collection); put("on", on) }))
+    }
+
+    /** An item's file, or its square grid thumbnail. */
+    fun itemUrl(id: String, file: String, thumb: String? = null, token: String? = null): HttpUrl =
+        pb.fileUrl("collection_items", id, file, mapOf("thumb" to thumb, "token" to token?.ifEmpty { null }))
+
+    /** A video item's poster frame. */
+    fun itemPosterUrl(id: String, file: String, token: String? = null): HttpUrl =
+        pb.url("/api/chat/posters/items/$id/$file", mapOf("token" to token?.ifEmpty { null }))
+
+    /**
+     * Changes of your collections, of those you follow ([ids]: one topic each, as a filter naming them all could be
+     * longer than a topic may be) and of your own subscriptions.
+     */
+    suspend fun subscribeCollections(ids: List<String>, fn: () -> Unit): Unsubscribe {
+        val offs = mutableListOf<Unsubscribe>()
+        try {
+            offs += pb.realtime.subscribe("collections/*", mapOf("fields" to "id", "filter" to pb.filter("owner = {:me}", mapOf("me" to me())))) { fn() }
+            offs += pb.realtime.subscribe("collection_subs/*", mapOf("fields" to "id")) { fn() }
+            for (id in ids) offs += pb.realtime.subscribe("collections/$id", mapOf("fields" to "id")) { fn() }
+        } catch (e: Exception) {
+            for (off in offs) runCatching { off() }
+            throw e.toApiError()
+        }
+        return { for (off in offs) runCatching { off() } }
+    }
 
     // ---- push (ANDROID.md §8)
 

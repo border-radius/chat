@@ -131,8 +131,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Show [room] in [account], switching to it. */
-    private fun open(account: String, room: Room) {
+    /** Show [room] (or a collection) in [account], switching to it. */
+    private fun open(account: String, room: androidx.navigation3.runtime.NavKey) {
         val app = ChatApp.of(this)
         lifecycleScope.launch {
             app.ready.await()
