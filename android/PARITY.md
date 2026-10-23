@@ -37,7 +37,7 @@ Test classes: `UiFlowTest`, `UiFeaturesTest`, `UiPortsTest`, `UiCollectionsTest`
 | `media` | `UiPortsTest`: a room's images in the grid, one opened in the viewer; an empty room says so | Partial: paging, video posters (on the emulator only) |
 | `switcher` | `UiPortsTest`: Jump to finds a room by a word and opens it; `JumpTest`: the web's matching and ranking cases | Covered |
 | `theme` | `UiPortsTest`: Appearance set to Dark is kept | Covered |
-| `collections` | `UiCollectionsTest`: make one from the room list, save from a tile, a badge to a public one, subscribe, "1 new" live and seen, attach from the picker with its badge, save and unsave in the viewer; `CollectionsTest` | Partial: uploading (the photo picker can't be driven on Robolectric), axe |
+| `collections` | `UiCollectionsTest`: make one from the room list, save from a tile, a badge to a public one, subscribe, "1 new" live and seen, attach from the picker with its badge, save and unsave in the viewer; `CollectionsTest`: badges follow a collection made public, renamed, private and deleted, live | Partial: uploading (the photo picker can't be driven on Robolectric), axe |
 | `pwa` | — | Not applicable: the app is the installed app (§3) |
 | — (Android only) | Servers and accounts (ANDROID.md §17): `AccountsTest`, `ServersTest` (add, switch, links and pushes find their account, refused sessions, addresses), `UiAccountsTest` (add an account on another server, switch from the account list opened by the brand, a bad address, log out to another account) | Covered |
 | — (Android only) | `push.test.ts` (server): who gets a push, ids only, tokens owner-only, App Links, minimum version | Covered on the server; not yet on a device |

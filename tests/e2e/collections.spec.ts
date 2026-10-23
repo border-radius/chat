@@ -109,18 +109,25 @@ test("collections: make one, save from the chat, follow, see what's new, attach 
   await expect(badge).toHaveAttribute("href", collUrl.replace(/^.*?\/c\//, "/c/"));
   await sent.screenshot({ path: "test-results/collection-badge.png" });
 
-  // Private now: Bob's badge says so, and isn't a link; Ada's still names it.
-  await fetch(`${E2E_BASE}/api/collections/collections/records/${collUrl.split("/c/")[1]}`, {
-    method: "PATCH",
-    headers: { authorization: ada.token, "content-type": "application/json" },
-    body: JSON.stringify({ public: false }),
-  });
-  await b.reload();
+  // Private now: Bob's badge says so at once (no reload), and isn't a link; Ada's still names it.
+  const patch = (body: Record<string, unknown>) =>
+    fetch(`${E2E_BASE}/api/collections/collections/records/${collUrl.split("/c/")[1]}`, {
+      method: "PATCH",
+      headers: { authorization: ada.token, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  await patch({ public: false });
   await expect(message(b, "from Ada's pets").locator(".att-src")).toHaveText("Private collection");
   await expect(message(b, "from Ada's pets").locator("a.att-src")).toHaveCount(0);
   await expect(sidebarRow(b, "Pets")).toHaveCount(0);
-  await a.reload();
+  await a.goto(`/r/${room.id}`);
   await expect(message(a, "from Ada's pets").getByRole("link", { name: /Pets/ })).toBeVisible();
+  // Public again, then renamed: both badges follow live.
+  await patch({ public: true });
+  await expect(message(b, "from Ada's pets").getByRole("link", { name: "Pets" })).toBeVisible();
+  await patch({ name: "Good pets" });
+  await expect(message(b, "from Ada's pets").getByRole("link", { name: "Good pets" })).toBeVisible();
+  await expect(message(a, "from Ada's pets").getByRole("link", { name: /Good pets/ })).toBeVisible();
 });
 
 test("collections: the viewer saves too, and unticking takes it out (§31)", async ({ browser }) => {

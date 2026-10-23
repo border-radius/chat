@@ -7,7 +7,20 @@ import type { RecordModel } from "pocketbase";
 import { beforeAll, describe, expect, inject, it } from "vitest";
 import { pngOf } from "../support/images.ts";
 import { makeMp4 } from "../support/video.ts";
-import { adminClient, client, collect, eventually, newRoom, newUser, openDm, rawDb, status, type TestUser, uniq } from "./helpers.ts";
+import {
+  adminClient,
+  client,
+  collect,
+  eventually,
+  newRoom,
+  newUser,
+  openDm,
+  rawDb,
+  sleep,
+  status,
+  type TestUser,
+  uniq,
+} from "./helpers.ts";
 
 interface Item {
   id: string;
@@ -315,6 +328,43 @@ describe("GET /api/chat/badges (§31)", () => {
       mine: true,
     });
     expect((await client().send<Record<string, unknown>>("/api/chat/badges", { query }))[pub.id]).toMatchObject({ name: "Public one" });
+  });
+
+  it("tells chat/badges listeners a collection's id once it is made public or private, renamed or deleted", async () => {
+    const a = await newUser();
+    const b = await newUser();
+    const guest = client();
+    const coll = await newCollection(a, { name: "Was secret" });
+    const query = { ids: coll.id };
+    /** What b's badge said when each id came in: asked at once, it is the saved state already. */
+    const seen: unknown[] = [];
+    const heard: string[] = [];
+    const offB = await b.pb.realtime.subscribe("chat/badges", (d: { id: string }) => {
+      if (d.id !== coll.id) return; // other tests' collections
+      void b.pb.send<Record<string, unknown>>("/api/chat/badges", { query }).then((got) => seen.push(got[d.id]));
+    });
+    const offGuest = await guest.realtime.subscribe("chat/badges", (d: { id: string }) => heard.push(d.id));
+    try {
+      await a.pb.collection("collections").update(coll.id, { public: true });
+      await eventually(() => expect(seen).toEqual([{ name: "Was secret", public: true, mine: false }]));
+      await a.pb.collection("collections").update(coll.id, { name: "Now public" });
+      await eventually(() => expect(seen).toHaveLength(2));
+      expect(seen[1]).toMatchObject({ name: "Now public" });
+      await a.pb.collection("collections").update(coll.id, { public: false });
+      await eventually(() => expect(seen[2]).toEqual({ private: true }));
+      await a.pb.collection("collections").delete(coll.id);
+      await eventually(() => expect(seen[3]).toBeNull());
+      await eventually(() => expect(heard.filter((id) => id === coll.id)).toHaveLength(4));
+      // Nothing for what the badge doesn't show: a new collection, the same name again, a new item.
+      const other = await newCollection(a, { public: true });
+      await a.pb.collection("collections").update(other.id, { name: other.name });
+      const { coll: saved } = await savedItem(a, { public: true });
+      await sleep(300);
+      expect(heard.filter((id) => id === other.id || id === saved.id)).toEqual([]);
+    } finally {
+      await offB();
+      await offGuest();
+    }
   });
 });
 

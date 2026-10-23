@@ -187,6 +187,8 @@ export interface Api {
   itemPosterUrl(item: Pick<CollectionItem, "id" | "file">): string;
   /** Changes of these collections (yours, and those you follow), and of your own subscriptions. */
   subscribeCollections(ids: readonly string[], fn: () => void): Promise<Unsubscribe>;
+  /** The id of any collection whose badge may say something else now: made public or private, renamed, deleted. */
+  subscribeBadges(fn: (id: string) => void): Promise<Unsubscribe>;
   /** Any request to the server, for a lazy chunk (which can't import this module); rejects with ApiError. */
   request<T>(path: string, r?: Request): Promise<T>;
 
@@ -568,6 +570,7 @@ export function createApi(client: PbClient): Api {
         await Promise.all(offs.map((off) => off()));
       };
     },
+    subscribeBadges: (fn) => wrap(pb.realtime.subscribe("chat/badges", (d) => fn((d as { id: string }).id))),
     request: (path, r) => wrap(pb.send(path, r)),
     media: (room, after, signal) => wrap(pb.send<MediaPage>(`/api/chat/media/${room}`, { query: after, signal })),
 

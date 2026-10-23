@@ -678,14 +678,17 @@ DESIGN.md §31, the last web feature the app lacked, ported from `web/src/collec
 - `ChatApi`: `collections`, `markSeen`, `badges`, `collection`, `createCollection`, `updateCollection`,
   `deleteCollection`, `collectionItems` (60 a page, cursor on `(created, id)`, older or newer), `itemIdsSince`,
   `saveItem`, `uploadItem`, `removeItem`, `savedIn`, `follow`, `itemUrl`, `itemPosterUrl`,
-  `subscribeCollections` (yours, your subscriptions, and one topic per collection you follow). `NewMessage.items`: a
+  `subscribeCollections` (yours, your subscriptions, and one topic per collection you follow), `subscribeBadges`
+  (the `chat/badges` topic: a collection's id once it is made public or private, renamed or deleted). `NewMessage.items`: a
   JSON list in a JSON body, a JSON string in a form.
 - `CollectionsSync` (`repo/`) ports `collections.ts`. It is started with the session for a signed-in user, keeps
   `AppState.collections`, refetches 250 ms after a live change and on every reconnect, and `seen()` clears a badge at
   once.
 - The outbox keeps a message's items with it (`Outgoing.items`), so Retry sends the same ids.
 - `Badges` (`repo/`), one per room screen: it asks `/api/chat/badges` once per collection while the room is open, in
-  batches of at most 50. A rename shows the next time the room is opened, as on the web.
+  batches of at most 50. From the first badge on it listens to `chat/badges` and asks again about the ids it shows (the
+  old badge stays until the answer), and about all of them after a reconnect, as on the web: made public, private or
+  renamed, a badge follows live.
 
 ### 19.2 Screens
 

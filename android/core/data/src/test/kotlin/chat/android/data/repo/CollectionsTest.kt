@@ -10,6 +10,9 @@ import chat.android.data.testing.TestServer.uniq
 import chat.android.data.testing.closeServices
 import chat.android.data.testing.eventually
 import chat.android.data.testing.services
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -107,5 +110,28 @@ class CollectionsTest {
         assertTrue(b.api.badges(listOf(coll))[coll]!!.private)
         a.api.deleteCollection(coll)
         assertNull(a.api.badges(listOf(coll))[coll])
+    }
+
+    @Test fun `badges follow a collection made public, renamed, made private and deleted, live`() = runBlocking {
+        val a = newUser()
+        val b = newUser()
+        val coll = a.api.createCollection("Secret ${uniq()}", false)
+        val scope = CoroutineScope(coroutineContext + Job())
+        val badges = Badges(b.api, scope)
+        try {
+            badges.want(listOf(coll))
+            eventually(what = "private") { badges.state.value[coll]?.private == true }
+            a.api.updateCollection(coll, public = true)
+            eventually(what = "public") { badges.state.value[coll]?.public == true }
+            val name = "Open ${uniq()}"
+            a.api.updateCollection(coll, name = name)
+            eventually(what = "renamed") { badges.state.value[coll]?.name == name }
+            a.api.updateCollection(coll, public = false)
+            eventually(what = "private again") { badges.state.value[coll]?.private == true }
+            a.api.deleteCollection(coll)
+            eventually(what = "gone") { coll in badges.state.value && badges.state.value[coll] == null }
+        } finally {
+            scope.cancel()
+        }
     }
 }

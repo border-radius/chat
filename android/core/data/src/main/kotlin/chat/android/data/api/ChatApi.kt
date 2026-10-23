@@ -540,6 +540,14 @@ class ChatApi(val pb: PbClient) {
         return { for (off in offs) runCatching { off() } }
     }
 
+    /** The id of any collection whose badge may say something else now: made public or private, renamed, deleted. */
+    suspend fun subscribeBadges(fn: (String) -> Unit): Unsubscribe =
+        try {
+            pb.realtime.subscribe("chat/badges") { d -> (d["id"] as? JsonPrimitive)?.content?.let(fn) }
+        } catch (e: Exception) {
+            throw e.toApiError()
+        }
+
     // ---- push (ANDROID.md §8)
 
     /** Register this device for pushes; returns the row id (to delete on log out). */

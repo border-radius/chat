@@ -134,6 +134,18 @@ onRecordUpdate((e) => {
   if (e.record) collections.afterCollectionUpdate(e.app, e.record, wasPublic);
 }, "collections");
 
+// What its files' badges say may have changed (§31). Once it is saved: told earlier, a client asking at once could
+// still read it as it was.
+onRecordAfterUpdateSuccess((e) => {
+  if (e.record) require(`${__hooks}/lib/collections.js`).afterCollectionSaved(e.app, e.record);
+  e.next();
+}, "collections");
+
+onRecordAfterDeleteSuccess((e) => {
+  if (e.record) require(`${__hooks}/lib/collections.js`).tellBadges(e.app, e.record.id);
+  e.next();
+}, "collections");
+
 onRecordCreate((e) => {
   const messages = require(`${__hooks}/lib/messages.js`);
   messages.beforeMessageCreate(e);

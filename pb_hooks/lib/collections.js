@@ -2,7 +2,8 @@
 // Media collections (DESIGN.md §31): pb_migrations/1760000030_collections.js has the data.
 //
 // - collections hooks: a clean name, unique among the owner's (case folded), at most MAX_COLLECTIONS each; when one
-//   turns private or public, its subscribers hear of it (their own collection_subs rows are saved again).
+//   turns private or public, its subscribers hear of it (their own collection_subs rows are saved again). When one
+//   turns private or public, is renamed or is deleted, every client listening to BADGES_TOPIC hears its id.
 // - POST /api/chat/items: a copy of a message's image or video (or of another collection's item) in a collection of
 //   yours, or (multipart { collection, file }) an image or video uploaded straight into one. DELETE
 //   /api/chat/items/{id}: the owner takes one out. GET /api/chat/saved?message=&file= (or ?item=): which of your
@@ -28,6 +29,8 @@ const MAX_ITEMS = 2000;
 const MAX_SUBS = 200;
 /** As UNREAD_CAP (§18.2): the badge shows "99+" past 99. */
 const NEW_CAP = 100;
+/** The realtime topic that hears a collection's id when what its badge says may have changed (§31). */
+const BADGES_TOPIC = "chat/badges";
 const MAX_BADGES = 50;
 /** As messages.files maxSelect (§17.1). */
 const MAX_FILES = 10;
@@ -152,6 +155,39 @@ function afterCollectionUpdate(app, rec, wasPublic) {
   if (rec.getBool("public") === wasPublic) return;
   for (const sub of app.findRecordsByFilter("collection_subs", "collection = {:id}", "", 0, 0, { id: rec.id })) {
     if (sub) app.save(sub);
+  }
+}
+
+/**
+ * A collection's save is done: made public or private, or renamed, the badges of its files are told.
+ * @param {core.App} app
+ * @param {core.Record} rec
+ */
+function afterCollectionSaved(app, rec) {
+  const was = rec.original();
+  if (rec.getBool("public") !== was.getBool("public") || rec.getString("name") !== was.getString("name")) {
+    tellBadges(app, rec.id);
+  }
+}
+
+/**
+ * What a collection's badge says may have changed (made public or private, renamed, deleted): every client listening
+ * to BADGES_TOPIC gets its id and asks /badges again if it shows one. A guest too: a public collection's badge is
+ * theirs as well. Only the id goes out; what each may see of the collection, /badges says. The collection's own record
+ * events wouldn't do: PocketBase sends a change only to those who can see the result, so no one but the owner would
+ * hear of one made private, and a client can't subscribe to a private one it may see once it is public.
+ * @param {core.App} app
+ * @param {string} id
+ */
+function tellBadges(app, id) {
+  const data = JSON.stringify({ id });
+  const clients = app.subscriptionsBroker().clients();
+  for (const key of Object.keys(clients)) {
+    const client = clients[key];
+    if (!client || client.isDiscarded()) continue;
+    for (const name of Object.keys(client.subscriptions(BADGES_TOPIC))) {
+      client.send(new SubscriptionMessage({ name, data }));
+    }
   }
 }
 
@@ -564,8 +600,10 @@ module.exports = {
   MAX_ITEMS,
   beforeCollectionSave,
   afterCollectionUpdate,
+  afterCollectionSaved,
   list,
   badges,
+  tellBadges,
   saveItem,
   saved,
   removeItem,

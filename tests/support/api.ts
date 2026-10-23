@@ -38,6 +38,7 @@ const SUBSCRIBE_OPS = [
   "subscribeAllMessages",
   "subscribeReads",
   "subscribeCollections",
+  "subscribeBadges",
 ] as const;
 
 /** A logged-out real client with its own in-memory auth store. */

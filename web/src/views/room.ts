@@ -72,13 +72,25 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
   /** What each collection's badge says, by id: undefined while asked. Asked for together, after a render. */
   const badges = new Map<string, Badge | undefined>();
   const asking = new Set<string>();
+  let listening = false;
   function badge(id: string): Badge | undefined {
     if (!badges.has(id)) {
       badges.set(id, undefined);
-      if (!asking.size) queueMicrotask(askBadges);
-      asking.add(id);
+      ask(id);
+      // Told live when one is made public or private, renamed or deleted; asked again after a reconnect (missed).
+      if (!listening) {
+        listening = true;
+        scope.sub(api.subscribeBadges(ask));
+        scope.defer(api.onConnect((re) => re && [...badges.keys()].map(ask)));
+      }
     }
     return badges.get(id);
+  }
+  /** Asked together, at the end of the task. A badge shown says what it said until the answer. */
+  function ask(id: string) {
+    if (!badges.has(id) || asking.has(id)) return;
+    if (!asking.size) queueMicrotask(askBadges);
+    asking.add(id);
   }
   function askBadges() {
     const ids = [...asking];

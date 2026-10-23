@@ -2580,6 +2580,10 @@ when the file it was saved from has one; otherwise the media worker (§30.1) mak
   and their collections in `file_sources`.
 - **`GET /api/chat/badges?ids=`** → per id `{ name, public, mine }` for a public collection or your own, `{ private:
   true }` for someone else's private one, `null` for one that is gone. Guests too.
+- **Realtime topic `chat/badges`:** once a collection is saved public or private, renamed, or deleted, every client
+  listening (guests too) gets `{ id }`, after the save is committed (`onRecordAfterUpdateSuccess`/`DeleteSuccess`), so
+  asking `/badges` at once reads the new state. Only the id: what each may see, `/badges` says. The collection's own
+  record events wouldn't do: PocketBase sends a change only to those who can see the result.
 - **`POST /api/chat/subs`** `{ collection, on }`: follow someone else's public collection (seen up to now), or stop.
   **`POST /api/chat/subs/seen`** `{ collection, at? }`: as `/reads` (§18.2), forward only, never past now.
 - **`GET /api/chat/posters/items/{item}/{file}`**: an item's video poster, checked like the file (§30.1).
@@ -2618,7 +2622,9 @@ when the file it was saved from has one; otherwise the media worker (§30.1) mak
   collection's name, a link to it, if it is public or yours (yours private: 🔒 after the name); "Private collection",
   not a link, if it is someone else's private one; nothing if it is gone. The room view asks `/badges` once for the ids
   a render shows that it hasn't asked about, and draws again when the answer comes (a message's signature includes
-  its badges). Renamed or made private meanwhile, a badge says the new state once the room is opened again.
+  its badges). Made public or private, renamed or deleted meanwhile, a badge follows live: the room listens to
+  `chat/badges` once it shows one and asks again about the ids it shows (the old badge stays until the answer), and
+  about all of them after a reconnect.
 - **Loading:** `views/collection/lazy.ts` (the page, the save menu, the picker and the new-collection dialog, with
   their requests, through `api.request`) is a lazy chunk with its own stylesheet, `styles/collections.css`
   (`COLLECTIONS_CSS`), imported on first use by `views/collection.ts`. In `app.js`: the service, the sidebar section,
@@ -2633,14 +2639,15 @@ when the file it was saved from has one; otherwise the media worker (§30.1) mak
   forward's original, copying an item, saved at once: one copy kept); uploading (yours only, media only, 20 MB, its
   thumbnail, then saved and attached as any item); `/saved`; removing; attaching (after uploads, names, `file_sources`, the room's
   rules for the copy, JSON and form bodies, forwards, only yours or public, no `file_sources` from a client, 10 at
-  most, cleared by a delete); badges; subscriptions (not your own, not private, new counts, seen, unsubscribe; turned
+  most, cleared by a delete); badges, and `chat/badges` (made public or private, renamed, deleted: the id, the new
+  state readable at once; nothing for other saves); subscriptions (not your own, not private, new counts, seen, unsubscribe; turned
   private: hidden and told live); the count's query plan; item thumbnails and posters (copied along, or made by
   ffmpeg, served by the item's rules). `media.s3.test.ts`: saving a video and attaching it back with S3, poster
   included, no temp copy left.
 - **E2E** (`collections.spec.ts`): make one from the sidebar, save from a tile, its page; another user subscribes,
   sees "1 new" live, opens it with the new item highlighted and the badge gone; attaches it from the picker and the
   message's badge links to it; made private, the badge says "Private collection" (not a link) to others and still
-  names it to the owner; axe on the page. Saving and unsaving from the viewer. Uploading with the button (a PDF
+  names it to the owner, live; public again and renamed, both badges follow without a reload; axe on the page. Saving and unsaving from the viewer. Uploading with the button (a PDF
   refused by name) and by dropping; no Upload on someone else's.
 
 ## 32. Jump to
