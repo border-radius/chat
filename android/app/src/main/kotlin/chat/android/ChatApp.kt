@@ -1,6 +1,6 @@
 // The process: builds the accounts on first use (ANDROID.md §5, §11: nothing at start but the first screen), starts
 // the active one when the app first comes to the foreground, and tells it when it is visible (§9.1). Background work
-// (a push, a notification's action, the outbox) gets its account's services without starting any (§17.1).
+// (a notification check or action, the outbox) gets its account's services without starting any (§17.1).
 package chat.android
 
 import android.app.Application
@@ -10,8 +10,8 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.work.Configuration
 import chat.android.data.repo.Accounts
 import chat.android.data.repo.ChatServices
-import chat.android.push.Notifications
-import chat.android.push.Push
+import chat.android.notify.Notifications
+import chat.android.notify.CheckWorker
 import chat.android.ui.Images
 import coil3.ImageLoader
 import coil3.PlatformContext
@@ -73,7 +73,7 @@ class ChatApp : Application(), SingletonImageLoader.Factory, Configuration.Provi
         }
     }
 
-    /** For a push or a notification action in a process without a screen: account [id]'s services, not started. */
+    /** For a notification check or action in a process without a screen: account [id]'s services, not started. */
     suspend fun servicesFor(id: String?): ChatServices? {
         if (id.isNullOrEmpty()) {
             accounts.load()
@@ -95,13 +95,13 @@ class ChatApp : Application(), SingletonImageLoader.Factory, Configuration.Provi
 /** What account [id]'s session needs from the app (core:data's SessionHooks). */
 class AppHooks(private val app: ChatApp, private val id: String) : chat.android.data.repo.SessionHooks {
     override suspend fun onSignedIn(user: chat.android.data.model.User) {
-        app.servicesFor(id)?.let { Push.register(app, it) }
+        // Background checks for DMs and replies (ANDROID.md §8), news from now on.
+        app.servicesFor(id)?.notifyCheck?.begin()
+        CheckWorker.schedule(app)
     }
 
     override suspend fun beforeSignOut() {
-        // The device's token itself goes only with the last account signed in on it (§17.4).
-        val others = app.accounts.list.value.count { it.user != null && it.id != id }
-        app.servicesFor(id)?.let { Push.unregister(app, it, deleteToken = others == 0) }
+        app.servicesFor(id)?.notifyCheck?.forgetPushToken()
     }
 
     override suspend fun onSignedOut() {

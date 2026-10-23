@@ -197,9 +197,9 @@ cd android
 People choose their server when they log in or sign up (Change server), and add more accounts from their profile.
 A build only sets the server offered first: `-Pchat.devServer=http://192.168.1.20:8090` for a debug build on a device,
 `chat.server` for a release (without one, the app asks for a server, and no host's links open in the app). Debug builds
-take http addresses; release builds take https only. `chat.fcm.projectId`, `chat.fcm.appId`, `chat.fcm.apiKey` and `chat.fcm.senderId`
-turn on Firebase push. On the server, push needs `FCM_SERVICE_ACCOUNT` (the service account's JSON, of the app's Firebase
-project: servers without it get no pushes, ANDROID.md §17.4), and links to rooms on the build's server open in the app with `ANDROID_APP_ID` and `ANDROID_CERT_SHA256` (`/.well-known/assetlinks.json`). An admin can set
+take http addresses; release builds take https only. The app notifies of DMs and replies to you by checking each
+account's server about every 15 minutes (WorkManager), with no Google services and nothing to set up on the server
+(ANDROID.md §21). Links to rooms on the build's server open in the app with `ANDROID_APP_ID` and `ANDROID_CERT_SHA256` (`/.well-known/assetlinks.json`). An admin can set
 `min_android_version` on the site record to make older apps ask for an update. What is built and what isn't yet:
 [`docs/ANDROID.md` §16](docs/ANDROID.md#16-implementation-2026-10-18), and [`android/PARITY.md`](android/PARITY.md).
 

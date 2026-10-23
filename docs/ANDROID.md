@@ -15,8 +15,9 @@ instead of deleting them.
 ## 1. Summary
 
 The Android app is a native client for any server running the chat (several at once, §17), written in **Kotlin** with
-**Jetpack Compose**. It does everything the web app does, with the same rules and limits, and adds push notifications
-(which a phone chat app can't do without).
+**Jetpack Compose**. It does everything the web app does, with the same rules and limits, and adds notifications of
+DMs and replies (which a phone chat app can't do without), found by a periodic background check, without Google
+services (§21).
 
 It is built to be **lightweight and fast**: a download under 6 MB, a first frame in under 500 ms, a room that was open
 before shown in under 100 ms. Every screen reads a local SQLite database first; the network only writes to it.
@@ -31,7 +32,7 @@ and speed goals.
 1. **Parity with the web app.** Every feature in the README works the same way (§3 lists them all). Access control stays
    in PocketBase API rules; the app enforces the same limits as `web/src/lib/limits.ts` before the server does.
 2. **Lightweight.** ≤ 6 MB download. No heavy DI framework, no RxJava, no Retrofit, no WebView for any screen, no
-   Firebase beyond messaging.
+   Firebase or Google Play services (§21).
 3. **Fast.** The budgets of §11, measured in CI and failing the build when missed, like the web's bundle budget (§7.7).
 4. **Offline-tolerant.** The room list and each room's latest messages come from the local database, then the network
    fills in. Sends queue and retry safely (§17.4's client IDs).
@@ -101,13 +102,12 @@ what makes a chat app usable. Hidden rooms stay silent, as §13 decided.
 │        ▼                  ▼                 │                        │
 │  PbClient            WorkManager ──► Room DB (rooms, messages,       │
 │  (OkHttp REST + SSE)  (sends, uploads,       reactions, drafts,      │
-│        │               push fetches)         send queue)             │
+│        │               notify checks)        send queue)             │
 └────────┼─────────────────────▲───────────────────────────────────────┘
-         │ REST (JSON)  SSE    │ wakes the app (IDs only)
-┌────────▼────────────────┐   ┌┴──────────────────────┐
-│  PocketBase (unchanged  │──►│  FCM / UnifiedPush    │
-│  API + push hook, §8)   │   └───────────────────────┘
-└─────────────────────────┘
+         │ REST (JSON)  SSE    │ every ~15 min: DMs and replies (§21)
+┌────────▼─────────────────────┴──┐
+│  PocketBase (unchanged API)     │
+└─────────────────────────────────┘
 ```
 
 **One rule:** the UI reads only the local database. Network pages, realtime events and pushes all write into Room, and
@@ -138,7 +138,7 @@ for what a chat app needs (notifications with inline reply, the photo picker, ba
 | Settings and token | DataStore + an Android Keystore key (AES-GCM) | Not the deprecated `security-crypto` |
 | DI | A hand-written `AppGraph`, constructor injection | No Hilt/Dagger start-up or size cost for ~15 singletons |
 | Emoji | `emoji2`, `emoji2-emojipicker` | Current emoji on old Android, the system's picker UI |
-| Push | Firebase Cloud Messaging (messaging only); UnifiedPush as an option | FCM reaches most phones; UnifiedPush serves de-Googled ones |
+| Notifications | A periodic WorkManager check (§21); no FCM | Works on every phone and every server, de-Googled ones included, with no push credentials |
 | Build | Gradle version catalog, AGP 8, R8 full mode, Baseline Profiles | Small download, fast start |
 | Lint | ktlint, detekt, Android lint, Compose lint | What Biome is on the web side |
 
@@ -283,13 +283,16 @@ its token after the first frame of a session and deletes it on log out. FCM `UNR
   URLs, POSTed to directly, with the same address checks as link previews (§28.1), and with their fetcher (curl, the
   checked address pinned): a redirect isn't followed (QA BUG-141), so an endpoint must answer where it is registered.
 
+**Superseded on 2026-10-24 (§21):** the app no longer uses FCM or any push service; it checks for news itself. The
+server's push collections and worker stay (nothing registers with them now).
+
 ### 8.3 On the device
 
-- A `FirebaseMessagingService` (or UnifiedPush receiver) enqueues an expedited job: fetch the message into the DB, then
-  notify.
-- `MessagingStyle` notifications, one channel per kind (Direct messages, Rooms), grouped per room, with **Reply**
+- ~~A `FirebaseMessagingService` (or UnifiedPush receiver) enqueues an expedited job~~ A periodic WorkManager job
+  (§21) asks each account's server for new DMs and replies to you, then notifies.
+- `MessagingStyle` notifications, one channel per kind (Direct messages, Replies), grouped per room, with **Reply**
   (`RemoteInput`, sent through the outbox) and **Mark as read**.
-- Opening a room, or reading it on another device (a `room_reads` event while the app runs, or the next push), clears
+- Opening a room, or reading it on another device (a `room_reads` event while the app runs, or the next check), clears
   its notification. The launcher badge is the unread total.
 
 ## 9. Platform integration
@@ -297,7 +300,7 @@ its token after the first frame of a session and deletes it on log out. FCM `UNR
 ### 9.1 Realtime in the foreground only
 
 One SSE connection while the app is visible, tied to `ProcessLifecycleOwner`; it closes 5 s after the app goes to the
-background. No polling, no wake locks, no foreground service: push covers the background.
+background. No connection, no wake locks, no foreground service in the background: a periodic check covers it (§21).
 
 ### 9.2 Sending and uploads
 
@@ -322,7 +325,7 @@ The app declares the server's host for `/r/*`, so a link to a room or a message 
 - HTTPS only (network security config); cleartext is allowed for `127.0.0.1` and `10.0.2.2` in debug builds only.
 - Message text is shown as text. Links follow the web's allow-list (§7.6.3) and open in Custom Tabs, never in the app.
 - File tokens as in §7.3; a URL with a token is never written to the disk cache key.
-- Log out clears the database, Coil's caches, pending work, notifications and the push token, as the web clears
+- Log out clears the database, Coil's caches, pending work, notifications and the check's state, as the web clears
   IndexedDB and the service worker's cache. So does a session found expired at start (the app not opened before it
   ran out): it is forgotten and its data cleared before anything shows, its rooms and DMs included (QA BUG-145, as
   the web's `forgetExpired`).
@@ -349,7 +352,7 @@ How:
 - Baseline and startup profiles for log in, the room list, opening a room and scrolling.
 - R8 full mode and resource shrinking; serialization generated at compile time, no reflection.
 - Nothing at start but the first screen: `AppGraph` builds singletons on first use, no `ContentProvider` initialisers,
-  push registration after the first frame.
+  the notification check scheduled after sign-in.
 - Media3 and the viewer in their own module, loaded on first use.
 - A new dependency needs its size in the PR description, as a new web dependency does (§8.1).
 
@@ -372,8 +375,8 @@ The app lives in `android/` in this repo, so a schema change and its client chan
 
 ### 12.3 Release
 
-AAB to Google Play (internal, closed, then production with a staged rollout) and a signed APK on GitHub Releases for
-UnifiedPush users.
+AAB to Google Play (internal, closed, then production with a staged rollout) and a signed APK on GitHub Releases
+(the same build: it needs no Google services, §21).
 
 ### 12.4 Minimum app version (server addition)
 
@@ -422,8 +425,8 @@ Estimates for one Android developer: about 13 weeks to a closed beta with full p
 |---|---|
 | Native or cross-platform | Native Kotlin and Compose (§4). |
 | Source of truth on the device | The local database; the UI never renders a network response directly (§4). |
-| Push content | Ids only; the app fetches the text itself (§8.2). |
-| Background connection | None; realtime only in the foreground, push otherwise (§9.1). |
+| Push content | No push: the app fetches what is new itself, with its own session (§21). |
+| Background connection | None; realtime only in the foreground, a check about every 15 minutes otherwise (§9.1, §21). |
 | Hidden rooms | Silent on Android too: no badge, no notification (§13 of DESIGN.md). |
 | Where the code lives | This repo, `android/` (§12.1). |
 
@@ -432,15 +435,15 @@ Estimates for one Android developer: about 13 weeks to a closed beta with full p
 | Risk | Impact | Mitigation |
 |---|---|---|
 | Web features keep landing during the build | parity moves | `PARITY.md` in review; the app's API tests run on every schema snapshot change |
-| Mobile networks and Doze drop SSE | missed live updates | gap-fill on every reconnect (§6.3); push in the background |
-| No FCM (de-Googled phones, some regions) | no notifications | UnifiedPush build; realtime still works in the foreground |
+| Mobile networks and Doze drop SSE | missed live updates | gap-fill on every reconnect (§6.3); the periodic check in the background |
+| The check is late (15 min at best; Doze and app standby stretch it) | slow notifications | accepted for no Google (§21); open question 8 |
 | Hand-written DI grows messy | slower changes | `AppGraph` stays one file; revisit Metro or kotlin-inject past 30 bindings |
 | The download creeps past 6 MB | misses the goal | the CI size gate; a size note for every new dependency |
 
 ### Still open
 
-1. **Accounts:** who owns the Firebase project and the Play Console account?
-2. **UnifiedPush:** at launch or after the beta?
+1. **Accounts:** who owns the Play Console account? (No Firebase project any more, §21.)
+2. ~~**UnifiedPush:** at launch or after the beta?~~ No push at all for now (§21; open question 8).
 3. **Package name and default server** (for example `com.<org>.chat`; the default server is also the App Links host, §17.3).
 4. **Web Push:** should the web app get notifications too, from the same `push_queue`?
 5. **Per-room mute:** the web has hide only. Add mute to both clients, or keep hide as the one control?
@@ -490,9 +493,8 @@ account's public key.
 | `ANDROID_APP_ID`, `ANDROID_CERT_SHA256` | `/.well-known/assetlinks.json` (fingerprints comma-separated); 404 without them |
 | `site.min_android_version` | Set by an admin: older apps show "Update required" |
 
-The app reads Firebase's settings from Gradle properties (`chat.fcm.projectId`, `chat.fcm.appId`, `chat.fcm.apiKey`,
-`chat.fcm.senderId`) and initialises it by hand: no google-services plugin, no ContentProvider at launch. Without them
-the app has no pushes and works otherwise. `chat.server` and `chat.appId` set the release build's server and package
+~~The app reads Firebase's settings from Gradle properties (`chat.fcm.*`).~~ Firebase was removed on 2026-10-24
+(§21). `chat.server` and `chat.appId` set the release build's server and package
 (open question 3).
 
 ### 16.4 Status against the milestones
@@ -518,13 +520,13 @@ An **account** is a server address and, once someone logs in or signs up there, 
 | Session (token and auth record) | `accounts/<id>.bin` in no-backup storage, encrypted like the one session was (§10) |
 | Database (§6.2): rooms, kept pages, outbox, drafts, kv | `account-<id>.db` |
 | Outbox files | `files/outbox/<id>/` |
-| Push registration (§8) | a `push_tokens` row on its server, noted in its own kv |
+| Notification check (§21) | its state (last check, ids seen) in its own kv |
 
 The list of accounts and which is active are in `accounts.bin` (no-backup, encrypted: it says which servers you use).
 Device settings (screenshots, §10) are the device's, in that file too, not an account's.
 
 - **One account is active.** Its services run as before (§6.3, §9.1: realtime in the foreground, sync, prefetch).
-  The others are idle: no connection, nothing polled. Push (§17.4) is how they get news; switching to one starts it.
+  The others are idle: no connection. The periodic check (§21) is how they get news; switching to one starts it.
 - **An account without a user** is a guest on that server (Open Air rooms, §23.3, and the Log in screen). There is at
   most one, the active one: switching away from it removes it.
 - **The same user on the same server twice** is one account: logging in again replaces the older entry.
@@ -558,6 +560,9 @@ An address is checked before it is used:
 
 ### 17.4 Push across servers
 
+**Superseded on 2026-10-24 (§21):** no pushes; the check asks every signed-in account's server in turn. Notifications
+stay per account and room, as below.
+
 - Each account registers the device's token with its own server. **The payload adds `user`** (the recipient's id):
   the app finds the account by user id (ids are random 15-character strings: unique across servers in practice) and
   fetches the message with that account's session. A payload without `user` (an older server) goes to the active
@@ -583,7 +588,7 @@ An address is checked before it is used:
 
 ### 17.6 Still open
 
-6. **Push for servers without the app's FCM credentials:** ship UnifiedPush on the device, run a push relay that holds
+6. ~~**Push for servers without the app's FCM credentials:**~~ (moot since §21: no FCM) ship UnifiedPush on the device, run a push relay that holds
    the credentials (servers would authenticate to it), or both?
 7. **Sharing into another account:** shares go to the active account's rooms; should the picker offer every account?
 
@@ -741,3 +746,56 @@ emulator.
 Tests: `RoomSectionsTest` (`:core:data`); `UiPortsTest` "unread rooms are listed first, and a folded section lists
 only them"; `UiAccountsTest` switches through the brand's account list. All 69 JVM tests in `:core:data` and 34 in
 `:app` pass.
+
+## 21. Notifications without Google (2026-10-24)
+
+The user asked for notifications of DMs and replies by "periodic polling with WorkManager, don't use google". The app
+no longer has Firebase (FCM) in it: no Play services dependency, no push token, no `chat.fcm.*` build properties. It
+works the same on de-Googled phones and on any server, with no push credentials anywhere.
+
+### 21.1 What notifies
+
+- **DMs**: every message from someone else in a DM.
+- **Replies to you**: a message in a room that replies to one of yours.
+- Not: other room messages, your own, deleted ones, anything already read (here or on another device), hidden or
+  archived rooms (DESIGN.md §13), the room open on screen, or anything from before you signed in.
+
+### 21.2 The check
+
+- `CheckWorker` (`app/…/notify/`): a unique periodic WorkManager job, every 15 minutes (Android's shortest period;
+  Doze and app standby can stretch it), only with a network (`NetworkType.CONNECTED`). Scheduled at sign-in (KEEP:
+  one job for all accounts), cancelled by itself when no account is signed in. Offline: `Result.retry()`.
+- For each signed-in account, `NotifyCheck` (`core/data/…/repo/`, no new server route) makes:
+  1. `GET /api/chat/unread`: which rooms have unread messages, and the server's time.
+  2. Only if some do: `ChatApi.notifiable`, one messages list over those rooms (40 per request: each a range scan
+     on `idx_messages_room_created`): `created > since && author != me && deleted = false && (room.kind = "dm" ||
+     reply_to.author = me)`, newest first, at most 100.
+  3. Only if something is new: `room_reads` for those rooms (what is past your read position is unread),
+     `hidden_rooms`, and each room (title, archived).
+  A quiet 15 minutes is one request per account.
+- Its state, per account in the kv table (`notify_check`, cleared with the session): the last check's server time, the
+  ids it saw, and when the session began. `since` is the last check minus a minute (a message's `created` isn't
+  when it was committed, QA BUG-106), never before the session began; ids already seen aren't notified again.
+- **On screen** (the account active and the app visible) the check notifies nothing and counts everything as seen:
+  the room list shows it. The open room is never notified.
+- Notifications are the ones of §8.3 and §17.4 (MessagingStyle, Reply and Mark as read, per account and room); one
+  alert per room per check. A room read elsewhere loses its notification at the next check (or live, while the app
+  runs). The room is prefetched so it opens at once.
+- A Firebase build's `push_tokens` row is unregistered by the first check (or at log out).
+
+### 21.3 Server
+
+Unchanged. The push collections, hook and worker (§8.1, §8.2) stay but are unused by the app: no server needs
+`FCM_SERVICE_ACCOUNT` for it.
+
+### 21.4 Tests and checks
+
+`NotifyCheckTest` (`:core:data`): a DM and a reply notify once, a plain room message and messages from before the
+session don't, read elsewhere, hidden, on screen and the open room stay silent. `UiNotifyTest` (`:app`):
+`CheckWorker.checkAll` posts a DM notification and a reply notification with their texts on their channels, and takes
+the DM's away once read on another device. All JVM tests pass (`CollectionsTest`'s "followed" wait flaked once in
+the full run, passed alone). The release APK is 2.99 MB (was 3.24 MB with Firebase). Not yet tried on the emulator.
+
+Open question 8: is about 15 minutes late acceptable? Faster would need a push again (UnifiedPush keeps it free of
+Google; its server side is done, §8.2) or a foreground service with a connection open, which costs battery and shows
+a permanent notification.

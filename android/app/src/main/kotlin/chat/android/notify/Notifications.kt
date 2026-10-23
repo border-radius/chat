@@ -1,7 +1,8 @@
-// Notifications (ANDROID.md §8.3): MessagingStyle, one channel per kind (Direct messages, Rooms), one notification per
-// account and room (§17.4) with Reply and Mark as read. A room's notification goes once it is read: opened here, or read elsewhere (its
-// count drops to 0). The launcher badge is the unread count.
-package chat.android.push
+// Notifications (ANDROID.md §8.3): DMs and replies to you, found by CheckWorker. MessagingStyle, one channel per kind
+// (Direct messages, Replies), one notification per account and room (§17.4) with Reply and Mark as read. A room's
+// notification goes once it is read: opened here, or read elsewhere (its count drops to 0, seen live or by the next
+// check). The launcher badge is the unread count.
+package chat.android.notify
 
 import android.Manifest
 import android.app.NotificationChannel
@@ -30,6 +31,7 @@ object Notifications {
     const val ROOMS = "rooms"
     const val SENDING = "sending"
     const val KEY_REPLY = "reply"
+    private const val EXTRA_ROOM = "chat.room"
     const val OPEN = "chat.android.OPEN"
     /** The accent (tokens.css): the small icon and actions are tinted with it. */
     private const val ACCENT = 0xFF5B3DF5.toInt()
@@ -41,7 +43,7 @@ object Notifications {
         nm.createNotificationChannels(
             listOf(
                 NotificationChannel(DMS, "Direct messages", NotificationManager.IMPORTANCE_HIGH).apply { setShowBadge(true) },
-                NotificationChannel(ROOMS, "Rooms", NotificationManager.IMPORTANCE_DEFAULT).apply { setShowBadge(true) },
+                NotificationChannel(ROOMS, "Replies", NotificationManager.IMPORTANCE_DEFAULT).apply { setShowBadge(true) },
                 NotificationChannel(SENDING, "Sending", NotificationManager.IMPORTANCE_LOW).apply { setShowBadge(false) },
             ),
         )
@@ -76,9 +78,9 @@ object Notifications {
 
     /**
      * Show (or add to) the notification of [room] for [m]. [unread]: the room's count, for the badge. [account]: which
-     * account it is, when there is more than one (§17.4).
+     * account it is, when there is more than one (§17.4). [alert]: sound and vibrate (once per room and check).
      */
-    fun show(context: Context, services: ChatServices, room: Room, m: Message, unread: Int, account: String? = null) {
+    fun show(context: Context, services: ChatServices, room: Room, m: Message, unread: Int, account: String? = null, alert: Boolean = true) {
         val acct = services.accountId
         if (!allowed(context)) return
         val me = services.store.get().user ?: services.api.currentUser() ?: return
@@ -108,7 +110,8 @@ object Notifications {
             .setNumber(unread)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setGroup(acct)
-            .setOnlyAlertOnce(false)
+            .setOnlyAlertOnce(!alert)
+            .addExtras(android.os.Bundle().apply { putString(EXTRA_ROOM, room.id) })
             .addAction(reply)
             .addAction(read)
             .build()
@@ -149,6 +152,17 @@ object Notifications {
         for (k in keys) nm.cancel(k.hashCode())
         // Shown by an earlier process: found by their group.
         runCatching { for (n in nm.activeNotifications) if (n.notification.group == account) nm.cancel(n.id) }
+    }
+
+    /** A check found [account]'s other rooms read (on any device): their notifications go. */
+    fun clearRead(context: Context, account: String, unreadRooms: Set<String>) {
+        val nm = NotificationManagerCompat.from(context)
+        runCatching {
+            for (n in nm.activeNotifications) {
+                val room = n.notification.extras.getString(EXTRA_ROOM) ?: continue
+                if (n.notification.group == account && room !in unreadRooms) cancel(context, account, room)
+            }
+        }
     }
 
     /** While the app runs: a room opened, or read elsewhere (its count gone), loses its notification. */

@@ -13,6 +13,7 @@ import chat.android.data.model.MediaItem
 import chat.android.data.model.MediaPage
 import chat.android.data.model.Message
 import chat.android.data.model.Posting
+import chat.android.data.model.ReadPosition
 import chat.android.data.model.Room
 import chat.android.data.model.RoomRow
 import chat.android.data.model.SaveFrom
@@ -340,6 +341,12 @@ class ChatApi(val pb: PbClient) {
         call("/api/chat/reads", "POST", body = Body.Json(buildJsonObject { put("room", room); put("at", at) }))
     }
 
+    /** Where you have read [rooms] up to (room → `last_read_at`); a room never opened is missing. */
+    suspend fun readPositions(rooms: List<String>): Map<String, String> = rooms.chunked(40).flatMap { some ->
+        val filter = pb.filter(some.indices.joinToString(" || ") { "room = {:r$it}" }, some.withIndex().associate { "r${it.index}" to it.value })
+        fullList("room_reads", mapOf("filter" to filter, "fields" to "room,last_read_at"), ReadPosition.serializer())
+    }.associate { it.room to it.lastReadAt }
+
     // ---- messages (§6, §7)
 
     private fun listQuery(q: PageQuery) = mapOf("filter" to pb.filter(q.filter, q.params), "sort" to q.sort, "skipTotal" to true) + MSG_OPTS
@@ -348,6 +355,19 @@ class ChatApi(val pb: PbClient) {
         items(call(records("messages"), query = listQuery(q) + mapOf("page" to 1, "perPage" to size)), Message.serializer())
 
     suspend fun getMessage(id: String): Message = get(record("messages", id), MSG_OPTS)
+
+    /**
+     * Other people's messages in [rooms] since [since] that are DMs or replies to you, newest first: what the
+     * background check notifies of (ANDROID.md §8). [rooms] are the ones with unread messages, so each is a range scan
+     * on idx_messages_room_created.
+     */
+    suspend fun notifiable(rooms: List<String>, since: String, size: Int = 100): List<Message> {
+        val me = me()
+        val inRooms = rooms.indices.joinToString(" || ") { "room = {:r$it}" }
+        val params = rooms.withIndex().associate { "r${it.index}" to it.value } + mapOf("me" to me, "since" to since)
+        val filter = "($inRooms) && created > {:since} && author != {:me} && deleted = false && (room.kind = \"dm\" || reply_to.author = {:me})"
+        return page(PageQuery(filter, params, "-created,-id"), size)
+    }
 
     /** Every message matching [q], not just one page: the edits and deletes missed during a disconnect. */
     suspend fun changes(q: PageQuery): List<Message> = fullList("messages", listQuery(q), Message.serializer(), 200)

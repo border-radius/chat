@@ -18,12 +18,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 
-/** What the app does around the session that core:data can't: notifications, image caches, push, background work. */
+/** What the app does around the session that core:data can't: notifications, image caches, background work. */
 interface SessionHooks {
-    /** Someone logged in (or the app started with a session): register for pushes. */
+    /** Someone logged in (or the app started with a session): start the notification checks. */
     suspend fun onSignedIn(user: User) {}
 
-    /** Before the session ends, with it still valid: unregister the push token. */
+    /** Before the session ends, with it still valid: unregister an old push token. */
     suspend fun beforeSignOut() {}
 
     /** The session ended or changed hands: clear notifications, image caches, the launcher badge. */
@@ -66,6 +66,7 @@ class ChatServices(
     val outbox = Outbox(api, db, appScope) { hooks.scheduleOutbox() }
     val actions = RoomActions(api, store)
     val recentEmoji = RecentEmoji(db, appScope)
+    val notifyCheck = NotifyCheck(api, db)
     val settings = settings ?: DeviceSettings(db, appScope)
 
     private var who: String? = null
@@ -138,7 +139,7 @@ class ChatServices(
 
     suspend fun signUp(email: String, password: String, name: String, inviteCode: String = ""): User = api.signUp(email, password, name, inviteCode)
 
-    /** Send what was read, unregister pushes, then end the session; everything of it is cleared. */
+    /** Send what was read, then end the session; everything of it is cleared. */
     suspend fun logOut() = withContext(main) {
         unread.flush()
         runCatching { hooks.beforeSignOut() }

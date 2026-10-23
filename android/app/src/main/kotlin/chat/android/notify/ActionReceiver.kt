@@ -1,4 +1,4 @@
-package chat.android.push
+package chat.android.notify
 
 import android.content.BroadcastReceiver
 import android.content.Context

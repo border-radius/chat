@@ -14,8 +14,6 @@ val server = providers.gradleProperty("chat.server").orElse("")
 
 /** The host whose /r/ links open in the app; a reserved name (RFC 2606) when there is no default server. */
 fun appLinksHost(url: String) = url.substringAfter("://").substringBefore('/').substringBefore(':').ifEmpty { "app-links.invalid" }
-/** Firebase Cloud Messaging (§8): all four, or none (no pushes). Open question 1, §15. */
-fun fcm(name: String) = providers.gradleProperty("chat.fcm.$name").orElse("").get()
 
 android {
     namespace = "chat.android"
@@ -28,10 +26,6 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        buildConfigField("String", "FCM_PROJECT_ID", "\"${fcm("projectId")}\"")
-        buildConfigField("String", "FCM_APP_ID", "\"${fcm("appId")}\"")
-        buildConfigField("String", "FCM_API_KEY", "\"${fcm("apiKey")}\"")
-        buildConfigField("String", "FCM_SENDER_ID", "\"${fcm("senderId")}\"")
     }
 
     buildTypes {
@@ -96,8 +90,6 @@ dependencies {
     implementation(libs.core.ktx)
     implementation(libs.work.runtime)
     implementation(libs.coil.compose)
-    implementation(libs.firebase.messaging)
-    implementation(libs.fragment)
     implementation(libs.profileinstaller)
 
     testImplementation(project(":core:testing"))

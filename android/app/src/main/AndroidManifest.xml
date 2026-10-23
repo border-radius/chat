@@ -5,7 +5,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- Expedited work (sends, pushes) runs as a foreground service before Android 12 (ANDROID.md §9.2). -->
+    <!-- Expedited work (sends) runs as a foreground service before Android 12 (ANDROID.md §9.2). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
@@ -56,15 +56,7 @@
             </intent-filter>
         </activity>
 
-        <receiver android:name=".push.ActionReceiver" android:exported="false" />
-
-        <service
-            android:name=".push.PushService"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="com.google.firebase.MESSAGING_EVENT" />
-            </intent-filter>
-        </service>
+        <receiver android:name=".notify.ActionReceiver" android:exported="false" />
 
         <!-- WorkManager's foreground service: what its expedited work does (Android 14 asks). -->
         <service
@@ -72,7 +64,7 @@
             android:foregroundServiceType="dataSync"
             tools:node="merge" />
 
-        <!-- Nothing initialised by ContentProviders at launch (ANDROID.md §11): WorkManager on demand, Firebase by hand. -->
+        <!-- Nothing initialised by ContentProviders at launch (ANDROID.md §11): WorkManager on demand. -->
         <provider
             android:name="androidx.startup.InitializationProvider"
             android:authorities="${applicationId}.androidx-startup"
@@ -82,11 +74,5 @@
                 android:value="androidx.startup"
                 tools:node="remove" />
         </provider>
-        <provider
-            android:name="com.google.firebase.provider.FirebaseInitProvider"
-            android:authorities="${applicationId}.firebaseinitprovider"
-            tools:node="remove" />
-        <meta-data android:name="firebase_messaging_auto_init_enabled" android:value="false" />
-        <meta-data android:name="firebase_analytics_collection_enabled" android:value="false" />
     </application>
 </manifest>

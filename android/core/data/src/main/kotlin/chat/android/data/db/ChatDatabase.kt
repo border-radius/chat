@@ -149,7 +149,7 @@ abstract class ChatDatabase : RoomDatabase() {
 
     companion object {
         /** Kv entries that belong to the session; the site record stays (it isn't anyone's). */
-        val SESSION_KEYS = listOf(Keys.UNREAD, Keys.PUSH_ROW, Keys.RECENT_EMOJI)
+        val SESSION_KEYS = listOf(Keys.UNREAD, Keys.PUSH_ROW, Keys.NOTIFY_CHECK, Keys.RECENT_EMOJI)
 
         fun open(context: Context, name: String = "chat.db"): ChatDatabase =
             Room.databaseBuilder(context, ChatDatabase::class.java, name)
@@ -162,7 +162,9 @@ abstract class ChatDatabase : RoomDatabase() {
 object Keys {
     const val SITE = "site"
     const val UNREAD = "unread"
+    /** A push_tokens row of the Firebase builds, unregistered by the first check (ANDROID.md §8). */
     const val PUSH_ROW = "push_row"
+    const val NOTIFY_CHECK = "notify_check"
     const val RECENT_EMOJI = "recent_emoji"
     const val SECURE_SCREENS = "secure_screens"
     const val THEME = "theme"

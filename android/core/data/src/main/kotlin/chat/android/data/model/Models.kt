@@ -151,6 +151,10 @@ data class Cursor(val created: String, val id: String)
 @Serializable
 data class UnreadCounts(val at: String = "", val rooms: Map<String, Int> = emptyMap(), val ids: List<String> = emptyList())
 
+/** A room_reads row: how far you have read a room. */
+@Serializable
+data class ReadPosition(val room: String = "", @SerialName("last_read_at") val lastReadAt: String = "")
+
 /** A hidden_rooms or room_reads row: which room it is about. */
 @Serializable
 data class RoomRow(val id: String, val room: String = "")

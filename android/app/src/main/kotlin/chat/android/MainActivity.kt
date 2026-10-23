@@ -25,7 +25,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
 import chat.android.nav.AppRoot
 import chat.android.nav.Linked
-import chat.android.push.Notifications
+import chat.android.notify.Notifications
 import chat.android.nav.Room
 import chat.android.nav.ShareInbox
 import chat.android.nav.routeOf
@@ -141,7 +141,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Pushes need the permission on Android 13+: asked once someone is signed in (not at first launch). */
+    /** Notifications need the permission on Android 13+: asked once someone is signed in (not at first launch). */
     private fun askForNotifications() {
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
             askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)

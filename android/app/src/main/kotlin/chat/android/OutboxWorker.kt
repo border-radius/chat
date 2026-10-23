@@ -26,7 +26,7 @@ class OutboxWorker(context: Context, params: WorkerParameters) : CoroutineWorker
 
     /** Expedited work before Android 12 runs as a foreground service: it says what it is doing (§9.2). */
     override suspend fun getForegroundInfo(): ForegroundInfo {
-        val n = chat.android.push.Notifications.sending(applicationContext)
+        val n = chat.android.notify.Notifications.sending(applicationContext)
         return if (android.os.Build.VERSION.SDK_INT >= 29) ForegroundInfo(SENDING_ID, n, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC) else ForegroundInfo(SENDING_ID, n)
     }
 

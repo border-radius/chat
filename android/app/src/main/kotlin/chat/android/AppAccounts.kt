@@ -12,7 +12,7 @@ import chat.android.data.pb.PbJson
 import chat.android.data.repo.AccountEnv
 import chat.android.data.repo.AccountIndex
 import chat.android.data.repo.SessionHooks
-import chat.android.push.Notifications
+import chat.android.notify.Notifications
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
