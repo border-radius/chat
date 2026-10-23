@@ -150,3 +150,24 @@ data class UnreadCounts(val at: String = "", val rooms: Map<String, Int> = empty
 /** A hidden_rooms or room_reads row: which room it is about. */
 @Serializable
 data class RoomRow(val id: String, val room: String = "")
+
+/** One image or video of a room's media grid (DESIGN.md §30.1). [source]: the message whose file it is (a forward's original). */
+@Serializable
+data class MediaItem(
+    val message: String,
+    val source: String = "",
+    val file: String,
+    val pos: Int = 0,
+    /** The file's original name ("" for old messages). */
+    val name: String = "",
+    val video: Boolean = false,
+    val poster: Boolean = false,
+    val sent: String = "",
+    val author: MediaAuthor? = null,
+)
+
+@Serializable
+data class MediaAuthor(val id: String, val name: String = "")
+
+@Serializable
+data class MediaPage(val items: List<MediaItem> = emptyList(), val more: Boolean = false)

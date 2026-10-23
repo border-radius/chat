@@ -588,3 +588,75 @@ profile; `AppRoot` in `nav/ChatNav.kt` (a back stack per account). Tested by `Ac
 (`:core:data`) and `UiAccountsTest` (`:app`); the tests use the test server by two addresses (127.0.0.1 and
 localhost) as two servers. An idle account's session is renewed each time the app starts (one the server refuses is
 removed, as a log out would). Nothing migrates the single session of the 2026-10-18 build: it never shipped.
+
+## 18. Unfrozen: emulator, fixes and polish (2026-10-23)
+
+The app was frozen from 2026-10-21 to 2026-10-23 (web work only). On unfreezing it, it was run on an emulator for the
+first time, tested by hand on it, polished, and given the web features added while it was frozen.
+
+### 18.1 The emulator on the development machine
+
+The development container has no `/dev/kvm`, so the emulator runs in software (QEMU TCG, `-accel off`, with
+`-qemu -accel tcg,thread=multi` for four guest CPUs). Android 14 and 11 images do not survive it: zygote exits, or
+system services time out (ANRs) and system_server restarts in a loop. The Android 9 image (`android-28;default;x86_64`)
+boots in about 15 minutes and stays up. Apps run slowly (a frame can take seconds), so after installing a debug build,
+`adb shell cmd package compile -m speed -f <package>` compiles it ahead of time first. Input from `adb shell input`
+is dropped when it comes faster than the app takes it: text is typed a few characters at a time. With KVM, any
+current image works and none of this applies.
+
+### 18.2 Bugs fixed
+
+| Bug | Fix |
+|---|---|
+| The viewer: swiping to the next image didn't work (the zoom gesture took every drag) | One finger pans only when zoomed in; at an edge the drag goes to the pager; two fingers zoom about their centre; double tap zooms on the tapped point |
+| The viewer: videos were stretched to the screen | Media3's `ContentFrame` fits them; play/pause follows the player; a seek bar with times |
+| The viewer: dark status bar icons on black | Light icons; the system bars hide with the viewer's own bars |
+| Search: picking a result left the results over the messages, hiding the one gone to | They make way; focusing the field shows them again |
+| Search: a narrower query that found the same messages kept the old highlight ("gre" of "green") | The highlighted words are Compose state |
+| A single image was letterboxed in a fixed 240 dp box | The tile takes the picture's shape (at most 320 × 240 dp), remembered so a row doesn't jump when it comes back |
+| A single video was a dark square | Its poster (`/api/chat/posters`, §30.1), in the video's shape |
+| Bottom sheets (message actions, emoji, forward): the last row under the navigation bar (Android ≤ 10) | `ChatSheet` pads with the navigation bar's height from the screen behind it |
+| Bottom sheets: menu rows on another background than the sheet | Transparent rows |
+| Back in a room during search, selection or an edit left the room | Back closes search, ends the selection, cancels the edit; only then leaves |
+| Bottom sheets opened half way, cutting off their last rows (Delete, the last rooms to forward to) | They open all the way (their content is short or scrolls) |
+| The emoji picker showed empty boxes on older Android (emoji newer than the system font) | It leaves out the emoji the device can't draw (`Glyphs`); bundling an emoji font would cost 10 MB |
+| With Dark chosen, the app started on a light window (the theme is read after the first frame) | The choice is mirrored in a small preference read in `onCreate`: the window, the system bars and (Android 12+) the splash follow it; `uiMode` changes are handled in place |
+| Sharing into the app: after choosing a room, the "Share to" picker came straight back over it | Choosing a room sets the share's target, which re-ran the effect that opens the picker; it now opens only for a share without one (`UiPortsTest`) |
+| Adding people to a room: someone just added was still offered as if not added | They are shown with a check; a tap takes them out again |
+| The room list was empty while it loaded | A spinner on the first load |
+| The themed launcher icon (Android 13+) was a blob: the dots were drawn in colour, not cut out | `ic_launcher_monochrome` with the dots cut out |
+| `UiFlowTest` waited without moving the main looper on | It uses the harness's `waitFor` (which pumps, and prints the screen on a timeout) |
+
+### 18.3 Polish
+
+Nunito (the rounded face of the web's font stack, one variable font, 277 KB) for all text; Material's shared X-axis
+transitions between screens; the brand mark (the launcher icon's bubble on the accent gradient) on Log in, the server
+choice and the room list when the site has no logo; vector room marks (#, lock, globe) instead of emoji; the other
+person's avatar or the room's mark in the forward and share pickers; the send button a filled accent circle;
+"Logging in…" / "Checking…" on buttons while busy; a password visibility toggle; "(edited)" inline after the text;
+an add-reaction chip after a message's reactions; swipe right to reply (with a haptic tick); the message being acted
+on shown at the top of its action sheet, Delete in red; the other person's avatar in a DM's header; the room's picture over "Beginning of …"; images about to be sent as thumbnails in the composer; the "New" line fades out; icons in the + menu; New room focuses its name; emoji category tabs; an inline audio player with progress and
+times; the viewer's bars fade, with the author, time and file name, and a Download button; notifications tinted with
+the accent; the app's version at the end of the profile.
+
+### 18.4 Web features ported
+
+| Web | App |
+|---|---|
+| Appearance: System, Light, Dark (DESIGN.md §7.8) | Profile → Appearance; kept in the device settings (`DeviceSettings.theme`, the account index's `theme`), the system bars follow it |
+| Media grid (§30) | The room's 🖼 button → `MediaScreen`: `GET /api/chat/media/{room}`, month headings, 60 a page, posters, a tile opens the viewer |
+| Jump to (§32) | The room list's search button (or Ctrl+K / Ctrl+P): `lib/Jump.kt` ports `matches`/`score`; rooms you just had open come first (`RecentlyOpened`) |
+| Media collections (§31) | Not yet |
+
+### 18.5 Tests
+
+`JumpTest` (`:core:data`): the web's matching cases. `UiPortsTest` (`:app`): Jump to, the media grid and the viewer
+from it, an empty grid, Appearance, and sharing into a room. 63 JVM tests in `:core:data` and 27 in `:app` pass; Android
+lint adds no warning. The release APK is 3.48 MB (Nunito is most of the 0.24 MB added; budget 6 MB).
+
+On the Android 9 emulator, by hand: log in, sign up (and its validation), the room list (light and dark), rooms and a DM,
+sending text, emoji and images, replying (from the sheet and by swiping), starting an edit, reacting, forwarding, search,
+the viewer (swiping, a video with its controls), the audio player, the media grid, Jump to, room access
+(private, adding a member), creating a room, hiding one, Appearance, guests in an Open Air room, a link to a room,
+sharing text in, realtime messages from another user. Not on the device: pinch zoom (adb has no multi-touch), saving
+an edit and deleting (both covered by `UiFeaturesTest`), push notifications (no Firebase credentials here).

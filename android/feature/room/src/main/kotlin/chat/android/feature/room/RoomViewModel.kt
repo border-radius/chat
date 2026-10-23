@@ -98,6 +98,7 @@ class RoomViewModel(
     private var savedText: TextFieldValue? = null
 
     init {
+        chat.android.data.lib.RecentlyOpened.note(roomId)
         viewModelScope.launch {
             val d = services.drafts.get(me, roomId) ?: return@launch
             if (text.text.isEmpty()) text = TextFieldValue(d.text, TextRange(d.text.length))
@@ -321,8 +322,16 @@ class RoomViewModel(
         private set
     var moreResults by mutableStateOf(false)
         private set
+    /** The results are over the list; picking one puts them away, until the field is used again. */
+    var resultsShown by mutableStateOf(true)
+        private set
+
+    fun showResults() {
+        resultsShown = true
+    }
     private var searchJob: Job? = null
-    private var words: List<String> = emptyList()
+    // State, so a narrower query that finds the same messages still moves the highlight.
+    private var words: List<String> by mutableStateOf(emptyList())
 
     fun openSearch() {
         searching = true
@@ -338,6 +347,7 @@ class RoomViewModel(
     }
 
     fun onQuery(q: String) {
+        if (q != query) resultsShown = true
         query = q
         searchJob?.cancel()
         searchJob = viewModelScope.launch {
@@ -347,6 +357,7 @@ class RoomViewModel(
     }
 
     fun searchNow() {
+        resultsShown = true
         searchJob?.cancel()
         searchJob = viewModelScope.launch { runSearch(false) }
     }
@@ -384,7 +395,7 @@ class RoomViewModel(
 
     /** Go to a result in the room; the results make way. */
     fun pick(m: Message) {
-        results = results // keep them for when the field is focused again
+        resultsShown = false
         controller.goTo(m.id)
     }
 
@@ -401,6 +412,7 @@ class RoomViewModel(
     }
 
     override fun onCleared() {
+        chat.android.data.lib.RecentlyOpened.note(roomId)
         val s = controller.state.value
         reader?.close(caughtUp = controller.atBottom && !s.hasNewer)
         controller.close()

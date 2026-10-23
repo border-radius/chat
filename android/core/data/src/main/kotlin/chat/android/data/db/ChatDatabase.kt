@@ -165,4 +165,5 @@ object Keys {
     const val PUSH_ROW = "push_row"
     const val RECENT_EMOJI = "recent_emoji"
     const val SECURE_SCREENS = "secure_screens"
+    const val THEME = "theme"
 }

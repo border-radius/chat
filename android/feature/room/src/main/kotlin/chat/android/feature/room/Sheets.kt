@@ -2,13 +2,17 @@
 // emoji the server accepts as reactions) and the forward target picker (§21.3).
 package chat.android.feature.room
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.runtime.getValue
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -38,6 +42,8 @@ import androidx.compose.ui.unit.sp
 import chat.android.data.lib.EMOJI_CATEGORIES
 import chat.android.data.lib.QUICK_REACTIONS
 import chat.android.data.lib.canPost
+import chat.android.data.lib.line
+import chat.android.data.lib.quote
 import chat.android.data.lib.roomSections
 import chat.android.data.lib.title
 import chat.android.data.model.Message
@@ -46,7 +52,7 @@ import chat.android.data.repo.AppState
 import chat.android.ui.Chat
 import chat.android.ui.ChatIcons
 
-class MenuItem(val label: String, val icon: ImageVector, val run: () -> Unit)
+class MenuItem(val label: String, val icon: ImageVector, val danger: Boolean = false, val run: () -> Unit)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -59,7 +65,20 @@ fun MessageSheet(
     onMoreEmoji: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    chat.android.ui.ChatSheet(onDismiss) {
+        // Which message this is about: its author and first line.
+        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                buildString {
+                    m.expand?.author?.name?.let { append(it).append(": ") }
+                    append(m.quote().line())
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = Chat.colors.muted,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
         if (reactable) {
             val quick = (recent + QUICK_REACTIONS).distinct().take(6)
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -76,28 +95,54 @@ fun MessageSheet(
         }
         for (item in items) {
             ListItem(
+                colors = androidx.compose.material3.ListItemDefaults.colors(
+                    containerColor = androidx.compose.ui.graphics.Color.Transparent,
+                    headlineColor = if (item.danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                    leadingIconColor = if (item.danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                ),
                 headlineContent = { Text(item.label) },
                 leadingContent = { Icon(item.icon, contentDescription = null) },
                 modifier = Modifier.clickable { item.run() },
             )
         }
-        Box(Modifier.height(24.dp))
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EmojiSheet(title: String, recent: List<String>, onPick: (String) -> Unit, onDismiss: () -> Unit) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    chat.android.ui.ChatSheet(onDismiss) {
         Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 16.dp).semantics { heading() })
-        LazyVerticalGrid(GridCells.Adaptive(48.dp), Modifier.fillMaxWidth().height(360.dp).padding(horizontal = 8.dp)) {
+        val grid = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
+        val scope = androidx.compose.runtime.rememberCoroutineScope()
+        // Where each category's title is in the grid, for the tabs.
+        val categories = androidx.compose.runtime.remember { EMOJI_CATEGORIES.map { c -> c to c.emoji.filter(chat.android.ui.Glyphs::canDraw) } }
+        val starts = androidx.compose.runtime.remember(recent) {
+            var i = if (recent.isNotEmpty()) 1 + recent.size else 0
+            categories.map { (_, list) -> i.also { i += 1 + list.size } }
+        }
+        val current by androidx.compose.runtime.remember { androidx.compose.runtime.derivedStateOf { starts.indexOfLast { it <= grid.firstVisibleItemIndex }.coerceAtLeast(0) } }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            EMOJI_CATEGORIES.forEachIndexed { i, c ->
+                Box(
+                    Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(if (i == current) Chat.colors.tint else androidx.compose.ui.graphics.Color.Transparent)
+                        .clickable { scope.launch { grid.scrollToItem(starts[i]) } }
+                        .semantics { contentDescription = c.name },
+                    contentAlignment = Alignment.Center,
+                ) { Text(c.icon, fontSize = 20.sp) }
+            }
+        }
+        LazyVerticalGrid(GridCells.Adaptive(48.dp), Modifier.fillMaxWidth().height(360.dp).padding(horizontal = 8.dp), state = grid) {
             if (recent.isNotEmpty()) {
                 item(span = { GridItemSpan(maxLineSpan) }) { CategoryTitle("Recent") }
                 items(recent, key = { "r$it" }) { e -> EmojiCell(e, onPick) }
             }
-            for (c in EMOJI_CATEGORIES) {
+            for ((c, list) in categories) {
                 item(span = { GridItemSpan(maxLineSpan) }, key = "c-${c.name}") { CategoryTitle(c.name) }
-                items(c.emoji, key = { "${c.name}$it" }) { e -> EmojiCell(e, onPick) }
+                items(list, key = { "${c.name}$it" }) { e -> EmojiCell(e, onPick) }
             }
         }
     }
@@ -123,12 +168,17 @@ fun forwardTargets(s: AppState): List<Room> {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ForwardSheet(count: Int, rooms: List<Room>, me: String?, onPick: (Room) -> Unit, onDismiss: () -> Unit) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    chat.android.ui.ChatSheet(onDismiss) {
         Text(if (count == 1) "Forward message" else "Forward $count messages", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 16.dp).semantics { heading() })
         Text("Forward to", color = Chat.colors.muted, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-        LazyColumn(Modifier.fillMaxWidth().height(420.dp)) {
+        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 420.dp)) {
             items(rooms, key = { it.id }) { r ->
-                ListItem(headlineContent = { Text(r.title(me), maxLines = 1, overflow = TextOverflow.Ellipsis) }, modifier = Modifier.clickable { onPick(r) })
+                ListItem(
+                    colors = androidx.compose.material3.ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
+                    headlineContent = { Text(r.title(me), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    leadingContent = { chat.android.ui.RoomPicture(r, me) },
+                    modifier = Modifier.clickable { onPick(r) },
+                )
             }
         }
     }

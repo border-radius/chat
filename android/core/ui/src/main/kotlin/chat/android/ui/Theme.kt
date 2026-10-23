@@ -15,6 +15,12 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontVariation
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.material3.Typography
 import androidx.compose.ui.unit.dp
 
 /** The tokens Material's scheme has no slot for. */
@@ -123,10 +129,28 @@ private val ChatShapes = Shapes(
     extraLarge = RoundedCornerShape(28.dp),
 )
 
+/** Nunito, the rounded face of the web's font stack (tokens.css), from one variable font: one instance per weight. */
+@OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
+private fun nunito(weight: Int) = Font(R.font.nunito, FontWeight(weight), variationSettings = FontVariation.Settings(FontVariation.weight(weight)))
+
+@OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
+val Nunito = FontFamily(nunito(400), nunito(500), nunito(600), nunito(700), nunito(800))
+
+private val ChatTypography = Typography().run {
+    fun TextStyle.n(w: FontWeight? = null) = copy(fontFamily = Nunito, fontWeight = w ?: fontWeight)
+    Typography(
+        displayLarge = displayLarge.n(), displayMedium = displayMedium.n(), displaySmall = displaySmall.n(),
+        headlineLarge = headlineLarge.n(FontWeight.ExtraBold), headlineMedium = headlineMedium.n(FontWeight.ExtraBold), headlineSmall = headlineSmall.n(FontWeight.Bold),
+        titleLarge = titleLarge.n(FontWeight.ExtraBold), titleMedium = titleMedium.n(FontWeight.Bold), titleSmall = titleSmall.n(FontWeight.Bold),
+        bodyLarge = bodyLarge.n(), bodyMedium = bodyMedium.n(), bodySmall = bodySmall.n(),
+        labelLarge = labelLarge.n(FontWeight.Bold), labelMedium = labelMedium.n(FontWeight.SemiBold), labelSmall = labelSmall.n(FontWeight.SemiBold),
+    )
+}
+
 @Composable
 fun ChatTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
     CompositionLocalProvider(LocalChatColors provides if (dark) DarkChat else LightChat) {
-        MaterialTheme(colorScheme = if (dark) Dark else Light, shapes = ChatShapes, content = content)
+        MaterialTheme(colorScheme = if (dark) Dark else Light, shapes = ChatShapes, typography = ChatTypography, content = content)
     }
 }
 

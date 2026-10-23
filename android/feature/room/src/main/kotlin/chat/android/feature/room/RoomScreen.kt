@@ -57,6 +57,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
@@ -78,6 +80,7 @@ import chat.android.data.lib.attachmentName
 import chat.android.data.lib.canPost
 import chat.android.data.lib.highlight
 import chat.android.data.lib.label
+import chat.android.data.lib.otherMember
 import chat.android.data.lib.title
 import chat.android.data.lib.visibilityOrDefault
 import chat.android.data.model.Message
@@ -101,6 +104,7 @@ class RoomNav(
     val access: (String) -> Unit,
     val viewer: (roomId: String, msgId: String, file: String) -> Unit,
     val logIn: () -> Unit,
+    val media: (String) -> Unit = {},
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -129,6 +133,11 @@ fun RoomScreen(roomId: String, msgId: String?, nav: RoomNav, incoming: Pair<Stri
     var confirmDelete by remember { mutableStateOf<List<String>?>(null) }
     var forwarding by remember { mutableStateOf<List<String>?>(null) }
     var roomMenu by remember { mutableStateOf(false) }
+
+    // Back undoes the mode you are in before it leaves the room: selection, search, then an edit.
+    androidx.activity.compose.BackHandler(enabled = vm.selecting, onBack = vm::clearSelection)
+    androidx.activity.compose.BackHandler(enabled = !vm.selecting && vm.searching, onBack = vm::closeSearch)
+    androidx.activity.compose.BackHandler(enabled = !vm.selecting && !vm.searching && vm.editing != null, onBack = vm::cancelEdit)
 
     val atBottom by remember { derivedStateOf { list.firstVisibleItemIndex == 0 && list.firstVisibleItemScrollOffset < 64 } }
     LaunchedEffect(atBottom, rows) { vm.onAtBottom(atBottom) }
@@ -189,6 +198,13 @@ fun RoomScreen(roomId: String, msgId: String?, nav: RoomNav, incoming: Pair<Stri
         reactions = { c.reactions(it) },
         name = { names[it] },
         progress = { progress[it] },
+        onSwipeReply = if (me == null || room == null || room.archived || !room.canPost(me.id)) null else ({ m ->
+            if (c.repliable(m)) {
+                vm.reply(m)
+                focus.requestFocusSafely()
+            }
+        }),
+        onAddReaction = if (me == null || room?.archived == true) null else ({ m -> if (!vm.selecting && c.reactable(m)) emojiFor = m }),
     )
 
     Scaffold(
@@ -215,25 +231,34 @@ fun RoomScreen(roomId: String, msgId: String?, nav: RoomNav, incoming: Pair<Stri
                             keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { vm.searchNow() }),
                             keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
                             colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent),
-                            modifier = Modifier.fillMaxWidth().focusRequester(searchFocus).semantics { contentDescription = "Search messages" },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .focusRequester(searchFocus)
+                                .onFocusChanged { if (it.isFocused) vm.showResults() }
+                                .semantics { contentDescription = "Search messages" },
                         )
                     },
                 )
                 else -> TopAppBar(
                     navigationIcon = { IconButton(onClick = nav.back) { Icon(ChatIcons.Back, contentDescription = "Back to rooms") } },
                     title = {
-                        Column(Modifier.clickable(enabled = room != null && !room.isDm) { nav.access(roomId) }) {
-                            Text(room?.title(me?.id) ?: "", maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold)
-                            if (room != null && !room.isDm) {
-                                Text(
-                                    room.visibilityOrDefault.label + if (room.visibilityOrDefault == Visibility.Private) " · ${room.members.size} ${if (room.members.size == 1) "member" else "members"}" else "",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = Chat.colors.muted,
-                                )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            // A DM shows who it is with.
+                            if (room != null && room.isDm) room.otherMember(me?.id)?.let { chat.android.ui.Avatar(it, 36.dp, Modifier.padding(end = 12.dp)) }
+                            Column(Modifier.clickable(enabled = room != null && !room.isDm) { nav.access(roomId) }) {
+                                Text(room?.title(me?.id) ?: "", maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold)
+                                if (room != null && !room.isDm) {
+                                    Text(
+                                        room.visibilityOrDefault.label + if (room.visibilityOrDefault == Visibility.Private) " · ${room.members.size} ${if (room.members.size == 1) "member" else "members"}" else "",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = Chat.colors.muted,
+                                    )
+                                }
                             }
                         }
                     },
                     actions = {
+                        if (room != null) IconButton(onClick = { nav.media(roomId) }) { Icon(ChatIcons.Image, contentDescription = "Media") }
                         if (room != null) IconButton(onClick = vm::openSearch) { Icon(ChatIcons.Search, contentDescription = "Search messages") }
                         if (room != null && me != null) {
                             Box {
@@ -273,8 +298,9 @@ fun RoomScreen(roomId: String, msgId: String?, nav: RoomNav, incoming: Pair<Stri
                             when (row) {
                                 is ListRow.Msg -> MessageRow(row.m, row.first, row.target, me?.id, vm.selecting, row.m.id in vm.selected, actions)
                                 is ListRow.Day -> DayHeader(row.label)
-                                ListRow.NewLine -> NewLine()
-                                is ListRow.Beginning -> Text(row.text, color = Chat.colors.muted, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(24.dp))
+                                // The line fades out when its time is up, instead of vanishing.
+                                ListRow.NewLine -> NewLine(Modifier.animateItem(fadeInSpec = null, placementSpec = null, fadeOutSpec = androidx.compose.animation.core.tween(700)))
+                                is ListRow.Beginning -> Beginning(row.text, room, me?.id)
                             }
                         }
                     }
@@ -314,7 +340,7 @@ fun RoomScreen(roomId: String, msgId: String?, nav: RoomNav, incoming: Pair<Stri
             })
             if (me != null && c.selectable(m)) add(MenuItem("Forward", ChatIcons.Forward) { sheetFor = null; forwarding = listOf(m.id) })
             if (c.selectable(m)) add(MenuItem("Select", ChatIcons.Check) { sheetFor = null; vm.toggleSelect(m) })
-            if (c.deletable(m)) add(MenuItem("Delete", ChatIcons.Delete) { sheetFor = null; confirmDelete = listOf(m.id) })
+            if (c.deletable(m)) add(MenuItem("Delete", ChatIcons.Delete, danger = true) { sheetFor = null; confirmDelete = listOf(m.id) })
         }
         MessageSheet(m, c.reactable(m), recent, items, onReact = { e -> sheetFor = null; vm.react(m, e) }, onMoreEmoji = { sheetFor = null; emojiFor = m }, onDismiss = { sheetFor = null })
     }
@@ -353,13 +379,13 @@ private fun RoomMenu(open: Boolean, close: () -> Unit, room: chat.android.data.m
         scope.launch { runCatching { block() }.onFailure { snackbar.showSnackbar("That didn't work. ${chat.android.data.api.errorMessage(it)}") } }
     }
     DropdownMenu(open, onDismissRequest = close) {
-        if (!room.isDm) DropdownMenuItem(text = { Text(if (room.createdBy == me) "Room access…" else "Members") }, onClick = { close(); nav.access(room.id) })
-        if (room.isDm) DropdownMenuItem(text = { Text("Close conversation") }, onClick = { act("close") { services.actions.hide(room.id); nav.back() } })
-        else if (hidden) DropdownMenuItem(text = { Text("Unhide room") }, onClick = { act("unhide") { services.actions.unhide(room.id) } })
-        else DropdownMenuItem(text = { Text("Hide room") }, onClick = { act("hide") { services.actions.hide(room.id); nav.back() } })
+        if (!room.isDm) DropdownMenuItem(text = { Text(if (room.createdBy == me) "Room access…" else "Members") }, leadingIcon = { Icon(ChatIcons.People, contentDescription = null) }, onClick = { close(); nav.access(room.id) })
+        if (room.isDm) DropdownMenuItem(text = { Text("Close conversation") }, leadingIcon = { Icon(ChatIcons.Hide, contentDescription = null) }, onClick = { act("close") { services.actions.hide(room.id); nav.back() } })
+        else if (hidden) DropdownMenuItem(text = { Text("Unhide room") }, leadingIcon = { Icon(ChatIcons.Show, contentDescription = null) }, onClick = { act("unhide") { services.actions.unhide(room.id) } })
+        else DropdownMenuItem(text = { Text("Hide room") }, leadingIcon = { Icon(ChatIcons.Hide, contentDescription = null) }, onClick = { act("hide") { services.actions.hide(room.id); nav.back() } })
         if (!room.isDm && room.createdBy == me) {
-            if (room.archived) DropdownMenuItem(text = { Text("Unarchive room") }, onClick = { act("unarchive") { services.actions.setArchived(room.id, false) } })
-            else DropdownMenuItem(text = { Text("Archive room") }, onClick = { close(); archive = true })
+            if (room.archived) DropdownMenuItem(text = { Text("Unarchive room") }, leadingIcon = { Icon(ChatIcons.Archive, contentDescription = null) }, onClick = { act("unarchive") { services.actions.setArchived(room.id, false) } })
+            else DropdownMenuItem(text = { Text("Archive room") }, leadingIcon = { Icon(ChatIcons.Archive, contentDescription = null) }, onClick = { close(); archive = true })
         }
     }
     if (archive) {
@@ -397,9 +423,18 @@ private fun DayHeader(label: String) {
     }
 }
 
+/** The start of the history: the room's picture over "Beginning of …". */
 @Composable
-private fun NewLine() {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+private fun Beginning(text: String, room: chat.android.data.model.Room?, me: String?) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        if (room != null) chat.android.ui.RoomPicture(room, me, 56.dp)
+        Text(text, color = Chat.colors.muted, textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 12.dp))
+    }
+}
+
+@Composable
+private fun NewLine(modifier: Modifier = Modifier) {
+    Row(modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         HorizontalDivider(Modifier.weight(1f), color = MaterialTheme.colorScheme.secondary)
         Text("New", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.padding(horizontal = 8.dp))
     }
@@ -407,8 +442,8 @@ private fun NewLine() {
 
 @Composable
 private fun SearchResults(vm: RoomViewModel, onPick: (Message) -> Unit) {
-    if (vm.query.isBlank() && vm.results.isEmpty()) return
-    Surface(Modifier.fillMaxWidth().fillMaxHeightFraction(), tonalElevation = 3.dp) {
+    if (!vm.resultsShown || (vm.query.isBlank() && vm.results.isEmpty())) return
+    Surface(Modifier.fillMaxWidth().heightIn(max = 420.dp), tonalElevation = 3.dp, shadowElevation = 6.dp) {
         LazyColumn(Modifier.semantics { contentDescription = "Search results" }) {
             item { Text(vm.searchStatus, color = Chat.colors.muted, modifier = Modifier.padding(16.dp).semantics { liveRegion = LiveRegionMode.Polite }) }
             items(vm.results, key = { it.id }) { m ->
@@ -437,7 +472,6 @@ private fun SearchResults(vm: RoomViewModel, onPick: (Message) -> Unit) {
     }
 }
 
-private fun Modifier.fillMaxHeightFraction() = this.then(Modifier.height(420.dp))
 
 /** Download an attachment with the system's download manager (a fresh file token in its URL, §17.3). */
 private suspend fun download(context: Context, services: chat.android.data.repo.ChatServices, m: Message, file: String) {

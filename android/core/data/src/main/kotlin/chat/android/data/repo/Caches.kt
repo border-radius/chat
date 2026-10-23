@@ -166,20 +166,40 @@ class RecentEmoji(private val db: ChatDatabase, private val scope: CoroutineScop
     }
 }
 
-/** This device's settings, kept across sessions: whether screens with messages are kept out of screenshots (§10). */
-class DeviceSettings(private val read: suspend () -> String?, private val write: suspend (String) -> Unit, private val scope: CoroutineScope) {
+/** The app's theme (the web's Appearance choice, DESIGN.md §7.8): the system's, or always light or dark. */
+enum class ThemeChoice(val label: String) {
+    System("System"), Light("Light"), Dark("Dark");
+
+    companion object {
+        fun of(v: String?) = entries.firstOrNull { it.name.equals(v, ignoreCase = true) } ?: System
+    }
+}
+
+/**
+ * This device's settings, kept across sessions: whether screens with messages are kept out of screenshots (§10), and
+ * the theme. [read] and [write] take a key of [Keys].
+ */
+class DeviceSettings(private val read: suspend (String) -> String?, private val write: suspend (String, String) -> Unit, private val scope: CoroutineScope) {
     /** Kept in [db] (tests, and services without accounts). */
-    constructor(db: ChatDatabase, scope: CoroutineScope) : this({ db.kv().get(Keys.SECURE_SCREENS) }, { db.kv().put(KvEntity(Keys.SECURE_SCREENS, it)) }, scope)
+    constructor(db: ChatDatabase, scope: CoroutineScope) : this({ db.kv().get(it) }, { k, v -> db.kv().put(KvEntity(k, v)) }, scope)
 
     private val secureState = kotlinx.coroutines.flow.MutableStateFlow(false)
     val secureScreens: kotlinx.coroutines.flow.StateFlow<Boolean> = secureState
+    private val themeState = kotlinx.coroutines.flow.MutableStateFlow(ThemeChoice.System)
+    val theme: kotlinx.coroutines.flow.StateFlow<ThemeChoice> = themeState
 
     suspend fun load() {
-        secureState.value = read() == "1"
+        secureState.value = read(Keys.SECURE_SCREENS) == "1"
+        themeState.value = ThemeChoice.of(read(Keys.THEME))
     }
 
     fun setSecureScreens(on: Boolean) {
         secureState.value = on
-        scope.launch { write(if (on) "1" else "0") }
+        scope.launch { write(Keys.SECURE_SCREENS, if (on) "1" else "0") }
+    }
+
+    fun setTheme(t: ThemeChoice) {
+        themeState.value = t
+        scope.launch { write(Keys.THEME, t.name.lowercase()) }
     }
 }

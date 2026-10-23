@@ -81,6 +81,20 @@ import chat.android.ui.LocalServices
 import chat.android.ui.UserSearchDialog
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isAltPressed
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import chat.android.data.lib.jumpMatches
+import chat.android.data.lib.jumpTargets
 
 private enum class Section { Rooms, Dms, Hidden, Archived }
 
@@ -105,12 +119,54 @@ fun RoomsScreen(onOpenRoom: (String) -> Unit, onProfile: () -> Unit, onLogIn: ()
         }
     }
 
+    var jumping by rememberSaveable { mutableStateOf(false) }
+    var jumpQuery by rememberSaveable { mutableStateOf("") }
+    fun closeJump() { jumping = false; jumpQuery = "" }
+    androidx.activity.compose.BackHandler(enabled = jumping, onBack = ::closeJump)
+
     Scaffold(
+        // Ctrl+K or Ctrl+P from a hardware keyboard: Jump to (§32), as on the web.
+        modifier = Modifier.onPreviewKeyEvent { e ->
+            if (e.type == KeyEventType.KeyDown && e.isCtrlPressed && !e.isAltPressed && !e.isShiftPressed && (e.key == Key.K || e.key == Key.P)) {
+                if (jumping) closeJump() else jumping = true
+                true
+            } else false
+        },
         topBar = {
+            if (jumping) {
+                val focus = remember { FocusRequester() }
+                LaunchedEffect(Unit) { focus.requestFocus() }
+                TopAppBar(
+                    navigationIcon = { IconButton(onClick = ::closeJump) { Icon(ChatIcons.Back, contentDescription = "Close search") } },
+                    title = {
+                        androidx.compose.material3.TextField(
+                            jumpQuery,
+                            { jumpQuery = it },
+                            placeholder = { Text("Jump to a room or person", maxLines = 1) },
+                            singleLine = true,
+                            colors = androidx.compose.material3.TextFieldDefaults.colors(
+                                focusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                                unfocusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                                focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                                unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                            ),
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Go),
+                            keyboardActions = androidx.compose.foundation.text.KeyboardActions(onGo = {
+                                jumpMatches(jumpTargets(sections, me?.id), jumpQuery).firstOrNull()?.let { closeJump(); onOpenRoom(it.room.id) }
+                            }),
+                            modifier = Modifier.fillMaxWidth().focusRequester(focus).semantics { contentDescription = "Jump to" },
+                        )
+                    },
+                    actions = {
+                        if (jumpQuery.isNotEmpty()) IconButton(onClick = { jumpQuery = "" }) { Icon(ChatIcons.Close, contentDescription = "Clear") }
+                    },
+                )
+                return@Scaffold
+            }
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (s.site.logo.isNotEmpty()) AsyncImage(s.site.logo, contentDescription = null, modifier = Modifier.size(28.dp))
+                        chat.android.ui.BrandMark(s.site.logo, 32.dp)
                         Column {
                             Text(s.site.title, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             // Which account this is, once there are several (ANDROID.md §17.2).
@@ -120,6 +176,7 @@ fun RoomsScreen(onOpenRoom: (String) -> Unit, onProfile: () -> Unit, onLogIn: ()
                     }
                 },
                 actions = {
+                    IconButton(onClick = { jumping = true }) { Icon(ChatIcons.Search, contentDescription = "Jump to a room or person") }
                     if (me != null) {
                         IconButton(onClick = onProfile, modifier = Modifier.semantics { contentDescription = "Profile" }) { Avatar(me, 32.dp) }
                     } else {
@@ -129,22 +186,41 @@ fun RoomsScreen(onOpenRoom: (String) -> Unit, onProfile: () -> Unit, onLogIn: ()
             )
         },
         floatingActionButton = {
-            if (me != null) {
+            if (me != null && !jumping) {
                 var menu by remember { mutableStateOf(false) }
                 Box {
                     FloatingActionButton(onClick = { menu = true }) { Icon(ChatIcons.Add, contentDescription = "New") }
                     DropdownMenu(menu, onDismissRequest = { menu = false }) {
-                        DropdownMenuItem(text = { Text("New room") }, onClick = { menu = false; newRoom = true })
-                        DropdownMenuItem(text = { Text("New message") }, onClick = { menu = false; newDm = true })
+                        DropdownMenuItem(text = { Text("New room") }, leadingIcon = { Icon(ChatIcons.Tag, contentDescription = null) }, onClick = { menu = false; newRoom = true })
+                        DropdownMenuItem(text = { Text("New message") }, leadingIcon = { Icon(ChatIcons.Chat, contentDescription = null) }, onClick = { menu = false; newDm = true })
                     }
                 }
             }
         },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
+        if (jumping) {
+            val found = remember(sections, jumpQuery, me) { jumpMatches(jumpTargets(sections, me?.id), jumpQuery) }
+            LazyColumn(Modifier.fillMaxSize().semantics { contentDescription = "Rooms" }, contentPadding = padding) {
+                if (found.isEmpty()) empty("Nothing found.")
+                items(found, key = { "j" + it.room.id }) { t ->
+                    JumpRow(t, s, me?.id) { closeJump(); onOpenRoom(t.room.id) }
+                }
+            }
+            return@Scaffold
+        }
         var showHidden by rememberSaveable { mutableStateOf(false) }
         var showArchived by rememberSaveable { mutableStateOf(false) }
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = padding.calculateTopPadding(), bottom = padding.calculateBottomPadding() + 88.dp)) {
+            // The first load: a spinner, not an empty list that fills in.
+            if (s.rooms.isEmpty() && (s.roomsStatus == LoadStatus.Loading || s.roomsStatus == LoadStatus.Idle)) {
+                item(key = "loading") {
+                    Box(Modifier.fillMaxWidth().padding(48.dp), contentAlignment = Alignment.Center) {
+                        androidx.compose.material3.CircularProgressIndicator(Modifier.size(32.dp).semantics { contentDescription = "Loading rooms" })
+                    }
+                }
+                return@LazyColumn
+            }
             if (s.roomsStatus == LoadStatus.Error && s.rooms.isEmpty()) {
                 item {
                     Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -227,6 +303,36 @@ private fun menuItems(
     return items
 }
 
+@Composable
+private fun JumpRow(t: chat.android.data.lib.JumpTarget, s: AppState, me: String?, onOpen: () -> Unit) {
+    val badge = unreadBadge(t.room, s.unread, s.hidden.keys, s.activeRoomId)
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(onClick = onOpen).padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        chat.android.ui.RoomPicture(t.room, me)
+        Text(t.name, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = if (badge > 0) FontWeight.Bold else FontWeight.Normal)
+        if (t.note.isNotEmpty()) Text(t.note, style = MaterialTheme.typography.labelMedium, color = Chat.colors.muted)
+        if (badge > 0) UnreadBadge(badge)
+    }
+}
+
+@Composable
+private fun UnreadBadge(badge: Int) {
+    Box(
+        Modifier.heightIn(min = 22.dp).widthIn(min = 22.dp).background(Chat.colors.gradient, CircleShape).padding(horizontal = 7.dp, vertical = 2.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            if (badge > 99) "99+" else badge.toString(),
+            color = androidx.compose.ui.graphics.Color.White,
+            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.semantics { contentDescription = "$badge unread" },
+        )
+    }
+}
+
 private fun LazyListScope.header(text: String) = item(key = "header-$text") {
     Text(
         text,
@@ -268,19 +374,9 @@ private fun RoomRow(r: Room, s: AppState, me: String?, onOpen: (String) -> Unit,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             if (r.isDm) {
-                r.otherMember(me)?.let { Avatar(it, 36.dp) }
+                r.otherMember(me)?.let { Avatar(it, 40.dp) }
             } else {
-                Box(Modifier.size(36.dp).background(MaterialTheme.colorScheme.surfaceContainerHigh, CircleShape), contentAlignment = Alignment.Center) {
-                    Text(
-                        when (r.visibilityOrDefault) {
-                            Visibility.Private -> "🔒"
-                            Visibility.Open -> "🌐"
-                            Visibility.Public -> "#"
-                        },
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
+                chat.android.ui.RoomIcon(r.visibilityOrDefault, 40.dp)
             }
             Text(
                 if (r.isDm) title else r.name,
@@ -290,29 +386,28 @@ private fun RoomRow(r: Room, s: AppState, me: String?, onOpen: (String) -> Unit,
                 fontWeight = if (badge > 0) FontWeight.Bold else FontWeight.Normal,
                 color = if (r.archived) Chat.colors.muted else MaterialTheme.colorScheme.onSurface,
             )
-            if (badge > 0) {
-                Box(
-                    Modifier.heightIn(min = 22.dp).background(Chat.colors.gradient, CircleShape).padding(horizontal = 8.dp, vertical = 2.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        if (badge > 99) "99+" else badge.toString(),
-                        color = androidx.compose.ui.graphics.Color.White,
-                        style = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier.semantics { contentDescription = "$badge unread" },
-                    )
-                }
-            }
+            if (badge > 0) UnreadBadge(badge)
             if (menu.isNotEmpty()) {
-                IconButton(onClick = { open = true }, modifier = Modifier.semantics { contentDescription = "Actions for $title" }) {
-                    Icon(ChatIcons.More, contentDescription = null, tint = Chat.colors.muted)
+                // The menu opens at the button (a long press on the row opens it there too).
+                Box {
+                    IconButton(onClick = { open = true }, modifier = Modifier.semantics { contentDescription = "Actions for $title" }) {
+                        Icon(ChatIcons.More, contentDescription = null, tint = Chat.colors.muted)
+                    }
+                    DropdownMenu(open, onDismissRequest = { open = false }) {
+                        for ((label, run) in menu) {
+                            DropdownMenuItem(text = { Text(label) }, leadingIcon = { Icon(menuIcon(label), contentDescription = null) }, onClick = { open = false; run() })
+                        }
+                    }
                 }
             }
-        }
-        DropdownMenu(open, onDismissRequest = { open = false }) {
-            for ((label, run) in menu) DropdownMenuItem(text = { Text(label) }, onClick = { open = false; run() })
         }
     }
+}
+
+private fun menuIcon(label: String) = when (label) {
+    "Unhide" -> ChatIcons.Show
+    "Archive", "Unarchive" -> ChatIcons.Archive
+    else -> ChatIcons.Hide
 }
 
 @Composable
@@ -323,6 +418,8 @@ private fun NewRoomDialog(onCreated: (Room) -> Unit, onDismiss: () -> Unit) {
     var visibility by rememberSaveable { mutableStateOf(Visibility.Public) }
     var error by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
+    val nameFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { nameFocus.requestFocus() } }
     fun create() {
         if (busy) return
         if (textLength(name.trim()) > Limits.ROOM_NAME) {
@@ -351,7 +448,9 @@ private fun NewRoomDialog(onCreated: (Room) -> Unit, onDismiss: () -> Unit) {
                     singleLine = true,
                     isError = error.isNotEmpty(),
                     supportingText = if (error.isNotEmpty()) ({ Text(error) }) else null,
-                    modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { if (name.isNotBlank()) create() }),
+                    modifier = Modifier.fillMaxWidth().focusRequester(nameFocus),
                 )
                 Text("Who can see it", style = MaterialTheme.typography.titleSmall)
                 for (v in listOf(Visibility.Public, Visibility.Private, Visibility.Open)) {

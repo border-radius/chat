@@ -31,6 +31,8 @@ object Notifications {
     const val SENDING = "sending"
     const val KEY_REPLY = "reply"
     const val OPEN = "chat.android.OPEN"
+    /** The accent (tokens.css): the small icon and actions are tinted with it. */
+    private const val ACCENT = 0xFF5B3DF5.toInt()
     /** What is shown: "account/room" keys. */
     private val shown = mutableSetOf<String>()
 
@@ -98,6 +100,7 @@ object Notifications {
             .build()
         val n = NotificationCompat.Builder(context, if (room.isDm) DMS else ROOMS)
             .setSmallIcon(R.drawable.ic_notification)
+            .setColor(ACCENT)
             .setStyle(style)
             .setContentIntent(open(context, acct, room.id, m.id))
             .setSubText(account)

@@ -76,7 +76,8 @@ fun ServerScreen(onCancel: (() -> Unit)?) {
         ) {
             Column(Modifier.widthIn(max = 420.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Spacer(Modifier.height(24.dp))
-                Text("Choose your server", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                chat.android.ui.BrandMark("", 64.dp)
+                Text("Choose your server", style = MaterialTheme.typography.headlineMedium)
                 Text("The address of the chat you use, as you would open it in a browser.", color = Chat.colors.muted)
                 OutlinedTextField(
                     value = address,
@@ -90,7 +91,7 @@ fun ServerScreen(onCancel: (() -> Unit)?) {
                     keyboardActions = KeyboardActions(onGo = { go() }),
                     modifier = Modifier.fillMaxWidth().semantics { if (problem.isNotEmpty()) error(problem) },
                 )
-                Button(onClick = ::go, enabled = !busy, modifier = Modifier.fillMaxWidth().height(48.dp)) { Text("Continue") }
+                Button(onClick = ::go, enabled = !busy, modifier = Modifier.fillMaxWidth().height(48.dp)) { Text(if (busy) "Checking…" else "Continue") }
                 if (onCancel != null) TextButton(onClick = onCancel, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Cancel") }
             }
         }

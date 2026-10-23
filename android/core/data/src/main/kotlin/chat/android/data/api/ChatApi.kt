@@ -5,6 +5,8 @@ package chat.android.data.api
 import chat.android.data.lib.PAGE_SIZE
 import chat.android.data.lib.PageQuery
 import chat.android.data.model.Cursor
+import chat.android.data.model.MediaItem
+import chat.android.data.model.MediaPage
 import chat.android.data.model.Message
 import chat.android.data.model.Posting
 import chat.android.data.model.Room
@@ -364,6 +366,32 @@ class ChatApi(val pb: PbClient) {
     /** An attachment's URL without a token: a forward's attachments are its original's (§21.3). */
     fun fileUrl(m: Message, filename: String, thumb: String? = null, token: String? = null): HttpUrl =
         pb.fileUrl("messages", m.forwardOf.ifEmpty { m.id }, filename, mapOf("thumb" to thumb, "token" to token?.ifEmpty { null }))
+
+    /**
+     * A page of the room's images and videos (DESIGN.md §30: the media grid), newest first, older than [after] (or
+     * the newest). 404 for a room you can't see.
+     */
+    suspend fun media(room: String, after: MediaItem? = null, limit: Int = 60): MediaPage =
+        get("/api/chat/media/$room", buildMap {
+            put("limit", limit)
+            if (after != null) {
+                put("sent", after.sent)
+                put("message", after.message)
+                put("pos", after.pos)
+            }
+        })
+
+    /** A media grid tile's file (of the message that holds it, [MediaItem.source]), as a square thumbnail. */
+    fun mediaUrl(item: MediaItem, thumb: String? = "240x240", token: String? = null): HttpUrl =
+        pb.fileUrl("messages", item.source.ifEmpty { item.message }, item.file, mapOf("thumb" to thumb, "token" to token?.ifEmpty { null }))
+
+    /** A media grid tile's video poster. */
+    fun mediaPosterUrl(item: MediaItem, token: String? = null): HttpUrl =
+        pb.url("/api/chat/posters/${item.source.ifEmpty { item.message }}/${item.file}", mapOf("token" to token?.ifEmpty { null }))
+
+    /** A video's poster frame (DESIGN.md §30: made by the server's media worker; 404 until then, or without ffmpeg). */
+    fun posterUrl(m: Message, filename: String, token: String? = null): HttpUrl =
+        pb.url("/api/chat/posters/${m.forwardOf.ifEmpty { m.id }}/$filename", mapOf("token" to token?.ifEmpty { null }))
 
     // ---- push (ANDROID.md §8)
 

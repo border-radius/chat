@@ -3,6 +3,15 @@
 // Without any account, it asks for a server first (§17.2). An app too old for the server says so (§12.4).
 package chat.android.nav
 
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -90,13 +99,19 @@ fun ChatNav(linked: Room?, onLinkTaken: () -> Unit, onSignedIn: () -> Unit) {
         onLinkTaken()
     }
     LaunchedEffect(ShareInbox.pending, signedIn) {
-        if (ShareInbox.pending != null && signedIn && stack.lastOrNull() !is SharePicker) stack += SharePicker
+        // Only a share with no room yet: choosing one sets its target, which must not bring the picker back.
+        val p = ShareInbox.pending
+        if (p != null && p.target == null && signedIn && stack.lastOrNull() !is SharePicker) stack += SharePicker
     }
 
     NavDisplay(
         backStack = stack,
         onBack = { if (stack.size > 1) stack.removeAt(stack.lastIndex) },
         entryDecorators = listOf(rememberSaveableStateHolderNavEntryDecorator(), rememberViewModelStoreNavEntryDecorator()),
+        // Material's shared X axis: the next screen slides in a little from the end and fades in; back reverses it.
+        transitionSpec = { forward(true) },
+        popTransitionSpec = { forward(false) },
+        predictivePopTransitionSpec = { forward(false) },
         entryProvider = entryProvider {
             entry<Login> { AuthScreen(AuthMode.LogIn, onChangeServer = { stack += ChooseServer }) { guest = true; stack.reset(Rooms) } }
             entry<SignUp> { AuthScreen(AuthMode.SignUp, onChangeServer = { stack += ChooseServer }) { guest = true; stack.reset(Rooms) } }
@@ -119,10 +134,14 @@ fun ChatNav(linked: Room?, onLinkTaken: () -> Unit, onSignedIn: () -> Unit) {
                         access = { stack += RoomAccess(it) },
                         viewer = { r, m, f -> stack += Viewer(r, m, f) },
                         logIn = { guest = false; stack.reset(Login) },
+                        media = { stack += Media(it) },
                     ),
                     incoming = incoming?.let { it.text to it.uris },
                     onIncomingTaken = { ShareInbox.pending = null },
                 )
+            }
+            entry<Media> { key ->
+                chat.android.feature.room.MediaScreen(key.roomId, onOpen = { m, f -> stack += Viewer(key.roomId, m, f) }) { stack.removeAt(stack.lastIndex) }
             }
             entry<RoomAccess> { key -> RoomAccessScreen(key.id) { stack.removeAt(stack.lastIndex) } }
             entry<Viewer> { key -> ViewerScreen(key.roomId, key.msgId, key.file) { stack.removeAt(stack.lastIndex) } }
@@ -139,6 +158,15 @@ fun ChatNav(linked: Room?, onLinkTaken: () -> Unit, onSignedIn: () -> Unit) {
             }
         },
     )
+}
+
+private val Ease = CubicBezierEasing(0.2f, 0f, 0f, 1f)
+
+private fun forward(forward: Boolean): ContentTransform {
+    val dir = if (forward) 1 else -1
+    val enter = slideInHorizontally(tween(300, easing = Ease)) { dir * it / 5 } + fadeIn(tween(210, delayMillis = 60, easing = LinearEasing))
+    val exit = slideOutHorizontally(tween(300, easing = Ease)) { -dir * it / 5 } + fadeOut(tween(90, easing = LinearEasing))
+    return enter togetherWith exit
 }
 
 private fun NavBackStack<NavKey>.reset(to: NavKey) {

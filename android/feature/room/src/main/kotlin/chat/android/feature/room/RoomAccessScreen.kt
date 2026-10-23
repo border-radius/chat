@@ -4,6 +4,8 @@
 // bridge adds them itself; they stay members and writers when it is saved.
 package chat.android.feature.room
 
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -56,6 +58,10 @@ import chat.android.data.model.Visibility
 import chat.android.ui.Avatar
 import chat.android.ui.Chat
 import chat.android.ui.ChatIcons
+import chat.android.ui.icon
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import chat.android.ui.LocalServices
 import chat.android.ui.UserSearchDialog
 import kotlinx.coroutines.launch
@@ -122,7 +128,7 @@ fun RoomAccessScreen(roomId: String, onBack: () -> Unit) {
             if (editable) {
                 Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     for (v in listOf(Visibility.Private, Visibility.Public, Visibility.Open)) {
-                        Card(v == visibility, when (v) { Visibility.Private -> "🔒"; Visibility.Public -> "#"; Visibility.Open -> "🌐" }, v.label, v.hint) {
+                        Card(v == visibility, v.icon(), v.label, v.hint) {
                             visibility = v
                             error = ""
                             if (v == Visibility.Private) writers = writers.filter { w -> members.any { it.id == w.id } }
@@ -134,8 +140,8 @@ fun RoomAccessScreen(roomId: String, onBack: () -> Unit) {
             if (editable) {
                 Text("Who can post?", style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
                 Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Card(posting == Posting.Everyone, "💬", "Everyone who can see it", "Guests of an Open Air room only read.") { posting = Posting.Everyone }
-                    Card(posting == Posting.Selected, "✋", "Only people you choose", "Everyone else reads and reacts, but can't post.") { posting = Posting.Selected }
+                    Card(posting == Posting.Everyone, ChatIcons.People, "Everyone who can see it", "Guests of an Open Air room only read.") { posting = Posting.Everyone }
+                    Card(posting == Posting.Selected, ChatIcons.Edit, "Only people you choose", "Everyone else reads and reacts, but can't post.") { posting = Posting.Selected }
                 }
             }
             if (posting == Posting.Selected) People("Who can post", writers, room, editable, onAdd = { adding = "writers" }, onRemove = { remove("writers", it) })
@@ -159,17 +165,21 @@ fun RoomAccessScreen(roomId: String, onBack: () -> Unit) {
                 }
             },
             onDismiss = { adding = null },
-            exclude = list.map { it.id }.toSet(),
+            // The creator is always in; the others are shown checked, and a tap takes them out again.
+            exclude = setOf(room.createdBy),
+            selected = list.map { it.id }.toSet(),
             confirm = "Done",
         )
     }
 }
 
 @Composable
-private fun Card(selected: Boolean, icon: String, label: String, hint: String, onSelect: () -> Unit) {
+private fun Card(selected: Boolean, icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, hint: String, onSelect: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
+            .clip(MaterialTheme.shapes.medium)
+            .background(if (selected) Chat.colors.tint else androidx.compose.ui.graphics.Color.Transparent)
             .border(if (selected) 2.dp else 1.dp, if (selected) MaterialTheme.colorScheme.primary else Chat.colors.border, MaterialTheme.shapes.medium)
             .selectable(selected, role = Role.RadioButton, onClick = onSelect)
             .padding(12.dp),
@@ -177,7 +187,9 @@ private fun Card(selected: Boolean, icon: String, label: String, hint: String, o
     ) {
         RadioButton(selected, onClick = null)
         Spacer(Modifier.width(8.dp))
-        Text(icon, style = MaterialTheme.typography.titleLarge)
+        Box(Modifier.size(36.dp).background(Chat.colors.tint, RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+        }
         Spacer(Modifier.width(12.dp))
         Column {
             Text(label, style = MaterialTheme.typography.titleSmall)

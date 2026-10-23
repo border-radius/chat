@@ -43,9 +43,7 @@ class UiFlowTest {
 
     @After fun tearDown() = ui.stop()
 
-    private fun waitFor(ms: Long = 15_000, what: () -> androidx.compose.ui.test.SemanticsMatcher) {
-        compose.waitUntil(ms) { compose.onAllNodes(what(), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
-    }
+    private fun waitFor(ms: Long = 15_000, what: () -> androidx.compose.ui.test.SemanticsMatcher) = ui.waitFor(what(), ms)
 
     @Test fun `log in, open a room, send a message and see it sent`() {
         val u = TestServer.newUser()
@@ -54,7 +52,7 @@ class UiFlowTest {
         waitFor { hasText("Just looking? Read the Open Air rooms") }
         compose.onNode(hasSetTextAction() and hasText("Email")).performTextInput(u.email)
         compose.onNode(hasSetTextAction() and hasText("Password")).performTextInput(TestServer.PASSWORD)
-        compose.onAllNodes(hasText("Log in"))[1].performClick()
+        compose.onAllNodes(hasText("Log in"))[1].performScrollTo().performClick()
         ui.showRoom(room.name)
         compose.onNodeWithText(room.name).performClick()
         waitFor { hasText("Beginning of #${room.name}") }
@@ -71,7 +69,7 @@ class UiFlowTest {
         waitFor { hasText("Just looking? Read the Open Air rooms") }
         compose.onNode(hasSetTextAction() and hasText("Email")).performTextInput(u.email)
         compose.onNode(hasSetTextAction() and hasText("Password")).performTextInput("nope-nope-nope")
-        compose.onAllNodes(hasText("Log in"))[1].performClick()
+        compose.onAllNodes(hasText("Log in"))[1].performScrollTo().performClick()
         waitFor { hasText("Wrong email or password.") }
     }
 

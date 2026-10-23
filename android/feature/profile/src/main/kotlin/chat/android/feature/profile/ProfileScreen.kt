@@ -58,6 +58,10 @@ import chat.android.ui.LocalAccounts
 import chat.android.ui.LocalServices
 import chat.android.data.lib.serverLabel
 import androidx.compose.foundation.clickable
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import chat.android.data.repo.ThemeChoice
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -227,6 +231,20 @@ fun ProfileScreen(onAddAccount: () -> Unit, onBack: () -> Unit) {
                 if (accounts != null) OutlinedButton(onClick = onAddAccount) { Text("Add account") }
                 HorizontalDivider(color = Chat.colors.border)
 
+                Section("Appearance")
+                val theme by services.settings.theme.collectAsStateWithLifecycle()
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    ThemeChoice.entries.forEachIndexed { i, t ->
+                        SegmentedButton(
+                            selected = theme == t,
+                            onClick = { services.settings.setTheme(t) },
+                            shape = SegmentedButtonDefaults.itemShape(i, ThemeChoice.entries.size),
+                            label = { Text(t.label) },
+                        )
+                    }
+                }
+                HorizontalDivider(color = Chat.colors.border)
+
                 Section("This device")
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
@@ -239,6 +257,8 @@ fun ProfileScreen(onAddAccount: () -> Unit, onBack: () -> Unit) {
 
                 Section("Session")
                 TextButton(onClick = { scope.launch { services.logOut() } }) { Text("Log out", color = MaterialTheme.colorScheme.error) }
+                val version = remember { runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull().orEmpty() }
+                Text("${s.site.title} for Android $version", style = MaterialTheme.typography.bodySmall, color = Chat.colors.muted, modifier = Modifier.padding(top = 8.dp))
             }
         }
     }

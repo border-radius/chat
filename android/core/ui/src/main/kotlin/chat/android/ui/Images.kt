@@ -21,6 +21,14 @@ object Images {
         .crossfade(false)
         .build()
 
+    /**
+     * Width / height of images seen in this process, by cache key: a large tile takes its picture's shape, and keeps it
+     * when its row comes back into view (no jump while the image loads again).
+     */
+    val ratios: MutableMap<String, Float> = java.util.Collections.synchronizedMap(object : LinkedHashMap<String, Float>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Float>?) = size > 500
+    })
+
     /** The URL without its token: what the image is cached as. */
     fun cacheKey(url: HttpUrl): String = url.newBuilder().removeAllQueryParameters("token").build().toString()
 

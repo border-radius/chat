@@ -92,15 +92,15 @@ class UiHarness(private val compose: ComposeContentTestRule) {
 
     /**
      * Wait for room [name] in the room list and bring its row into view: the test server is shared, so the list holds
-     * every test's public rooms, and a lazy list composes only the rows on screen.
+     * every test's public rooms, and a lazy list composes only the rows on screen. [shown]: how the row writes it.
      */
-    fun showRoom(name: String) {
+    fun showRoom(name: String, shown: String = name) {
         compose.waitUntil(15_000) { pump(); services?.store?.get()?.let { s -> s.roomsStatus == chat.android.data.repo.LoadStatus.Ready && s.rooms.values.any { it.name == name } } == true }
         // The list, not another scrolling screen still on its way out (Log in scrolls too).
         compose.waitUntil(15_000) {
             pump()
             val lists = compose.onAllNodes(androidx.compose.ui.test.hasScrollAction())
-            (0 until lists.fetchSemanticsNodes().size).any { i -> runCatching { lists[i].performScrollToNode(hasText(name)) }.isSuccess }
+            (0 until lists.fetchSemanticsNodes().size).any { i -> runCatching { lists[i].performScrollToNode(hasText(shown)) }.isSuccess }
         }
     }
 

@@ -26,6 +26,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.autofill.ContentType
@@ -71,10 +72,8 @@ fun AuthScreen(initial: AuthMode, onChangeServer: () -> Unit, onGuest: () -> Uni
         ) {
             Column(Modifier.widthIn(max = 420.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Spacer(Modifier.height(24.dp))
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    if (site.logo.isNotEmpty()) AsyncImage(site.logo, contentDescription = null, modifier = Modifier.size(40.dp))
-                    Text(site.title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                }
+                chat.android.ui.BrandMark(site.logo, 64.dp)
+                Text(site.title, style = MaterialTheme.typography.headlineMedium)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("on ${serverLabel(services.server)}", color = Chat.colors.muted, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     TextButton(onClick = onChangeServer, enabled = !vm.busy) { Text("Change server") }
@@ -107,8 +106,15 @@ fun AuthScreen(initial: AuthMode, onChangeServer: () -> Unit, onGuest: () -> Uni
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                 )
-                Button(onClick = vm::submit, enabled = !vm.busy, modifier = Modifier.fillMaxWidth().height(48.dp)) {
-                    Text(if (vm.mode == AuthMode.LogIn) "Log in" else "Sign up")
+                Button(onClick = { if (!vm.busy) vm.submit() }, modifier = Modifier.fillMaxWidth().height(48.dp)) {
+                    Text(
+                        when {
+                            vm.busy && vm.mode == AuthMode.LogIn -> "Logging in…"
+                            vm.busy -> "Signing up…"
+                            vm.mode == AuthMode.LogIn -> "Log in"
+                            else -> "Sign up"
+                        },
+                    )
                 }
                 TextButton(onClick = onGuest, modifier = Modifier.align(Alignment.CenterHorizontally)) {
                     Text("Just looking? Read the Open Air rooms")
@@ -147,6 +153,7 @@ private fun Field(
     last: Boolean = false,
     onDone: () -> Unit = {},
 ) {
+    var shown by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
     OutlinedTextField(
         value = value,
         onValueChange = onChange,
@@ -154,7 +161,12 @@ private fun Field(
         singleLine = true,
         isError = error != null,
         supportingText = error?.let { { Text(it) } },
-        visualTransformation = if (password) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
+        trailingIcon = if (!password) null else ({
+            androidx.compose.material3.IconButton(onClick = { shown = !shown }) {
+                androidx.compose.material3.Icon(if (shown) chat.android.ui.ChatIcons.Hide else chat.android.ui.ChatIcons.Show, contentDescription = if (shown) "Hide password" else "Show password")
+            }
+        }),
+        visualTransformation = if (password && !shown) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
         keyboardOptions = KeyboardOptions(keyboardType = keyboard, imeAction = if (last) ImeAction.Done else ImeAction.Next, autoCorrectEnabled = false),
         keyboardActions = KeyboardActions(onDone = { onDone() }),
         modifier = Modifier.fillMaxWidth().semantics {

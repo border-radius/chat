@@ -28,7 +28,7 @@ fun SharePickerScreen(rooms: List<chat.android.data.model.Room>, me: String?, on
         )
     }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding)) {
-            items(rooms, key = { it.id }) { r -> ListItem(headlineContent = { Text(r.title(me)) }, modifier = Modifier.clickable { onPick(r.id) }) }
+            items(rooms, key = { it.id }) { r -> ListItem(headlineContent = { Text(r.title(me)) }, leadingContent = { chat.android.ui.RoomPicture(r, me) }, modifier = Modifier.clickable { onPick(r.id) }) }
         }
     }
 }

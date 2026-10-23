@@ -7,6 +7,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -77,8 +80,31 @@ fun Composer(vm: RoomViewModel, placeholder: String, focus: FocusRequester, onEm
                 Bar("Replying to ${r.expand?.author?.name ?: "Unknown"}", r.quote().line(), "Cancel reply", vm::cancelReply)
             }
             if (vm.attachments.isNotEmpty()) {
-                LazyRow(Modifier.padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                LazyRow(Modifier.padding(horizontal = 8.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     items(vm.attachments, key = { it.uri }) { f ->
+                        // An image shows itself; other files their name.
+                        if (f.type.startsWith("image/")) {
+                            Box(Modifier.size(64.dp)) {
+                                coil3.compose.AsyncImage(
+                                    java.io.File(f.uri),
+                                    contentDescription = f.name,
+                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                                )
+                                Box(
+                                    Modifier
+                                        .align(Alignment.TopEnd)
+                                        .padding(3.dp)
+                                        .size(22.dp)
+                                        .clip(androidx.compose.foundation.shape.CircleShape)
+                                        .background(Color.Black.copy(alpha = 0.6f))
+                                        .clickable { vm.removeAttachment(f) }
+                                        .semantics { contentDescription = "Remove ${f.name}" },
+                                    contentAlignment = Alignment.Center,
+                                ) { Icon(ChatIcons.Close, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp)) }
+                            }
+                            return@items
+                        }
                         InputChip(
                             selected = false,
                             onClick = { vm.removeAttachment(f) },
@@ -138,9 +164,18 @@ fun Composer(vm: RoomViewModel, placeholder: String, focus: FocusRequester, onEm
                         },
                 )
                 val canSend = (!isBlank(vm.text.text) || (vm.attachments.isNotEmpty() && vm.editing == null)) && n <= Limits.MESSAGE_TEXT
-                IconButton(onClick = vm::submit, enabled = canSend) {
-                    Icon(if (vm.editing != null) ChatIcons.Check else ChatIcons.Send, contentDescription = if (vm.editing != null) "Save" else "Send", tint = if (canSend) MaterialTheme.colorScheme.primary else Chat.colors.muted)
+                Spacer(Modifier.width(6.dp))
+                val bg by androidx.compose.animation.animateColorAsState(if (canSend) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh, label = "send")
+                val fg by androidx.compose.animation.animateColorAsState(if (canSend) MaterialTheme.colorScheme.onPrimary else Chat.colors.muted, label = "sendIcon")
+                androidx.compose.material3.FilledIconButton(
+                    onClick = vm::submit,
+                    enabled = canSend,
+                    colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = bg, contentColor = fg, disabledContainerColor = bg, disabledContentColor = fg),
+                    modifier = Modifier.padding(bottom = 2.dp).size(44.dp),
+                ) {
+                    Icon(if (vm.editing != null) ChatIcons.Check else ChatIcons.Send, contentDescription = if (vm.editing != null) "Save" else "Send", modifier = Modifier.size(20.dp))
                 }
+                Spacer(Modifier.width(4.dp))
             }
         }
     }

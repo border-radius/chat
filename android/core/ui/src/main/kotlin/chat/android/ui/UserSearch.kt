@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -29,9 +30,9 @@ import androidx.compose.ui.unit.dp
 import chat.android.data.model.User
 import kotlinx.coroutines.delay
 
-/** A dialog that finds people by name; [onPick] gets the one chosen. [exclude]: ids not to offer. */
+/** A dialog that finds people by name; [onPick] gets the one chosen. [exclude]: ids not to offer; [selected]: ids shown checked. */
 @Composable
-fun UserSearchDialog(title: String, onPick: (User) -> Unit, onDismiss: () -> Unit, exclude: Set<String> = emptySet(), confirm: String? = null) {
+fun UserSearchDialog(title: String, onPick: (User) -> Unit, onDismiss: () -> Unit, exclude: Set<String> = emptySet(), confirm: String? = null, selected: Set<String> = emptySet()) {
     val services = LocalServices.current
     var query by remember { mutableStateOf("") }
     var found by remember { mutableStateOf<List<User>?>(null) }
@@ -68,10 +69,11 @@ fun UserSearchDialog(title: String, onPick: (User) -> Unit, onDismiss: () -> Uni
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             Avatar(u, 32.dp)
-                            Column {
+                            Column(Modifier.weight(1f)) {
                                 Text(u.name)
                                 if (u.noDms && confirm == null) Text("Doesn't take direct messages", style = MaterialTheme.typography.bodySmall, color = Chat.colors.muted)
                             }
+                            if (u.id in selected) Icon(ChatIcons.Check, contentDescription = "Added", tint = MaterialTheme.colorScheme.primary)
                         }
                     }
                 }

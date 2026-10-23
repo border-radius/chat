@@ -7,7 +7,14 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
+import android.graphics.Color
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.core.content.edit
+import androidx.core.graphics.drawable.toDrawable
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import chat.android.data.repo.ThemeChoice
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -31,8 +38,38 @@ class MainActivity : ComponentActivity() {
     private var ready by mutableStateOf(false)
     private val askNotifications = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
+    /**
+     * The theme chosen last time, kept where it can be read before the first frame: the accounts' index is read off the
+     * main thread, so without it a dark choice would start with a light window.
+     */
+    private val uiPrefs by lazy { getSharedPreferences("ui", MODE_PRIVATE) }
+
+    private fun isDark(t: ThemeChoice) = when (t) {
+        ThemeChoice.Light -> false
+        ThemeChoice.Dark -> true
+        ThemeChoice.System -> (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+    }
+
+    /** The window behind Compose, the system bars' icons and (Android 12+) the splash screen, in [t]'s colours. */
+    private fun applyTheme(t: ThemeChoice) {
+        val dark = isDark(t)
+        window.setBackgroundDrawable((if (dark) 0xFF1A1726.toInt() else 0xFFFBFAFF.toInt()).toDrawable())
+        val style = if (dark) SystemBarStyle.dark(Color.TRANSPARENT) else SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
+        enableEdgeToEdge(style, style)
+        if (Build.VERSION.SDK_INT >= 31) {
+            getSystemService(android.app.UiModeManager::class.java)?.setApplicationNightMode(
+                when (t) {
+                    ThemeChoice.Light -> android.app.UiModeManager.MODE_NIGHT_NO
+                    ThemeChoice.Dark -> android.app.UiModeManager.MODE_NIGHT_YES
+                    ThemeChoice.System -> android.app.UiModeManager.MODE_NIGHT_AUTO
+                },
+            )
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
-        enableEdgeToEdge()
+        val saved = ThemeChoice.of(uiPrefs.getString("theme", null))
+        applyTheme(saved)
         super.onCreate(savedInstanceState)
         val app = ChatApp.of(this)
         app.start()
@@ -45,7 +82,20 @@ class MainActivity : ComponentActivity() {
             }
         }
         setContent {
-            ChatTheme {
+            val stored by app.accounts.settings.theme.collectAsStateWithLifecycle()
+            // Until the settings are read, last time's choice.
+            val theme = if (ready) stored else saved
+            val dark = when (theme) {
+                ThemeChoice.Light -> false
+                ThemeChoice.Dark -> true
+                ThemeChoice.System -> isSystemInDarkTheme()
+            }
+            // The system bars' icons follow the app's theme, not the system's.
+            LaunchedEffect(theme, dark) {
+                applyTheme(theme)
+                if (ready) uiPrefs.edit { putString("theme", theme.name) }
+            }
+            ChatTheme(dark) {
                 // Nothing but the theme's background until the stored session is read (a few ms).
                 if (ready) AppRoot(app.accounts, linked = linked, onLinkTaken = { linked = null }, onSignedIn = ::askForNotifications)
                 LaunchedEffect(Unit) { reportFullyDrawnWhenReady(app) }

@@ -11,6 +11,8 @@ import kotlinx.serialization.Serializable
 @Serializable data class RoomAccess(val id: String) : NavKey
 @Serializable data class Viewer(val roomId: String, val msgId: String, val file: String) : NavKey
 @Serializable data object Profile : NavKey
+/** A room's images and videos (DESIGN.md §30). */
+@Serializable data class Media(val roomId: String) : NavKey
 /** Shared files or text waiting for a room to go to (§9.3). */
 @Serializable data object SharePicker : NavKey
 
