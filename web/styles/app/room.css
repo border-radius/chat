@@ -34,6 +34,14 @@
   flex-basis: 100%;
 }
 
+/* Where else a shared room is held (§33.9). */
+.room-header .room-shared {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
 .back {
   padding: 0.2rem 0.6rem;
   border-radius: var(--pill);

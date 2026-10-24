@@ -61,6 +61,11 @@ describe("room access UI (§23)", () => {
     [...el.querySelectorAll<HTMLButtonElement>("header.room-header .menu-items button")].find((b) => b.textContent === label)!.click();
   };
   const dialog = (el: Element) => el.querySelector<HTMLDialogElement>("dialog.access")!;
+  /** Open the dialog from the header's menu: a lazy chunk, so it opens once that is loaded. */
+  const openDialog = async (el: Element, label: string) => {
+    clickItem(el, label);
+    await vi.waitFor(() => expect(dialog(el)?.open).toBe(true));
+  };
   const radio = (el: Element, v: string) => dialog(el).querySelector<HTMLInputElement>(`input[type=radio][value="${v}"]`)!;
   const choose = (el: Element, v: string) => {
     radio(el, v).checked = true;
@@ -111,7 +116,7 @@ describe("room access UI (§23)", () => {
       const cat = await signedUp(`Cat ${uniq()}`);
       const room = await me.api.createRoom(`r-${uniq()}`);
       const el = await mountRoom(room);
-      clickItem(el, "Room access…");
+      await openDialog(el, "Room access…");
       expect(dialog(el).open).toBe(true);
       expect(radio(el, "public").checked).toBe(true);
       expect(dialog(el).querySelector<HTMLElement>(".members")!.hidden).toBe(true);
@@ -153,7 +158,7 @@ describe("room access UI (§23)", () => {
       const room = await me.api.createRoom(`r-${uniq()}`, "private");
       await me.api.setAccess(room.id, "private", [bob.user.id, bot.user.id]);
       const el = await mountRoom(room);
-      clickItem(el, "Room access…");
+      await openDialog(el, "Room access…");
       expect(memberNames(el)).toEqual([me.user.name, bob.user.name]);
       expect(dialog(el).querySelector("h3")!.textContent).toBe("Members (2)");
 
@@ -183,7 +188,7 @@ describe("room access UI (§23)", () => {
     it("Open Air warns that anyone can read the whole history; a failed save says why and stays open", async () => {
       const room = await me.api.createRoom(`r-${uniq()}`);
       const el = await mountRoom(room);
-      clickItem(el, "Room access…");
+      await openDialog(el, "Room access…");
       choose(el, "open");
       expect(dialog(el).querySelector(".access-warning")!.textContent).toContain("anyone on the web");
       instrument(me.api).failNext("setAccess", new (await import("../../../web/src/api.ts")).ApiError("Too many requests.", 429));
@@ -201,7 +206,7 @@ describe("room access UI (§23)", () => {
       await me.api.setAccess(room.id, "private", [bob.user.id]);
       const bobStore = createStore<AppState>({ ...initialState(), user: bob.user });
       const el = await mountRoom(room, bob.api, bobStore);
-      clickItem(el, "Members (2)");
+      await openDialog(el, "Members (2)");
       expect(dialog(el).open).toBe(true);
       expect(dialog(el).querySelector<HTMLElement>(".vis-choices")!.hidden).toBe(true);
       expect(memberNames(el)).toEqual([me.user.name, bob.user.name]);
@@ -217,7 +222,7 @@ describe("room access UI (§23)", () => {
       const bob = await signedUp(`Bob ${uniq()}`);
       const room = await me.api.createRoom(`r-${uniq()}`);
       const el = await mountRoom(room);
-      clickItem(el, "Room access…");
+      await openDialog(el, "Room access…");
       expect(radio(el, "everyone").checked).toBe(true);
       expect(dialog(el).querySelector<HTMLElement>(".writers")!.hidden).toBe(true);
       choose(el, "selected");
@@ -241,7 +246,7 @@ describe("room access UI (§23)", () => {
       const room = await me.api.createRoom(`r-${uniq()}`, "private");
       await me.api.setAccess(room.id, "private", [bob.user.id], "selected", [bob.user.id]);
       const el = await mountRoom(room);
-      clickItem(el, "Room access…");
+      await openDialog(el, "Room access…");
       expect(writerNames(el)).toEqual([me.user.name, bob.user.name]);
       const section = dialog(el).querySelector(".writers")!;
       buttonIn(section, "+ Add people")!.click();

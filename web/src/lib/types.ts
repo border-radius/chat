@@ -7,6 +7,18 @@ export interface User {
   avatar?: string;
   /** Doesn't take direct messages (§16.7), e.g. a Telegram bridge's stand-in; absent where the server doesn't say. */
   no_dms?: boolean;
+  /** Someone on a linked instance (§33.4): its host, e.g. "b.example". Absent for this instance's own people. */
+  instance?: string;
+}
+
+/**
+ * Who else holds a shared room (§33.10): `home`, on a copy of another instance's room (its host); `with`, the other
+ * instances that have it; `down`, its home can't be reached right now. Empty for a room that isn't shared.
+ */
+export interface Shared {
+  home?: string;
+  with?: string[];
+  down?: boolean;
 }
 
 export type RoomKind = "public" | "dm";
@@ -38,6 +50,8 @@ export interface Room {
   /** DMs: when the latest message was sent ("" before the first). */
   last_message_at?: string;
   created?: string;
+  /** Shared with other instances (§33). */
+  shared?: Shared | null;
   expand?: { members?: User[]; writers?: User[] };
 }
 

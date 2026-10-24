@@ -11,18 +11,21 @@ import type { Ctx } from "../context.ts";
 import { clear, h, uniqueId } from "../dom.ts";
 import { newer, older, PAGE_SIZE, withFiles } from "../lib/cursor.ts";
 import { attachmentName, isMedia, isVideo } from "../lib/files.ts";
+import { LIMITS } from "../lib/limits.ts";
 import { emptyForward, lastSaved } from "../lib/messages.ts";
-import { canPost, isDm, otherMember, roomTitle } from "../lib/rooms.ts";
+import { canPost, isAddress, isDm, otherMember, postingOf, roomTitle, VISIBILITY, visibilityOf } from "../lib/rooms.ts";
 import { isNearBottom } from "../lib/scroll.ts";
 import { formatFull, formatTime, parsePb } from "../lib/time.ts";
 import type { Badge, Message } from "../lib/types.ts";
 import type { View } from "../router.ts";
 import { createScope } from "../scope.ts";
 import { roomSections } from "../store.ts";
+import { avatar } from "../ui/avatar.ts";
 import { createEmojiPicker } from "../ui/emoji-picker.ts";
+import { createUserSearch, SearchError } from "../ui/user-search.ts";
 import type { RoomReader } from "../unread.ts";
 import { chunkContext, collectionChunk } from "./collection.ts";
-import { createAccessDialog } from "./room/access.ts";
+import type { AccessDialog } from "./room/access.ts";
 import { createComposer, validEdit } from "./room/composer.ts";
 import { type Change, createRoomController, type Phase, type RoomController } from "./room/controller.ts";
 import { createForwardDialog } from "./room/forward.ts";
@@ -159,26 +162,54 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
     onJumpToBeginning: () => void now(() => ctl.jump("first")),
     onSearch: () => void openSearch(),
     onMedia: openMedia,
-    onAccess: () => {
-      const r = room();
-      if (r) accessDialog.open(r, r.created_by === me()?.id, me());
-    },
+    onAccess: () => void openAccess(),
     onClosed: () => navigate("/"),
     signal,
   });
-  const accessDialog = createAccessDialog({
-    searchUsers: (q, sig) => api.searchUsers(q, sig),
-    avatarUrl: api.avatarUrl,
-    onSave: async (visibility, members, posting, writers) => {
-      try {
-        await actions.setAccess(roomId, visibility, members, posting, writers);
-        return null;
-      } catch (e) {
-        return `Couldn't save. ${errorMessage(e)}`;
-      }
-    },
-    signal,
-  });
+  /** The access dialog (§23.2), once opened: a lazy chunk. */
+  let accessDialog: AccessDialog | null = null;
+  async function openAccess() {
+    try {
+      const { createAccessDialog } = await import("./room/access.ts");
+      if (!scope.active) return;
+      accessDialog ??= newAccessDialog(createAccessDialog);
+      const r = room();
+      if (r) accessDialog.open(r, r.created_by === me()?.id, me());
+    } catch {
+      if (scope.active) notice.say("Couldn't open room access. Check your connection.");
+    }
+  }
+  const newAccessDialog = (create: typeof import("./room/access.ts").createAccessDialog) => {
+    const dialog = create({
+      kit: {
+        h,
+        uniqueId,
+        avatar,
+        createUserSearch,
+        SearchError,
+        reasonOf,
+        isAddress,
+        postingOf,
+        visibilityOf,
+        VISIBILITY,
+        maxMembers: LIMITS.roomMembers,
+      },
+      searchUsers: (q, sig) => api.searchUsers(q, sig),
+      remoteUser: (address, room) => api.remoteUser(address, room),
+      avatarUrl: api.avatarUrl,
+      onSave: async (visibility, members, posting, writers) => {
+        try {
+          await actions.setAccess(roomId, visibility, members, posting, writers);
+          return null;
+        } catch (e) {
+          return `Couldn't save. ${errorMessage(e)}`;
+        }
+      },
+      signal,
+    });
+    shell.append(dialog.el);
+    return dialog;
+  };
   /** "Beginning of #general" / "Beginning of your conversation with Bob". */
   const beginningLabel = () => {
     const r = room();
@@ -306,7 +337,6 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
     footer,
     picker.el,
     forwardDialog.el,
-    accessDialog.el,
   ]);
 
   const reply = createReply({
@@ -586,7 +616,7 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
     awaitReturn();
     picker.close();
     forwardDialog.close();
-    accessDialog.close();
+    accessDialog?.close();
     const back = h("a", { href: "/" }, "Back to rooms");
     shell.replaceChildren(notFound("You can't see this room any more.", [back]));
     scope.dispose();

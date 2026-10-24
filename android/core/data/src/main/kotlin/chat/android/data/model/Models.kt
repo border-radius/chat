@@ -12,7 +12,16 @@ data class User(
     val avatar: String = "",
     /** Doesn't take direct messages (§16.7), e.g. a Telegram bridge's stand-in. */
     @SerialName("no_dms") val noDms: Boolean = false,
+    /** Someone on a linked instance (§33.4): its host, e.g. "b.example". "" for this server's own people. */
+    val instance: String = "",
 )
+
+/**
+ * Who else holds a shared room (§33.10): [home], on a copy of another instance's room (its host); [with], the other
+ * instances that have it; [down], its home can't be reached right now. Empty for a room that isn't shared.
+ */
+@Serializable
+data class Shared(val home: String = "", val with: List<String> = emptyList(), val down: Boolean = false)
 
 /** Who can see a room (§23.1). */
 @Serializable
@@ -48,6 +57,8 @@ data class Room(
     /** DMs: when the latest message was sent ("" before the first). */
     @SerialName("last_message_at") val lastMessageAt: String = "",
     val created: String = "",
+    /** Shared with other instances (§33). */
+    val shared: Shared? = null,
     val expand: RoomExpand? = null,
 ) {
     val isDm: Boolean get() = kind == "dm"

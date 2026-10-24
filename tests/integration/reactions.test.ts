@@ -121,7 +121,7 @@ describe("reactions: route (§20.2)", () => {
     });
     const read = await b.pb.collection("messages").getOne(msg.id, { expand: "author", fields: MSG_FIELDS });
     expect(res).toEqual(read);
-    expect(res.expand?.author).toEqual({ id: a.user.id, name: a.user.name, avatar: "", no_dms: false });
+    expect(res.expand?.author).toEqual({ id: a.user.id, name: a.user.name, avatar: "", no_dms: false, instance: "" });
     expect(res).not.toHaveProperty("expand.author.email");
   });
 

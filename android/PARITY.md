@@ -5,7 +5,7 @@ without an entry here fails review. **Covered**: the scenario runs on the app's 
 PocketBase). **Partial**: the behaviour is tested below the screens (API, services, room controller), or only some of
 the spec's cases are. **Not yet**: no Android test.
 
-Test classes: `UiFlowTest`, `UiFeaturesTest`, `UiPortsTest`, `UiCollectionsTest`, `UiNotifyTest`, `RoutesTest` (`app/src/test`); `ServicesTest`, `ChatApiTest`, `CollectionsTest`, `NotifyCheckTest`, the
+Test classes: `UiFlowTest`, `UiFeaturesTest`, `UiPortsTest`, `UiCollectionsTest`, `UiNotifyTest`, `UiLinkedTest`, `RoutesTest` (`app/src/test`); `ServicesTest`, `ChatApiTest`, `CollectionsTest`, `NotifyCheckTest`, the
 `lib` tests (`core/data/src/test`).
 
 | Web spec | Android | Status |
@@ -39,6 +39,7 @@ Test classes: `UiFlowTest`, `UiFeaturesTest`, `UiPortsTest`, `UiCollectionsTest`
 | `theme` | `UiPortsTest`: Appearance set to Dark is kept | Covered |
 | `collections` | `UiCollectionsTest`: make one from the room list, save from a tile, a badge to a public one, subscribe, "1 new" live and seen, attach from the picker with its badge, save and unsave in the viewer; `CollectionsTest`: badges follow a collection made public, renamed, private and deleted, live | Partial: uploading (the photo picker can't be driven on Robolectric), axe |
 | `pwa` | — | Not applicable: the app is the installed app (§3) |
+| `linked` (two servers; also `tests/unit/views/room/linked.test.ts`, `rooms.test.ts`) | `UiLinkedTest`: a shared room's top bar and access screen, New message by address; `LinkedTest`; `ChatApiTest`: a shared room and a stand-in decode, an address refused with its reason. Between servers: `tests/integration/federation.test.ts` | Covered |
 | — (Android only) | Servers and accounts (ANDROID.md §17): `AccountsTest`, `ServersTest` (add, switch, links and pushes find their account, refused sessions, addresses), `UiAccountsTest` (add an account on another server, switch from the account list opened by the brand, a bad address, log out to another account) | Covered |
 | — (Android only) | Notifications of DMs and replies by a periodic check, no Google (ANDROID.md §21): `NotifyCheckTest` (DMs and replies once; not plain messages, from before sign-in, read elsewhere, hidden, on screen, the open room; a check failing part way loses nothing, QA BUG-153), `UiNotifyTest` (the worker's check posts them on their channels at their messages' times, takes a read one away) | Covered; tried on the emulator (ANDROID.md §22.1) |
 | — (Android only) | `push.test.ts` (server): App Links, minimum version; its push cases are unused by the app since §21 | Covered on the server |

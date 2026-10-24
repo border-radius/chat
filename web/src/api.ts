@@ -130,6 +130,11 @@ export interface Api {
   openDm(userId: string): Promise<Room>;
   /** Up to 20 other users whose name contains `query` (ignoring case, as names are compared), by name. */
   searchUsers(query: string, signal?: AbortSignal): Promise<User[]>;
+  /**
+   * Someone on a linked instance by their address, "ann@b.example" (§33.5), as a user here: to message them, or with
+   * `room` to add them to that shared private room. Refused with the reason (no such person, not linked…).
+   */
+  remoteUser(address: string, room?: string): Promise<User>;
   /** The users with these ids (at most 50), e.g. to name who reacted (§20.3). Unknown ids are left out. */
   usersById(ids: readonly string[], signal?: AbortSignal): Promise<User[]>;
 
@@ -249,16 +254,16 @@ export const reasonOf = (err: unknown): string => (err instanceof ApiError && Ob
 
 /** Only what the UI renders; never user emails (§6). */
 export const MSG_FIELDS =
-  "id,room,text,created,updated,edited_at,deleted,files,file_names,file_sources,reactions,previews,author,expand.author.id,expand.author.name,expand.author.avatar,expand.author.no_dms," +
+  "id,room,text,created,updated,edited_at,deleted,files,file_names,file_sources,reactions,previews,author,expand.author.id,expand.author.name,expand.author.avatar,expand.author.no_dms,expand.author.instance," +
   "reply_to,expand.reply_to.id,expand.reply_to.author,expand.reply_to.text,expand.reply_to.deleted,expand.reply_to.files," +
   "expand.reply_to.expand.author.id,expand.reply_to.expand.author.name," +
   "forwarded_from,forward_of,expand.forwarded_from.id,expand.forwarded_from.name";
 const MSG_OPTS = { expand: "author,reply_to.author,forwarded_from", fields: MSG_FIELDS } as const;
 /** Rooms with their members' public profile (DMs, §16.5); never emails. */
 export const ROOM_FIELDS =
-  "id,name,archived,created_by,kind,visibility,members,posting,writers,last_message_at,created," +
-  "expand.members.id,expand.members.name,expand.members.avatar,expand.members.no_dms," +
-  "expand.writers.id,expand.writers.name,expand.writers.avatar,expand.writers.no_dms";
+  "id,name,archived,created_by,kind,visibility,members,posting,writers,last_message_at,created,shared," +
+  "expand.members.id,expand.members.name,expand.members.avatar,expand.members.no_dms,expand.members.instance," +
+  "expand.writers.id,expand.writers.name,expand.writers.avatar,expand.writers.no_dms,expand.writers.instance";
 const ROOM_OPTS = { expand: "members,writers", fields: ROOM_FIELDS } as const;
 const HIDDEN_FIELDS = "id,room";
 /** The site record (§24); its invite code is hidden from everyone but superusers. */
@@ -299,9 +304,10 @@ const toUser = (r: AuthRecord): User => ({
   name: r.name as string,
   avatar: (r.avatar as string | undefined) ?? "",
   ...(r.no_dms ? { no_dms: true } : {}),
+  ...(r.instance ? { instance: r.instance as string } : {}),
 });
 /** What the profile calls return: never the email, even for yourself. */
-const USER_FIELDS = "id,name,avatar";
+const USER_FIELDS = "id,name,avatar,instance";
 
 /** Query for a page of messages. `bind` is `pb.filter`: values are bound and escaped, never concatenated. */
 export function listOptions(q: PageQuery, bind: (expr: string, params: Record<string, string>) => string) {
@@ -498,6 +504,9 @@ export function createApi(client: PbClient): Api {
       // A route, not a filter on `name`: it matches case-insensitively beyond ASCII ("иван" finds "Иван", QA BUG-55).
       return (await wrap(pb.send<AuthRecord[]>("/api/chat/users", { query: { q: query }, signal }))).map(toUser);
     },
+
+    remoteUser: async (address, room) =>
+      toUser(await wrap(pb.send<AuthRecord>("/api/chat/remote-users", { method: "POST", body: { address, ...(room ? { room } : {}) } }))),
 
     async usersById(ids, signal) {
       const some = ids.slice(0, 50);

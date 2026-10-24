@@ -98,7 +98,7 @@ describe("createApi", () => {
       const room = await b.createRoom(`r-${uniq()}`);
       await a.send({ id: newId(), room: room.id, text: "hi" });
       const [m] = await b.page(latest(room.id));
-      expect(m!.expand?.author).toEqual({ id: me.id, name: me.name, avatar: set.avatar, no_dms: false });
+      expect(m!.expand?.author).toEqual({ id: me.id, name: me.name, avatar: set.avatar, no_dms: false, instance: "" });
 
       const removed = await a.removeAvatar();
       expect(removed.avatar).toBe("");
@@ -135,7 +135,13 @@ describe("createApi", () => {
 
       const listed = (await a.listRooms()).find((r) => r.id === dm.id)!;
       expect(listed.kind).toBe("dm");
-      expect(listed.expand?.members?.find((u) => u.id === bob.id)).toEqual({ id: bob.id, name: "Bob", avatar: "", no_dms: false });
+      expect(listed.expand?.members?.find((u) => u.id === bob.id)).toEqual({
+        id: bob.id,
+        name: "Bob",
+        avatar: "",
+        no_dms: false,
+        instance: "",
+      });
       expect(JSON.stringify(listed)).not.toContain("@test.local");
       expect((await b.getRoom(dm.id)).id).toBe(dm.id);
       expect((await c.listRooms()).some((r) => r.id === dm.id)).toBe(false);
@@ -241,6 +247,7 @@ describe("createApi", () => {
         writers: [],
         last_message_at: "",
         created: expect.any(String),
+        shared: null,
         expand: {},
       });
       expect(await b.getRoom(room.id)).toEqual(room);
@@ -255,7 +262,7 @@ describe("createApi", () => {
       const shared = await a.setAccess(room.id, "private", [b.currentUser()!.id]);
       expect(shared.members).toEqual([a.currentUser()!.id, b.currentUser()!.id]);
       expect(shared.expand?.members?.map((u) => u.name)).toEqual(["Alice", "Bob"]);
-      expect(Object.keys(shared.expand!.members![0]!).sort()).toEqual(["avatar", "id", "name", "no_dms"]); // never the email
+      expect(Object.keys(shared.expand!.members![0]!).sort()).toEqual(["avatar", "id", "instance", "name", "no_dms"]); // never the email
       expect((await b.getRoom(room.id)).id).toBe(room.id);
       const open = await a.setAccess(room.id, "open", [b.currentUser()!.id]);
       expect(open).toMatchObject({ visibility: "open", members: [] });
@@ -270,7 +277,7 @@ describe("createApi", () => {
       const sel = await a.setAccess(room.id, "public", [], "selected", [b.currentUser()!.id]);
       expect(sel).toMatchObject({ posting: "selected", writers: [a.currentUser()!.id, b.currentUser()!.id] });
       expect(sel.expand?.writers?.map((u) => u.name)).toEqual(["Alice", "Bob"]);
-      expect(Object.keys(sel.expand!.writers![0]!).sort()).toEqual(["avatar", "id", "name", "no_dms"]); // never the email
+      expect(Object.keys(sel.expand!.writers![0]!).sort()).toEqual(["avatar", "id", "instance", "name", "no_dms"]); // never the email
       expect(await a.setAccess(room.id, "open", [])).toMatchObject({ visibility: "open", posting: "selected" });
       expect(await a.setAccess(room.id, "open", [], "everyone", [b.currentUser()!.id])).toMatchObject({ posting: "everyone", writers: [] });
     });
@@ -321,7 +328,7 @@ describe("createApi", () => {
       const id = newId();
       const m = await a.send({ id, room: room.id, text: "  hello  " });
       expect(m).toMatchObject({ id, room: room.id, text: "hello", author: a.currentUser()!.id, edited_at: "", deleted: false });
-      expect(m.expand?.author).toEqual({ ...a.currentUser(), no_dms: false });
+      expect(m.expand?.author).toEqual({ ...a.currentUser(), no_dms: false, instance: "" });
       expect(m.created).toMatch(/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{3}Z$/);
     });
 
@@ -369,7 +376,7 @@ describe("createApi", () => {
       const e = await a.edit(m.id, " v2 ");
       expect(e).toMatchObject({ id: m.id, text: "v2" });
       expect(e.edited_at).not.toBe("");
-      expect(e.expand?.author).toEqual({ ...a.currentUser(), no_dms: false });
+      expect(e.expand?.author).toEqual({ ...a.currentUser(), no_dms: false, instance: "" });
     });
 
     it("softDelete wipes text and freezes the message", async () => {
@@ -443,7 +450,7 @@ describe("createApi", () => {
           ["update", "edited", false],
           ["update", "", true],
         ]);
-        expect(events[0]![1].expand?.author).toEqual({ ...a.currentUser(), no_dms: false });
+        expect(events[0]![1].expand?.author).toEqual({ ...a.currentUser(), no_dms: false, instance: "" });
       } finally {
         await off();
       }

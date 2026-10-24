@@ -41,6 +41,8 @@ describe("listOptions", () => {
       "expand.author.name",
       "expand.author.avatar",
       "expand.author.no_dms",
+      // which instance a stand-in is on (§33.4)
+      "expand.author.instance",
       // the message a reply quotes (§19)
       "reply_to",
       "expand.reply_to.id",

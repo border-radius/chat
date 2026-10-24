@@ -112,7 +112,7 @@ function withoutTelegram(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return Object.fromEntries(Object.entries(env).filter(([k]) => !k.startsWith("TELEGRAM_")));
 }
 
-async function freePort(): Promise<number> {
+export async function freePort(): Promise<number> {
   return new Promise((ok, fail) => {
     const srv = createServer();
     srv.once("error", fail);

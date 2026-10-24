@@ -70,7 +70,12 @@ fun MessageSheet(
         Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 buildString {
-                    m.expand?.author?.name?.let { append(it).append(": ") }
+                    m.expand?.author?.let { a ->
+                        append(a.name)
+                        // Someone on a linked instance says which (§33.4).
+                        if (a.instance.isNotEmpty()) append(" (on ").append(a.instance).append(")")
+                        append(": ")
+                    }
                     append(m.quote().line())
                 },
                 style = MaterialTheme.typography.bodyMedium,

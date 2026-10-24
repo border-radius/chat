@@ -33,6 +33,25 @@ val Visibility.hint: String
         Visibility.Open -> "Anyone can read it, even without an account. Everyone with an account can post."
     }
 
+/**
+ * Where else a shared room is held (§33.9, web: sharedNote): "Shared with b.example", and "· a.example can't be
+ * reached right now" when its home is down (§33.7). "" for a room that isn't shared.
+ */
+fun Room.sharedNote(): String {
+    val s = shared ?: return ""
+    if (s.with.isEmpty()) return ""
+    val down = if (s.down && s.home.isNotEmpty()) " · ${s.home} can't be reached right now" else ""
+    return "Shared with ${s.with.joinToString(", ")}$down"
+}
+
+private val ADDRESS = Regex("""^[^@\s][^@]*@([a-z0-9-]+(?:\.[a-z0-9-]+)*(?::\d+)?)$""", RegexOption.IGNORE_CASE)
+
+/** Is this an address on another instance, "ann@b.example" (§33.5)? Its host has a dot or a port. Web: isAddress. */
+fun isAddress(q: String): Boolean {
+    val m = ADDRESS.find(q.trim()) ?: return false
+    return m.groupValues[1].any { it == '.' || it == ':' }
+}
+
 /** The other member of a DM, if known. */
 fun Room.otherMember(me: String?): User? {
     if (!isDm) return null

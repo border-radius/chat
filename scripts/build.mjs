@@ -4,6 +4,7 @@ import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { gzipSync } from "node:zlib";
 import * as esbuild from "esbuild";
 import {
+  ACCESS,
   BASE_OPTIONS,
   COLLECTIONS,
   checkBudget,
@@ -72,6 +73,7 @@ const sizes = {
   viewerJs: await gz(`${OUTDIR}/${outputOf(result.metafile, OUTDIR, VIEWER.js)}`),
   viewerCss: await gz(`${OUTDIR}/${viewerCssPath}`),
   searchJs: await gz(`${OUTDIR}/${outputOf(result.metafile, OUTDIR, SEARCH.js)}`),
+  accessJs: await gz(`${OUTDIR}/${outputOf(result.metafile, OUTDIR, ACCESS.js)}`),
   mediaJs: await gz(`${OUTDIR}/${outputOf(result.metafile, OUTDIR, MEDIA.js)}`),
   mediaCss: await gz(`${OUTDIR}/${mediaCssPath}`),
   collJs: await gz(`${OUTDIR}/${outputOf(result.metafile, OUTDIR, COLLECTIONS.js)}`),

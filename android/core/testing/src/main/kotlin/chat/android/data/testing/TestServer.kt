@@ -50,6 +50,9 @@ object TestServer {
         ).redirectErrorStream(true).redirectOutput(File(tmp, "pb.log")).apply {
             environment().keys.removeIf { it.startsWith("TELEGRAM_") }
             environment()["LINK_PREVIEWS"] = "off"
+            // Linked instances (DESIGN.md §33) on, so its routes answer; no peer is ever paired.
+            environment()["FEDERATION_ORIGIN"] = url
+            environment()["FEDERATION_ALLOW_PRIVATE"] = "1"
         }.start()
         Runtime.getRuntime().addShutdownHook(Thread {
             proc.destroy()

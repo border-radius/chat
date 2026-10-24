@@ -45,22 +45,22 @@ import okhttp3.HttpUrl
 
 /** Only what the UI renders; never user emails (§6). The web's MSG_FIELDS. */
 const val MSG_FIELDS =
-    "id,room,text,created,updated,edited_at,deleted,files,file_names,file_sources,reactions,previews,author,expand.author.id,expand.author.name,expand.author.avatar,expand.author.no_dms," +
+    "id,room,text,created,updated,edited_at,deleted,files,file_names,file_sources,reactions,previews,author,expand.author.id,expand.author.name,expand.author.avatar,expand.author.no_dms,expand.author.instance," +
         "reply_to,expand.reply_to.id,expand.reply_to.author,expand.reply_to.text,expand.reply_to.deleted,expand.reply_to.files," +
         "expand.reply_to.expand.author.id,expand.reply_to.expand.author.name," +
         "forwarded_from,forward_of,expand.forwarded_from.id,expand.forwarded_from.name"
 private val MSG_OPTS = mapOf("expand" to "author,reply_to.author,forwarded_from", "fields" to MSG_FIELDS)
 
 const val ROOM_FIELDS =
-    "id,name,archived,created_by,kind,visibility,members,posting,writers,last_message_at,created," +
-        "expand.members.id,expand.members.name,expand.members.avatar,expand.members.no_dms," +
-        "expand.writers.id,expand.writers.name,expand.writers.avatar,expand.writers.no_dms"
+    "id,name,archived,created_by,kind,visibility,members,posting,writers,last_message_at,created,shared," +
+        "expand.members.id,expand.members.name,expand.members.avatar,expand.members.no_dms,expand.members.instance," +
+        "expand.writers.id,expand.writers.name,expand.writers.avatar,expand.writers.no_dms,expand.writers.instance"
 private val ROOM_OPTS = mapOf("expand" to "members,writers", "fields" to ROOM_FIELDS)
 private const val ROW_FIELDS = "id,room"
 private const val SITE_FIELDS = "id,title,logo,invite_only,min_android_version"
 private const val ACTIVITY_FIELDS = "id,room,author,deleted"
 /** What the profile calls return: never the email, even your own. */
-private const val USER_FIELDS = "id,name,avatar"
+private const val USER_FIELDS = "id,name,avatar,instance"
 private const val ITEM_FIELDS = "id,collection,file,name,video,poster,created"
 /** A collection's page of items, as the media grid's (DESIGN.md §30.2). */
 const val COLLECTION_PAGE = 60
@@ -308,6 +308,16 @@ class ChatApi(val pb: PbClient) {
         me()
         return decode(call("/api/chat/users", query = mapOf("q" to query)))
     }
+
+    /**
+     * Someone on a linked instance by address, "ann@b.example" (§33.5), as a user here: to message them, or with [room]
+     * to add them to that shared private room. Refused with the reason (no such person, not linked…).
+     */
+    suspend fun remoteUser(address: String, room: String? = null): User =
+        decode(call("/api/chat/remote-users", "POST", body = Body.Json(buildJsonObject {
+            put("address", address)
+            if (room != null) put("room", room)
+        })))
 
     /** The users with these ids (at most 50). Unknown ids are left out. */
     suspend fun usersById(ids: List<String>): List<User> {

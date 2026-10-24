@@ -341,6 +341,698 @@
       ]
     },
     {
+      "name": "fed_peers",
+      "type": "base",
+      "listRule": null,
+      "viewRule": null,
+      "createRule": null,
+      "updateRule": null,
+      "deleteRule": null,
+      "fields": [
+        {
+          "autogeneratePattern": "[a-z0-9]{15}",
+          "help": "",
+          "hidden": false,
+          "max": 15,
+          "min": 15,
+          "name": "id",
+          "pattern": "^[a-z0-9]+$",
+          "presentable": false,
+          "primaryKey": true,
+          "required": true,
+          "system": true,
+          "type": "text"
+        },
+        {
+          "autogeneratePattern": "",
+          "help": "",
+          "hidden": false,
+          "max": 255,
+          "min": 0,
+          "name": "origin",
+          "pattern": "",
+          "presentable": false,
+          "primaryKey": false,
+          "required": true,
+          "system": false,
+          "type": "text"
+        },
+        {
+          "autogeneratePattern": "",
+          "help": "",
+          "hidden": false,
+          "max": 8,
+          "min": 1,
+          "name": "label",
+          "pattern": "",
+          "presentable": false,
+          "primaryKey": false,
+          "required": true,
+          "system": false,
+          "type": "text"
+        },
+        {
+          "autogeneratePattern": "",
+          "help": "",
+          "hidden": true,
+          "max": 128,
+          "min": 0,
+          "name": "secret",
+          "pattern": "",
+          "presentable": false,
+          "primaryKey": false,
+          "required": false,
+          "system": false,
+          "type": "text"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "maxSelect": 1,
+          "name": "status",
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "select",
+          "values": [
+            "invited",
+            "active",
+            "suspended"
+          ]
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "name": "dms",
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "bool"
+        },
+        {
+          "autogeneratePattern": "",
+          "help": "",
+          "hidden": false,
+          "max": 64,
+          "min": 0,
+          "name": "invite",
+          "pattern": "",
+          "presentable": false,
+          "primaryKey": false,
+          "required": false,
+          "system": false,
+          "type": "text"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "max": "",
+          "min": "",
+          "name": "invite_expires",
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "date"
+        },
+        {
+          "autogeneratePattern": "",
+          "help": "",
+          "hidden": false,
+          "max": 255,
+          "min": 0,
+          "name": "name",
+          "pattern": "",
+          "presentable": false,
+          "primaryKey": false,
+          "required": false,
+          "system": false,
+          "type": "text"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "max": "",
+          "min": "",
+          "name": "last_ok",
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "date"
+        },
+        {
+          "autogeneratePattern": "",
+          "help": "",
+          "hidden": false,
+          "max": 1000,
+          "min": 0,
+          "name": "last_error",
+          "pattern": "",
+          "presentable": false,
+          "primaryKey": false,
+          "required": false,
+          "system": false,
+          "type": "text"
+        },
+        {
+          "hidden": false,
+          "name": "created",
+          "onCreate": true,
+          "onUpdate": false,
+          "presentable": false,
+          "system": false,
+          "type": "autodate"
+        },
+        {
+          "hidden": false,
+          "name": "updated",
+          "onCreate": true,
+          "onUpdate": true,
+          "presentable": false,
+          "system": false,
+          "type": "autodate"
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_fed_peers_origin ON fed_peers (origin)",
+        "CREATE UNIQUE INDEX idx_fed_peers_label ON fed_peers (label COLLATE NOCASE)"
+      ]
+    },
+    {
+      "name": "fed_people",
+      "type": "base",
+      "listRule": null,
+      "viewRule": null,
+      "createRule": null,
+      "updateRule": null,
+      "deleteRule": null,
+      "fields": [
+        {
+          "autogeneratePattern": "[a-z0-9]{15}",
+          "help": "",
+          "hidden": false,
+          "max": 15,
+          "min": 15,
+          "name": "id",
+          "pattern": "^[a-z0-9]+$",
+          "presentable": false,
+          "primaryKey": true,
+          "required": true,
+          "system": true,
+          "type": "text"
+        },
+        {
+          "cascadeDelete": true,
+          "help": "",
+          "hidden": false,
+          "maxSelect": 1,
+          "minSelect": 0,
+          "name": "peer",
+          "presentable": false,
+          "required": true,
+          "system": false,
+          "type": "relation",
+          "collection": "fed_peers"
+        },
+        {
+          "autogeneratePattern": "",
+          "help": "",
+          "hidden": false,
+          "max": 300,
+          "min": 0,
+          "name": "remote",
+          "pattern": "",
+          "presentable": false,
+          "primaryKey": false,
+          "required": true,
+          "system": false,
+          "type": "text"
+        },
+        {
+          "cascadeDelete": true,
+          "help": "",
+          "hidden": false,
+          "maxSelect": 1,
+          "minSelect": 0,
+          "name": "user",
+          "presentable": false,
+          "required": true,
+          "system": false,
+          "type": "relation",
+          "collection": "users"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "maxSelect": 1,
+          "name": "kind",
+          "presentable": false,
+          "required": true,
+          "system": false,
+          "type": "select",
+          "values": [
+            "standin",
+            "known"
+          ]
+        },
+        {
+          "autogeneratePattern": "",
+          "help": "",
+          "hidden": false,
+          "max": 255,
+          "min": 0,
+          "name": "name",
+          "pattern": "",
+          "presentable": false,
+          "primaryKey": false,
+          "required": false,
+          "system": false,
+          "type": "text"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "name": "no_dms",
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "bool"
+        },
+        {
+          "autogeneratePattern": "",
+          "help": "",
+          "hidden": false,
+          "max": 255,
+          "min": 0,
+          "name": "avatar",
+          "pattern": "",
+          "presentable": false,
+          "primaryKey": false,
+          "required": false,
+          "system": false,
+          "type": "text"
+        },
+        {
+          "hidden": false,
+          "name": "created",
+          "onCreate": true,
+          "onUpdate": false,
+          "presentable": false,
+          "system": false,
+          "type": "autodate"
+        },
+        {
+          "hidden": false,
+          "name": "updated",
+          "onCreate": true,
+          "onUpdate": true,
+          "presentable": false,
+          "system": false,
+          "type": "autodate"
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_fed_people_remote ON fed_people (peer, remote)",
+        "CREATE INDEX idx_fed_people_user ON fed_people (user)"
+      ]
+    },
+    {
+      "name": "fed_queue",
+      "type": "base",
+      "listRule": null,
+      "viewRule": null,
+      "createRule": null,
+      "updateRule": null,
+      "deleteRule": null,
+      "fields": [
+        {
+          "autogeneratePattern": "[a-z0-9]{15}",
+          "help": "",
+          "hidden": false,
+          "max": 15,
+          "min": 15,
+          "name": "id",
+          "pattern": "^[a-z0-9]+$",
+          "presentable": false,
+          "primaryKey": true,
+          "required": true,
+          "system": true,
+          "type": "text"
+        },
+        {
+          "cascadeDelete": true,
+          "help": "",
+          "hidden": false,
+          "maxSelect": 1,
+          "minSelect": 0,
+          "name": "peer",
+          "presentable": false,
+          "required": true,
+          "system": false,
+          "type": "relation",
+          "collection": "fed_peers"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "maxSelect": 1,
+          "name": "op",
+          "presentable": false,
+          "required": true,
+          "system": false,
+          "type": "select",
+          "values": [
+            "event",
+            "fetch",
+            "avatar"
+          ]
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "maxSize": 1048576,
+          "name": "payload",
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "json"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "max": null,
+          "min": null,
+          "name": "seq",
+          "onlyInt": true,
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "number"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "max": null,
+          "min": null,
+          "name": "tries",
+          "onlyInt": true,
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "number"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "max": "",
+          "min": "",
+          "name": "next_at",
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "date"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "max": "",
+          "min": "",
+          "name": "locked_until",
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "date"
+        },
+        {
+          "autogeneratePattern": "",
+          "help": "",
+          "hidden": false,
+          "max": 1000,
+          "min": 0,
+          "name": "error",
+          "pattern": "",
+          "presentable": false,
+          "primaryKey": false,
+          "required": false,
+          "system": false,
+          "type": "text"
+        },
+        {
+          "hidden": false,
+          "name": "created",
+          "onCreate": true,
+          "onUpdate": false,
+          "presentable": false,
+          "system": false,
+          "type": "autodate"
+        },
+        {
+          "hidden": false,
+          "name": "updated",
+          "onCreate": true,
+          "onUpdate": true,
+          "presentable": false,
+          "system": false,
+          "type": "autodate"
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_fed_queue_peer ON fed_queue (peer, op, seq)",
+        "CREATE INDEX idx_fed_queue_created ON fed_queue (created)"
+      ]
+    },
+    {
+      "name": "fed_seen",
+      "type": "base",
+      "listRule": null,
+      "viewRule": null,
+      "createRule": null,
+      "updateRule": null,
+      "deleteRule": null,
+      "fields": [
+        {
+          "autogeneratePattern": "[a-z0-9]{15}",
+          "help": "",
+          "hidden": false,
+          "max": 15,
+          "min": 15,
+          "name": "id",
+          "pattern": "^[a-z0-9]+$",
+          "presentable": false,
+          "primaryKey": true,
+          "required": true,
+          "system": true,
+          "type": "text"
+        },
+        {
+          "cascadeDelete": true,
+          "help": "",
+          "hidden": false,
+          "maxSelect": 1,
+          "minSelect": 0,
+          "name": "peer",
+          "presentable": false,
+          "required": true,
+          "system": false,
+          "type": "relation",
+          "collection": "fed_peers"
+        },
+        {
+          "autogeneratePattern": "",
+          "help": "",
+          "hidden": false,
+          "max": 64,
+          "min": 0,
+          "name": "event",
+          "pattern": "",
+          "presentable": false,
+          "primaryKey": false,
+          "required": true,
+          "system": false,
+          "type": "text"
+        },
+        {
+          "hidden": false,
+          "name": "created",
+          "onCreate": true,
+          "onUpdate": false,
+          "presentable": false,
+          "system": false,
+          "type": "autodate"
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_fed_seen_event ON fed_seen (peer, event)",
+        "CREATE INDEX idx_fed_seen_created ON fed_seen (created)"
+      ]
+    },
+    {
+      "name": "fed_shares",
+      "type": "base",
+      "listRule": null,
+      "viewRule": null,
+      "createRule": null,
+      "updateRule": null,
+      "deleteRule": null,
+      "fields": [
+        {
+          "autogeneratePattern": "[a-z0-9]{15}",
+          "help": "",
+          "hidden": false,
+          "max": 15,
+          "min": 15,
+          "name": "id",
+          "pattern": "^[a-z0-9]+$",
+          "presentable": false,
+          "primaryKey": true,
+          "required": true,
+          "system": true,
+          "type": "text"
+        },
+        {
+          "cascadeDelete": true,
+          "help": "",
+          "hidden": false,
+          "maxSelect": 1,
+          "minSelect": 0,
+          "name": "room",
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "relation",
+          "collection": "rooms"
+        },
+        {
+          "cascadeDelete": true,
+          "help": "",
+          "hidden": false,
+          "maxSelect": 1,
+          "minSelect": 0,
+          "name": "peer",
+          "presentable": false,
+          "required": true,
+          "system": false,
+          "type": "relation",
+          "collection": "fed_peers"
+        },
+        {
+          "autogeneratePattern": "",
+          "help": "",
+          "hidden": false,
+          "max": 300,
+          "min": 0,
+          "name": "remote_id",
+          "pattern": "",
+          "presentable": false,
+          "primaryKey": false,
+          "required": false,
+          "system": false,
+          "type": "text"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "maxSelect": 1,
+          "name": "state",
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "select",
+          "values": [
+            "offered",
+            "active",
+            "ended"
+          ]
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "name": "accepted",
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "bool"
+        },
+        {
+          "autogeneratePattern": "",
+          "help": "",
+          "hidden": false,
+          "max": 255,
+          "min": 0,
+          "name": "name",
+          "pattern": "",
+          "presentable": false,
+          "primaryKey": false,
+          "required": false,
+          "system": false,
+          "type": "text"
+        },
+        {
+          "autogeneratePattern": "",
+          "help": "",
+          "hidden": false,
+          "max": 16,
+          "min": 0,
+          "name": "kind",
+          "pattern": "",
+          "presentable": false,
+          "primaryKey": false,
+          "required": false,
+          "system": false,
+          "type": "text"
+        },
+        {
+          "autogeneratePattern": "",
+          "help": "",
+          "hidden": false,
+          "max": 16,
+          "min": 0,
+          "name": "visibility",
+          "pattern": "",
+          "presentable": false,
+          "primaryKey": false,
+          "required": false,
+          "system": false,
+          "type": "text"
+        },
+        {
+          "autogeneratePattern": "",
+          "help": "",
+          "hidden": false,
+          "max": 1000,
+          "min": 0,
+          "name": "last_error",
+          "pattern": "",
+          "presentable": false,
+          "primaryKey": false,
+          "required": false,
+          "system": false,
+          "type": "text"
+        },
+        {
+          "hidden": false,
+          "name": "created",
+          "onCreate": true,
+          "onUpdate": false,
+          "presentable": false,
+          "system": false,
+          "type": "autodate"
+        },
+        {
+          "hidden": false,
+          "name": "updated",
+          "onCreate": true,
+          "onUpdate": true,
+          "presentable": false,
+          "system": false,
+          "type": "autodate"
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_fed_shares_room ON fed_shares (room)",
+        "CREATE INDEX idx_fed_shares_peer_remote ON fed_shares (peer, remote_id)"
+      ]
+    },
+    {
       "name": "hidden_rooms",
       "type": "base",
       "listRule": "user = @request.auth.id",
@@ -609,7 +1301,8 @@
         "@request.body.forward_of:isset = false",
         "@request.body.previews:isset = false",
         "(@request.body.room.posting != \"selected\" || @request.body.room.writers.id ?= @request.auth.id || @request.body.room.created_by = @request.auth.id)",
-        "@request.body.file_sources:isset = false"
+        "@request.body.file_sources:isset = false",
+        "@request.body.remote_id:isset = false"
       ],
       "updateRule": [
         "author = @request.auth.id",
@@ -628,7 +1321,8 @@
         "@request.body.forward_of:isset = false",
         "@request.body.previews:isset = false",
         "(room.posting != \"selected\" || room.writers.id ?= @request.auth.id || room.created_by = @request.auth.id)",
-        "@request.body.file_sources:isset = false"
+        "@request.body.file_sources:isset = false",
+        "@request.body.remote_id:isset = false"
       ],
       "deleteRule": null,
       "fields": [
@@ -845,11 +1539,26 @@
           "required": false,
           "system": false,
           "type": "json"
+        },
+        {
+          "autogeneratePattern": "",
+          "help": "",
+          "hidden": true,
+          "max": 300,
+          "min": 0,
+          "name": "remote_id",
+          "pattern": "",
+          "presentable": false,
+          "primaryKey": false,
+          "required": false,
+          "system": false,
+          "type": "text"
         }
       ],
       "indexes": [
         "CREATE INDEX `idx_messages_room_created` ON `messages` (`room`, `created`, `id`)",
-        "CREATE INDEX `idx_messages_forward_of` ON `messages` (`forward_of`)"
+        "CREATE INDEX `idx_messages_forward_of` ON `messages` (`forward_of`)",
+        "CREATE UNIQUE INDEX idx_messages_remote ON messages (room, remote_id) WHERE remote_id != ''"
       ]
     },
     {
@@ -1073,7 +1782,10 @@
         "@request.body.members:isset = false",
         "@request.body.dm_key:isset = false",
         "@request.body.last_message_at:isset = false",
-        "@request.body.writers:isset = false"
+        "@request.body.writers:isset = false",
+        "@request.body.peer:isset = false",
+        "@request.body.remote_id:isset = false",
+        "@request.body.shared:isset = false"
       ],
       "updateRule": [
         "created_by = @request.auth.id",
@@ -1082,7 +1794,10 @@
         "@request.body.archived_at:isset = false",
         "@request.body.kind:isset = false",
         "@request.body.dm_key:isset = false",
-        "@request.body.last_message_at:isset = false"
+        "@request.body.last_message_at:isset = false",
+        "@request.body.peer:isset = false",
+        "@request.body.remote_id:isset = false",
+        "@request.body.shared:isset = false"
       ],
       "deleteRule": null,
       "fields": [
@@ -1272,6 +1987,43 @@
           "system": false,
           "type": "relation",
           "collection": "users"
+        },
+        {
+          "cascadeDelete": false,
+          "help": "",
+          "hidden": true,
+          "maxSelect": 1,
+          "minSelect": 0,
+          "name": "peer",
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "relation",
+          "collection": "fed_peers"
+        },
+        {
+          "autogeneratePattern": "",
+          "help": "",
+          "hidden": true,
+          "max": 300,
+          "min": 0,
+          "name": "remote_id",
+          "pattern": "",
+          "presentable": false,
+          "primaryKey": false,
+          "required": false,
+          "system": false,
+          "type": "text"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "maxSize": 8192,
+          "name": "shared",
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "json"
         }
       ],
       "indexes": [
@@ -1900,12 +2652,18 @@
       "type": "auth",
       "listRule": "@request.auth.id != \"\"",
       "viewRule": "",
-      "createRule": "(@request.body.emailVisibility:isset = false || @request.body.emailVisibility = false)",
+      "createRule": [
+        "(@request.body.emailVisibility:isset = false || @request.body.emailVisibility = false)",
+        "@request.body.peer:isset = false",
+        "@request.body.instance:isset = false"
+      ],
       "updateRule": [
         "id = @request.auth.id",
         "(@request.body.emailVisibility:isset = false || @request.body.emailVisibility = false)",
         "@request.body.password:isset = false",
-        "@request.body.passwordConfirm:isset = false"
+        "@request.body.passwordConfirm:isset = false",
+        "@request.body.peer:isset = false",
+        "@request.body.instance:isset = false"
       ],
       "deleteRule": null,
       "authRule": "",
@@ -2066,6 +2824,33 @@
           "required": false,
           "system": false,
           "type": "bool"
+        },
+        {
+          "cascadeDelete": false,
+          "help": "",
+          "hidden": true,
+          "maxSelect": 1,
+          "minSelect": 0,
+          "name": "peer",
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "relation",
+          "collection": "fed_peers"
+        },
+        {
+          "autogeneratePattern": "",
+          "help": "",
+          "hidden": false,
+          "max": 255,
+          "min": 0,
+          "name": "instance",
+          "pattern": "",
+          "presentable": false,
+          "primaryKey": false,
+          "required": false,
+          "system": false,
+          "type": "text"
         }
       ],
       "indexes": [
@@ -2099,6 +2884,12 @@
       "audience": "",
       "duration": 1,
       "maxRequests": 3
+    },
+    {
+      "label": "/api/fed/",
+      "audience": "",
+      "duration": 60,
+      "maxRequests": 600
     },
     {
       "label": "collections:create",

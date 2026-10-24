@@ -24,6 +24,20 @@ import org.junit.Test
 
 // The API as the app uses it, against a real PocketBase with the repository's migrations and hooks (ANDROID.md §13).
 class ChatApiTest {
+    @Test fun `a shared room and people on linked instances decode, and an address on an instance not linked says so (§33)`() = runBlocking {
+        val a = newUser()
+        val b = newUser("b-${uniq()}")
+        val room = a.api.createRoom("fed-${uniq()}")
+        TestServer.admin("PATCH", "/api/collections/rooms/records/${room.id}", """{"shared":{"with":["b.example"]}}""")
+        TestServer.admin("PATCH", "/api/collections/users/records/${b.user.id}", """{"instance":"b.example"}""")
+        assertEquals(listOf("b.example"), a.api.getRoom(room.id).shared?.with)
+        assertEquals("b.example", a.api.usersById(listOf(b.user.id)).single().instance)
+        b.api.send(chat.android.data.api.NewMessage(newId(), room.id, "from B"))
+        assertEquals("b.example", a.api.page(Pages.latest(room.id)).single().expand?.author?.instance)
+        val e = runCatching { a.api.remoteUser("ann@nowhere.example") }.exceptionOrNull()
+        assertEquals("This instance isn't linked to nowhere.example.", chat.android.data.api.reasonOf(e!!))
+    }
+
     @Test fun `signs up, logs in, refreshes and logs out`() = runBlocking {
         val name = "ada-${uniq()}"
         val api = TestServer.client()

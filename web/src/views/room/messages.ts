@@ -533,8 +533,10 @@ export function createMessageList(opts: {
 
   /** The author's name: for other (known) users a menu offering "Message" (§16.5), unless they take no DMs (§16.7). Guests can't message (§23.3). */
   function authorEl(author: User, me: User | null, known: boolean): HTMLElement {
-    if (!me || author.id === me.id || !known || author.no_dms) return h("span", { class: "author" }, author.name);
-    const menu = createActionMenu({ label: author.name, summary: author.name, className: "author", signal });
+    // Someone on a linked instance says where (§33.4).
+    const where = author.instance ? `On ${author.instance}` : undefined;
+    if (!me || author.id === me.id || !known || author.no_dms) return h("span", { class: "author", title: where }, author.name);
+    const menu = createActionMenu({ label: author.name, summary: author.name, className: "author", note: where, signal });
     menu.update([{ label: "Message", run: () => opts.onMessageUser(author.id) }]);
     menu.el.classList.add("author-menu");
     return menu.el;

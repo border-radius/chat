@@ -3,11 +3,11 @@
 // (§23.1). A guest gets only the Open Air rooms, to read (§23.3).
 // The data comes from the store, kept live by sync.ts; this view only renders it and issues commands.
 
-import { ApiError, errorMessage } from "../api.ts";
+import { ApiError, errorMessage, reasonOf } from "../api.ts";
 import type { Ctx } from "../context.ts";
 import { clear, h, reconcile, uniqueId } from "../dom.ts";
 import { LIMITS, textLength } from "../lib/limits.ts";
-import { otherMember, roomTitle, VISIBILITY, visibilityOf } from "../lib/rooms.ts";
+import { isAddress, otherMember, roomTitle, VISIBILITY, visibilityOf } from "../lib/rooms.ts";
 import type { Collection, Room, User, Visibility } from "../lib/types.ts";
 import type { View } from "../router.ts";
 import { createScope, type Scope } from "../scope.ts";
@@ -15,7 +15,7 @@ import { roomSections, unreadCount } from "../store.ts";
 import { avatar } from "../ui/avatar.ts";
 import { collectionIcon } from "../ui/icon.ts";
 import { type ActionMenu, createActionMenu, type MenuItem } from "../ui/menu.ts";
-import { createUserSearch, type UserSearch } from "../ui/user-search.ts";
+import { createUserSearch, SearchError, type UserSearch } from "../ui/user-search.ts";
 import { chunkContext, collectionChunk } from "./collection.ts";
 
 type Section = "rooms" | "dms" | "hidden" | "archived";
@@ -114,8 +114,15 @@ export function createRoomsView({ api, store, sync, unread, actions, navigate, c
     if (open === !!search) return;
     search = open
       ? createUserSearch({
-          // Not those who take no direct messages (§16.7).
-          search: async (q, signal) => (await api.searchUsers(q, signal)).filter((u) => !u.no_dms),
+          // Not those who take no direct messages (§16.7). "ann@b.example" is someone on a linked instance (§33.5).
+          search: async (q, signal) => {
+            if (!isAddress(q)) return (await api.searchUsers(q, signal)).filter((u) => !u.no_dms);
+            try {
+              return [await api.remoteUser(q)];
+            } catch (e) {
+              throw new SearchError(reasonOf(e));
+            }
+          },
           avatarUrl: api.avatarUrl,
           onPick: (u) => void message(u),
           onClose: () => {

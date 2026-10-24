@@ -239,6 +239,31 @@ the bot posts chat messages with the author's name above them.
 The bridge is self-contained: `pb_hooks/telegram.pb.js`, `pb_hooks/telegram/` and its own `tg_*` collections. Delete
 the first two to remove it.
 
+## Linked instances
+
+Two or more servers running this app can share rooms and let their people write DMs to each other
+([`docs/DESIGN.md` §33](docs/DESIGN.md)). Each room has a home server; the others keep a copy, and messages, edits,
+replies, reactions and files go both ways. People from the other server show under stand-in users named after them
+("Ann (B)"). Only the admins of both servers pair them and choose which rooms to share.
+
+**Setup** (on each server)
+
+1. Set `FEDERATION_ORIGIN` to the server's public address, e.g. `https://chat.example.com`, and restart. Peers are
+   reached over https, on public addresses only.
+2. Pair: on server A, in the admin UI under *Collections → fed_peers*, add a row with B's address and a short label
+   for its people (`B`), leaving `invite` empty; tick `dms` to let people write DMs across. The row gets a code in
+   `invite` (valid 24 hours). Give it to B's admin, who adds a row with A's address, a label for A's people and the
+   code. Both rows are then `active`.
+3. Share a room: on its home, add a row under *fed_shares* with the room and the peer. The peer's admin finds it under
+   *fed_shares* there and ticks `accepted`; the room then appears there, named "general (A)", with its latest 200
+   messages. Private rooms too: each side's admins add their own people (on the copy, by editing its members), and the
+   room's creator can add people from the other server by their address, `ann@b.example`.
+4. DMs: with `dms` ticked on both sides, people type `name@b.example` in "New message".
+
+Suspend a peer by setting its `status` to `suspended`; delete its row to unpair (the copies are archived, DMs become
+read-only). The feature is self-contained: `pb_hooks/federation.pb.js`, `pb_hooks/federation/` and the `fed_*`
+collections; without `FEDERATION_ORIGIN` nothing of it runs.
+
 ## License
 
 [GNU General Public License v3.0](LICENSE) or later.

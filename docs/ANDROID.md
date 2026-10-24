@@ -840,3 +840,24 @@ down with every test, and `UiCollectionsTest` began to fail in full runs once th
 hide test clicks the row's menu by its action, not a tap (scrolled to the bottom edge, the row was under the New
 button), and reveals Hidden before waiting for it. All JVM tests pass: 76 in `:core:data`, 39 in `:app` (twice in a
 row); lint is clean; the release APK is 3.14 MB (budget 6 MB).
+
+## 23. Linked instances (2026-10-24)
+
+The web's DESIGN.md §33.10, ported with it. Shared rooms (mirrors) and people on other instances (stand-ins) are
+ordinary rooms and users to the app; it only shows what the server says of them:
+
+- **Models:** `User.instance` (a stand-in's host, "" for this server's people) and `Room.shared` (`Shared(home, with,
+  down)`), asked for in `MSG_FIELDS`, `ROOM_FIELDS` and the user fields; cached with the rest of the room's JSON.
+- **Room top bar:** under the visibility line, "Shared with b.example", and "· a.example can't be reached right now"
+  when the room's home is down (`Room.sharedNote()`, as the web's `sharedNote`).
+- **Message sheet:** a stand-in's message says "Ann (B) (on b.example): …".
+- **Room access:** where else the room's messages are kept (or, on a copy, that its home decides who is in it); people
+  on other instances listed with their instance even though they may take no DMs (Telegram's stand-ins still aren't);
+  in a shared room, the people search takes an address, `ann@b.example`, looked up on that instance.
+- **New message:** the same search takes an address (`ChatApi.remoteUser`, `POST /api/chat/remote-users`); a refusal
+  ("This instance isn't linked to b.example.") shows as the search's status. Results from other instances say "On
+  b.example".
+- **Tests:** `LinkedTest` (addresses, the top bar's line), `ChatApiTest` (a shared room and a stand-in decode; an address
+  on an instance not linked is refused with its reason), `UiLinkedTest` (the top bar and the access screen of a shared
+  room; New message with an address). The test server runs with the module on (`FEDERATION_ORIGIN`), paired with no
+  one: the server's own suite pairs real servers (`tests/integration/federation.test.ts`).

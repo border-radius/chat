@@ -2,15 +2,36 @@
 // private room, who its members are; then who can post: everyone who can see it, or only the people they choose.
 // Anyone else in a private room gets the same dialog to see who is in it (and who can post), read-only.
 // Telegram stand-ins (no_dms, §26.3) are left out of it: the bridge adds them itself, so adding or removing one does
-// nothing. They stay members (and writers) when it is saved.
+// nothing. They stay members (and writers) when it is saved. People on linked instances (§33) are listed with their
+// instance; in a room shared with theirs, the creator adds them by address ("ann@b.example"), and the dialog says
+// where else the room's messages are kept (§33.9).
 // A modal <dialog>: it keeps focus inside, Escape closes it, and focus goes back to where it was.
+//
+// A lazy chunk, like search (§29): the room view import()s it when the dialog is first opened. It imports types only;
+// what it needs from app.js comes in its options (`kit`).
 
-import { h, uniqueId } from "../../dom.ts";
-import { LIMITS } from "../../lib/limits.ts";
-import { postingOf, VISIBILITY, visibilityOf } from "../../lib/rooms.ts";
+import type { reasonOf } from "../../api.ts";
+import type { h, uniqueId } from "../../dom.ts";
+import type { isAddress, postingOf, VISIBILITY, visibilityOf } from "../../lib/rooms.ts";
 import type { Posting, Room, User, Visibility } from "../../lib/types.ts";
-import { type AvatarUrl, avatar } from "../../ui/avatar.ts";
-import { createUserSearch, type UserSearch } from "../../ui/user-search.ts";
+import type { AvatarUrl, avatar } from "../../ui/avatar.ts";
+import type { createUserSearch, SearchError, UserSearch } from "../../ui/user-search.ts";
+
+/** What the dialog uses of app.js. */
+export interface AccessKit {
+  h: typeof h;
+  uniqueId: typeof uniqueId;
+  avatar: typeof avatar;
+  createUserSearch: typeof createUserSearch;
+  SearchError: typeof SearchError;
+  reasonOf: typeof reasonOf;
+  isAddress: typeof isAddress;
+  postingOf: typeof postingOf;
+  visibilityOf: typeof visibilityOf;
+  VISIBILITY: typeof VISIBILITY;
+  /** Most members (and writers) a room has (LIMITS.roomMembers). */
+  maxMembers: number;
+}
 
 export interface AccessDialog {
   readonly el: HTMLDialogElement;
@@ -49,13 +70,18 @@ interface People {
 }
 
 export function createAccessDialog(opts: {
+  kit: AccessKit;
   searchUsers: (query: string, signal: AbortSignal) => Promise<User[]>;
+  /** Someone on a linked instance by address, to add to this shared room (§33.5). */
+  remoteUser?: (address: string, room: string) => Promise<User>;
   avatarUrl: AvatarUrl;
   /** Save. Resolves to what went wrong, or null once it is saved (the dialog then closes). */
   onSave: (visibility: Visibility, members: string[], posting: Posting, writers: string[]) => Promise<string | null>;
   signal: AbortSignal;
 }): AccessDialog {
   const { signal } = opts;
+  const { h, uniqueId, avatar, createUserSearch, SearchError, reasonOf, isAddress, postingOf, visibilityOf, VISIBILITY } = opts.kit;
+  const LIMITS = { roomMembers: opts.kit.maxMembers };
   const id = uniqueId("access");
   const title = h("h2", { id: `${id}-title` });
 
@@ -122,7 +148,7 @@ export function createAccessDialog(opts: {
       list: [],
       render() {
         // Hidden, it lists nobody: only the lists in use are in the page.
-        const shown = el.hidden ? [] : p.list.filter((u) => !u.no_dms);
+        const shown = el.hidden ? [] : p.list.filter(listed);
         head.textContent = `${label} (${shown.length})`;
         const full = p.list.length >= LIMITS.roomMembers;
         addBtn.hidden = !editable || search?.p === p;
@@ -135,6 +161,7 @@ export function createAccessDialog(opts: {
               avatar(u, 24, opts.avatarUrl),
               h("span", { class: "member-name" }, u.name),
               owner ? h("span", { class: "member-role" }, "creator") : null,
+              u.instance ? h("span", { class: "member-role" }, u.instance) : null,
               editable && !owner
                 ? h(
                     "button",
@@ -159,12 +186,13 @@ export function createAccessDialog(opts: {
   const members = people("Members", "members", () => true);
   const writers = people("Who can post", "writers", (u) => visibility !== "private" || has(members, u));
   const warn = h("p", { class: "access-warning", role: "status" });
+  const sharedEl = h("p", { class: "access-shared" });
   const error = h("p", { class: "field-error", role: "alert" });
   const cancel = h("button", { type: "button", class: "cancel", on: { click: () => close() }, signal }, "Cancel");
   const save = h("button", { type: "button", class: "primary save", on: { click: () => void submit() }, signal }, "Save");
   const buttons = h("div", { class: "dialog-actions" }, [cancel, save]);
   // The body scrolls; the title and the buttons stay put.
-  const body = h("div", { class: "access-body" }, [choices.el, members.el, postingChoices.el, writers.el, warn, error]);
+  const body = h("div", { class: "access-body" }, [sharedEl, choices.el, members.el, postingChoices.el, writers.el, warn, error]);
   const el = h("dialog", { class: "access", "aria-labelledby": title.id }, [title, body, buttons]);
 
   let room: Room | null = null;
@@ -172,6 +200,9 @@ export function createAccessDialog(opts: {
   let visibility: Visibility = "public";
   let posting: Posting = "everyone";
   const has = (p: People, u: User) => p.list.some((x) => x.id === u.id);
+  /** Who the lists show: not Telegram's stand-ins, but people on linked instances (§33.4) even without DMs. */
+  const listed = (u: User) => !u.no_dms || !!u.instance;
+  const sharedHosts = () => room?.shared?.with ?? [];
   let search: { ac: AbortController; ui: UserSearch; p: People } | null = null;
   let busy = false;
 
@@ -192,6 +223,13 @@ export function createAccessDialog(opts: {
     members.render();
     writers.render();
     warn.textContent = editable ? warning(visibilityOf(room), visibility) : "";
+    const hosts = sharedHosts();
+    sharedEl.hidden = !hosts.length;
+    sharedEl.textContent = !hosts.length
+      ? ""
+      : room.shared?.home
+        ? `This room's home is ${room.shared.home}: who is in it is decided there.`
+        : `Shared with ${hosts.join(", ")}: its messages are kept there too.${editable ? ` Add people there by their address, like ann@${hosts[0]}.` : ""}`;
     save.hidden = !editable;
     cancel.textContent = editable ? "Cancel" : "Close";
   }
@@ -232,7 +270,17 @@ export function createAccessDialog(opts: {
       const ac = new AbortController();
       signal.addEventListener("abort", () => ac.abort(), { once: true });
       const ui = createUserSearch({
-        search: async (q, sig) => (await opts.searchUsers(q, sig)).filter((u) => !u.no_dms && p.pickable(u)),
+        search: async (q, sig) => {
+          if (!isAddress(q) || !room || !sharedHosts().length || !opts.remoteUser) {
+            return (await opts.searchUsers(q, sig)).filter((u) => listed(u) && p.pickable(u));
+          }
+          try {
+            const u = await opts.remoteUser(q, room.id);
+            return p.pickable(u) ? [u] : [];
+          } catch (e) {
+            throw new SearchError(reasonOf(e));
+          }
+        },
         avatarUrl: opts.avatarUrl,
         onPick: (u) => toggle(p, u),
         isPicked: (u) => has(p, u),

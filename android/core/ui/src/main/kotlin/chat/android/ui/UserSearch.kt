@@ -1,4 +1,5 @@
-// Finding people by name (§16.3, web/src/ui/user-search.ts): for a new DM, and for a room's members and writers.
+// Finding people by name (§16.3, web/src/ui/user-search.ts): for a new DM, and for a room's members and writers. An
+// address, "ann@b.example", finds someone on a linked instance (§33.5).
 package chat.android.ui
 
 import androidx.compose.foundation.clickable
@@ -27,12 +28,26 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
+import chat.android.data.api.reasonOf
+import chat.android.data.lib.isAddress
 import chat.android.data.model.User
 import kotlinx.coroutines.delay
 
-/** A dialog that finds people by name; [onPick] gets the one chosen. [exclude]: ids not to offer; [selected]: ids shown checked. */
+/**
+ * A dialog that finds people by name; [onPick] gets the one chosen. [exclude]: ids not to offer; [selected]: ids shown
+ * checked. [remote]: an address is looked up on its instance; [room], to add them to that shared room (else for a DM).
+ */
 @Composable
-fun UserSearchDialog(title: String, onPick: (User) -> Unit, onDismiss: () -> Unit, exclude: Set<String> = emptySet(), confirm: String? = null, selected: Set<String> = emptySet()) {
+fun UserSearchDialog(
+    title: String,
+    onPick: (User) -> Unit,
+    onDismiss: () -> Unit,
+    exclude: Set<String> = emptySet(),
+    confirm: String? = null,
+    selected: Set<String> = emptySet(),
+    remote: Boolean = true,
+    room: String? = null,
+) {
     val services = LocalServices.current
     var query by remember { mutableStateOf("") }
     var found by remember { mutableStateOf<List<User>?>(null) }
@@ -47,8 +62,13 @@ fun UserSearchDialog(title: String, onPick: (User) -> Unit, onDismiss: () -> Uni
         }
         delay(250)
         status = "Searching…"
-        found = runCatching { services.api.searchUsers(query.trim()) }.getOrNull()?.filter { it.id !in exclude }
+        val q = query.trim()
+        var refused = ""
+        found = runCatching { if (remote && isAddress(q)) listOf(services.api.remoteUser(q, room)) else services.api.searchUsers(q) }
+            .onFailure { if (remote && isAddress(q)) refused = reasonOf(it) }
+            .getOrNull()?.filter { it.id !in exclude }
         status = when {
+            refused.isNotEmpty() -> refused
             found == null -> "Couldn't search. Check your connection."
             found!!.isEmpty() -> "No one found."
             else -> ""
@@ -71,6 +91,7 @@ fun UserSearchDialog(title: String, onPick: (User) -> Unit, onDismiss: () -> Uni
                             Avatar(u, 32.dp)
                             Column(Modifier.weight(1f)) {
                                 Text(u.name)
+                                if (u.instance.isNotEmpty()) Text("On ${u.instance}", style = MaterialTheme.typography.bodySmall, color = Chat.colors.muted)
                                 if (u.noDms && confirm == null) Text("Doesn't take direct messages", style = MaterialTheme.typography.bodySmall, color = Chat.colors.muted)
                             }
                             if (u.id in selected) Icon(ChatIcons.Check, contentDescription = "Added", tint = MaterialTheme.colorScheme.primary)

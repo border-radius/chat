@@ -7,6 +7,9 @@ import { type AvatarUrl, avatar } from "./avatar.ts";
 
 export const SEARCH_DEBOUNCE_MS = 200;
 
+/** A search that failed for a reason to show as it is ("There's nobody called ann on b.example."). */
+export class SearchError extends Error {}
+
 export interface UserSearch {
   readonly el: HTMLElement;
   focus(): void;
@@ -45,10 +48,17 @@ export function createUserSearch(opts: {
     status.textContent = users.length ? `${users.length === 20 ? "20+" : users.length} found` : "No one found.";
     shown = users.map((u) => [
       u,
-      h("button", { type: "button", class: "person", on: { click: () => opts.onPick(u) }, signal }, [
-        avatar(u, 24, opts.avatarUrl),
-        h("span", {}, u.name),
-      ]),
+      h(
+        "button",
+        {
+          type: "button",
+          class: "person",
+          title: u.instance ? `On ${u.instance}` : undefined,
+          on: { click: () => opts.onPick(u) },
+          signal,
+        },
+        [avatar(u, 24, opts.avatarUrl), h("span", {}, u.name)],
+      ),
     ]);
     results.replaceChildren(...shown.map(([, b]) => h("li", {}, b)));
     mark();
@@ -72,8 +82,11 @@ export function createUserSearch(opts: {
     try {
       const users = await opts.search(query, ac.signal);
       if (inflight === ac && !signal.aborted) show(users);
-    } catch {
-      if (inflight === ac && !signal.aborted) status.textContent = "Couldn't search. Check your connection.";
+    } catch (e) {
+      if (inflight !== ac || signal.aborted) return;
+      status.textContent = e instanceof SearchError ? e.message : "Couldn't search. Check your connection.";
+      shown = [];
+      results.replaceChildren();
     }
   }
 

@@ -27,6 +27,23 @@ export const VISIBILITY: Record<Visibility, { label: string; icon: string; hint:
   },
 };
 
+/**
+ * Where else a shared room is held (§33.9): "Shared with b.example", "Shared with b.example · a.example can't be
+ * reached right now" when its home is down (§33.7). "" for a room that isn't shared.
+ */
+export function sharedNote(room: Room): string {
+  const hosts = room.shared?.with ?? [];
+  if (!hosts.length) return "";
+  const down = room.shared?.down && room.shared.home ? ` · ${room.shared.home} can't be reached right now` : "";
+  return `Shared with ${hosts.join(", ")}${down}`;
+}
+
+/** Is this an address on another instance, "ann@b.example" (§33.5)? Its host has a dot or a port. */
+export function isAddress(q: string): boolean {
+  const m = /^[^@\s][^@]*@([a-z0-9-]+(?:\.[a-z0-9-]+)*(?::\d+)?)$/i.exec(q.trim());
+  return !!m && /[.:]/.test(m[1] ?? "");
+}
+
 /** The other member of a DM (as expanded by the API), if known. */
 export function otherMember(room: Room, me: User | null): User | undefined {
   if (!isDm(room)) return undefined;

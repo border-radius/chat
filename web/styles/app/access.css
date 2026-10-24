@@ -220,7 +220,9 @@ dialog.access .field-error:empty {
   display: none;
 }
 
-.access-warning {
+/* A change of visibility's warning, and where else a shared room's messages are kept (§33.9). */
+.access-warning,
+.access-shared {
   margin: 0;
   padding: 0.5rem 0.7rem;
   border-radius: var(--radius);

@@ -136,6 +136,16 @@ fun RoomAccessScreen(roomId: String, onBack: () -> Unit) {
                     }
                 }
             }
+            // Where else the room is kept (§33.9).
+            val hosts = room.shared?.with.orEmpty()
+            if (hosts.isNotEmpty()) {
+                Text(
+                    if (room.shared?.home.orEmpty().isNotEmpty()) "This room's home is ${room.shared?.home}: who is in it is decided there."
+                    else "Shared with ${hosts.joinToString(", ")}: its messages are kept there too." + if (editable) " Add people there by their address, like ann@${hosts[0]}." else "",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.fillMaxWidth().background(Chat.colors.tint, MaterialTheme.shapes.medium).padding(12.dp),
+                )
+            }
             if (visibility == Visibility.Private) People("Members", members, room, editable, onAdd = { adding = "members" }, onRemove = { remove("members", it) })
             if (editable) {
                 Text("Who can post?", style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
@@ -157,7 +167,7 @@ fun RoomAccessScreen(roomId: String, onBack: () -> Unit) {
             title = if (which == "members") "Add members" else "Add people who post",
             onPick = { u ->
                 when {
-                    u.noDms -> {}
+                    u.noDms && u.instance.isEmpty() -> {}
                     list.any { it.id == u.id } -> remove(which, u.id)
                     list.size >= Limits.ROOM_MEMBERS -> error = "A room can have up to ${Limits.ROOM_MEMBERS} ${if (which == "members") "members" else "people who post"}."
                     which == "members" -> members = members + u
@@ -169,6 +179,9 @@ fun RoomAccessScreen(roomId: String, onBack: () -> Unit) {
             exclude = setOf(room.createdBy),
             selected = list.map { it.id }.toSet(),
             confirm = "Done",
+            // People on the instances it is shared with, by address (§33.5).
+            remote = room.shared?.with.orEmpty().isNotEmpty(),
+            room = room.id,
         )
     }
 }
@@ -200,13 +213,15 @@ private fun Card(selected: Boolean, icon: androidx.compose.ui.graphics.vector.Im
 
 @Composable
 private fun People(label: String, list: List<User>, room: Room, editable: Boolean, onAdd: () -> Unit, onRemove: (String) -> Unit) {
-    val shown = list.filter { !it.noDms }
+    // Not Telegram's stand-ins; people on linked instances are, with theirs (§33.4).
+    val shown = list.filter { !it.noDms || it.instance.isNotEmpty() }
     Text("$label (${shown.size})", style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
     if (editable) TextButton(onClick = onAdd, enabled = list.size < Limits.ROOM_MEMBERS) { Text("+ Add people") }
     for (u in shown) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Avatar(u, 28.dp)
             Text(u.name, Modifier.weight(1f))
+            if (u.instance.isNotEmpty()) Text(u.instance, color = Chat.colors.muted, style = MaterialTheme.typography.labelMedium)
             if (u.id == room.createdBy) Text("creator", color = Chat.colors.muted, style = MaterialTheme.typography.labelMedium)
             else if (editable) TextButton(onClick = { onRemove(u.id) }) { Text("Remove") }
         }

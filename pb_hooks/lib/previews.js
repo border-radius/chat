@@ -652,4 +652,4 @@ function tick(e) {
   return e.noContent(204);
 }
 
-module.exports = { enabled, linksOf, publicHost, resolve, post, queue, run, tick };
+module.exports = { enabled, linksOf, parse, publicHost, addressOf, resolve, post, queue, run, tick };

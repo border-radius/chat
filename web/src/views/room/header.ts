@@ -1,11 +1,12 @@
 // Room header (§7.1, §16.5): back link, room title, the search (§29) and media (§30) buttons and the room actions menu (hide, archive, room access, jump to
 // beginning). A DM shows the other member's avatar and name, and can be closed but never archived. A private or Open
-// Air room says so next to its name (§23.1); a guest only gets "Jump to beginning" (§23.3).
+// Air room says so next to its name (§23.1); a guest only gets "Jump to beginning" (§23.3). A room shared with other
+// instances says where else it is held, and when its home can't be reached (§33.9, §33.7).
 
 import type { RoomActions } from "../../actions.ts";
 import { errorMessage } from "../../api.ts";
 import { h } from "../../dom.ts";
-import { otherMember, roomTitle, VISIBILITY, visibilityOf } from "../../lib/rooms.ts";
+import { otherMember, roomTitle, sharedNote, VISIBILITY, visibilityOf } from "../../lib/rooms.ts";
 import type { Room, User } from "../../lib/types.ts";
 import { type AvatarUrl, avatar } from "../../ui/avatar.ts";
 import { createActionMenu, type MenuItem } from "../../ui/menu.ts";
@@ -33,6 +34,7 @@ export function createRoomHeader(opts: {
   const { actions, signal } = opts;
   const title = h("h1", { id: opts.titleId });
   const error = h("p", { class: "room-error", role: "alert" });
+  const shared = h("p", { class: "room-shared", hidden: true });
   const menu = createActionMenu({ label: "Room actions", signal });
   const search = h(
     "button",
@@ -58,6 +60,7 @@ export function createRoomHeader(opts: {
     search,
     media,
     menu.el,
+    shared,
     error,
   ]);
   /** What the title shows, to rebuild it only when that changes (the avatar is an image). */
@@ -137,6 +140,9 @@ export function createRoomHeader(opts: {
         title.replaceChildren(...(other ? [avatar(other, 24, opts.avatarUrl), h("span", {}, text)] : [text, badge ?? ""]));
       }
       title.classList.toggle("dm-title", !!other);
+      const note = room ? sharedNote(room) : "";
+      if (shared.textContent !== note) shared.textContent = note;
+      shared.hidden = !note;
       menu.update(items(room, hidden, !!room && room.created_by === me?.id, !me));
     },
   };

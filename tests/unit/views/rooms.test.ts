@@ -545,6 +545,25 @@ describe("rooms view (§7.1)", () => {
       expect(ctl.calls("openDm")).toBe(0);
     });
 
+    it("someone on a linked instance is found by address (§33.5), or the reason they can't be", async () => {
+      const bob = await signedUp(`Bob ${uniq()}`);
+      const stub = vi.spyOn(me.api, "remoteUser").mockResolvedValueOnce({ ...bob.user, instance: "b.example" });
+      await mount();
+      newDmButton().click();
+      searchFor("bob@b.example");
+      await vi.waitFor(() => expect(results()).toHaveLength(1));
+      expect(stub).toHaveBeenCalledWith("bob@b.example");
+      expect(results()[0]!.title).toBe("On b.example");
+      results()[0]!.click();
+      await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith(expect.stringMatching(/^\/r\//)));
+      stub.mockRejectedValueOnce(new ApiError("Failed to find them.", 400, { address: "This instance isn't linked to b.example." }));
+      newDmButton().click();
+      searchFor("zed@b.example");
+      await vi.waitFor(() =>
+        expect(root.querySelector(".user-search .search-status")!.textContent).toBe("This instance isn't linked to b.example."),
+      );
+    });
+
     it("BUG-30: a failure to open a DM says why (rate limiting is not a connection problem)", async () => {
       const tag = uniq();
       await signedUp(`Bobby ${tag}`);

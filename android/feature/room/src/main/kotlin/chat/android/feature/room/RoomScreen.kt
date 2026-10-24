@@ -82,6 +82,7 @@ import chat.android.data.lib.highlight
 import chat.android.data.lib.label
 import chat.android.data.lib.otherMember
 import chat.android.data.lib.title
+import chat.android.data.lib.sharedNote
 import chat.android.data.lib.visibilityOrDefault
 import chat.android.data.model.Message
 import chat.android.data.model.Visibility
@@ -283,6 +284,9 @@ fun RoomScreen(roomId: String, msgId: String?, nav: RoomNav, incoming: Pair<Stri
                                         color = Chat.colors.muted,
                                     )
                                 }
+                                // Where else a shared room is held, and whether its home answers (§33.9, §33.7).
+                                val shared = room?.sharedNote().orEmpty()
+                                if (shared.isNotEmpty()) Text(shared, style = MaterialTheme.typography.labelMedium, color = Chat.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }
                     },

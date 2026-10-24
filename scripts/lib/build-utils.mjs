@@ -1,6 +1,6 @@
 // Pure helpers for scripts/build.mjs. Kept side-effect free so they can be unit-tested.
 
-/** @typedef {{ js: number, css: number, html: number, viewerJs: number, viewerCss: number, searchJs: number, mediaJs: number, mediaCss: number, collJs: number, collCss: number }} Sizes gzipped byte sizes */
+/** @typedef {{ js: number, css: number, html: number, viewerJs: number, viewerCss: number, searchJs: number, accessJs: number, mediaJs: number, mediaCss: number, collJs: number, collCss: number }} Sizes gzipped byte sizes */
 
 /** Where builds go: PocketBase serves this directory. */
 export const OUTDIR = "pb_public";
@@ -16,6 +16,9 @@ export const VIEWER = Object.freeze({ js: "web/src/views/room/viewer.ts", css: "
 
 /** Message search (§29): a lazy chunk too. Its few styles are in app.css. */
 export const SEARCH = Object.freeze({ js: "web/src/views/room/search.ts" });
+
+/** The room access dialog (§23.2, §33.10): a lazy chunk; its styles are in app.css. */
+export const ACCESS = Object.freeze({ js: "web/src/views/room/access.ts" });
 
 /** The media grid (§30): a lazy chunk and a stylesheet it links, like the viewer's (`MEDIA_CSS`). */
 export const MEDIA = Object.freeze({ js: "web/src/views/room/media.ts", css: "web/styles/media.css" });
@@ -77,6 +80,7 @@ export const BUDGET = Object.freeze({
   viewerJs: 4 * 1024,
   viewerCss: 1.5 * 1024,
   searchJs: 2 * 1024,
+  accessJs: 3 * 1024,
   mediaJs: 3 * 1024,
   mediaCss: 1024,
   collJs: 6.65 * 1024,
