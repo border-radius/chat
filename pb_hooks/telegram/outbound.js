@@ -270,7 +270,8 @@ function edit(app, messageId, chatId) {
  * @param {string} chatId
  */
 function remove(app, messageId, chatId) {
-  for (const row of mappings(app, messageId, chatId)) {
+  // A later part of a long Telegram message (§26.4) is only a piece of it: deleting it leaves the message there.
+  for (const row of mappings(app, messageId, chatId, " && part = 0")) {
     const id = row.getInt("tg_message_id");
     try {
       call("deleteMessage", { chat_id: chatId, message_id: id });

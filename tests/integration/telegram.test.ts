@@ -301,6 +301,69 @@ describe("Telegram bridge (§26)", () => {
     expect(list[1]!.reply_to).toBe(list[0]!.id);
   });
 
+  it("a Telegram message too long for one chat message comes over as several, in order, split at line breaks", async () => {
+    const owner = await signUp();
+    const { room, chat } = await linkedRoom(owner);
+    const other = newChat();
+    await admin.collection("tg_links").create({ chat_id: String(other), title: "Other", room: room.id, enabled: true });
+    const first = tgMessage(chat, { text: "first" });
+    await deliver({ message: first });
+    const line = "x".repeat(49); // 50 with its line break
+    const text = Array.from({ length: 80 }, () => line).join("\n"); // 3999 characters
+    const long = tgMessage(chat, { text, reply_to_message: first });
+    await deliver({ message: long });
+    await deliver({ message: long }); // a webhook retry
+    const list = await eventually(async () => {
+      const l = await messagesOf(room.id);
+      expect(l).toHaveLength(3);
+      return l;
+    });
+    const parts = list.slice(1);
+    expect(parts.map((m) => m.text.length)).toEqual([1999, 1999]);
+    expect(parts.map((m) => m.text).join("\n")).toBe(text);
+    expect(parts.map((m) => m.reply_to)).toEqual([list[0]!.id, ""]);
+    expect(new Set(parts.map((m) => m.author)).size).toBe(1);
+
+    // The other group gets each part; the group it came from none.
+    await eventually(() => expect(stub.callsOf("sendMessage").filter((c) => c.params.chat_id === String(other))).toHaveLength(3));
+    expect(stub.callsOf("sendMessage").filter((c) => c.params.chat_id === String(chat))).toEqual([]);
+
+    // A shorter edit deletes the parts left over; a longer one adds parts. A text with no break is cut at the limit.
+    await deliver({ edited_message: { ...long, text: `${line}\n${line}`, edit_date: 1 } });
+    await eventually(async () => {
+      const l = await messagesOf(room.id);
+      expect(l.map((m) => [m.text, m.deleted])).toEqual([
+        ["first", false],
+        [`${line}\n${line}`, false],
+        ["", true],
+      ]);
+    });
+    await deliver({ edited_message: { ...long, text: "y".repeat(2500), edit_date: 2 } });
+    await eventually(async () => {
+      const l = (await messagesOf(room.id)).filter((m) => !m.deleted);
+      expect(l.map((m) => m.text)).toEqual(["first", "y".repeat(2000), "y".repeat(500)]);
+    });
+  });
+
+  it("deleting a later part of a long Telegram message in the room leaves the Telegram message there", async () => {
+    const owner = await signUp();
+    const { room, chat } = await linkedRoom(owner);
+    const long = tgMessage(chat, { text: `${"a".repeat(1500)} ${"b".repeat(1500)}` });
+    await deliver({ message: long });
+    const [head, tail] = await eventually(async () => {
+      const l = await messagesOf(room.id);
+      expect(l.map((m) => m.text)).toEqual(["a".repeat(1500), "b".repeat(1500)]);
+      return l;
+    });
+    await admin.collection("messages").update(tail!.id, { deleted: true });
+    await admin.collection("messages").update(head!.id, { deleted: true });
+    // Sent in order: once the first part's delete is through, the later part's was passed over.
+    await eventually(() => expect(stub.callsOf("deleteMessage").filter((c) => c.params.chat_id === String(chat))).toHaveLength(1));
+    await tick();
+    const deletes = stub.callsOf("deleteMessage").filter((c) => c.params.chat_id === String(chat));
+    expect(deletes.map((c) => c.params.message_id)).toEqual([long.message_id]);
+  });
+
   it("what a Telegram reply quotes shows in its text: a part of a message, a channel's post, one the room hasn't got", async () => {
     const owner = await signUp();
     const { room, chat } = await linkedRoom(owner);

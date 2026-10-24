@@ -6,6 +6,7 @@
 const { call, config, download } = require(`${__hooks}/telegram/api.js`);
 const { personOf } = require(`${__hooks}/telegram/people.js`);
 const { activeLink, ensureLink, linkedRoom, linkOfChat, moveLink, tellLinkChange } = require(`${__hooks}/telegram/links.js`);
+const { isBlank } = require(`${__hooks}/lib/text.js`);
 
 /** The largest file the Bot API lets a bot download, and the largest attachment (§17.1). */
 const MAX_FILE = 20 * 1024 * 1024;
@@ -118,27 +119,111 @@ function partsOf(msg) {
 }
 
 /**
- * Text cut to messages.text's limit (in code points, as PocketBase counts).
+ * Text in pieces that each fit messages.text (in code points, as PocketBase counts): a Telegram message holds twice as
+ * much as a chat message, and comes over as several rather than cut. Each piece ends at a line break, else a space, in
+ * its second half; a text with neither there is cut at the limit. Always one piece at least, blank for no text.
  * @param {string} text
+ * @returns {string[]}
  */
-function clip(text) {
-  const chars = [...text];
-  return chars.length <= MAX_TEXT ? text : `${chars.slice(0, MAX_TEXT - 1).join("")}…`;
+function split(text) {
+  /** @type {string[]} */
+  const pieces = [];
+  let chars = [...text];
+  while (chars.length > MAX_TEXT) {
+    // The character just past the limit may be where it breaks: the break itself is left out.
+    const room = chars.slice(0, MAX_TEXT + 1);
+    let at = room.lastIndexOf("\n");
+    if (at < MAX_TEXT / 2) for (at = MAX_TEXT; at >= MAX_TEXT / 2 && !/\s/.test(room[at]); at--);
+    const cut = at >= MAX_TEXT / 2;
+    pieces.push(
+      chars
+        .slice(0, cut ? at : MAX_TEXT)
+        .join("")
+        .trim(),
+    );
+    chars = chars.slice(cut ? at + 1 : MAX_TEXT);
+  }
+  pieces.push(chars.join("").trim());
+  const kept = pieces.filter((p) => !isBlank(p));
+  return kept.length ? kept : [""];
 }
 
 /**
- * The chat message a Telegram message is (either way), or null.
+ * Ids for messages saved at once, in the order they were written: the room shows messages by created, then id, and
+ * those saved within the same millisecond would otherwise show in any order.
+ * @param {number} n
+ */
+function orderedIds(n) {
+  const ids = Array.from({ length: n }, () => $security.randomStringWithAlphabet(15, "abcdefghijklmnopqrstuvwxyz0123456789"));
+  return ids.sort();
+}
+
+/**
+ * What a Telegram message came over as: its tg_messages rows (either way), first part first.
+ * @param {core.App} app
+ * @param {string} chatId
+ * @param {number} tgId
+ */
+function partsMapped(app, chatId, tgId) {
+  return app
+    .findRecordsByFilter("tg_messages", "chat_id = {:chat} && tg_message_id = {:id}", "part", 0, 0, { chat: chatId, id: tgId })
+    .filter((r) => !!r);
+}
+
+/**
+ * The chat message a Telegram message is (either way; its first part, when it came over as several), or null.
  * @param {core.App} app
  * @param {string} chatId
  * @param {number} tgId
  */
 function mapped(app, chatId, tgId) {
   try {
-    const row = app.findFirstRecordByFilter("tg_messages", "chat_id = {:chat} && tg_message_id = {:id}", { chat: chatId, id: tgId });
+    const row = app.findFirstRecordByFilter("tg_messages", "chat_id = {:chat} && tg_message_id = {:id} && part = 0", {
+      chat: chatId,
+      id: tgId,
+    });
     return app.findRecordById("messages", row.getString("message"));
   } catch {
     return null;
   }
+}
+
+/**
+ * Save the tg_messages row of a part of a Telegram message.
+ * @param {core.App} tx
+ * @param {string} messageId
+ * @param {string} chatId
+ * @param {number} tgId
+ * @param {"text" | "media"} kind
+ * @param {number} part
+ */
+function rememberIn(tx, messageId, chatId, tgId, kind, part) {
+  const row = new Record(tx.findCollectionByNameOrId("tg_messages"));
+  row.set("message", messageId);
+  row.set("chat_id", chatId);
+  row.set("tg_message_id", tgId);
+  row.set("direction", "in");
+  row.set("kind", kind);
+  row.set("part", part);
+  tx.save(row);
+}
+
+/**
+ * A further part of a long Telegram message: its text, under the same stand-in, after the first.
+ * @param {core.App} tx
+ * @param {string} roomId
+ * @param {string} authorId
+ * @param {string} text
+ * @param {string} [id]
+ */
+function savePart(tx, roomId, authorId, text, id) {
+  const rec = new Record(tx.findCollectionByNameOrId("messages"));
+  if (id) rec.id = id;
+  rec.set("room", roomId);
+  rec.set("author", authorId);
+  rec.set("text", text);
+  tx.save(rec);
+  return rec;
 }
 
 /**
@@ -201,33 +286,33 @@ function bringOver(app, link, room, msgs) {
   const reply = first.reply_to_message ? mapped(app, chatId, first.reply_to_message.message_id) : null;
   const known = !!reply && reply.getString("room") === room.id && !reply.getBool("deleted");
   const textOf = (/** @type {boolean} */ withReply) =>
-    clip(
-      [forwardLine(first), ...quoteLines(first, withReply && known), ...msgs.map((m) => m.text || m.caption || ""), ...notes]
-        .filter(Boolean)
-        .join("\n"),
-    );
+    [forwardLine(first), ...quoteLines(first, withReply && known), ...msgs.map((m) => m.text || m.caption || ""), ...notes]
+      .filter(Boolean)
+      .join("\n");
   if (!textOf(true).trim() && !files.length) return;
 
-  // The message and what it maps to in one transaction: the outbound hook queues it for the room's other linked
-  // groups, and the worker must find it came from this one (outbound.js), never send it back.
+  // The messages and what they map to in one transaction: the outbound hook queues them for the room's other linked
+  // groups, and the worker must find they came from this one (outbound.js), never send them back. A text too long for
+  // one message comes as several: the first with the files and the reply, the rest after it.
   const save = (/** @type {boolean} */ withReply) =>
     app.runInTransaction((tx) => {
+      const pieces = split(textOf(withReply));
+      const ids = orderedIds(pieces.length);
       const rec = new Record(tx.findCollectionByNameOrId("messages"));
+      rec.id = ids[0];
       rec.set("room", room.id);
       rec.set("author", author.id);
-      rec.set("text", textOf(withReply));
+      rec.set("text", pieces[0]);
       if (files.length) rec.set("files", files);
       if (withReply && known && reply) rec.set("reply_to", reply.id);
       tx.save(rec);
       msgs.forEach((m, i) => {
-        const row = new Record(tx.findCollectionByNameOrId("tg_messages"));
-        row.set("message", rec.id);
-        row.set("chat_id", chatId);
-        row.set("tg_message_id", m.message_id);
-        row.set("direction", "in");
-        row.set("kind", i === 0 ? "text" : "media");
-        tx.save(row);
+        rememberIn(tx, rec.id, chatId, m.message_id, i === 0 ? "text" : "media", 0);
       });
+      for (let i = 1; i < pieces.length; i++) {
+        const part = savePart(tx, room.id, author.id, pieces[i], ids[i]);
+        rememberIn(tx, part.id, chatId, first.message_id, "text", i);
+      }
     });
   try {
     save(true);
@@ -243,14 +328,48 @@ function bringOver(app, link, room, msgs) {
  * @param {any} msg
  */
 function editOver(app, msg) {
-  const rec = mapped(app, String(msg.chat.id), msg.message_id);
+  const chatId = String(msg.chat.id);
+  const rows = partsMapped(app, chatId, msg.message_id);
+  const rec = rows[0]?.getInt("part") === 0 ? findMessage(app, rows[0].getString("message")) : null;
   if (!rec || rec.getBool("deleted") || rec.getString("forwarded_from")) return;
   const quoted = quoteLines(msg, !!rec.getString("reply_to"));
   const lines = [forwardLine(msg), ...quoted, msg.text || msg.caption || "", ...partsOf(msg).notes].filter(Boolean);
-  const text = clip(lines.join("\n"));
-  if (text === rec.getString("text") || (!text.trim() && !rec.getStringSlice("files").length)) return;
-  rec.set("text", text);
-  app.save(rec);
+  const pieces = split(lines.join("\n"));
+  if (!pieces[0] && !rec.getStringSlice("files").length) return;
+  // The parts still in the room get the pieces in order: a shorter text deletes the parts left over, a longer one adds
+  // parts (after what came since). A deleted message can't come back, so a part deleted meanwhile is passed over.
+  const parts = /** @type {core.Record[]} */ (
+    rows
+      .slice(1)
+      .map((r) => findMessage(app, r.getString("message")))
+      .filter((p) => !!p && !p.getBool("deleted"))
+  );
+  const next = rows.length ? rows[rows.length - 1].getInt("part") + 1 : 1;
+  app.runInTransaction((tx) => {
+    [rec, ...parts].forEach((part, i) => {
+      if (i >= pieces.length) part.set("deleted", true);
+      else if (pieces[i] === part.getString("text")) return;
+      else part.set("text", pieces[i]);
+      tx.save(part);
+    });
+    const ids = orderedIds(pieces.length);
+    for (let i = parts.length + 1; i < pieces.length; i++) {
+      const part = savePart(tx, rec.getString("room"), rec.getString("author"), pieces[i], ids[i]);
+      rememberIn(tx, part.id, chatId, msg.message_id, "text", next + i - parts.length - 1);
+    }
+  });
+}
+
+/**
+ * @param {core.App} app
+ * @param {string} id
+ */
+function findMessage(app, id) {
+  try {
+    return app.findRecordById("messages", id);
+  } catch {
+    return null;
+  }
 }
 
 /**

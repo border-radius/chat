@@ -2237,7 +2237,14 @@ doesn't hold the next ones back) or polling hands each update to `inbound.js`:
 - **A message** in a linked group becomes a message of its sender's stand-in: the text or caption ("↪ Forwarded from
   X" above a forward), and the files, downloaded from Telegram (`getFile`) and saved like uploads: photos (the largest
   size), videos, documents, audio, voice, video notes, GIFs, static stickers. A file over 20 MB, an animated sticker, a
-  location, a contact, a poll or a dice becomes a line of text saying what it was. Text is cut to 2000 characters.
+  location, a contact, a poll or a dice becomes a line of text saying what it was.
+- **A long message** (Telegram takes 4096 characters, a chat message 2000) comes over as **several messages**, in
+  order, instead of cut: each ends at a line break, else a space, in its second half (a text with neither is cut at
+  2000). The first has the files and the reply; the rest follow under the same stand-in. `tg_messages.part` (0, 1, 2…;
+  `1760000034_telegram_parts.js`) maps them all to the Telegram message, so none goes back to the group, and an edit
+  gives each part its new piece: a shorter text deletes the parts left over, a longer one adds parts (after what came
+  since). Deleting a later part in the room leaves the Telegram message there; deleting the first deletes it, as for
+  any message.
 - **A reply** to a message the bridge knows (either way) replies to it in the room.
 - **A quote** is part of the text, since the room has no quotes of its own: what a reply quotes comes over its text as
   "> " lines (cut to 500 characters). "↩ In reply to X" goes above it when the room can't show the reply itself (a
