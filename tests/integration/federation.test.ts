@@ -359,6 +359,24 @@ describe("a shared public room (§33.5)", () => {
     expect(Buffer.from(await res.arrayBuffer()).equals(Buffer.from(PNG))).toBe(true);
   }, 60_000);
 
+  it("backfills the newest 200 messages, each once", async () => {
+    const ann = await signUp(A);
+    const room = await ann.pb.collection("rooms").create({ name: `long${uniq()}`, created_by: ann.user.id });
+    for (let i = 0; i < 250; i += 25) {
+      await Promise.all(
+        Array.from({ length: 25 }, (_, k) =>
+          A.admin.collection("messages").create({ room: room.id, author: ann.user.id, text: `m${i + k}` }),
+        ),
+      );
+    }
+    const mirror = await share(A, B, room.id, ab.xPeer.id);
+    const want = Array.from({ length: 200 }, (_, k) => `m${50 + k}`).sort();
+    await eventually(async () => {
+      const texts = (await messagesIn(B, mirror.id)).filter((m) => m.remote_id).map((m) => m.text);
+      expect(texts.sort()).toEqual(want);
+    }, 30_000);
+  }, 90_000);
+
   it("passes a third instance's people on, vouched for by the home", async () => {
     const ann = await signUp(A);
     const cat = await signUp(C);

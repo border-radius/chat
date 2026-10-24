@@ -371,7 +371,10 @@ function backfill(app, room, peer) {
   const recs = app.findRecordsByFilter("messages", "room = {:r} && deleted = false && author != ''", "-created,-id", BACKFILL, 0, {
     r: room.id,
   });
-  for (const rec of recs.reverse()) {
+  // Backwards by index: recs is a Go slice, which reverse() garbles in place (its second half became the first's
+  // copies, so half the messages went twice and the newest half never).
+  for (let i = recs.length - 1; i >= 0; i--) {
+    const rec = recs[i];
     if (!rec) continue;
     const ev = messageEvent(app, rec, peer);
     if (ev) enqueue(app, peer.id, { ...ev, backfill: true });
