@@ -2239,6 +2239,10 @@ doesn't hold the next ones back) or polling hands each update to `inbound.js`:
   size), videos, documents, audio, voice, video notes, GIFs, static stickers. A file over 20 MB, an animated sticker, a
   location, a contact, a poll or a dice becomes a line of text saying what it was. Text is cut to 2000 characters.
 - **A reply** to a message the bridge knows (either way) replies to it in the room.
+- **A quote** is part of the text, since the room has no quotes of its own: what a reply quotes comes over its text as
+  "> " lines (cut to 500 characters). "↩ In reply to X" goes above it when the room can't show the reply itself (a
+  reply to a message the bridge doesn't have), and above any reply to another chat's message (`external_reply`, such
+  as a channel's post), quote or not. Edits keep these lines.
 - **An album** comes as one update per item. The items wait in `tg_queue` and become **one message** (up to 10 files,
   the caption as its text) when the next update from that group comes, or when the album has been quiet for 1.5 s (the
   worker checks every second).

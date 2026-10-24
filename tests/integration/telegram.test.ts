@@ -301,6 +301,49 @@ describe("Telegram bridge (§26)", () => {
     expect(list[1]!.reply_to).toBe(list[0]!.id);
   });
 
+  it("what a Telegram reply quotes shows in its text: a part of a message, a channel's post, one the room hasn't got", async () => {
+    const owner = await signUp();
+    const { room, chat } = await linkedRoom(owner);
+    const first = tgMessage(chat, { text: "line one\nline two" });
+    await deliver({ message: first });
+    // A quote of part of a message in the room: a reply to it, with the part over the text.
+    const agreed = tgMessage(chat, { text: "agreed", reply_to_message: first, quote: { text: "line two", position: 9 } });
+    await deliver({ message: agreed });
+    // A post of a channel the group isn't linked with, quoted.
+    await deliver({
+      message: tgMessage(chat, {
+        text: "see this",
+        external_reply: {
+          origin: { type: "channel", chat: { id: -100555, type: "channel", title: "News" }, message_id: 7, date: 1 },
+          chat: { id: -100555, type: "channel", title: "News" },
+          message_id: 7,
+        },
+        quote: { text: "big\nnews", position: 0 },
+      }),
+    });
+    // A reply to a message from before the bridge, without a quote: no lines, as there is no quote to show.
+    const old = { ...tgMessage(chat, { text: "old" }), message_id: 1 };
+    await deliver({ message: tgMessage(chat, { text: "plain reply", reply_to_message: old }) });
+    // The same with a quote says whom it answers.
+    await deliver({ message: tgMessage(chat, { text: "quoted reply", reply_to_message: old, quote: { text: "old", position: 0 } }) });
+    const list = await eventually(async () => {
+      const l = await messagesOf(room.id);
+      expect(l.map((m) => m.text)).toEqual([
+        "line one\nline two",
+        "> line two\nagreed",
+        "↩ In reply to News\n> big\n> news\nsee this",
+        "plain reply",
+        "↩ In reply to Ann Lee\n> old\nquoted reply",
+      ]);
+      return l;
+    });
+    expect(list[1]!.reply_to).toBe(list[0]!.id);
+    expect(list[2]!.reply_to).toBe("");
+    // An edit keeps the quote.
+    await deliver({ edited_message: { ...agreed, text: "agreed, edited", edit_date: 1 } });
+    await eventually(async () => expect((await messagesOf(room.id))[1]!.text).toBe("> line two\nagreed, edited"));
+  });
+
   it("a stand-in posting in a private room becomes a member of it", async () => {
     const owner = await signUp();
     const { room, chat } = await linkedRoom(owner, { visibility: "private" });

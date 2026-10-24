@@ -17,24 +17,60 @@ const ALBUM_QUIET_MS = 1500;
 
 const mb = (/** @type {number} */ n) => `${(n / 1024 / 1024).toFixed(1).replace(/\.0$/, "")} MB`;
 
+/** The most of a Telegram quote that comes over, so that it leaves room for the message's own text. */
+const MAX_QUOTE = 500;
+
+/**
+ * Who a message came from first (a MessageOrigin: a forward's, an external reply's), or "".
+ * @param {any} o
+ */
+function originName(o) {
+  if (!o) return "";
+  return o.type === "user"
+    ? [o.sender_user.first_name, o.sender_user.last_name].filter(Boolean).join(" ")
+    : o.type === "hidden_user"
+      ? o.sender_user_name
+      : o.type === "chat"
+        ? o.sender_chat.title
+        : o.type === "channel"
+          ? o.chat.title
+          : "";
+}
+
 /**
  * "Forwarded from Bob", when the Telegram message is a forward.
  * @param {any} msg
  */
 function forwardLine(msg) {
-  const o = msg.forward_origin;
-  if (!o) return "";
-  const from =
-    o.type === "user"
-      ? [o.sender_user.first_name, o.sender_user.last_name].filter(Boolean).join(" ")
-      : o.type === "hidden_user"
-        ? o.sender_user_name
-        : o.type === "chat"
-          ? o.sender_chat.title
-          : o.type === "channel"
-            ? o.chat.title
-            : "";
-  return `↪ Forwarded from ${from || "someone"}`;
+  if (!msg.forward_origin) return "";
+  return `↪ Forwarded from ${originName(msg.forward_origin) || "someone"}`;
+}
+
+/**
+ * What a Telegram reply quotes, as lines over its text: the part it quotes ("> …"), and whom it answers when the room
+ * can't show that as a reply: a message in another chat (a channel's post) or one the bridge doesn't know. A reply to
+ * a message in the room that quotes nothing needs no lines: it replies to it there.
+ * @param {any} msg
+ * @param {boolean} known its reply_to_message is in the room
+ */
+function quoteLines(msg, known) {
+  const ext = msg.external_reply;
+  const replied = msg.reply_to_message;
+  const quote = String(msg.quote?.text || "").trim();
+  if (!ext && !quote) return [];
+  /** @type {string[]} */
+  const lines = [];
+  let from = null;
+  if (ext) from = originName(ext.origin) || ext.chat?.title || "";
+  else if (replied && !known)
+    from = replied.sender_chat?.title || [replied.from?.first_name, replied.from?.last_name].filter(Boolean).join(" ");
+  if (from !== null) lines.push(`↩ In reply to ${from || "a message"}`);
+  if (quote) {
+    const chars = [...quote];
+    const cut = chars.length <= MAX_QUOTE ? quote : `${chars.slice(0, MAX_QUOTE - 1).join("")}…`;
+    lines.push(...cut.split("\n").map((l) => `> ${l}`));
+  }
+  return lines;
 }
 
 /**
@@ -162,11 +198,16 @@ function bringOver(app, link, room, msgs) {
       notes.push(`[${f.name}: couldn't be brought over from Telegram]`);
     }
   }
-  const lines = [forwardLine(first), ...msgs.map((m) => m.text || m.caption || ""), ...notes].filter(Boolean);
-  const text = clip(lines.join("\n"));
-  if (!text.trim() && !files.length) return;
-
   const reply = first.reply_to_message ? mapped(app, chatId, first.reply_to_message.message_id) : null;
+  const known = !!reply && reply.getString("room") === room.id && !reply.getBool("deleted");
+  const textOf = (/** @type {boolean} */ withReply) =>
+    clip(
+      [forwardLine(first), ...quoteLines(first, withReply && known), ...msgs.map((m) => m.text || m.caption || ""), ...notes]
+        .filter(Boolean)
+        .join("\n"),
+    );
+  if (!textOf(true).trim() && !files.length) return;
+
   // The message and what it maps to in one transaction: the outbound hook queues it for the room's other linked
   // groups, and the worker must find it came from this one (outbound.js), never send it back.
   const save = (/** @type {boolean} */ withReply) =>
@@ -174,9 +215,9 @@ function bringOver(app, link, room, msgs) {
       const rec = new Record(tx.findCollectionByNameOrId("messages"));
       rec.set("room", room.id);
       rec.set("author", author.id);
-      rec.set("text", text);
+      rec.set("text", textOf(withReply));
       if (files.length) rec.set("files", files);
-      if (withReply && reply && reply.getString("room") === room.id && !reply.getBool("deleted")) rec.set("reply_to", reply.id);
+      if (withReply && known && reply) rec.set("reply_to", reply.id);
       tx.save(rec);
       msgs.forEach((m, i) => {
         const row = new Record(tx.findCollectionByNameOrId("tg_messages"));
@@ -204,7 +245,8 @@ function bringOver(app, link, room, msgs) {
 function editOver(app, msg) {
   const rec = mapped(app, String(msg.chat.id), msg.message_id);
   if (!rec || rec.getBool("deleted") || rec.getString("forwarded_from")) return;
-  const lines = [forwardLine(msg), msg.text || msg.caption || "", ...partsOf(msg).notes].filter(Boolean);
+  const quoted = quoteLines(msg, !!rec.getString("reply_to"));
+  const lines = [forwardLine(msg), ...quoted, msg.text || msg.caption || "", ...partsOf(msg).notes].filter(Boolean);
   const text = clip(lines.join("\n"));
   if (text === rec.getString("text") || (!text.trim() && !rec.getStringSlice("files").length)) return;
   rec.set("text", text);
