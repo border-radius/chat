@@ -17,7 +17,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
-// The background check for notifications (ANDROID.md §8) against the real server: DMs and replies to you only.
+// The background check for notifications (ANDROID.md §8) against the real server: DMs, replies to you and the rooms chosen (§24).
 @RunWith(RobolectricTestRunner::class)
 class NotifyCheckTest {
     @Test fun `finds new DMs and replies to you, once, and not what is read, hidden or from before`() = runBlocking {
@@ -65,6 +65,33 @@ class NotifyCheckTest {
         // The open room isn't notified.
         alice.api.send(NewMessage(newId(), dm.id, "in the open room"))
         assertTrue(check.run(openRoom = dm.id)!!.notices.isEmpty())
+        assertTrue(check.run()!!.notices.isEmpty())
+    }
+
+    @Test fun `every message of a room chosen notifies, other rooms' don't (§24)`() = runBlocking {
+        val alice = newUser()
+        val bob = newUser()
+        val chosen = alice.api.createRoom("r-${uniq()}")
+        val other = alice.api.createRoom("r-${uniq()}")
+        val db = testDb()
+        val rooms = NotifyRooms(db, this)
+        rooms.set(chosen.id, true)
+        kotlinx.coroutines.yield()
+        assertEquals(setOf(chosen.id), NotifyRooms.read(db))
+
+        val check = NotifyCheck(bob.api, db)
+        check.begin()
+        alice.api.send(NewMessage(newId(), chosen.id, "for everyone"))
+        alice.api.send(NewMessage(newId(), other.id, "not chosen"))
+        val notices = check.run()!!.notices
+        assertEquals(listOf("for everyone"), notices.single().messages.map { it.text })
+        assertEquals(chosen.id, notices.single().room.id)
+
+        // Turned off again: silent.
+        rooms.set(chosen.id, false)
+        kotlinx.coroutines.yield()
+        assertTrue(NotifyRooms.read(db).isEmpty())
+        alice.api.send(NewMessage(newId(), chosen.id, "now quiet"))
         assertTrue(check.run()!!.notices.isEmpty())
     }
 

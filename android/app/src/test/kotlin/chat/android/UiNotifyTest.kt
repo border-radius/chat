@@ -2,6 +2,10 @@ package chat.android
 
 import android.app.NotificationManager
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.core.app.NotificationCompat
 import androidx.test.core.app.ApplicationProvider
 import chat.android.data.api.NewMessage
@@ -21,7 +25,8 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
-// Notifications from the background check (ANDROID.md §8): a DM and a reply to you notify, other messages don't.
+// Notifications from the background check (ANDROID.md §8): a DM and a reply to you notify, other messages don't, but
+// those of a room chosen in its menu do (§24).
 @RunWith(RobolectricTestRunner::class)
 @Config(application = android.app.Application::class)
 class UiNotifyTest {
@@ -72,5 +77,40 @@ class UiNotifyTest {
         }
         check()
         assertEquals(listOf(Notifications.ROOMS), shadowOf(nm).allNotifications.map { it.channelId })
+    }
+
+    @Test fun `Notify of every message, from the room's menu, notifies its plain messages (§24)`() {
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        shadowOf(app).grantPermissions(android.Manifest.permission.POST_NOTIFICATIONS)
+        Notifications.createChannels(app)
+        val alice = newUser("alice-${uniq()}")
+        val bob = newUser()
+        val room = runBlocking { alice.api.createRoom("every-${uniq()}") }
+        val services = ui.signedIn(bob)
+        val accounts = ui.accounts!!
+        fun check() {
+            var done: CheckWorker.Outcome? = null
+            accounts.scope.launch { done = CheckWorker.checkAll(app, accounts) }
+            compose.waitUntil(15_000) { ui.pump(); done != null }
+            assertEquals(CheckWorker.Outcome.Done, done)
+        }
+        ui.showRoom(room.name)
+        // Its click action, not a tap: scrolled to the bottom edge, the row can be under the New button.
+        compose.onNodeWithText(room.name).performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
+        ui.waitFor("Beginning of #${room.name}")
+        compose.onNodeWithContentDescription("Room actions").performClick()
+        compose.onNodeWithText("Notify of every message").performClick()
+        compose.waitUntil(5_000) { ui.pump(); room.id in services.notifyRooms.set.value }
+        compose.onNodeWithContentDescription("Room actions").performClick()
+        ui.waitFor("Stop notifying of every message")
+        // (In tests the app is away: the room open here isn't "on screen".)
+        check()
+        runBlocking { alice.api.send(NewMessage(newId(), room.id, "for everyone")) }
+        Thread.sleep(1_100)
+        check()
+        val nm = app.getSystemService(NotificationManager::class.java)
+        val n = shadowOf(nm).allNotifications.single()
+        assertEquals(Notifications.ROOM_ALL, n.channelId)
+        assertEquals(listOf("for everyone"), NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(n)!!.messages.map { it.text.toString() })
     }
 }

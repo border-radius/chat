@@ -10,6 +10,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performKeyPress
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
@@ -55,7 +56,8 @@ class UiPortsTest {
         compose.onNodeWithContentDescription("Jump to a room or person").performClick()
         compose.onNode(hasSetTextAction() and hasContentDescription("Jump to")).performTextInput("#$tag")
         ui.waitFor(room.name)
-        compose.onNodeWithText(room.name).performClick()
+        // Its click action, not a tap: scrolled to the bottom edge, the row can be under the New button.
+        compose.onNodeWithText(room.name).performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
         ui.waitFor("Beginning of #${room.name}")
     }
 
@@ -84,7 +86,8 @@ class UiPortsTest {
         runBlocking { a.api.send(NewMessage(newId(), room.id, "a picture", listOf(UploadFile("dot.png", "image/png", png.toRequestBody("image/png".toMediaType()))))) }
         ui.signedIn(a)
         ui.showRoom(room.name)
-        compose.onNodeWithText(room.name).performClick()
+        // Its click action, not a tap: scrolled to the bottom edge, the row can be under the New button.
+        compose.onNodeWithText(room.name).performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
         ui.waitFor("a picture")
         compose.onNodeWithContentDescription("Media").performClick()
         ui.waitFor(hasContentDescription("dot.png", substring = true))
@@ -102,7 +105,8 @@ class UiPortsTest {
         val second = send("two.png")
         ui.signedIn(a)
         ui.showRoom(room.name)
-        compose.onNodeWithText(room.name).performClick()
+        // Its click action, not a tap: scrolled to the bottom edge, the row can be under the New button.
+        compose.onNodeWithText(room.name).performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
         ui.waitFor("pic two.png")
         compose.onNodeWithContentDescription("Media").performClick()
         ui.waitFor(hasContentDescription("two.png", substring = true))
@@ -122,7 +126,8 @@ class UiPortsTest {
         val room = runBlocking { a.api.createRoom("me-${uniq()}") }
         ui.signedIn(a)
         ui.showRoom(room.name)
-        compose.onNodeWithText(room.name).performClick()
+        // Its click action, not a tap: scrolled to the bottom edge, the row can be under the New button.
+        compose.onNodeWithText(room.name).performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
         ui.waitFor("Beginning of #${room.name}")
         compose.onNodeWithContentDescription("Media").performClick()
         ui.waitFor("No photos or videos here yet.")

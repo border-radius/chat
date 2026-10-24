@@ -166,6 +166,34 @@ class RecentEmoji(private val db: ChatDatabase, private val scope: CoroutineScop
     }
 }
 
+/**
+ * The rooms whose every message notifies, not only replies to you (ANDROID.md §24, the web's DESIGN.md §34.5): chosen in
+ * the room's menu, kept on this device for this account (not synced), gone with the session.
+ */
+class NotifyRooms(private val db: ChatDatabase, private val scope: CoroutineScope) {
+    private val state = kotlinx.coroutines.flow.MutableStateFlow<Set<String>>(emptySet())
+    val set: kotlinx.coroutines.flow.StateFlow<Set<String>> = state
+
+    suspend fun load() {
+        state.value = read(db)
+    }
+
+    fun set(room: String, on: Boolean) {
+        state.value = if (on) state.value + room else state.value - room
+        val v = state.value.joinToString(" ")
+        scope.launch { if (v.isEmpty()) db.kv().delete(Keys.NOTIFY_ROOMS) else db.kv().put(KvEntity(Keys.NOTIFY_ROOMS, v)) }
+    }
+
+    fun clear() {
+        state.value = emptySet()
+    }
+
+    companion object {
+        /** What is saved: the check reads it too, for accounts not open in the app. */
+        suspend fun read(db: ChatDatabase): Set<String> = db.kv().get(Keys.NOTIFY_ROOMS)?.split(' ')?.filter { it.isNotEmpty() }?.toSet().orEmpty()
+    }
+}
+
 /** The app's theme (the web's Appearance choice, DESIGN.md §7.8): the system's, or always light or dark. */
 enum class ThemeChoice(val label: String) {
     System("System"), Light("Light"), Dark("Dark");

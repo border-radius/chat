@@ -371,11 +371,13 @@ class ChatApi(val pb: PbClient) {
      * background check notifies of (ANDROID.md §8). [rooms] are the ones with unread messages, so each is a range scan
      * on idx_messages_room_created.
      */
-    suspend fun notifiable(rooms: List<String>, since: String, size: Int = 100): List<Message> {
+    suspend fun notifiable(rooms: List<String>, since: String, every: Set<String> = emptySet(), size: Int = 100): List<Message> {
         val me = me()
         val inRooms = rooms.indices.joinToString(" || ") { "room = {:r$it}" }
+        // The rooms whose every message notifies (ANDROID.md §24).
+        val all = rooms.indices.filter { rooms[it] in every }.joinToString("") { " || room = {:r$it}" }
         val params = rooms.withIndex().associate { "r${it.index}" to it.value } + mapOf("me" to me, "since" to since)
-        val filter = "($inRooms) && created > {:since} && author != {:me} && deleted = false && (room.kind = \"dm\" || reply_to.author = {:me})"
+        val filter = "($inRooms) && created > {:since} && author != {:me} && deleted = false && (room.kind = \"dm\" || reply_to.author = {:me}$all)"
         return page(PageQuery(filter, params, "-created,-id"), size)
     }
 

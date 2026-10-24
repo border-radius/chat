@@ -18,7 +18,7 @@ import {
 import { type AppState, createStore, initialState, type Store } from "../../web/src/store.ts";
 import { type SignedUp, signedUp, subscribed, uniq } from "../support/api.ts";
 
-const ALL: NotifyPrefs = { dms: true, replies: true, popup: true, sound: true };
+const ALL: NotifyPrefs = { dms: true, replies: true, popup: true, sound: true, rooms: [] };
 
 /** The pop-ups made (no service worker here: `new Notification`). */
 class FakeNotification {
@@ -90,6 +90,17 @@ describe("notifications: what alerts (§34)", () => {
     expect(candidate(ALL, msg({ room: "d" }), state({ user: null }))).toBeNull();
   });
 
+  it("§34.5: every message of a room chosen, unless hidden or archived", () => {
+    const chosen = { ...ALL, replies: false, rooms: ["r", "new"] };
+    expect(candidate(chosen, msg({}), state())).toBe("all");
+    expect(candidate({ ...ALL, rooms: ["r"] }, msg({ reply_to: "x" }), state())).toBe("reply");
+    expect(candidate(chosen, msg({}), state({ hidden: new Map([["r", "h"]]) }))).toBeNull();
+    expect(candidate(chosen, msg({}), state({ rooms: new Map([["r", { ...room, archived: true }]]) }))).toBeNull();
+    expect(candidate(chosen, msg({ author: "me" }), state())).toBeNull();
+    expect(candidate({ ...chosen, popup: false, sound: false }, msg({}), state())).toBeNull();
+    expect(candidate({ ...chosen, dms: false }, msg({ room: "new" }), state())).toBe("room");
+  });
+
   it("says the text on one line, cut short, or what was sent instead", () => {
     expect(bodyOf({ text: " hi\n\nthere " })).toBe("hi there");
     expect(bodyOf({ text: "x".repeat(200) })).toHaveLength(140);
@@ -102,8 +113,12 @@ describe("notifications: what alerts (§34)", () => {
     expect(NOTIFY_KEY).toBe(APP_KEY);
     savePrefs({ ...ALL, replies: false });
     expect(loadPrefs()).toEqual({ ...ALL, replies: false });
-    savePrefs({ dms: false, replies: false, popup: false, sound: false });
+    savePrefs({ dms: false, replies: false, popup: false, sound: false, rooms: [] });
     expect(localStorage.getItem(NOTIFY_KEY)).toBeNull();
+    savePrefs({ dms: false, replies: false, popup: true, sound: false, rooms: ["r"] });
+    expect(loadPrefs().rooms).toEqual(["r"]);
+    localStorage.setItem(NOTIFY_KEY, JSON.stringify({ rooms: ["r", 1, null] }));
+    expect(loadPrefs().rooms).toEqual(["r"]);
     localStorage.setItem(NOTIFY_KEY, "{bad");
     expect(loadPrefs().dms).toBe(false);
     localStorage.removeItem(NOTIFY_KEY);
@@ -177,6 +192,20 @@ describe("notifications: live (§34)", () => {
     await vi.waitFor(() => expect(FakeNotification.made).toHaveLength(1), { timeout: 3000 });
     expect(FakeNotification.made[0]!.title).toBe(`${other.user.name} replied in #${room.name}`);
     expect(FakeNotification.made[0]!.opts.body).toBe("to you");
+  });
+
+  it('§34.5: every message of a room chosen, "… in #room"; not another room\'s', async () => {
+    const room = await me.api.createRoom(`notify-${uniq()}`);
+    const elsewhere = await me.api.createRoom(`notify-${uniq()}`);
+    savePrefs({ ...ALL, rooms: [room.id] });
+    await start(room, elsewhere);
+    await say(other, elsewhere, "not this one");
+    await settle();
+    expect(FakeNotification.made).toEqual([]);
+    await say(other, room, "every one");
+    await vi.waitFor(() => expect(FakeNotification.made).toHaveLength(1), { timeout: 3000 });
+    expect(FakeNotification.made[0]!.title).toBe(`${other.user.name} in #${room.name}`);
+    expect(FakeNotification.made[0]!.opts.body).toBe("every one");
   });
 
   it("in front: nothing for the room open there, only the chime for another", async () => {
@@ -258,7 +287,7 @@ describe("notifications: the profile page's settings (§34)", () => {
     await tick();
     expect(box("popup").checked).toBe(true);
     expect(FakeNotification.requestPermission).toHaveBeenCalledOnce();
-    expect(loadPrefs()).toEqual({ dms: true, replies: false, popup: true, sound: false });
+    expect(loadPrefs()).toEqual({ dms: true, replies: false, popup: true, sound: false, rooms: [] });
     expect(onChange).toHaveBeenCalled();
     box("dms").click();
     box("popup").click();
@@ -267,9 +296,18 @@ describe("notifications: the profile page's settings (§34)", () => {
     el.remove();
   });
 
+  it("§34.5: keeps the rooms chosen in their menus", async () => {
+    savePrefs({ dms: false, replies: false, popup: true, sound: false, rooms: ["r"] });
+    const { el, box } = mount();
+    box("sound").click();
+    await tick();
+    expect(loadPrefs()).toEqual({ dms: false, replies: false, popup: true, sound: true, rooms: ["r"] });
+    el.remove();
+  });
+
   it("says when the browser blocks pop-ups", async () => {
     FakeNotification.permission = "denied";
-    savePrefs({ dms: true, replies: false, popup: true, sound: false });
+    savePrefs({ dms: true, replies: false, popup: true, sound: false, rooms: [] });
     const { el } = mount();
     expect(el.querySelector("[role=status]")!.textContent).toMatch(/blocks notifications/);
     el.remove();

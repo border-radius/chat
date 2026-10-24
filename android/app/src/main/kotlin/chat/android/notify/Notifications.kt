@@ -1,5 +1,5 @@
-// Notifications (ANDROID.md §8.3): DMs and replies to you, found by CheckWorker. MessagingStyle, one channel per kind
-// (Direct messages, Replies), one notification per account and room (§17.4) with Reply and Mark as read. A room's
+// Notifications (ANDROID.md §8.3): DMs, replies to you and the messages of rooms chosen (§24), found by CheckWorker.
+// MessagingStyle, one channel per kind (Direct messages, Replies, Room messages), one notification per account and room (§17.4) with Reply and Mark as read. A room's
 // notification goes once it is read: opened here, or read elsewhere (its count drops to 0, seen live or by the next
 // check). The launcher badge is the unread count.
 package chat.android.notify
@@ -30,6 +30,8 @@ import kotlinx.coroutines.flow.collect
 object Notifications {
     const val DMS = "dms"
     const val ROOMS = "rooms"
+    /** Every message of a room chosen in its menu (§24). */
+    const val ROOM_ALL = "room_all"
     const val SENDING = "sending"
     const val KEY_REPLY = "reply"
     private const val EXTRA_ROOM = "chat.room"
@@ -45,6 +47,7 @@ object Notifications {
             listOf(
                 NotificationChannel(DMS, "Direct messages", NotificationManager.IMPORTANCE_HIGH).apply { setShowBadge(true) },
                 NotificationChannel(ROOMS, "Replies", NotificationManager.IMPORTANCE_DEFAULT).apply { setShowBadge(true) },
+                NotificationChannel(ROOM_ALL, "Room messages", NotificationManager.IMPORTANCE_DEFAULT).apply { setShowBadge(true) },
                 NotificationChannel(SENDING, "Sending", NotificationManager.IMPORTANCE_LOW).apply { setShowBadge(false) },
             ),
         )
@@ -103,7 +106,12 @@ object Notifications {
             .setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_MARK_AS_READ)
             .setShowsUserInterface(false)
             .build()
-        val n = NotificationCompat.Builder(context, if (room.isDm) DMS else ROOMS)
+        val channel = when {
+            room.isDm -> DMS
+            m.expand?.replyTo?.author == me.id -> ROOMS
+            else -> ROOM_ALL
+        }
+        val n = NotificationCompat.Builder(context, channel)
             .setSmallIcon(R.drawable.ic_notification)
             .setColor(ACCENT)
             .setStyle(style)

@@ -1,5 +1,5 @@
-// Room header (§7.1, §16.5): back link, room title, the search (§29) and media (§30) buttons and the room actions menu (hide, archive, room access, jump to
-// beginning). A DM shows the other member's avatar and name, and can be closed but never archived. A private or Open
+// Room header (§7.1, §16.5): back link, room title, the search (§29) and media (§30) buttons and the room actions menu (hide, archive, room access,
+// notify of every message (§34.5), jump to beginning). A DM shows the other member's avatar and name, and can be closed but never archived. A private or Open
 // Air room says so next to its name (§23.1); a guest only gets "Jump to beginning" (§23.3). A room shared with other
 // instances says where else it is held, and when its home can't be reached (§33.9, §33.7).
 
@@ -29,6 +29,8 @@ export function createRoomHeader(opts: {
   onAccess: () => void;
   /** A DM was closed from this menu. */
   onClosed: () => void;
+  /** The notification choices changed (§34.5): app.ts follows them, if it doesn't yet. */
+  onNotify: () => void;
   signal: AbortSignal;
 }): RoomHeader {
   const { actions, signal } = opts;
@@ -65,6 +67,28 @@ export function createRoomHeader(opts: {
   ]);
   /** What the title shows, to rebuild it only when that changes (the avatar is an image). */
   let shown = "";
+  let last: Parameters<RoomHeader["update"]>[0] | undefined;
+
+  /** Notify of every message here (§34.5): flip it in notify.ts's choices (chat.notify), without loading notify.ts. */
+  async function setNotifyAll(id: string, on: boolean) {
+    const p = notifyPrefs();
+    const rooms = (Array.isArray(p.rooms) ? p.rooms : []).filter((r) => r !== id);
+    if (on) rooms.push(id);
+    p.rooms = rooms;
+    // Nothing chosen yet to alert with: a pop-up, as ticking DMs on the profile page does.
+    if (on && !p.popup && !p.sound) p.popup = true;
+    try {
+      if (rooms.length || Object.values(p).some((v) => v === true)) localStorage.setItem(NOTIFY_KEY, JSON.stringify(p));
+      else localStorage.removeItem(NOTIFY_KEY);
+    } catch {}
+    if (last) update(last);
+    opts.onNotify();
+    if (!on || !p.popup || p.sound) return;
+    const perm = globalThis.Notification?.permission;
+    if (perm === "default") await Notification.requestPermission().catch(() => {});
+    if (!signal.aborted && globalThis.Notification?.permission !== "granted")
+      error.textContent = "This browser blocks notifications here: allow them, or choose the sound in your profile.";
+  }
 
   async function act(fn: () => Promise<unknown>) {
     try {
@@ -120,30 +144,56 @@ export function createRoomHeader(opts: {
             },
       );
     }
+    if (room && (!room.archived || notifyAll(room.id))) {
+      out.push(
+        notifyAll(room.id)
+          ? { label: "Stop notifying of every message", run: () => void setNotifyAll(room.id, false) }
+          : { label: "Notify of every message", run: () => void setNotifyAll(room.id, true) },
+      );
+    }
     out.push({ label: "Jump to beginning", run: opts.onJumpToBeginning });
     return out;
   }
 
-  return {
-    el,
-    update({ room, hidden, me }) {
-      const other = room ? otherMember(room, me) : undefined;
-      const text = room ? roomTitle(room, me) : "";
-      const vis = room && !other ? visibilityOf(room) : "public";
-      const key = JSON.stringify([text, other?.avatar ?? null, vis]);
-      if (key !== shown) {
-        shown = key;
-        const badge =
-          vis === "public"
-            ? null
-            : h("span", { class: `vis-badge vis-${vis}`, title: VISIBILITY[vis].hint }, `${VISIBILITY[vis].icon} ${VISIBILITY[vis].label}`);
-        title.replaceChildren(...(other ? [avatar(other, 24, opts.avatarUrl), h("span", {}, text)] : [text, badge ?? ""]));
-      }
-      title.classList.toggle("dm-title", !!other);
-      const note = room ? sharedNote(room) : "";
-      if (shared.textContent !== note) shared.textContent = note;
-      shared.hidden = !note;
-      menu.update(items(room, hidden, !!room && room.created_by === me?.id, !me));
-    },
-  };
+  function update(state: Parameters<RoomHeader["update"]>[0]) {
+    last = state;
+    const { room, hidden, me } = state;
+    const other = room ? otherMember(room, me) : undefined;
+    const text = room ? roomTitle(room, me) : "";
+    const vis = room && !other ? visibilityOf(room) : "public";
+    const key = JSON.stringify([text, other?.avatar ?? null, vis]);
+    if (key !== shown) {
+      shown = key;
+      const badge =
+        vis === "public"
+          ? null
+          : h("span", { class: `vis-badge vis-${vis}`, title: VISIBILITY[vis].hint }, `${VISIBILITY[vis].icon} ${VISIBILITY[vis].label}`);
+      title.replaceChildren(...(other ? [avatar(other, 24, opts.avatarUrl), h("span", {}, text)] : [text, badge ?? ""]));
+    }
+    title.classList.toggle("dm-title", !!other);
+    const note = room ? sharedNote(room) : "";
+    if (shared.textContent !== note) shared.textContent = note;
+    shared.hidden = !note;
+    menu.update(items(room, hidden, !!room && room.created_by === me?.id, !me));
+  }
+
+  return { el, update };
+}
+
+/** notify.ts's NOTIFY_KEY. */
+const NOTIFY_KEY = "chat.notify";
+
+function notifyPrefs(): { rooms?: unknown; popup?: unknown; sound?: unknown } {
+  try {
+    const p: unknown = JSON.parse(localStorage.getItem(NOTIFY_KEY) ?? "null");
+    return p && typeof p === "object" ? p : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Is every message of this room notified on this device (§34.5)? */
+function notifyAll(id: string): boolean {
+  const { rooms } = notifyPrefs();
+  return Array.isArray(rooms) && rooms.includes(id);
 }

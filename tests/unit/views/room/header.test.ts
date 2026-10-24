@@ -95,5 +95,30 @@ describe("room view", () => {
       button(headerMenu(), "Unhide room")!.click();
       await vi.waitFor(() => expect(store.get().hidden.has(theirs.id)).toBe(false));
     });
+
+    it("§34.5: Notify of every message, on this device; turning it on chooses the pop-up and asks the browser", async () => {
+      const ask = vi.fn(async () => "granted" as const);
+      vi.stubGlobal("Notification", { permission: "default", requestPermission: ask });
+      try {
+        localStorage.setItem("chat.notify", JSON.stringify({ dms: true, sound: false, rooms: ["other"] }));
+        const room = await newRoom();
+        await mount(room);
+        button(headerMenu(), "Notify of every message")!.click();
+        const saved = () => JSON.parse(localStorage.getItem("chat.notify") ?? "null");
+        expect(saved()).toEqual({ dms: true, sound: false, popup: true, rooms: ["other", room.id] });
+        expect(ask).toHaveBeenCalledOnce();
+        button(headerMenu(), "Stop notifying of every message")!.click();
+        expect(saved().rooms).toEqual(["other"]);
+        // Nothing left chosen: nothing stored.
+        localStorage.setItem("chat.notify", JSON.stringify({ rooms: [room.id] }));
+        view!.unmount();
+        await mount(room);
+        button(headerMenu(), "Stop notifying of every message")!.click();
+        expect(localStorage.getItem("chat.notify")).toBeNull();
+      } finally {
+        localStorage.removeItem("chat.notify");
+        vi.unstubAllGlobals();
+      }
+    });
   });
 });

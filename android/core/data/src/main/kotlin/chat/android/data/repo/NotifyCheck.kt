@@ -1,6 +1,6 @@
 // Notifications without Google (ANDROID.md §8): WorkManager runs a check about every 15 minutes, and it asks each
-// account's server what is new for you: DMs and replies to your messages, unread, not hidden, not archived, not
-// notified before. Rooms with nothing unread are never queried: the unread counts (one request) say which to ask.
+// account's server what is new for you: DMs, replies to your messages and every message of the rooms chosen (§24),
+// unread, not hidden, not archived, not notified before. Rooms with nothing unread are never queried: the unread counts (one request) say which to ask.
 package chat.android.data.repo
 
 import chat.android.data.api.ChatApi
@@ -52,7 +52,8 @@ class NotifyCheck(private val api: ChatApi, private val db: ChatDatabase) {
         // A message's `created` says nothing about when it was committed (QA BUG-106): look back a little further,
         // and skip what the last check already saw.
         val since = maxOf(toPb(parsePb(state.at) - OVERLAP_MS), state.from)
-        val fetched = unreadRooms.toList().chunked(CHUNK).flatMap { api.notifiable(it, since) }
+        val every = NotifyRooms.read(db)
+        val fetched = unreadRooms.toList().chunked(CHUNK).flatMap { api.notifiable(it, since, every) }
         // Saved once the check is through: one that fails on the way (offline) is made again, nothing lost (QA BUG-153).
         val next = CheckState(counts.at, fetched.map { it.id }.take(MAX_IDS), state.from)
         // The open room's are seen.

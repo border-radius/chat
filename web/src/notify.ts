@@ -1,4 +1,4 @@
-// Notifications (§34): a pop-up and/or a sound for DMs and replies to you, while the app is open in a tab, even in the
+// Notifications (§34): a pop-up and/or a sound for DMs, replies to you and every message of the rooms chosen (§34.5), while the app is open in a tab, even in the
 // background. No push service: the alerts come from the realtime connection the tab already holds, so nothing reaches
 // Google, Mozilla or Apple, and nothing arrives once every tab is closed.
 //
@@ -19,15 +19,17 @@ import type { AppState, Store } from "./store.ts";
 /** This device's choices, in localStorage; absent when everything is off. Must match app.ts's. */
 export const NOTIFY_KEY = "chat.notify";
 
-/** What alerts (DMs, replies to you) and how (a pop-up, a sound). */
+/** What alerts (DMs, replies to you, every message of `rooms`) and how (a pop-up, a sound). */
 export interface NotifyPrefs {
   dms: boolean;
   replies: boolean;
   popup: boolean;
   sound: boolean;
+  /** Rooms whose every message alerts, chosen in the room's menu (§34.5; views/room/header.ts writes it too). */
+  rooms: string[];
 }
 
-const OFF: NotifyPrefs = { dms: false, replies: false, popup: false, sound: false };
+const OFF: NotifyPrefs = { dms: false, replies: false, popup: false, sound: false, rooms: [] };
 
 function storage(): Storage | null {
   try {
@@ -40,37 +42,41 @@ function storage(): Storage | null {
 export function loadPrefs(s: Storage | null = storage()): NotifyPrefs {
   try {
     const p = JSON.parse(s?.getItem(NOTIFY_KEY) ?? "null") as Partial<NotifyPrefs> | null;
-    return { dms: p?.dms === true, replies: p?.replies === true, popup: p?.popup === true, sound: p?.sound === true };
+    const rooms = Array.isArray(p?.rooms) ? p.rooms.filter((r): r is string => typeof r === "string") : [];
+    return { dms: p?.dms === true, replies: p?.replies === true, popup: p?.popup === true, sound: p?.sound === true, rooms };
   } catch {
-    return { ...OFF };
+    return { ...OFF, rooms: [] };
   }
 }
 
 export function savePrefs(p: NotifyPrefs, s: Storage | null = storage()): void {
   try {
-    if (Object.values(p).some(Boolean)) s?.setItem(NOTIFY_KEY, JSON.stringify(p));
+    if (p.rooms.length || Object.values(p).some((v) => v === true)) s?.setItem(NOTIFY_KEY, JSON.stringify(p));
     else s?.removeItem(NOTIFY_KEY);
   } catch {}
 }
 
 /**
- * Could this message be one to alert about? "dm" or "reply" (its quoted message still to be checked: is it yours?),
- * "room" when its room isn't loaded yet (a DM just started), null when not.
+ * Could this message be one to alert about? "dm", "all" (a room chosen) or "reply" (its quoted message still to be
+ * checked: is it yours?), "room" when its room isn't loaded yet (a DM just started), null when not.
  */
-export function candidate(p: NotifyPrefs, m: MessageActivity, s: AppState): "dm" | "reply" | "room" | null {
+export function candidate(p: NotifyPrefs, m: MessageActivity, s: AppState): Kind | "room" | null {
   const me = s.user;
   if (!me || !m.author || m.author === me.id || m.deleted || !(p.popup || p.sound)) return null;
   const room = s.rooms.get(m.room);
-  if (!room) return p.dms || (p.replies && m.reply_to) ? "room" : null;
+  if (!room) return p.dms || (p.replies && m.reply_to) || p.rooms.includes(m.room) ? "room" : null;
   return alertKind(p, room, s, !!m.reply_to);
 }
 
+type Kind = "dm" | "reply" | "all";
+
 /** The kind of alert for a message in `room`; `reply`: it replies to one of yours. Hidden and archived rooms are silent (§13). */
-function alertKind(p: NotifyPrefs, room: Room, s: AppState, reply: boolean): "dm" | "reply" | null {
+function alertKind(p: NotifyPrefs, room: Room, s: AppState, reply: boolean): Kind | null {
   if (room.archived) return null;
   // A closed DM opens again with a message (§16.4): its hidden row goes, maybe after this event.
   if (room.kind === "dm") return p.dms ? "dm" : null;
-  return reply && p.replies && !s.hidden.has(room.id) ? "reply" : null;
+  if (s.hidden.has(room.id)) return null;
+  return reply && p.replies ? "reply" : p.rooms.includes(room.id) ? "all" : null;
 }
 
 /** What a notification says under its title: the text on one line, cut short; or what was sent instead. */
@@ -190,7 +196,7 @@ export function startNotify({ api, store, title, navigate }: NotifyOptions): () 
     });
   }
 
-  async function popup(room: Room, m: Message, kind: "dm" | "reply", sound: boolean) {
+  async function popup(room: Room, m: Message, kind: Kind, sound: boolean) {
     const s = store.get();
     const author = m.expand?.author?.name ?? "Someone";
     const opts = {
@@ -201,7 +207,7 @@ export function startNotify({ api, store, title, navigate }: NotifyOptions): () 
       icon: "/icons/icon-192.png",
       data: { url: `/r/${room.id}/m/${m.id}` },
     } as NotificationOptions;
-    const head = kind === "dm" ? author : `${author} replied in ${title(room, s.user)}`;
+    const head = kind === "dm" ? author : `${author} ${kind === "reply" ? "replied in" : "in"} ${title(room, s.user)}`;
     const reg = await navigator.serviceWorker?.getRegistration().catch(() => undefined);
     if (reg?.active) return reg.showNotification(head, opts);
     const n = new Notification(head, opts);
@@ -288,7 +294,7 @@ const UNSUPPORTED = "This browser can't show notifications here: choose the soun
 
 /** The Notifications fieldset of the profile page (§34). */
 export function notifySettings({ h, id, onChange, signal }: SettingsOptions): HTMLElement {
-  const box = (key: keyof NotifyPrefs, label: string) => {
+  const box = (key: Exclude<keyof NotifyPrefs, "rooms">, label: string) => {
     const input = h("input", { type: "checkbox", name: key });
     return { input, el: h("label", { class: "notify-choice" }, [input, label]) };
   };
@@ -299,6 +305,7 @@ export function notifySettings({ h, id, onChange, signal }: SettingsOptions): HT
     sound: box("sound", "Play a sound"),
   };
   const read = (): NotifyPrefs => ({
+    rooms: loadPrefs().rooms,
     dms: boxes.dms.input.checked,
     replies: boxes.replies.input.checked,
     popup: boxes.popup.input.checked,
@@ -308,7 +315,7 @@ export function notifySettings({ h, id, onChange, signal }: SettingsOptions): HT
 
   const show = () => {
     const p = loadPrefs();
-    for (const [k, b] of Object.entries(boxes)) b.input.checked = p[k as keyof NotifyPrefs];
+    for (const [k, b] of Object.entries(boxes)) b.input.checked = p[k as keyof typeof boxes];
     const perm = globalThis.Notification?.permission;
     status.textContent = !p.popup ? "" : !perm ? UNSUPPORTED : perm === "denied" ? BLOCKED : "";
     status.classList.toggle("error", !!status.textContent);
@@ -338,7 +345,7 @@ export function notifySettings({ h, id, onChange, signal }: SettingsOptions): HT
     h(
       "p",
       { id: `${id}-notify-hint`, class: "field-status" },
-      "For DMs and replies to you while this app is open in a tab, even in the background. Saved on this device.",
+      "For DMs, replies to you and the rooms you choose in their menu, while this app is open in a tab, even in the background. Saved on this device.",
     ),
     status,
   ]);

@@ -757,6 +757,7 @@ works the same on de-Googled phones and on any server, with no push credentials 
 
 - **DMs**: every message from someone else in a DM.
 - **Replies to you**: a message in a room that replies to one of yours.
+- **Every message of a room chosen** in its menu (§24).
 - Not: other room messages, your own, deleted ones, anything already read (here or on another device), hidden or
   archived rooms (DESIGN.md §13), the room open on screen, or anything from before you signed in.
 
@@ -866,3 +867,21 @@ ordinary rooms and users to the app; it only shows what the server says of them:
   room; New message with an address). The test server runs with the module on (since 2026-10-24 its Application URL and the
   site's `federation` are set after it starts, as `TestServer.enableFederation`; there is no environment variable), paired with no
   one: the server's own suite pairs real servers (`tests/integration/federation.test.ts`).
+
+## 24. Notify of every message in a room (2026-10-24)
+
+The user asked for notifications of all messages in a specific room, "on web and on mobile. no need to sync it" (the
+web's DESIGN.md §34.5).
+
+- The room's ⋮ menu (not a DM's: Direct messages already notify every message): **Notify of every message** (a bell),
+  then **Stop notifying of every message** (a struck-out bell). Not offered in an archived room unless already on.
+- Kept per account on this device, in the account's kv table (`notify_rooms`, space-separated ids; a session key, so
+  gone at log out). `NotifyRooms` (`core/data/…/repo/Caches.kt`) holds it for the menu; `NotifyCheck` reads the
+  table itself, since the check runs for accounts not open in the app.
+- The check (§21.2) adds `|| room = {:rN}` for each chosen room of the chunk to `ChatApi.notifiable`'s condition:
+  still one request, still only over rooms with unread messages. Hidden, archived and the open room stay silent.
+- A new channel, **Room messages** (`room_all`, default importance), so they can be silenced apart from Replies.
+  A room's notification uses Replies when its newest message is a reply to you, else Room messages.
+- No server change. Tests: `NotifyCheckTest` (a chosen room's plain message notifies, another room's doesn't, off
+  again silent), `UiNotifyTest` (the menu item turns it on, the worker posts on Room messages). Icons checked on a
+  Robolectric screenshot; not yet tried on the emulator.

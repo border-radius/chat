@@ -32,8 +32,9 @@ A small, fast, real-time group chat. One [PocketBase](https://pocketbase.io) bin
 - Fast room switching: each room's latest messages are kept in the browser (IndexedDB) and shown at once while the
   server answers; unread rooms are fetched ahead. Attachment thumbnails are kept by the service worker, so going back
   to a room (or reloading) doesn't download them again. All of it is cleared on logout
-- Notifications of DMs and replies to you, with a pop-up and/or a sound, turned on in your profile: they come from the
-  open tab's live connection (even in the background), so no push service (Google, Mozilla, Apple) is involved
+- Notifications of DMs and replies to you, with a pop-up and/or a sound, turned on in your profile, and of every
+  message in the rooms you choose from their menu: they come from the open tab's live connection (even in the
+  background), so no push service (Google, Mozilla, Apple) is involved
 - Installable as an app (PWA: Add to Home Screen, the browser's Install button); it opens offline to its shell
 - Optimistic sending with safe retries, reconnect gap-fill, light/dark themes, works on phones
 - A native Android app (Kotlin, Jetpack Compose) with the same features, push notifications and a 3 MB download — see

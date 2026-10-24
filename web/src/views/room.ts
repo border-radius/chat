@@ -48,7 +48,7 @@ export function mergeChanges(a: Change, b: Change): Change {
   return c;
 }
 
-export function createRoomView({ api, store, unread, actions, navigate, reopen, drafts, cache, collections }: Ctx): View {
+export function createRoomView({ api, store, unread, actions, navigate, reopen, drafts, cache, collections, notify }: Ctx): View {
   const vid = uniqueId("room");
   const scope = createScope();
   const { signal } = scope;
@@ -164,6 +164,7 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
     onMedia: openMedia,
     onAccess: () => void openAccess(),
     onClosed: () => navigate("/"),
+    onNotify: notify,
     signal,
   });
   /** The access dialog (§23.2), once opened: a lazy chunk. */

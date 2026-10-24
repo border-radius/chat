@@ -68,6 +68,7 @@ class ChatServices(
     val actions = RoomActions(api, store)
     val recentEmoji = RecentEmoji(db, appScope)
     val notifyCheck = NotifyCheck(api, db)
+    val notifyRooms = NotifyRooms(db, appScope)
     /** When each room was last open, for Jump to's order. */
     val opened = chat.android.data.lib.RecentlyOpened()
     val settings = settings ?: DeviceSettings(db, appScope)
@@ -79,6 +80,7 @@ class ChatServices(
     suspend fun start() = withContext(main) {
         site.loadCached()
         recentEmoji.load()
+        notifyRooms.load()
         settings.load()
         appScope.launch { site.refresh() }
         sessionChanged()
@@ -122,6 +124,7 @@ class ChatServices(
             db.clearSession()
             outbox.clear()
             recentEmoji.clear()
+            notifyRooms.clear()
             hooks.onSignedOut()
             store.update { AppStateForSite(it) }
         }

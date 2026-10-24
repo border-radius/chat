@@ -409,6 +409,7 @@ private fun RoomMenu(open: Boolean, close: () -> Unit, room: chat.android.data.m
     val services = LocalServices.current
     val scope = rememberCoroutineScope()
     var archive by remember { mutableStateOf(false) }
+    val every by services.notifyRooms.set.collectAsStateWithLifecycle()
     fun act(label: String, block: suspend () -> Unit) {
         close()
         scope.launch { runCatching { block() }.onFailure { snackbar.showSnackbar("That didn't work. ${chat.android.data.api.errorMessage(it)}") } }
@@ -418,6 +419,15 @@ private fun RoomMenu(open: Boolean, close: () -> Unit, room: chat.android.data.m
         if (room.isDm) DropdownMenuItem(text = { Text("Close conversation") }, leadingIcon = { Icon(ChatIcons.Hide, contentDescription = null) }, onClick = { act("close") { services.actions.hide(room.id); nav.back() } })
         else if (hidden) DropdownMenuItem(text = { Text("Unhide room") }, leadingIcon = { Icon(ChatIcons.Show, contentDescription = null) }, onClick = { act("unhide") { services.actions.unhide(room.id) } })
         else DropdownMenuItem(text = { Text("Hide room") }, leadingIcon = { Icon(ChatIcons.Hide, contentDescription = null) }, onClick = { act("hide") { services.actions.hide(room.id); nav.back() } })
+        // Every message of this room notifies, on this device (§24); DMs all do already.
+        if (!room.isDm && (!room.archived || room.id in every)) {
+            val on = room.id in every
+            DropdownMenuItem(
+                text = { Text(if (on) "Stop notifying of every message" else "Notify of every message") },
+                leadingIcon = { Icon(if (on) ChatIcons.BellOff else ChatIcons.Bell, contentDescription = null) },
+                onClick = { close(); services.notifyRooms.set(room.id, !on) },
+            )
+        }
         if (!room.isDm && room.createdBy == me) {
             if (room.archived) DropdownMenuItem(text = { Text("Unarchive room") }, leadingIcon = { Icon(ChatIcons.Archive, contentDescription = null) }, onClick = { act("unarchive") { services.actions.setArchived(room.id, false) } })
             else DropdownMenuItem(text = { Text("Archive room") }, leadingIcon = { Icon(ChatIcons.Archive, contentDescription = null) }, onClick = { close(); archive = true })

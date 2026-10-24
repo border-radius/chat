@@ -3083,3 +3083,24 @@ pop-ups, a read elsewhere closing it, stopped; the settings group. `tests/unit/s
 opens the DM at its message, off again silent; with the service worker, one pop-up per room that a read elsewhere
 takes away. Headless Chromium answers "denied" to every notification, granted or not, so the e2e replaces the
 browser's `Notification` and the registration's `showNotification`/`getNotifications` with recorders.
+
+### 34.5 Every message of a room (2026-10-24)
+
+The user asked to "enable notifications for all messages in any specific room. on web and on mobile. no need to sync
+it."
+
+- The room's ⋯ menu (not a DM's, whose every message already alerts with Direct messages): **Notify of every
+  message**, then **Stop notifying of every message**. Not offered in an archived room unless already on (to turn it
+  off). Guests have no such item.
+- Kept on this device only, with the other choices: `chat.notify`'s `rooms` (room ids). Not synced to the account or
+  other devices; the Android app keeps its own (ANDROID.md §24). Turning it on with neither a pop-up nor the sound
+  chosen chooses the pop-up and asks the browser's permission; if the browser refuses, the header says so.
+- Every message from someone else in that room alerts as a reply does: `"{author} in #room"` over the text (a reply
+  to you still says "replied in"). The same exceptions as §34.1: hidden and archived rooms, your own, service and
+  deleted messages, the room open in the tab in front.
+- `views/room/header.ts` reads and writes `chat.notify` itself (a few lines), so `app.js` never loads `notify.ts`
+  for it; it then calls the app's `notify()` to start following if it wasn't. The profile page's boxes keep
+  `rooms` as they are, and its hint mentions the room menus.
+- Tests: `notify.test.ts` (what alerts for a room chosen; the stored list; a plain message pops up as "… in #room",
+  another room's doesn't; the profile keeps the list), `views/room/header.test.ts` (the menu item on and off, the
+  pop-up chosen and permission asked, nothing stored once nothing is chosen).
