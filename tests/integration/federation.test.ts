@@ -8,7 +8,7 @@ import PocketBase, { ClientResponseError, type RecordModel } from "pocketbase";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PNG } from "../support/files.ts";
 import { uniq } from "../support/ids.ts";
-import { disableRateLimits, freePort, type PocketBaseServer, SUPERUSER, startPocketBase } from "../support/pocketbase.ts";
+import { disableRateLimits, enableFederation, freePort, type PocketBaseServer, SUPERUSER, startPocketBase } from "../support/pocketbase.ts";
 import { runSql } from "../support/sql.ts";
 import { sleep, status } from "./helpers.ts";
 
@@ -23,29 +23,34 @@ let A: Instance;
 let B: Instance;
 let C: Instance;
 
-async function start(): Promise<Instance> {
-  const port = await freePort();
+const ENV = { FEDERATION_ALLOW_PRIVATE: "1" };
+
+async function start(port?: number, on = true): Promise<Instance> {
+  port ??= await freePort();
   const url = `http://127.0.0.1:${port}`;
-  const server = await startPocketBase({
-    port,
-    fixtureRoute: true,
-    env: { FEDERATION_ORIGIN: url, FEDERATION_ALLOW_PRIVATE: "1" },
-  });
+  const server = await startPocketBase({ port, fixtureRoute: true, env: ENV });
   await disableRateLimits(server.url);
+  if (on) await enableFederation(url);
   const admin = new PocketBase(server.url);
   admin.autoCancellation(false);
   await admin.collection("_superusers").authWithPassword(SUPERUSER.email, SUPERUSER.password);
   return { server, url, host: `127.0.0.1:${port}`, admin };
 }
 
-/** Pair `x` (inviting) and `y` (joining), each labelling the other. Returns their fed_peers rows. */
+/** The request `x` sent, as it shows on `y`. */
+const requestOn = (y: Instance, x: Instance) =>
+  y.admin.collection("fed_peers").getFirstListItem(y.admin.filter("origin = {:o}", { o: x.url }));
+
+/** Pair `x` (asking) and `y` (accepting), each labelling the other. Returns their fed_peers rows. */
 async function pair(x: Instance, y: Instance, xLabel: string, yLabel: string, dms = true) {
-  const invite = await x.admin.collection("fed_peers").create({ origin: y.url, label: yLabel, dms });
-  expect(invite.status).toBe("invited");
-  expect(invite.invite).toMatch(/^[A-Za-z0-9]{32}$/);
-  const joined = await y.admin.collection("fed_peers").create({ origin: x.url, label: xLabel, dms, invite: invite.invite });
+  const asked = await x.admin.collection("fed_peers").create({ origin: y.url, label: yLabel, dms });
+  expect(asked.status).toBe("invited");
+  expect(asked.last_ok).not.toBe("");
+  const request = await requestOn(y, x);
+  expect(request.status).toBe("requested");
+  const joined = await y.admin.collection("fed_peers").update(request.id, { status: "active", label: xLabel, dms });
   expect(joined.status).toBe("active");
-  const back = await x.admin.collection("fed_peers").getOne(invite.id);
+  const back = await x.admin.collection("fed_peers").getOne(asked.id);
   expect(back.status).toBe("active");
   expect(back.invite).toBe("");
   return { xPeer: back, yPeer: joined };
@@ -137,43 +142,117 @@ afterAll(async () => {
 });
 
 describe("pairing (§33.3)", () => {
-  it("refuses a wrong, used or expired code, and anyone but a superuser", async () => {
+  it("shows a request on the asked side, checked by asking back; declining and withdrawing tell the other side", async () => {
     const D = await start();
     try {
-      const invite = await A.admin.collection("fed_peers").create({ origin: D.url, label: "D" });
-      const wrong = D.admin.collection("fed_peers").create({ origin: A.url, label: "A", invite: "x".repeat(32) });
-      await expect(wrong).rejects.toMatchObject({
-        status: 400,
-        response: { data: { invite: { message: expect.stringMatching(/isn't valid/) } } },
-      });
-      // Expired.
-      await runSql(A.url, [
-        { sql: "UPDATE fed_peers SET invite_expires = '2020-01-01 00:00:00.000Z' WHERE id = {:id}", params: { id: invite.id } },
-      ]);
-      await expect(D.admin.collection("fed_peers").create({ origin: A.url, label: "A", invite: invite.invite })).rejects.toMatchObject({
-        status: 400,
-      });
-      await runSql(A.url, [
-        { sql: "UPDATE fed_peers SET invite_expires = '2999-01-01 00:00:00.000Z' WHERE id = {:id}", params: { id: invite.id } },
-      ]);
-      const ok = await D.admin.collection("fed_peers").create({ origin: A.url, label: "A", invite: invite.invite });
-      expect(ok.status).toBe("active");
-      // Used.
-      const res = await fetch(`${A.url}/api/fed/pair`, {
+      // Someone claiming to be A: D asks A, which never sent it, and nothing shows.
+      const forged = await fetch(`${D.url}/api/fed/request`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ origin: D.url, code: invite.invite, secret: "a".repeat(64) }),
+        body: JSON.stringify({ origin: A.url, code: "x".repeat(32), name: "Not A" }),
       });
-      expect(res.status).toBe(403);
-      // People can't pair (the collections are superusers' only).
-      const u = await signUp(A);
-      expect(await status(u.pb.collection("fed_peers").create({ origin: "http://127.0.0.1:1", label: "X" }))).toBe(403);
-      expect(await status(u.pb.collection("fed_shares").getList())).toBe(403);
-      await A.admin.collection("fed_peers").delete(invite.id);
+      expect(forged.status).toBe(403);
+      expect((await D.admin.collection("fed_peers").getFullList()).length).toBe(0);
+      // A real one shows, with a label suggested from the host and A's site name.
+      const asked = await A.admin.collection("fed_peers").create({ origin: D.url, label: "D" });
+      const request = await requestOn(D, A);
+      expect(request).toMatchObject({ status: "requested", label: "127", name: "Chat", dms: false });
+      // Asking again while it waits is refused here, with what to do.
+      await expect(D.admin.collection("fed_peers").create({ origin: A.url, label: "A" })).rejects.toMatchObject({
+        response: { data: { origin: { message: expect.stringMatching(/asked to link already/) } } },
+      });
+      // Only active accepts it.
+      await expect(D.admin.collection("fed_peers").update(request.id, { status: "suspended" })).rejects.toMatchObject({ status: 400 });
+      // Declined: A's row says so.
+      await D.admin.collection("fed_peers").delete(request.id);
+      expect((await A.admin.collection("fed_peers").getOne(asked.id)).last_error).toMatch(/declined/);
+      await A.admin.collection("fed_peers").delete(asked.id);
+      // Withdrawn: D's request goes.
+      const again = await A.admin.collection("fed_peers").create({ origin: D.url, label: "D" });
+      expect((await requestOn(D, A)).status).toBe("requested");
+      await A.admin.collection("fed_peers").delete(again.id);
+      expect((await D.admin.collection("fed_peers").getFullList()).length).toBe(0);
     } finally {
       await D.server.stop();
     }
   }, 60_000);
+
+  it("refuses an expired or used code, an instance that doesn't link, and anyone but a superuser", async () => {
+    const D = await start();
+    const off = await start(undefined, false);
+    try {
+      const asked = await A.admin.collection("fed_peers").create({ origin: D.url, label: "D" });
+      const request = await requestOn(D, A);
+      await runSql(A.url, [
+        { sql: "UPDATE fed_peers SET invite_expires = '2020-01-01 00:00:00.000Z' WHERE id = {:id}", params: { id: asked.id } },
+      ]);
+      await expect(D.admin.collection("fed_peers").update(request.id, { status: "active", label: "A" })).rejects.toMatchObject({
+        status: 400,
+        response: { data: { status: { message: expect.stringMatching(/expired/) } } },
+      });
+      await runSql(A.url, [
+        { sql: "UPDATE fed_peers SET invite_expires = '2999-01-01 00:00:00.000Z' WHERE id = {:id}", params: { id: asked.id } },
+      ]);
+      const code = (await D.admin.collection("fed_peers").getOne(request.id)).invite as string;
+      expect((await D.admin.collection("fed_peers").update(request.id, { status: "active", label: "A" })).status).toBe("active");
+      // Used.
+      const res = await fetch(`${A.url}/api/fed/pair`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ origin: D.url, code, secret: "a".repeat(64) }),
+      });
+      expect(res.status).toBe(403);
+      // An instance with linking off answers as if it hadn't the module, and the row isn't kept.
+      expect((await fetch(`${off.url}/api/fed/inbox`, { method: "POST" })).status).toBe(404);
+      await expect(A.admin.collection("fed_peers").create({ origin: off.url, label: "O" })).rejects.toMatchObject({
+        response: { data: { origin: { message: expect.stringMatching(/doesn't take links/) } } },
+      });
+      // Nor can it ask.
+      await expect(off.admin.collection("fed_peers").create({ origin: A.url, label: "A" })).rejects.toMatchObject({
+        response: { data: { origin: { message: expect.stringMatching(/Linking is off/) } } },
+      });
+      // Its address is in every global id the peers keep: it stays while any instance is listed.
+      await expect(A.admin.settings.update({ meta: { appURL: "http://127.0.0.1:1" } })).rejects.toMatchObject({ status: 400 });
+      // People can't pair (the collections are superusers' only).
+      const u = await signUp(A);
+      expect(await status(u.pb.collection("fed_peers").create({ origin: "http://127.0.0.1:1", label: "X" }))).toBe(403);
+      expect(await status(u.pb.collection("fed_shares").getList())).toBe(403);
+      await A.admin.collection("fed_peers").delete(asked.id);
+    } finally {
+      await Promise.all([D.server.stop(), off.server.stop()]);
+    }
+  }, 60_000);
+
+  it("keeps a request it can't deliver, sends it once it can, and pairs at once when both asked", async () => {
+    const port = await freePort();
+    const asked = await A.admin.collection("fed_peers").create({ origin: `http://127.0.0.1:${port}`, label: "D" });
+    expect(asked.status).toBe("invited");
+    expect(asked.last_error).toMatch(/Can't be reached yet/);
+    const D = await start(port);
+    try {
+      // D's admin asks A meanwhile: A asked first, so they pair at once.
+      const theirs = await D.admin.collection("fed_peers").create({ origin: A.url, label: "A" });
+      expect(theirs.status).toBe("active");
+      expect((await A.admin.collection("fed_peers").getOne(asked.id)).status).toBe("active");
+      await A.admin.collection("fed_peers").delete(asked.id);
+      expect((await D.admin.collection("fed_peers").getFullList()).length).toBe(0);
+      // Undelivered, then delivered by the worker.
+      await D.server.stop();
+      const later = await A.admin.collection("fed_peers").create({ origin: `http://127.0.0.1:${port}`, label: "D" });
+      expect(later.last_error).toMatch(/Can't be reached yet/);
+      const D2 = await start(port);
+      try {
+        await tick(A);
+        expect((await A.admin.collection("fed_peers").getOne(later.id)).last_ok).not.toBe("");
+        expect((await requestOn(D2, A)).status).toBe("requested");
+      } finally {
+        await A.admin.collection("fed_peers").delete(later.id);
+        await D2.server.stop();
+      }
+    } finally {
+      await D.server.stop().catch(() => {});
+    }
+  }, 90_000);
 
   it("refuses unsigned, wrongly signed and old requests", async () => {
     const body = JSON.stringify({ events: [] });
@@ -654,8 +733,9 @@ describe("a home that is down (§33.1)", () => {
   it("keeps what the mirror's people write until it is back", async () => {
     const dPort = await freePort();
     const dUrl = `http://127.0.0.1:${dPort}`;
-    const env = { FEDERATION_ORIGIN: dUrl, FEDERATION_ALLOW_PRIVATE: "1" };
+    const env = ENV;
     let dServer = await startPocketBase({ port: dPort, fixtureRoute: true, env });
+    await enableFederation(dUrl);
     const dataDir = dServer.dataDir;
     const D: Instance = { server: dServer, url: dUrl, host: `127.0.0.1:${dPort}`, admin: new PocketBase(dUrl) };
     D.admin.autoCancellation(false);
@@ -708,17 +788,23 @@ describe("a home that is down (§33.1)", () => {
 });
 
 describe("the fetcher (§33.6)", () => {
-  it("refuses plain http and private addresses without FEDERATION_ALLOW_PRIVATE", async () => {
+  it("refuses plain http and private addresses without FEDERATION_ALLOW_PRIVATE, and turns on only with a public address", async () => {
     const port = await freePort();
-    const server = await startPocketBase({ port, env: { FEDERATION_ORIGIN: `https://127.0.0.1:${port}` } });
+    const server = await startPocketBase({ port, fixtureRoute: true });
     try {
       const admin = new PocketBase(server.url);
       await admin.collection("_superusers").authWithPassword(SUPERUSER.email, SUPERUSER.password);
-      await expect(admin.collection("fed_peers").create({ origin: A.url, label: "A", invite: "x" })).rejects.toMatchObject({
+      const site = await admin.collection("site").getFirstListItem("");
+      // The Application URL is still PocketBase's default (http://localhost:8090).
+      await expect(admin.collection("site").update(site.id, { federation: true })).rejects.toMatchObject({
+        response: { data: { federation: { message: expect.stringMatching(/Application URL/) } } },
+      });
+      await enableFederation(server.url, "https://chat.example.test");
+      await expect(admin.collection("fed_peers").create({ origin: A.url, label: "A" })).rejects.toMatchObject({
         response: { data: { origin: { message: expect.stringMatching(/https/) } } },
       });
-      await expect(admin.collection("fed_peers").create({ origin: "https://127.0.0.1:9", label: "A", invite: "x" })).rejects.toMatchObject({
-        response: { data: { origin: { message: expect.stringMatching(/can't be reached/) } } },
+      await expect(admin.collection("fed_peers").create({ origin: "https://127.0.0.1:9", label: "A" })).rejects.toMatchObject({
+        response: { data: { origin: { message: expect.stringMatching(/can't be linked with/) } } },
       });
     } finally {
       await server.stop();

@@ -4,7 +4,7 @@
 
 import { resolve } from "node:path";
 import { expect } from "@playwright/test";
-import { disableRateLimits, freePort, type PocketBaseServer, SUPERUSER, startPocketBase } from "../support/pocketbase.ts";
+import { disableRateLimits, enableFederation, freePort, type PocketBaseServer, SUPERUSER, startPocketBase } from "../support/pocketbase.ts";
 import { apiRoom, apiUser, message, openRoom, send, test, uniq } from "./fixtures.ts";
 
 interface Instance {
@@ -25,9 +25,10 @@ async function start(): Promise<Instance> {
     port,
     publicDir: resolve("pb_public"),
     fixtureRoute: true,
-    env: { FEDERATION_ORIGIN: url, FEDERATION_ALLOW_PRIVATE: "1" },
+    env: { FEDERATION_ALLOW_PRIVATE: "1" },
   });
   await disableRateLimits(url);
+  await enableFederation(url);
   const res = await fetch(`${url}/api/collections/_superusers/auth-with-password`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -55,9 +56,12 @@ let aPeer = "";
 
 test.beforeAll(async () => {
   [A, B] = await Promise.all([start(), start()]);
-  const invite = await admin<{ id: string; invite: string }>(A, "POST", records("fed_peers"), { origin: B.url, label: "B", dms: true });
-  await admin(B, "POST", records("fed_peers"), { origin: A.url, label: "A", dms: true, invite: invite.invite });
-  aPeer = invite.id;
+  // A asks; the request shows on B, whose admin accepts it.
+  const asked = await admin<{ id: string }>(A, "POST", records("fed_peers"), { origin: B.url, label: "B", dms: true });
+  const filter = encodeURIComponent(`origin = "${A.url}"`);
+  const { items } = await admin<{ items: { id: string }[] }>(B, "GET", `${records("fed_peers")}?filter=${filter}`);
+  await admin(B, "PATCH", `${records("fed_peers")}/${items[0]?.id}`, { status: "active", label: "A", dms: true });
+  aPeer = asked.id;
   ticker = setInterval(() => {
     for (const i of [A, B]) void admin(i, "POST", "/api/fed/tick").catch(() => {});
   }, 300);

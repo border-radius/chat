@@ -248,12 +248,17 @@ replies, reactions and files go both ways. People from the other server show und
 
 **Setup** (on each server)
 
-1. Set `FEDERATION_ORIGIN` to the server's public address, e.g. `https://chat.example.com`, and restart. Peers are
-   reached over https, on public addresses only.
-2. Pair: on server A, in the admin UI under *Collections → fed_peers*, add a row with B's address and a short label
-   for its people (`B`), leaving `invite` empty; tick `dms` to let people write DMs across. The row gets a code in
-   `invite` (valid 24 hours). Give it to B's admin, who adds a row with A's address, a label for A's people and the
-   code. Both rows are then `active`.
+1. Turn it on: in the admin UI, set *Settings → Application → Application URL* to the server's public address, e.g.
+   `https://chat.example.com`, then tick `federation` on the record under *Collections → site*. Peers are reached over
+   https, on public addresses only. The address is part of the ids the peers keep, so it can't be changed while any
+   peer is listed. (A server set up with the old `FEDERATION_ORIGIN` variable gets both done by its next start's
+   migration; the variable is no longer read after that.)
+2. Pair: on server A, under *Collections → fed_peers*, add a row with B's address and a short label for its people
+   (`B`); tick `dms` to let people write DMs across. A sends B the request, and it shows on B as a row with status
+   `requested` (B checks with A that it really asked). B's admin accepts by setting its status to `active`, choosing
+   a label for A's people (and `dms`); both rows are then `active`. Deleting the request declines it. A request B
+   can't be reached for is sent again every minute; one nobody accepts expires after 7 days. If both admins add
+   each other, they pair at once.
 3. Share a room: on its home, add a row under *fed_shares* with the room and the peer. The peer's admin finds it under
    *fed_shares* there and ticks `accepted`; the room then appears there, named "general (A)", with its latest 200
    messages. Private rooms too: each side's admins add their own people (on the copy, by editing its members), and the
@@ -262,7 +267,7 @@ replies, reactions and files go both ways. People from the other server show und
 
 Suspend a peer by setting its `status` to `suspended`; delete its row to unpair (the copies are archived, DMs become
 read-only). The feature is self-contained: `pb_hooks/federation.pb.js`, `pb_hooks/federation/` and the `fed_*`
-collections; without `FEDERATION_ORIGIN` nothing of it runs.
+collections; while `federation` isn't ticked, its routes answer 404 and nothing is sent.
 
 ## License
 

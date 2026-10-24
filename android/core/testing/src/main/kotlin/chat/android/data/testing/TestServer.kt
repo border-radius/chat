@@ -50,8 +50,8 @@ object TestServer {
         ).redirectErrorStream(true).redirectOutput(File(tmp, "pb.log")).apply {
             environment().keys.removeIf { it.startsWith("TELEGRAM_") }
             environment()["LINK_PREVIEWS"] = "off"
-            // Linked instances (DESIGN.md §33) on, so its routes answer; no peer is ever paired.
-            environment()["FEDERATION_ORIGIN"] = url
+            // Linked instances (DESIGN.md §33) over http on 127.0.0.1; turned on below, so its routes answer. No peer
+            // is ever paired.
             environment()["FEDERATION_ALLOW_PRIVATE"] = "1"
         }.start()
         Runtime.getRuntime().addShutdownHook(Thread {
@@ -68,6 +68,7 @@ object TestServer {
             Thread.sleep(50)
         }
         disableRateLimits(url)
+        enableFederation(url)
         return url
     }
 
@@ -77,6 +78,23 @@ object TestServer {
         val body = """{"rateLimits":{"enabled":false}}""".toRequestBody("application/json".toMediaType())
         http.newCall(Request.Builder().url("$url/api/settings").header("Authorization", token).patch(body).build()).execute().use {
             check(it.isSuccessful) { "settings → ${it.code}" }
+        }
+    }
+
+    /** Linked instances on (DESIGN.md §33.2): the Application URL is this server, and the site's `federation` ticked. */
+    private fun enableFederation(url: String) {
+        val token = adminToken(url)
+        val json = "application/json".toMediaType()
+        val settings = """{"meta":{"appURL":"$url"}}""".toRequestBody(json)
+        http.newCall(Request.Builder().url("$url/api/settings").header("Authorization", token).patch(settings).build()).execute().use {
+            check(it.isSuccessful) { "settings → ${it.code}" }
+        }
+        val site = http.newCall(Request.Builder().url("$url/api/collections/site/records?perPage=1").build()).execute().use {
+            Regex("\"id\":\"([^\"]+)\"").find(it.body.string())!!.groupValues[1]
+        }
+        val on = """{"federation":true}""".toRequestBody(json)
+        http.newCall(Request.Builder().url("$url/api/collections/site/records/$site").header("Authorization", token).patch(on).build()).execute().use {
+            check(it.isSuccessful) { "site → ${it.code}" }
         }
     }
 

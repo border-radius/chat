@@ -1,11 +1,72 @@
 /// <reference path="../../types/pocketbase.d.ts" />
 // Linked instances (DESIGN.md §33): this server's origin, global ids, peers, and the queue every part writes to.
 
-/** This server's public origin (FEDERATION_ORIGIN), without a trailing slash. "" when the module is off. */
-const origin = () => $os.getenv("FEDERATION_ORIGIN").trim().replace(/\/+$/, "");
-
 /** Tests and development only: peers on private addresses and plain http (§33.6). */
 const allowPrivate = () => $os.getenv("FEDERATION_ALLOW_PRIVATE").trim() === "1";
+
+/**
+ * An origin as stored: scheme and host (and port), lowercased, no path. "" for anything else.
+ * @param {string} raw
+ */
+function cleanOrigin(raw) {
+  const m = /^(https?):\/\/([a-z0-9.-]+(?::\d+)?)\/?$/i.exec(String(raw || "").trim());
+  if (!m) return "";
+  return `${m[1].toLowerCase()}://${m[2].toLowerCase()}`;
+}
+
+/** This server's public origin: the Application URL (Settings → Application), as stored. "" when it isn't one. */
+const origin = () => cleanOrigin($app.settings().meta.appURL);
+
+/**
+ * Why this server can't link with others, or "" when it can: the Application URL must be its public https address
+ * (http and localhost only with FEDERATION_ALLOW_PRIVATE).
+ * @param {string} [o] an Application URL to check instead of the current one
+ */
+function originProblem(o = origin()) {
+  const c = cleanOrigin(o);
+  if (!c) return "Set the Application URL (Settings → Application) to this server's public address, like https://chat.example.org.";
+  if (allowPrivate()) return "";
+  if (!c.startsWith("https://")) return "The Application URL must be this server's public https:// address.";
+  if (/^https:\/\/(localhost|127\.|\[?::1)/.test(c)) return "The Application URL must be this server's public address, not localhost.";
+  return "";
+}
+
+/**
+ * Is the module on (§33.2): the site record's `federation` ticked, and an Application URL that can be linked with.
+ * Off, the /api/fed/ routes answer 404 and the worker sends nothing.
+ * @param {core.App} app
+ */
+function enabled(app) {
+  if (originProblem()) return false;
+  const found = app.findRecordsByFilter("site", "", "created", 1, 0);
+  return !!found[0]?.getBool("federation");
+}
+
+/**
+ * The /api/fed/ routes (and remote-users) while the module is off: 404, as on a server without it.
+ * @param {core.App} app
+ */
+function requireOn(app) {
+  if (!enabled(app)) throw new NotFoundError("Linking with other instances is off here.");
+}
+
+const IN_USE_KEY = "fed.inUse";
+
+/**
+ * Has this instance any fed_peers row at all: the record hooks have nothing to do without one, and skip their queries.
+ * Kept in the app store, dropped whenever a row is created or deleted.
+ * @param {core.App} app
+ */
+function inUse(app) {
+  const known = app.store().get(IN_USE_KEY);
+  if (known !== undefined && known !== null) return !!known;
+  const any = app.findRecordsByFilter("fed_peers", "", "", 1, 0).length > 0;
+  app.store().set(IN_USE_KEY, any);
+  return any;
+}
+
+/** @param {core.App} app */
+const forgetInUse = (app) => app.store().remove(IN_USE_KEY);
 
 /**
  * The host of an origin, lowercased, with its port if it has one: "https://B.example" → "b.example".
@@ -17,7 +78,7 @@ const hostOf = (o) =>
     .replace(/\/.*$/, "")
     .toLowerCase();
 
-/** This server's host, as global ids end in. */
+/** This server's host, as global ids end in. Changing the Application URL's host is refused while paired (§33.2). */
 const myHost = () => hostOf(origin());
 
 /**
@@ -190,6 +251,12 @@ function jsonOf(rec, field, fallback) {
 module.exports = {
   origin,
   allowPrivate,
+  cleanOrigin,
+  originProblem,
+  enabled,
+  requireOn,
+  inUse,
+  forgetInUse,
   hostOf,
   myHost,
   gid,

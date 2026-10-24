@@ -52,7 +52,8 @@ function verify(e, max = MAX_BODY) {
   const got = String(req.header.get("X-Fed-Signature") || "");
   if (!from || !date || !got) throw httpError(401, "Not a signed request.");
   const peer = peerByOrigin(e.app, from);
-  if (!peer?.getString("secret") || peer.getString("status") === "invited") throw httpError(403, "Not paired.");
+  const st = peer?.getString("status");
+  if (!peer?.getString("secret") || (st !== "active" && st !== "suspended")) throw httpError(403, "Not paired.");
   const at = Number(date);
   if (!Number.isFinite(at) || Math.abs(Date.now() / 1000 - at) > SKEW_S) throw httpError(401, "The request is too old.");
   let body = "";
@@ -203,19 +204,22 @@ function call(peer, method, path, json, opts = {}) {
 }
 
 /**
- * POST /api/fed/pair on the inviting instance (§33.3): not signed (there is no secret yet), the code says who it is.
+ * An unsigned POST for pairing (§33.3): there is no secret yet, the code says who it is. To `o` only, which is where
+ * the code may go: it is the address its admin typed in (or the one that asked, checked by asking it back).
  * @param {string} o its origin
+ * @param {"/api/fed/request" | "/api/fed/verify" | "/api/fed/pair" | "/api/fed/cancel"} path
  * @param {Record<string, unknown>} json
+ * @param {number} [seconds]
  * @returns {Answer}
  */
-function pairWith(o, json) {
+function pairing(o, path, json, seconds = 20) {
   const { u, ip } = target(o);
-  return curl(`${u.origin}/api/fed/pair`, ip, {
+  return curl(`${u.origin}${path}`, ip, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(json),
     max: MAX_ANSWER,
-    seconds: 20,
+    seconds,
   });
 }
 
@@ -240,4 +244,4 @@ function errorOf(a) {
   return `${a.status}${j && typeof j.message === "string" ? ` ${j.message.slice(0, 300)}` : ""}`;
 }
 
-module.exports = { MAX_BODY, sign, verify, call, pairWith, jsonBody, errorOf, httpError };
+module.exports = { MAX_BODY, sign, verify, target, call, pairing, jsonBody, errorOf, httpError };

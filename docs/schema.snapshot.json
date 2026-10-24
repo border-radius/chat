@@ -416,6 +416,7 @@
           "type": "select",
           "values": [
             "invited",
+            "requested",
             "active",
             "suspended"
           ]
@@ -2141,6 +2142,15 @@
           "required": false,
           "system": false,
           "type": "number"
+        },
+        {
+          "help": "",
+          "hidden": true,
+          "name": "federation",
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "bool"
         }
       ],
       "indexes": []

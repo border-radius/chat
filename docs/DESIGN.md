@@ -111,12 +111,13 @@ chat/
 │   ├── 1760000018_attachment_limits.js # §17.1
 │   ├── 1760000019_telegram.js          # §26 (tg_* collections)
 │   ├── 1760000020_service_messages.js  # §5.3 (messages.author optional: service messages)
-│   └── 1760000032_federation.js        # §33 (fed_* collections, the core's federation fields)
+│   ├── 1760000032_federation.js        # §33 (fed_* collections, the core's federation fields)
+│   └── 1760000033_federation_requests.js # §33.2–3 (site.federation, fed_peers "requested")
 ├── pb_hooks/                   # server-side JS hooks (committed)
 │   ├── main.pb.js              # registrations only
 │   ├── telegram.pb.js          # the Telegram bridge's registrations, only with TELEGRAM_BOT_TOKEN (§26)
 │   ├── telegram/               # the bridge: api, people, links, inbound, outbound, worker (§26)
-│   ├── federation.pb.js        # linked instances' registrations, only with FEDERATION_ORIGIN (§33)
+│   ├── federation.pb.js        # linked instances' registrations; on with site.federation (§33)
 │   ├── federation/             # config, net (signing, curl), people, rooms, messages, peers, inbox, worker (§33)
 │   └── lib/
 │       ├── messages.js         # messages hooks: text, attachments, replies, forwards, soft delete, edit stamps (§5.6, §17, §19, §21)
@@ -2747,8 +2748,16 @@ Like the Telegram bridge (§26.1): `pb_hooks/federation.pb.js` registers everyth
 the fields below. It saves messages, rooms and users through the same hooks as everything else, so text limits,
 attachment limits, access checks, unread counts and realtime apply to what comes from a peer.
 
-- **On:** `FEDERATION_ORIGIN` (this server's public `https://` origin) is set. Unset, nothing is registered and the
-  `fed_*` collections stay empty.
+- **On:** a superuser ticks `federation` on the `site` record (hidden; migration `1760000033_federation_requests.js`).
+  This server's origin is PocketBase's own **Application URL** (*Settings → Application*), which admins set anyway for
+  email links: no environment variable. Ticking it is refused while that URL isn't a public `https://` address
+  (PocketBase's default is `http://localhost:8090`). The URL's host is in every global id the peers keep (§33.6), so
+  changing it is refused while any `fed_peers` row exists. Off, the `/api/fed/` routes (and `/api/chat/remote-users`)
+  answer 404, the worker doesn't run, and no peer can be added. The record hooks are always registered, but skip at
+  once while `fed_peers` is empty (a flag in the app store, asked again after each create and delete).
+  `FEDERATION_ALLOW_PRIVATE=1` (http, 127.0.0.1) stays an environment variable: tests and development only. A server
+  that ran with the first build's `FEDERATION_ORIGIN` gets it as its Application URL, and `federation` ticked, from that
+  migration. An old Application URL that could never be linked with (the default) may be changed while paired.
 - **Core fields:** `users.peer` and `rooms.peer` (relation → `fed_peers`, empty = local; hidden), `rooms.remote_id` (the
   room's global id at its home; hidden), `messages.remote_id` (the message's global id; hidden). The last is unique
   per room, which makes every delivery idempotent. Two for the clients: `users.instance` (a stand-in's host, shown on
@@ -2758,17 +2767,33 @@ attachment limits, access checks, unread counts and realtime apply to what comes
 ### 33.3 Pairing (admins only)
 
 `fed_peers`: `origin` (`https://b.example`, unique), `label` (1–8 characters chosen by the admin, e.g. `B`, used in
-names, §33.4), `secret` (hidden), `status` (`invited` / `active` / `suspended`), `dms` (bool: people may open DMs across, §33.5),
-`invite`, `invite_expires`, `name` (the peer's site name), `last_ok`, `last_error`.
+names, §33.4), `secret` (hidden), `status` (`invited` / `requested` / `active` / `suspended`), `dms` (bool: people may
+open DMs across, §33.5), `invite`, `invite_expires`, `name` (the peer's site name), `last_ok`, `last_error`.
 
-1. A superuser on A adds a row for `https://b.example` in the admin UI, leaving `invite` empty. The row gets a one-time
-   **invite code** in `invite`, valid for 24 h. It stays there, readable by superusers only, until it is used or
-   expires: the admin UI can't show something once.
-2. The admin of A gives the code to the admin of B out of band.
-3. A superuser on B adds a row for `https://a.example` with the code. B calls `POST https://a.example/api/fed/pair`
-   with the code and a new random 256-bit secret, over HTTPS. A checks the code (constant time, once), stores the
-   secret and answers with its site name. Both rows become `active`.
-4. **Unpairing:** either admin deletes or suspends the row (§33.7). Pairing again makes a new secret, which is how
+No code passes between the admins (changed 2026-10-24; the first build had the admin of A hand B's admin a code). The
+code only ever proved that whoever finishes the pairing is the instance A's admin named, and A can deliver it there
+itself: it sends it only to the origin typed in, over HTTPS.
+
+1. **Asking:** a superuser on A adds a row for `https://b.example` (and a label). Before it is saved, A makes a
+   one-time code (in `invite`, valid 7 days) and sends it with its origin and site name to
+   `POST https://b.example/api/fed/request`. If B refuses for good (linking off there: 404; it lists A already: 409),
+   the row isn't saved and the admin sees why. If B can't be reached, the row is saved `invited` with `last_error`,
+   and the worker sends it again every 30 s of its runs (and on every tick) until it is delivered (`last_ok`).
+2. **Checking:** B doesn't take A's word for who it is. Before saving anything it asks back:
+   `POST https://a.example/api/fed/verify { origin: B, code }`, answered 200 only if A has an open request to B with
+   that code. A request claiming to be someone else's never shows. (A's row isn't saved yet while it waits for B's
+   answer, so A also keeps the code in the app store for that time.) B then saves a `requested` row, with a label
+   suggested from A's host (`chat.acme.org` → `acme`, made unique) and `dms` off. At most 20 requests wait at once.
+3. **Accepting:** B's superuser sets the row's `status` to `active` (choosing the label and `dms`). B calls
+   `POST https://a.example/api/fed/pair` with the code and a new random 256-bit secret, over HTTPS. A checks the code
+   (constant time, once, not expired), stores the secret and answers with its site name. Both rows become `active`.
+   A requested row can only become active; an invited one only by the other side accepting.
+4. **Both asking:** if B has an open request to A when A's arrives (checked as in step 2), B answers with its own code,
+   and A pairs with it at once, as B's admin accepting would.
+5. **Declining and withdrawing:** deleting a pending row tells the other side (`POST /api/fed/cancel`, with the code):
+   a withdrawn request's row goes there; a declined one's row says "b.example declined." for its admin to delete.
+   Requests nobody answers expire after 7 days: the requested row goes, the invited one says so.
+6. **Unpairing:** either admin deletes or suspends the row (§33.7). Pairing again makes a new secret, which is how
    the secret is rotated.
 
 Nobody but a superuser can pair, and an instance answers server requests only from active peers.
@@ -2956,7 +2981,8 @@ pass at once. File fetches for messages that arrived are queued the same way.
 ### 33.12 Tests
 
 Integration tests start **two PocketBase servers** (the harness already starts its own, §9.2) and pair them. Checks:
-pairing (a wrong, reused or expired code); signatures (wrong secret, old date, a replayed id); every event both ways
+pairing (a forged request, declining, withdrawing, an undelivered request sent later, both admins asking, an expired
+or reused code, an instance with linking off, the Application URL kept while paired); signatures (wrong secret, old date, a replayed id); every event both ways
 through a home and two mirrors; a peer acting outside its rights gets a 403 (another instance's author, a room not
 shared with it, posting where it may not); a home that is down, then back; suspending and unpairing; files fetched
 only by a peer that may; the fetcher refusing private addresses; shares offered, accepted, declined and ended by
@@ -2970,7 +2996,7 @@ and their reservation.
 
 Where the build settled what the plan above left open:
 
-- **The invite code** is kept in the row until used (§33.3), not only its hash.
+- **The code** is kept in the row until used (§33.3), not only its hash: the asked side needs it to accept.
 - **Per-event answers** from the inbox, a transaction each (§33.6): a batch isn't refused as a whole for one event.
   `fed_seen` holds the ids taken; the rate count is kept in memory.
 - **Not sent back where it came from:** the home passes a mirror's message, edit or delete to every other mirror, not to

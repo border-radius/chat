@@ -400,7 +400,12 @@ function run(app) {
   if (!me) return;
   try {
     const until = Date.now() + RUN_MS;
+    let pendingAt = 0;
     while (Date.now() < until) {
+      if (Date.now() - pendingAt >= PENDING_MS) {
+        pending(app);
+        pendingAt = Date.now();
+      }
       try {
         pass(app, me);
       } catch (err) {
@@ -415,11 +420,28 @@ function run(app) {
   }
 }
 
+/** How often a run looks at pending pairing requests. */
+const PENDING_MS = 30_000;
+
+/**
+ * Pending pairing requests (§33.3), every 30 s of a run and on every tick: sent again until delivered, ended once
+ * expired.
+ * @param {core.App} app
+ */
+function pending(app) {
+  try {
+    require(`${__hooks}/federation/peers.js`).pendingPass(app);
+  } catch (err) {
+    app.logger().error("federation: pending requests", "error", String(err));
+  }
+}
+
 /**
  * POST /api/fed/tick (superusers): one pass now, unless a run is going (it does the work within a second).
  * @param {core.RequestEvent} e
  */
 function tick(e) {
+  pending(e.app);
   const me = lock(e.app);
   if (!me) return e.json(202, { ran: false });
   try {

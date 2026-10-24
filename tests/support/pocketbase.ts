@@ -168,6 +168,21 @@ export async function disableRateLimits(url: string): Promise<RateLimits> {
   return rateLimits;
 }
 
+/**
+ * Turn linked instances on (DESIGN.md §33.2): the Application URL set to `appURL` (the server's own address by
+ * default) and the site record's `federation` ticked. Over plain http on 127.0.0.1 it needs the server started with
+ * FEDERATION_ALLOW_PRIVATE=1.
+ */
+export async function enableFederation(url: string, appURL = url): Promise<void> {
+  const { default: PocketBase } = await import("pocketbase");
+  const admin = new PocketBase(url);
+  admin.autoCancellation(false);
+  await admin.collection("_superusers").authWithPassword(SUPERUSER.email, SUPERUSER.password);
+  await admin.settings.update({ meta: { appURL } });
+  const site = await admin.collection("site").getFirstListItem("");
+  await admin.collection("site").update(site.id, { federation: true });
+}
+
 /** Run `pocketbase migrate …` (e.g. `down 1`, `up`) on a stopped server's data dir, answering yes to its question. */
 export function migrate(dataDir: string, ...args: string[]): void {
   execFileSync(

@@ -859,5 +859,6 @@ ordinary rooms and users to the app; it only shows what the server says of them:
   b.example".
 - **Tests:** `LinkedTest` (addresses, the top bar's line), `ChatApiTest` (a shared room and a stand-in decode; an address
   on an instance not linked is refused with its reason), `UiLinkedTest` (the top bar and the access screen of a shared
-  room; New message with an address). The test server runs with the module on (`FEDERATION_ORIGIN`), paired with no
+  room; New message with an address). The test server runs with the module on (since 2026-10-24 its Application URL and the
+  site's `federation` are set after it starts, as `TestServer.enableFederation`; there is no environment variable), paired with no
   one: the server's own suite pairs real servers (`tests/integration/federation.test.ts`).
