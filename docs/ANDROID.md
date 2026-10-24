@@ -200,7 +200,8 @@ row never changes key and the list never jumps. A trim job drops what falls outs
 3. **Scroll:** the `RemoteMediator` fetches older or newer pages by `(created, id)` cursor with `skipTotal`.
 4. **Reconnect:** after `PB_CONNECT`, resubscribe and fetch a newer page from each open room's newest kept message to
    fill the gap (`sync.ts`).
-5. **Read:** `POST /api/chat/reads` once the newest message is on screen (§18.3), debounced to 1 s. `room_reads`
+5. **Read:** `POST /api/chat/reads` up to the newest message on screen (§18.3, as far as the list shows: §25),
+   debounced to 1 s. `room_reads`
    events from other devices update the counts.
 
 **Lessons from the web, applied from the start:** one request to open a room (room cache latency, 2026-10-15), no
@@ -885,3 +886,22 @@ web's DESIGN.md §34.5).
 - No server change. Tests: `NotifyCheckTest` (a chosen room's plain message notifies, another room's doesn't, off
   again silent), `UiNotifyTest` (the menu item turns it on, the worker posts on Room messages). Icons checked on a
   Robolectric screenshot; not yet tried on the emulator.
+
+## 25. Reading only what is on screen (2026-10-24)
+
+The user: "when switching to room with unread messages it shouldn't mark all messages as read. only visible. so when
+scrolling in the room messages will be marked as read." Done on the web too (DESIGN.md §18.3).
+
+- **The bug:** a room with unread messages opened at the bottom and was read to its newest message. The controller's
+  scroll to the first unread message (`Scroll.Target`) could be emitted before the screen collected `scrolls` (a
+  `SharedFlow` without replay drops it), e.g. when the kept window shows at once; the new list then stayed at its
+  newest rows, which counted as read. `scrolls` is now a buffered channel (`receiveAsFlow`): kept until collected,
+  each delivered once.
+- **Reading:** `RoomViewModel.onScrolled(atBottom, shown, placed)` replaces `onAtBottom`. `shown` is the newest saved
+  message whose row is on screen whole (the list is laid out from the bottom, so the lowest visible index whose
+  offset is inside the viewport); at the bottom of the live edge it is everything, `caughtUp`. `placed`: nothing is
+  read until the controller's first scroll has been applied when the room opens at a message (the first unread one, or
+  a link's), since a new list shows its newest rows until then.
+- **Counts:** `RoomReader.seen(created, caughtUp)` clears the room's count only when caught up; `close(false)`
+  refetches the counts after the pending read is in, so the badge shows what is left below.
+- Tests: `UiPortsTest` (a room opened with 30 unread reads only what is on screen; scrolled to the bottom, all).

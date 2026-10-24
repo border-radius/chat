@@ -28,6 +28,15 @@ export function fakeLayout(list: HTMLElement, opts: { rowHeight: number; clientH
       },
     });
     (HTMLElement.prototype as { __fakeOffsetTop?: boolean }).__fakeOffsetTop = true;
+    // Rects too: the list is the viewport from 0 to its clientHeight, its children rows scrolled by its scrollTop.
+    const rect = HTMLElement.prototype.getBoundingClientRect;
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      const self = this as HTMLElement & { __rowHeight?: number };
+      const parent = this.parentElement as (HTMLElement & { __rowHeight?: number }) | null;
+      if (self.__rowHeight) return new DOMRect(0, 0, 0, this.clientHeight);
+      if (parent?.__rowHeight) return new DOMRect(0, this.offsetTop - parent.scrollTop, 0, parent.__rowHeight);
+      return rect.call(this);
+    };
   }
   (list as HTMLElement & { __rowHeight?: number }).__rowHeight = rowHeight;
   return {

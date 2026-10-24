@@ -457,6 +457,7 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
       const el = id && list.querySelector<HTMLElement>(`li[data-id="${CSS.escape(id)}"]`);
       if (el) list.scrollTop = el.offsetTop - list.clientHeight / (s.targetId ? 2 : 4);
     }
+    if (c.scroll) markRead(); // what the scroll brought into view (render read where the list was before it)
     renderPill();
   }
 
@@ -481,11 +482,35 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
     return s.phase === "ready" && !s.win.hasNewer && !s.unsure && isNearBottom(list) && document.visibilityState !== "hidden";
   };
 
-  /** The newest message the server has, if it is on screen. */
+  /**
+   * What is on screen is read (§18.3): up to the newest saved message shown whole, or everything once the newest
+   * messages are on screen. Scrolling down through what is unread reads it as it comes into view. Nothing in a hidden
+   * tab, or while a kept window shows before the server has said where the unread messages start (QA BUG-102).
+   */
   function markRead() {
-    if (!reader || !atLiveEdge()) return;
-    const last = lastSaved(ctl.state().win);
-    if (last) reader.seen(last.created);
+    const s = ctl.state();
+    if (!reader || s.phase !== "ready" || s.unsure || document.visibilityState === "hidden") return;
+    const caughtUp = atLiveEdge();
+    const m = caughtUp ? lastSaved(s.win) : lastShown();
+    if (m) reader.seen(m.created, caughtUp);
+  }
+
+  /** The newest saved message whose bottom is on screen. The list is in order, so its rows are bisected. */
+  function lastShown(): Message | undefined {
+    const rows = list.querySelectorAll<HTMLElement>("li.msg");
+    const bottom = list.getBoundingClientRect().bottom + 1;
+    let lo = 0;
+    let hi = rows.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (rows[mid]!.getBoundingClientRect().bottom <= bottom) lo = mid + 1;
+      else hi = mid;
+    }
+    for (let i = lo - 1; i >= 0; i--) {
+      const m = ctl.find(rows[i]!.dataset.id!);
+      if (m && !m.status) return m;
+    }
+    return undefined;
   }
 
   function scrollToBottom() {

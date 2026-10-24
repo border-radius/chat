@@ -264,10 +264,10 @@ describe("unread counts (§18.3)", () => {
       start();
       await vi.waitFor(() => expect(count(r.id)).toBe(3));
       const reader = unread!.open(r.id);
-      reader.seen(msgs[0]!.created);
+      reader.seen(msgs[0]!.created, true);
       expect(count(r.id)).toBeUndefined();
-      reader.seen(msgs[2]!.created);
-      reader.seen(msgs[1]!.created); // older: ignored
+      reader.seen(msgs[2]!.created, true);
+      reader.seen(msgs[1]!.created, true); // older: ignored
       expect(calls).toEqual([]);
       await vi.waitFor(() => expect(calls).toEqual([[r.id, msgs[2]!.created]]), { timeout: 3000 });
       await vi.waitFor(async () => expect((await me.api.unreadCounts()).rooms[r.id]).toBeUndefined());
@@ -277,9 +277,9 @@ describe("unread counts (§18.3)", () => {
       const { r, msgs } = await freshRoom(1);
       start();
       const reader = unread!.open(r.id);
-      reader.seen(msgs[0]!.created);
+      reader.seen(msgs[0]!.created, true);
       store.set({ unread: new Map([[r.id, 1]]) });
-      reader.seen(msgs[0]!.created);
+      reader.seen(msgs[0]!.created, true);
       expect(count(r.id)).toBeUndefined();
     });
 
@@ -288,13 +288,27 @@ describe("unread counts (§18.3)", () => {
       const calls = reads();
       start();
       const reader = unread!.open(r.id);
-      reader.seen(msgs[0]!.created);
+      reader.seen(msgs[0]!.created, true);
       reader.close(true);
       expect(calls).toEqual([[r.id, msgs[0]!.created]]);
       expect(count(r.id)).toBeUndefined();
-      reader.seen("9999"); // closed: nothing happens
+      reader.seen("9999", true); // closed: nothing happens
       await sleep(READ_WINDOW_MS);
       expect(calls).toHaveLength(1);
+    });
+
+    it("seen() short of the newest message reads that far: the count stays, and after close() it is what is left", async () => {
+      const { r, msgs } = await freshRoom(3);
+      const calls = reads();
+      start();
+      await vi.waitFor(() => expect(count(r.id)).toBe(3));
+      const reader = unread!.open(r.id);
+      reader.seen(msgs[0]!.created, false);
+      expect(count(r.id)).toBe(3);
+      reader.close(false);
+      expect(calls).toEqual([[r.id, msgs[0]!.created]]);
+      // Refetched after the read is in, not before it.
+      await vi.waitFor(() => expect(count(r.id)).toBe(2), { timeout: 3000 });
     });
 
     it("close() when not caught up refetches the counts", async () => {
@@ -311,8 +325,8 @@ describe("unread counts (§18.3)", () => {
       const b = await freshRoom(1);
       const calls = reads();
       start();
-      unread!.open(a.r.id).seen(a.msgs[0]!.created);
-      unread!.open(b.r.id).seen(b.msgs[0]!.created);
+      unread!.open(a.r.id).seen(a.msgs[0]!.created, true);
+      unread!.open(b.r.id).seen(b.msgs[0]!.created, true);
       unread!.flush();
       expect(calls).toEqual([
         [a.r.id, a.msgs[0]!.created],
@@ -329,9 +343,9 @@ describe("unread counts (§18.3)", () => {
       start();
       const reader = unread!.open(r.id); // for Me
       await me.api.logIn(third.email, third.password); // another tab: the shared session is now Third's
-      reader.seen(msgs[0]!.created);
+      reader.seen(msgs[0]!.created, true);
       unread!.flush();
-      reader.seen("9999-12-31 23:59:59.999Z"); // a later position: batched, not flushed
+      reader.seen("9999-12-31 23:59:59.999Z", true); // a later position: batched, not flushed
       await sleep(READ_WINDOW_MS); // the batched send, too
       reader.close(true);
       expect(calls).toEqual([]);
@@ -345,12 +359,12 @@ describe("unread counts (§18.3)", () => {
       const calls = reads(sent); // outside the failure, so the failed call is recorded too
       start();
       const reader = unread!.open(r.id);
-      reader.seen(msgs[0]!.created);
+      reader.seen(msgs[0]!.created, true);
       unread!.flush();
       expect(calls).toHaveLength(1);
       await Promise.all(sent); // the failure has come back
       await Promise.resolve(); // and the reader's own catch has run
-      reader.seen(msgs[0]!.created); // the same position: sent again only because it failed
+      reader.seen(msgs[0]!.created, true); // the same position: sent again only because it failed
       await vi.waitFor(() => expect(calls).toHaveLength(2), { timeout: 3000 });
       await vi.waitFor(async () => expect((await me.api.unreadCounts()).rooms[r.id]).toBeUndefined());
     });
@@ -360,7 +374,7 @@ describe("unread counts (§18.3)", () => {
       const calls = reads();
       start();
       const reader = unread!.open(r.id);
-      reader.seen(msgs[0]!.created);
+      reader.seen(msgs[0]!.created, true);
       unread!.stop();
       unread!.flush();
       reader.close(true);

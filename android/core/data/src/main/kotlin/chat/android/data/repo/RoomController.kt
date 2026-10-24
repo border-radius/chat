@@ -40,14 +40,15 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -111,10 +112,14 @@ class RoomController(
     private val run = Run(null, main)
     private val scope get() = run.scope
     private val stateFlow = MutableStateFlow(RoomState())
-    private val scrollFlow = MutableSharedFlow<Scroll>(extraBufferCapacity = 16)
+    /**
+     * Kept until the screen collects them: the first one (to the first unread message) can come before the screen has
+     * started to, and a lost one left the list at its newest rows, which then counted as read.
+     */
+    private val scrollFlow = Channel<Scroll>(16, BufferOverflow.DROP_OLDEST)
 
     val state: StateFlow<RoomState> = stateFlow.asStateFlow()
-    val scrolls: SharedFlow<Scroll> = scrollFlow.asSharedFlow()
+    val scrolls: Flow<Scroll> = scrollFlow.receiveAsFlow()
     val progress get() = outbox.progress
 
     /** Is the list at (near) the bottom? Set by the screen; new messages are followed only then. */
@@ -189,7 +194,7 @@ class RoomController(
             notice = notice,
             reacting = reacting.mapValues { (_, m) -> m.mapValues { it.value.first } },
         )
-        scroll?.let { scrollFlow.tryEmit(it) }
+        scroll?.let { scrollFlow.trySend(it) }
         keepJob?.cancel()
         keepJob = scope.launch {
             delay(1000)

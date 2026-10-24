@@ -421,14 +421,19 @@ class RoomViewModel(
 
     // ---- reading (§18.3)
 
-    /** The list shows its newest messages (at the bottom, at the live edge): they are read. */
-    fun onAtBottom(atBottom: Boolean) {
+    /**
+     * What the list shows is read: up to [shown], the newest saved message on screen whole, or everything at the bottom
+     * of the live edge. Scrolling down through what is unread reads it as it comes into view. Not before [placed] (the
+     * list has gone where the room opens, e.g. the first unread message: until then it shows its newest rows).
+     */
+    fun onScrolled(atBottom: Boolean, shown: Message?, placed: Boolean) {
         controller.atBottom = atBottom
         val s = controller.state.value
-        if (!atBottom) return
-        controller.dismissPill()
-        if (s.hasNewer || s.unsure || s.phase != chat.android.data.repo.Phase.Ready || services.store.get().away) return
-        s.items.lastOrNull { it.status == null }?.let { reader?.seen(it.created) }
+        if (atBottom) controller.dismissPill()
+        if (!placed || s.unsure || s.phase != chat.android.data.repo.Phase.Ready || services.store.get().away) return
+        val caughtUp = atBottom && !s.hasNewer
+        val m = if (caughtUp) s.items.lastOrNull { it.status == null } else shown
+        m?.let { reader?.seen(it.created, caughtUp) }
     }
 
     override fun onCleared() {

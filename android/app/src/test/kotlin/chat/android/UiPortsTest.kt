@@ -13,6 +13,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performKeyPress
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performTextInput
 import chat.android.data.api.NewMessage
 import chat.android.data.lib.newId
@@ -47,7 +48,26 @@ class UiPortsTest {
         68, 65, 84, 120, -38, 99, -8, -1, -1, 63, 0, 5, -2, 2, -2, -89, 53, -127, -124, 0, 0, 0, 0, 73, 69, 78, 68, -82, 66, 96, -126,
     )
 
-    @Test fun `jump to finds a room by a word of its name (switcher spec)`() {
+    @Test fun `opening a room with unread messages reads only what is on screen, scrolling down reads the rest (§18 3)`() {
+        val alice = newUser()
+        val bob = newUser()
+        val room = runBlocking { alice.api.createRoom("reads-${uniq()}") }
+        runBlocking { for (i in 1..30) alice.api.send(NewMessage(newId(), room.id, "unread $i")) }
+        ui.signedIn(bob)
+        ui.accounts!!.setVisible(true) // away, nothing is read
+        ui.showRoom(room.name)
+        compose.onNodeWithText(room.name).performClick()
+        ui.waitFor("unread 1")
+        val unread = suspend { bob.api.unreadCounts().rooms[room.id] ?: 0 }
+        // Before, the list was read while it still showed its newest rows, before it went to the first unread one.
+        ui.until { unread() in 1..29 }
+        repeat(30) { ui.pump() } // longer than the read batching: nothing more is read
+        assertTrue(runBlocking { unread() } in 1..29)
+        compose.onNodeWithContentDescription("Messages").performScrollToIndex(0)
+        ui.until { unread() == 0 }
+    }
+
+        @Test fun `jump to finds a room by a word of its name (switcher spec)`() {
         val a = newUser()
         val tag = uniq()
         val room = runBlocking { a.api.createRoom("jump-$tag-target") }

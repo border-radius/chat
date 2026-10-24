@@ -1,5 +1,5 @@
 // Unread counts (§18.3): keeps `unread` in the store and tells the server what has been read, for as long as someone
-// is logged in. The room view only reports what it shows (`open(roomId).seen(created)`); this module owns the
+// is logged in. The room view only reports what it shows (`open(roomId).seen(created, caughtUp)`); this module owns the
 // counting, the batching of reads, retries, and whose session a read belongs to.
 
 import type { Api } from "./api.ts";
@@ -20,8 +20,11 @@ export interface Unread {
 }
 
 export interface RoomReader {
-  /** The messages up to `created` (a message's `created`) are on screen: read. Cheap to call on every render. */
-  seen(created: string): void;
+  /**
+   * The messages up to `created` (a message's `created`) have been on screen: read. `caughtUp` is whether that was
+   * the newest one (the room's count is then cleared). Cheap to call on every render and scroll.
+   */
+  seen(created: string, caughtUp: boolean): void;
   /**
    * Leaving the room: send a pending read now. `caughtUp` is whether the newest messages were on screen at the end;
    * if not, messages may have arrived unseen (they aren't counted live in the room you are in), so refetch.
@@ -95,13 +98,13 @@ export function createUnread({ api, store, timing = TIMING }: { api: Api; store:
     const live = () => !closed && !!s?.active && s === scope;
 
     const self = {
-      send() {
+      send(): Promise<void> | undefined {
         clearTimeout(timer);
         timer = undefined;
         pending.delete(self);
         if (!s?.active || api.currentUser()?.id !== reader) return; // never as someone else
         const at = readAt;
-        api.markRead(roomId, at).catch(() => {
+        return api.markRead(roomId, at).catch(() => {
           // Try again with the next seen() (the room view renders after a reconnect's gap fill).
           if (readAt === at && live()) readAt = "";
         });
@@ -109,10 +112,11 @@ export function createUnread({ api, store, timing = TIMING }: { api: Api; store:
     };
 
     return {
-      seen(created) {
+      seen(created, caughtUp) {
         if (!live()) return;
-        // Even with nothing new: a count fetched while the tab was away may include what was already read.
-        store.set(clearUnread(roomId));
+        // Even with nothing new: a count fetched while the tab was away may include what was already read. Not before
+        // the newest message: the rest is still unread (close() refetches the count).
+        if (caughtUp) store.set(clearUnread(roomId));
         if (created <= readAt) return;
         readAt = created;
         if (timer) return;
@@ -121,9 +125,11 @@ export function createUnread({ api, store, timing = TIMING }: { api: Api; store:
       },
       close(caughtUp) {
         if (closed) return;
-        if (timer) self.send();
+        const sent = timer ? self.send() : undefined;
         if (live()) {
           if (caughtUp) store.set(clearUnread(roomId));
+          // After the read is in: counted before it, the messages just read would show as unread again.
+          else if (sent) void sent.then(refresh);
           else refresh();
         }
         closed = true;

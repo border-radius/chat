@@ -17,6 +17,7 @@ import {
   msgEl,
   newRoom,
   pill,
+  ROW,
   root,
   setView,
   sleep,
@@ -38,6 +39,12 @@ describe("room view", () => {
         return original(room, at);
       });
       return calls;
+    }
+    /** The id of the newest message shown whole (the fake layout's rows are ROW high). */
+    function lastOnScreen() {
+      const el = list();
+      const shown = [...el.querySelectorAll<HTMLElement>("li.msg")].filter((li) => li.offsetTop + ROW <= el.scrollTop + VIEWPORT);
+      return shown.at(-1)!.dataset.id!;
     }
     function setVisibility(state: "visible" | "hidden") {
       Object.defineProperty(document, "visibilityState", { configurable: true, get: () => state });
@@ -87,14 +94,19 @@ describe("room view", () => {
       expect(calls).toEqual([[room.id, m!.created]]);
     });
 
-    it("away from the live edge nothing is marked; leaving asks the server for the real count", async () => {
+    it("away from the live edge what is on screen is marked; leaving asks the server for the real count", async () => {
       const room = await newRoom();
       const all = await seedMessages(room.id, me.user.id, 300);
       const calls = reads(me.api);
       const ctl = instrument(me.api);
       await mount(room, { msgId: all[150]!.id });
-      await sleep(READ_WINDOW_MS);
-      expect(calls).toEqual([]);
+      const shown = all.findIndex((m) => m.id === lastOnScreen());
+      expect(shown).toBeGreaterThan(150);
+      expect(shown).toBeLessThan(160);
+      await vi.waitFor(() => expect(calls).toEqual([[room.id, all[shown]!.created]]), { timeout: 3000 });
+      // Scrolled down a little: those are read too.
+      layout.scrollTo(list().scrollTop + 4 * ROW);
+      await vi.waitFor(() => expect(calls.at(-1)).toEqual([room.id, all[shown + 4]!.created]), { timeout: 3000 });
       const before = ctl.calls("unreadCounts");
       view!.unmount();
       setView(undefined);
@@ -144,11 +156,19 @@ describe("room view", () => {
       expect(first.previousElementSibling?.matches("li.new-line")).toBe(true);
       expect(root.querySelectorAll("li.new-line")).toHaveLength(1);
       expect(ids()).toContain(all[20]!.id); // a page of what was read before, above it
-      expect(ids()).not.toContain(all[149]!.id); // not at the live edge: nothing more is read
+      expect(ids()).not.toContain(all[149]!.id);
       expect(list().scrollTop).toBe(first.offsetTop - VIEWPORT / 4);
+      // Read as far as is on screen, not to the newest message.
+      const shown = all.findIndex((m) => m.id === lastOnScreen());
+      expect(shown).toBeGreaterThan(70);
+      expect(shown).toBeLessThan(80);
       await sleep(UNREAD_LINE_MS + 100);
       expect(root.querySelector("li.new-line")).toBeNull();
-      expect(calls).toEqual([]);
+      // The line's row is gone, so what was below the screen may have moved onto it: that is read too.
+      const now = all.findIndex((m) => m.id === lastOnScreen());
+      expect(calls[0]).toEqual([room.id, all[shown]!.created]);
+      await vi.waitFor(() => expect(calls.at(-1)).toEqual([room.id, all[now]!.created]), { timeout: 3000 });
+      expect(now).toBeLessThan(80);
     });
 
     it("QA BUG-93: opened before the counts are in (a reload), the room still opens at the first unread message", async () => {
@@ -162,8 +182,10 @@ describe("room view", () => {
       await mount(room);
       expect(msgEl(all[70]!.id)?.previousElementSibling?.matches("li.new-line")).toBe(true);
       expect(ids()).not.toContain(all[149]!.id);
+      const shown = all.findIndex((m) => m.id === lastOnScreen());
+      expect(shown).toBeLessThan(80);
       await sleep(READ_WINDOW_MS);
-      expect(calls).toEqual([]); // the 80 unread messages aren't taken as read
+      expect(calls).toEqual([[room.id, all[shown]!.created]]); // only what is on screen, not the 80 unread messages
     });
 
     it("without unread messages, the room opens at the bottom with no New line", async () => {

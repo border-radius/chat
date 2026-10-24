@@ -146,9 +146,22 @@ fun RoomScreen(roomId: String, msgId: String?, nav: RoomNav, incoming: Pair<Stri
     androidx.activity.compose.BackHandler(enabled = !vm.selecting && !vm.searching && vm.editing != null, onBack = vm::cancelEdit)
 
     val atBottom by remember { derivedStateOf { list.firstVisibleItemIndex == 0 && list.firstVisibleItemScrollOffset < 64 } }
+    // The newest saved message shown whole (§18.3). The list is laid out from the bottom: an item's offset is from there.
+    val shown by remember {
+        derivedStateOf {
+            val info = list.layoutInfo
+            info.visibleItemsInfo.firstNotNullOfOrNull { item ->
+                if (item.offset < info.viewportStartOffset) null else (rows.getOrNull(item.index) as? ListRow.Msg)?.m?.takeIf { it.status == null }
+            }
+        }
+    }
+    // A new list shows its newest rows until the controller's first scroll puts it where the room opens (the first
+    // unread message): what it shows before that isn't read. Opening at the bottom, there is nothing to wait for.
+    var scrolled by remember { mutableStateOf(false) }
+    val placed = scrolled || (state.unreadId == null && state.targetId == null)
     // Also on coming back: what arrived while the app was in the background (realtime stays up for a while) is read
     // once it is on screen again (QA BUG-157).
-    LaunchedEffect(atBottom, rows, app_.away) { vm.onAtBottom(atBottom) }
+    LaunchedEffect(atBottom, shown?.id, placed, rows, app_.away) { vm.onScrolled(atBottom, shown, placed) }
     // The newest row the list has been given (composed, so its next layout has it), for Scroll.Bottom to wait on.
     val composedFirst = remember { kotlinx.coroutines.flow.MutableStateFlow<String?>(null) }
     androidx.compose.runtime.SideEffect { composedFirst.value = (rows.firstOrNull() as? ListRow.Msg)?.m?.id }
@@ -203,6 +216,7 @@ fun RoomScreen(roomId: String, msgId: String?, nav: RoomNav, incoming: Pair<Stri
                     Scroll.Anchor -> {}
                 }
             }
+            scrolled = true
         }
     }
 

@@ -58,7 +58,10 @@ class UiFeaturesTest {
         val a = newUser()
         val b = newUser()
         val room = runBlocking { a.api.createRoom("fu-${uniq()}") }
-        runBlocking { for (i in 1..12) b.api.send(NewMessage(newId(), room.id, "filler $i")) }
+        runBlocking {
+            val last = (1..12).map { b.api.send(NewMessage(newId(), room.id, "filler $it")) }.last()
+            a.api.markRead(room.id, last.created) // read: the room opens at the bottom, not at the first unread one
+        }
         ui.signedIn(a)
         ui.showRoom(room.name)
         compose.onNodeWithText(room.name).performClick()

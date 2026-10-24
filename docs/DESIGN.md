@@ -484,7 +484,7 @@ while its first page loads.
   and realtime may not have told the room yet (QA BUG-100); a kept copy no newer than the page's gives way to it, so an author's new name or avatar shows (QA BUG-103). A reconnect meanwhile does nothing: the page is on its way. The window is `stale` until the page is in: the page
   then replaces it (pending sends are kept as usual), staying where you scrolled unless you were at the bottom;
   realtime events received meanwhile are replayed on top of it; and loading older history waits for it. What it shows
-  counts as read (§18.3), up to its newest message, except while it shows at the bottom before the server has said
+  counts as read (§18.3), as far as it is on screen, except while it shows at the bottom before the server has said
   where the unread messages start (after a reload): they may start further up (QA BUG-102); leaving before the page is in, the unread counts are fetched again
   rather than taken as zero, since the server may have had more. A first load that fails still shows the error and **Retry**, not the stale window.
 - **Prefetched** (`prefetch.ts`): the unread events of other rooms carry no text (§18.3), so when a room's unread count
@@ -909,7 +909,7 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 | Which rooms | Every room in the Rooms and Direct messages sections. Hidden and archived rooms still show nothing (§13 above), and neither does the room you are in. |
 | What the badge shows | A count, shown as `99+` past 99. Your own messages and deleted messages never count. |
 | Where read state lives | On the server (`room_reads`, §18.1), so it follows you across tabs and devices. |
-| When a room is read | When the room view shows its latest messages, scrolled to the bottom, in a visible tab (§18.3). Scrolled up, new messages stay unread until you scroll down to them. |
+| When a room is read | As far as the room view shows it, in a visible tab (§18.3): up to the newest message on screen whole, all of it once scrolled to the bottom. Opening a room with unread messages reads only those on screen; the rest are read as you scroll down to them (2026-10-24, user: "it shouldn't mark all messages as read. only visible"). Scrolled up, new messages stay unread until you scroll down to them. |
 | Before you joined | Messages older than your account never count, so a new user doesn't start with 99+ everywhere. |
 
 ### Decided (2026-10-11, bundle size)
@@ -1547,12 +1547,17 @@ No row means "read up to your signup" (`users.created`): history from before you
   included (QA BUG-106). An answer older than the counts in the store is dropped.
 - **Other tabs and devices:** `room_reads` events (your own rows only) refetch the counts, debounced (250 ms).
 - **Marking read:** the room view opens a `RoomReader` (`unread.open(roomId)`) on mount. After every render, scroll
-  and visibility change, if the newest messages are on screen (the window reaches the live edge, §7.5, the list is
-  scrolled to the bottom, and the tab is visible), it calls `reader.seen(newest confirmed message's created)`. The
-  reader clears the room's count in the store at once and, at most once a second, sends the position to
-  `POST /api/chat/reads`. A failed send is retried with the next `seen()` (a reconnect's gap fill renders). On
-  unmount the view calls `reader.close(caughtUp)`: a pending read goes out immediately, and when not caught up the
-  counts are refetched, because messages that arrived meanwhile weren't counted (it was the active room).
+  (and after the scroll a render asks for, e.g. to the first unread message) and visibility change, in a visible tab,
+  it reports how far the list is on screen: `reader.seen(created, caughtUp)`. When the newest messages are on screen
+  (the window reaches the live edge, §7.5, and the list is scrolled to the bottom) that is the newest confirmed
+  message, `caughtUp`; otherwise the newest confirmed message shown whole (the rows are bisected by their rects), so
+  scrolling down through unread messages reads them as they come into view (2026-10-24: opening a room used to be
+  all or nothing). Caught up, the reader clears the room's count in the store at once. At most once a second it sends
+  the position to `POST /api/chat/reads`. A failed send is retried with the next `seen()` (a reconnect's gap fill
+  renders). On unmount the view calls `reader.close(caughtUp)`: a pending read goes out immediately, and when not
+  caught up the counts are refetched once it is in (fetched before it, the messages just read would count again),
+  because what is below the screen is still unread and messages that arrived meanwhile weren't counted (it was the
+  active room).
 - **Whose read:** the session is shared by every tab, and another tab can switch it to another user. A reader
   remembers who it was opened for and never sends a read as anyone else. Ending the session (`endSession()` in
   `app.ts`) calls `unread.flush()` first, so logging out still sends the pending read while the session exists;

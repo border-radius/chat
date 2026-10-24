@@ -82,3 +82,36 @@ test("§18.5: clicking a room with a badge opens it at the first unread message,
   await expect(list.locator("li.msg", { hasText: "unread 25" })).not.toBeInViewport();
   await expect(line).toHaveCount(0, { timeout: 7_000 });
 });
+
+test("§18.3: opening a room reads only what is on screen; scrolling down reads the rest", async ({ browser }) => {
+  const ada = await apiUser("Ada");
+  const room = await apiRoom(ada);
+  const lobby = await apiRoom(ada);
+  const bob = await apiUser("Bob");
+  const b = await openRoom(browser, bob, lobby);
+  for (let i = 1; i <= 25; i++) await apiSend(ada, room, `unread ${i}`);
+  const row = b.locator(`li[data-room-id="${room.id}"]`);
+  await expect(row.locator(".badge")).toHaveText("25 unread", { timeout: 3_000 });
+  const toLobby = () => b.locator(`li[data-room-id="${lobby.id}"]`).getByRole("link").click();
+
+  await row.getByRole("link").click();
+  const list = b.locator("ol.messages");
+  await expect(list.locator("li.msg", { hasText: /unread 1\b/ })).toBeInViewport();
+  await expect(list.locator("li.msg", { hasText: "unread 25" })).not.toBeInViewport();
+  await b.waitForTimeout(1_500); // longer than the read batching
+  await toLobby();
+  // What was on screen is read, the messages below it aren't (the count is refetched once the read is in).
+  const badge = async () => Number.parseInt((await row.locator(".badge").textContent({ timeout: 1_000 }).catch(() => "0")) ?? "0", 10);
+  await expect.poll(badge, { timeout: 3_000 }).toBeLessThan(25);
+  const left = await badge();
+  expect(left).toBeGreaterThan(0);
+
+  // Back in the room, it opens at the first message still unread; scrolled to the bottom, all of them are read.
+  await row.getByRole("link").click();
+  await expect(list.locator("li.new-line + li.msg")).toContainText(`unread ${26 - left}`);
+  await list.evaluate((el) => (el.scrollTop = el.scrollHeight));
+  await expect(list.locator("li.msg", { hasText: "unread 25" })).toBeInViewport();
+  await b.waitForTimeout(1_500);
+  await toLobby();
+  await expect(row.locator(".badge")).toHaveCount(0, { timeout: 3_000 });
+});

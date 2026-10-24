@@ -124,8 +124,11 @@ class RoomsSync(private val api: ChatApi, private val store: Store, private val 
 
 /** What the room screen reports as read (the web's RoomReader). */
 interface RoomReader {
-    /** The messages up to [created] are on screen: read. Cheap to call on every frame. */
-    fun seen(created: String)
+    /**
+     * The messages up to [created] have been on screen: read. [caughtUp] is whether that was the newest one (the room's
+     * count is then cleared). Cheap to call on every frame.
+     */
+    fun seen(created: String, caughtUp: Boolean)
 
     /** Leaving the room: send a pending read now; refetch the counts unless the newest messages were on screen. */
     fun close(caughtUp: Boolean)
@@ -149,7 +152,8 @@ class Unread(
     private val pending = mutableSetOf<Sender>()
 
     private interface Sender {
-        fun send()
+        /** The request, if one went out. */
+        fun send(): Job?
     }
 
     /** The counts as last saved (a cold start shows the badges at once); still to be confirmed by the server. */
@@ -200,13 +204,13 @@ class Unread(
         var closed = false
         val live = { !closed && r != null && r.active && r === run }
         val self = object : Sender {
-            override fun send() {
+            override fun send(): Job? {
                 timer?.cancel()
                 timer = null
                 pending -= this
-                if (r == null || !r.active || api.currentUser()?.id != reader) return // never as someone else
+                if (r == null || !r.active || api.currentUser()?.id != reader) return null // never as someone else
                 val at = readAt
-                r.scope.launch {
+                return r.scope.launch {
                     runCatching { api.markRead(roomId, at) }.onFailure {
                         // Tried again with the next seen() (after a reconnect's gap fill).
                         if (readAt == at && live()) readAt = ""
@@ -215,9 +219,10 @@ class Unread(
             }
         }
         return object : RoomReader {
-            override fun seen(created: String) {
+            override fun seen(created: String, caughtUp: Boolean) {
                 if (!live()) return
-                store.update { it.clearUnread(roomId) }
+                // Not before the newest message: the rest is still unread (close() refetches the count).
+                if (caughtUp) store.update { it.clearUnread(roomId) }
                 if (created <= readAt) return
                 readAt = created
                 if (timer != null) return
@@ -230,9 +235,17 @@ class Unread(
 
             override fun close(caughtUp: Boolean) {
                 if (closed) return
-                if (timer != null) self.send()
+                val sent = if (timer != null) self.send() else null
                 if (live()) {
-                    if (caughtUp) store.update { it.clearUnread(roomId) } else refresh()
+                    when {
+                        caughtUp -> store.update { it.clearUnread(roomId) }
+                        // After the read is in: counted before it, the messages just read would show as unread again.
+                        sent != null -> r!!.scope.launch {
+                            sent.join()
+                            refresh()
+                        }
+                        else -> refresh()
+                    }
                 }
                 closed = true
             }

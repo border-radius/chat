@@ -127,7 +127,7 @@ class ServicesTest {
         val c = s.openRoom(room.id)
         eventually(what = "opened at the first unread") { c.state.value.unreadId != null }
         val reader = s.unread.open(room.id)
-        reader.seen(c.state.value.items.last().created)
+        reader.seen(c.state.value.items.last().created, caughtUp = true)
         reader.close(caughtUp = true)
         eventually(what = "read on the server") { runBlocking { b.api.unreadCounts().rooms[room.id] == null } }
         c.close()
