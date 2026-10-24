@@ -41,9 +41,10 @@ fun jumpScore(name: String, q: String): Int {
 
 /**
  * When each room was last open in this process (entered or left), as PocketBase dates: rooms have no latest message
- * time (only DMs do), so this is what puts a room you just used first (QA BUG-134). Forgotten when the app restarts.
+ * time (only DMs do), so this is what puts a room you just used first (QA BUG-134). One per account (ChatServices),
+ * forgotten when its session changes (QA BUG-136, BUG-152) and when the app restarts.
  */
-object RecentlyOpened {
+class RecentlyOpened {
     private val at = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     fun note(roomId: String) {
@@ -56,7 +57,7 @@ object RecentlyOpened {
 }
 
 /** Everything you can jump to, from the room list's sections. [opened]: when a room was last open, "" if not yet. */
-fun jumpTargets(s: RoomSections, me: String?, opened: (String) -> String = RecentlyOpened::get): List<JumpTarget> {
+fun jumpTargets(s: RoomSections, me: String?, opened: (String) -> String): List<JumpTarget> {
     fun t(r: Room, note: String): JumpTarget {
         val sent = r.lastMessageAt.ifEmpty { r.created }
         val open = opened(r.id)

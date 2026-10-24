@@ -421,6 +421,20 @@ describe("app boot (§7.1)", () => {
       expect(app!.store.get().user).toBeNull();
     });
 
+    it("QA BUG-151: a send refused just after a check is checked once 30 s have passed", async () => {
+      const { api, room } = await revoked();
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      try {
+        await expect(api.send({ id: newId(), room: room.id, text: "lost" })).rejects.toThrow();
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(location.pathname).toBe("/");
+        await vi.advanceTimersByTimeAsync(29_000);
+      } finally {
+        vi.useRealTimers();
+      }
+      await vi.waitFor(() => expect(location.pathname).toBe("/login"));
+    });
+
     it("coming back to a tab whose session wasn't checked for a while checks it", async () => {
       await revoked();
       later(6 * 60_000);

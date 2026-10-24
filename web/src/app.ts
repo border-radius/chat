@@ -226,7 +226,11 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
   };
   /** A refused change: was it the session? A revoked one logs out instead of failing every send ("Not sent"). */
   const onRejected = () => {
-    if (store.get().user && Date.now() - checkedAt >= CHECK_MIN_MS) renew();
+    if (!store.get().user) return;
+    const wait = checkedAt + CHECK_MIN_MS - Date.now();
+    // Checked a moment ago: check again once allowed, not never (QA BUG-151).
+    if (wait <= 0) renew();
+    else scheduleRenew(wait);
   };
 
   /**

@@ -657,7 +657,7 @@ the accent; the app's version at the end of the profile.
 |---|---|
 | Appearance: System, Light, Dark (DESIGN.md §7.8) | Profile → Appearance; kept in the device settings (`DeviceSettings.theme`, the account index's `theme`), the system bars follow it |
 | Media grid (§30) | The room's 🖼 button → `MediaScreen`: `GET /api/chat/media/{room}`, month headings, 60 a page, posters, a tile opens the viewer |
-| Jump to (§32) | The room list's search button (or Ctrl+K / Ctrl+P): `lib/Jump.kt` ports `matches`/`score`; rooms you just had open come first (`RecentlyOpened`) |
+| Jump to (§32) | The room list's search button (or Ctrl+K / Ctrl+P): `lib/Jump.kt` ports `matches`/`score`; rooms you just had open come first (`ChatServices.opened`, per account, forgotten when the session changes: QA BUG-152) |
 | Media collections (§31) | §19 |
 
 ### 18.5 Tests
@@ -799,3 +799,44 @@ the full run, passed alone). The release APK is 2.99 MB (was 3.24 MB with Fireba
 Open question 8: is about 15 minutes late acceptable? Faster would need a push again (UnifiedPush keeps it free of
 Google; its server side is done, §8.2) or a foreground service with a connection open, which costs battery and shows
 a permanent notification.
+
+## 22. QA pass 20: notifications on a device, ports of web fixes (2026-10-24)
+
+Tested on the emulator (Android 9, §18.1) and with the JVM suites, alongside the web's QA pass 20 (QA.md).
+
+### 22.1 Notifications on the emulator
+
+§21's check, first run on a device: a DM and a reply to Zoe notified on their channels (Direct messages, Replies),
+a plain room message didn't; inline **Reply** sent through the outbox and showed as "You" in the notification; **Mark
+as read** read the room up to the reply (a later message stayed unread) and took its notification away; tapping a
+notification opened its DM, at a cold start too. WorkManager refuses to run a periodic job before its period is up,
+even forced (`cmd jobscheduler run -f`), and under TCG the guest clock runs slow: to try a check without waiting, set
+the guest clock forward as root (`adb root`, `date @<epoch>`), then force the job.
+
+### 22.2 Bugs fixed
+
+| Bug | Fix |
+|---|---|
+| QA BUG-152: Jump to's "rooms you just had open first" was one list for the whole process: the next person signed in on the phone (or another account on the same server) got their rooms in the order the last one used them. The web's BUG-136 forgets them | `RecentlyOpened` is per account (`ChatServices.opened`) and cleared when its session changes (`ServicesTest`) |
+| QA BUG-153: a check that failed part way (offline while it fetched the read positions or a room) had already saved what it found as seen: those DMs and replies were never notified | The check's state is saved once it is through; a room that can't be fetched for being offline fails the check (tried again), only a refused one is skipped (`NotifyCheckTest`) |
+| QA BUG-154: a notification showed when the check ran, up to 15 minutes (or a Doze window) after the message | Its message's time (`UiNotifyTest`) |
+| QA BUG-155: the viewer kept the images of a message deleted while it was open (the web's BUG-120, Medium, privacy) | The room viewer follows the room's messages: a message deleted, or a forward whose original was, takes its images and videos with it; the next shows (or the one before), none left closes it (`UiPortsTest`) |
+| QA BUG-156: a message's menu or reaction picker stayed open when the message was deleted meanwhile; Reply, Edit or a reaction were then refused by the server (the web's BUG-121) | They close when their message is deleted or leaves the list (`UiFeaturesTest`) |
+| QA BUG-158: a 200 that wasn't the server's answer (a captive portal's page) read as `{}`: lists came back empty, and the session renewal at start threw outside any handler, ending the app (the web's BUG-117) | A success other than 204 without a JSON body fails with status 0; `checkSession` ends the session only on a refusal (`ChatApiTest`) |
+| QA BUG-159: holding Ctrl+K toggled Jump to on every key repeat (the web's BUG-137) | A repeated press is ignored (`UiPortsTest`) |
+| QA BUG-160: a private room you were taken out of stayed kept on the device, shown when opened from a link or a notification until the server refused (the web's BUG-101, privacy) | A room that leaves the loaded list is kept empty (`ChatServices`, as the web's `forgetGone`; `ServicesTest`) |
+| QA BUG-157: a message that arrived while the app was in the background (realtime stays up for a while, §9.1) stayed unread after coming back to it on screen: in the room list, on the web, everywhere | The room reports what is on screen again when the app comes back (`UiFeaturesTest`) |
+
+### 22.3 Checked by hand on the emulator
+
+Attaching a picture through the system picker (sent with its own name); changing the profile picture through it; a
+draft across a rotation; the room filled in after coming back from the background, and a DM started meanwhile listed
+with its badge; unread rooms listed first; the viewer dropping a deleted image live.
+
+### 22.4 Tests
+
+`UiHarness.reveal` scrolls whichever list holds a node to it: the shared server's public rooms push Collections further
+down with every test, and `UiCollectionsTest` began to fail in full runs once they were off the composed range. The
+hide test clicks the row's menu by its action, not a tap (scrolled to the bottom edge, the row was under the New
+button), and reveals Hidden before waiting for it. All JVM tests pass: 76 in `:core:data`, 39 in `:app` (twice in a
+row); lint is clean; the release APK is 3.14 MB (budget 6 MB).

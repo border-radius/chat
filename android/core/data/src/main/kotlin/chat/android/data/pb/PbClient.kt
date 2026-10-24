@@ -106,7 +106,12 @@ class PbClient(baseUrl: String, val http: OkHttpClient, val authStore: AuthStore
                 } catch (e: IOException) {
                     throw PbError(0, cause = e)
                 }
-                val json = if (text.isBlank()) JsonObject(emptyMap()) else runCatching { PbJson.parseToJsonElement(text) }.getOrElse { JsonObject(emptyMap()) }
+                val parsed = if (text.isBlank()) null else runCatching { PbJson.parseToJsonElement(text) }.getOrNull()
+                // No body is fine for a 204, or an error the server didn't explain. A success without one (a proxy's or a
+                // captive portal's page, an answer cut short) is network trouble, not `{}`: as a login's or a renewal's
+                // answer it would have saved no session, or crashed reading it (the web's QA BUG-117; BUG-158).
+                if (parsed == null && it.code < 300 && it.code != 204) throw PbError(0)
+                val json = parsed ?: JsonObject(emptyMap())
                 if (it.code >= 400) throw PbError(it.code, json as? JsonObject ?: JsonObject(emptyMap()))
                 json
             }

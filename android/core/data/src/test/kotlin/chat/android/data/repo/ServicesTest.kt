@@ -158,6 +158,31 @@ class ServicesTest {
         assertNull(s.api.currentUser())
     }
 
+    @Test fun `a private room you are taken out of is kept empty, though it wasn't open (QA BUG-160)`() = runBlocking {
+        val ada = newUser()
+        val bob = newUser()
+        val room = ada.api.createRoom("secret-${uniq()}", Visibility.Private)
+        ada.api.setAccess(room.id, Visibility.Private, listOf(bob.user.id))
+        val m = ada.api.send(chat.android.data.api.NewMessage(chat.android.data.lib.newId(), room.id, "for bob's eyes"))
+        val s = services(bob)
+        eventually(what = "the room listed") { s.store.get().roomsStatus == LoadStatus.Ready && room.id in s.store.get().rooms }
+        s.cache.put(bob.user.id, room.id, Kept(listOf(m), false)) // prefetched
+        ada.api.setAccess(room.id, Visibility.Private, emptyList())
+        eventually(what = "the room gone") { room.id !in s.store.get().rooms }
+        eventually(what = "kept empty") { runBlocking { s.cache.get(bob.user.id, room.id)?.items?.isEmpty() == true } }
+    }
+
+    @Test fun `Jump to forgets which rooms were opened when the session ends (QA BUG-152)`() = runBlocking {
+        val a = newUser()
+        val s = services(a)
+        eventually(what = "rooms") { s.store.get().roomsStatus == LoadStatus.Ready }
+        s.opened.note("some-room")
+        assertTrue(s.opened["some-room"].isNotEmpty())
+        s.logOut()
+        eventually(what = "logged out") { s.store.get().user == null }
+        assertEquals("", s.opened["some-room"])
+    }
+
     @Test fun `a session that ran out while the app was closed leaves nothing of it, even for a moment (QA BUG-145)`() = runBlocking {
         val a = newUser()
         val secret = a.api.createRoom("secret-${uniq()}", Visibility.Private)

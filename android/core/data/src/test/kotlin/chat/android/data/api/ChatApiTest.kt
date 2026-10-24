@@ -9,6 +9,8 @@ import chat.android.data.testing.TestServer
 import chat.android.data.testing.TestServer.newUser
 import chat.android.data.testing.TestServer.uniq
 import kotlinx.coroutines.channels.Channel
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.ResponseBody.Companion.toResponseBody
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -33,6 +35,21 @@ class ChatApiTest {
         assertEquals(user.id, other.refreshAuth().id)
         other.logOut()
         assertNull(other.currentUser())
+    }
+
+    @Test fun `a success that isn't the server's answer is network trouble, and the session is kept (QA BUG-158)`() = runBlocking {
+        val a = newUser()
+        val http = TestServer.http.newBuilder().addInterceptor { chain ->
+            // A captive portal's, or a misconfigured proxy's, page instead of the answer.
+            okhttp3.Response.Builder().request(chain.request()).protocol(okhttp3.Protocol.HTTP_1_1).code(200).message("OK")
+                .body("<html>Sign in to the Wi-Fi</html>".toResponseBody("text/html".toMediaType())).build()
+        }.build()
+        val session = a.api.pb.authStore.session.value
+        val api = ChatApi(chat.android.data.pb.PbClient(TestServer.url, http, chat.android.data.pb.MemoryAuthStore(session)))
+        val e = runCatching { api.refreshAuth() }.exceptionOrNull()
+        assertEquals(0, e?.toApiError()?.status)
+        assertEquals(session.token, api.pb.authStore.session.value.token)
+        assertEquals(0, runCatching { api.listRooms() }.exceptionOrNull()?.toApiError()?.status)
     }
 
     @Test fun `a wrong password is a 400 with the server's message`() = runBlocking {

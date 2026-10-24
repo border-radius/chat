@@ -104,6 +104,18 @@ class UiHarness(private val compose: ComposeContentTestRule) {
         }
     }
 
+    /**
+     * Scroll whichever list holds a node matching [matcher] to it: a lazy list composes only the rows on screen, and the
+     * shared server's public rooms push the sections below Rooms (Collections, Hidden) further down with every test.
+     */
+    fun reveal(matcher: SemanticsMatcher) {
+        compose.waitUntil(15_000) {
+            pump()
+            val lists = compose.onAllNodes(androidx.compose.ui.test.hasScrollAction())
+            (0 until lists.fetchSemanticsNodes().size).any { i -> runCatching { lists[i].performScrollToNode(matcher) }.isSuccess }
+        }
+    }
+
     /** Wait until the server says so (polling). */
     fun until(ms: Long = 15_000, check: suspend () -> Boolean) = dumping {
         compose.waitUntil(ms) {

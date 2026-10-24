@@ -1591,3 +1591,115 @@ messages in order.
 - **CHAT-11:** `/api/chat/badges` answers `{ private: true }` for a private collection and `null` for a missing one.
   That difference is what the room shows ("Private collection", or no badge), and the ids it reveals are in every
   message's `file_sources` already; 15 random characters can't be enumerated.
+
+---
+
+# QA pass 20 — the web app and the Android app, after the audit fixes
+
+Exploratory testing of both clients on 2026-10-24, after room list folding and unread-first (§7.1, ANDROID.md §20),
+the Android app's notifications by WorkManager (ANDROID.md §21) and the security audit's fixes. The web: a production
+build on a fresh PocketBase, in Chromium (390 and 1100 px wide, light and dark), four randomized runs (desktop and
+phone, with and without the service worker), a fuzz of every custom route (odd bodies, types, ids, queries; with and
+without a session), races (both sides opening one DM, six people reacting at once, an edit racing a delete), axe on a
+folded list. Android: the JVM suites, and by hand on the emulator (Android 9) against a seeded server, notifications
+included. Numbering continues from BUG-150. Each fix lands with a test that fails without it.
+
+| # | Severity | Area | Summary | Status |
+|---|---|---|---|---|
+| BUG-151 | Low | Session (web) | Signed out elsewhere (a password change) within 30 s of this tab's last session check, a refused send was never followed by a check: the tab kept looking signed in, every send "Not sent" | Fixed |
+| BUG-152 | Low | Jump to (Android) | The rooms "you just had open" were remembered for the whole process: the next person on the phone, or another account on the same server, got them first (the web's BUG-136, not ported) | Fixed |
+| BUG-153 | Medium | Notifications (Android) | A check that failed part way (offline) had already saved what it found as seen: those DMs and replies were never notified | Fixed |
+| BUG-154 | Low | Notifications (Android) | A notification showed the time of the check, up to 15 minutes after the message | Fixed |
+| BUG-155 | Medium | Viewer (Android) | The viewer kept the images of a message deleted while it was open (the web's BUG-120, privacy) | Fixed |
+| BUG-156 | Low | Room (Android) | A message's menu or reaction picker stayed open on a message deleted meanwhile; what it offered was then refused (the web's BUG-121) | Fixed |
+| BUG-157 | Medium | Unread (Android) | A message that came while the app was in the background stayed unread after coming back to it, on screen, in the room: on the list, the web, every device | Fixed |
+| BUG-158 | Medium | Session (Android) | A success that wasn't the server's answer (a captive portal's or a proxy's page) read as `{}`: a renewal then threw outside any handler, which ends the app, and lists came back empty (the web's BUG-117) | Fixed |
+| BUG-159 | Low | Jump to (Android) | Holding Ctrl+K on a hardware keyboard opened and closed Jump to on every key repeat (the web's BUG-137) | Fixed |
+| BUG-160 | Medium | Cache (Android) | A private room you were taken out of stayed kept on the device, and showed its messages when opened from a link or a notification until the server refused (the web's BUG-101, privacy) | Fixed |
+
+## BUG-151 — A refused send just after a session check (Low)
+
+**Steps:** open a room (the session is checked at start); within 30 s, change the password on another device; send.
+**Expected:** the login screen (BUG-51). **Actual:** "Not sent", and the tab stayed so until another refusal came
+30 s after the check, or the tab came back after 5 minutes. **Cause:** `onRejected` checks at most every 30 s, and a
+refusal sooner than that was dropped, not put off. **Fix:** it is checked once the 30 s are up (`app.test.ts`, fake
+timers). A revoked tab's open event stream gets nothing meanwhile (checked: a private room's new message didn't reach
+it).
+
+## BUG-153 — A notification check that failed part way (Medium)
+
+**Steps:** a DM comes; the check runs, and the network goes while it fetches the read positions (or a room).
+**Expected:** the next check notifies it. **Actual:** never notified: the check had saved the messages it found as
+seen before going on. **Fix:** `NotifyCheck` saves its state once it is through. A room that can't be fetched for
+being offline fails the check (WorkManager tries again); only one refused (gone, or no longer yours) is skipped.
+`NotifyCheckTest` fails the requests in between.
+
+## BUG-155 — The Android viewer kept a deleted message's images (Medium, privacy)
+
+The web's BUG-120, never ported: the room viewer loaded its images once. **Fix:** it follows the room's messages; a
+message deleted (or a forward whose original was) takes its images and videos with it, the next shows (or the one
+before), none left closes it. Checked live on the emulator too ("3 of 3" became "2 of 2" on the image before).
+
+## BUG-157 — Background messages stayed unread on Android (Medium)
+
+**Steps:** in a room on the phone, go to the home screen; someone writes there; come back within a minute.
+**Expected:** the message, read. **Actual:** the message, on screen, and a badge on the room for good (here, on the
+web and every device), since the server never got the read. **Cause:** realtime stays up for a while in the background
+(ANDROID.md §9.1), so the message came while the app was away and wasn't read; coming back changed neither of the
+things the room reported reads on (the list's rows, being at the bottom). **Fix:** coming back reports again
+(`UiFeaturesTest`). The web reads such messages on coming back already (checked).
+
+## BUG-158 — Android read a page that wasn't the server's answer as an empty one (Medium)
+
+**Steps:** the server's address answers 200 with a page of its own (a Wi-Fi sign-in page, a misconfigured proxy, a site
+serving its index for every path). **Actual:** `PbClient` took a body it couldn't parse as `{}`. A list request then
+"succeeded" with nothing in it; the session renewal at start read `record` from it and threw a `NullPointerException`,
+which `checkSession` (catching only `ApiError`) let out of a coroutine in the app's scope, where it ends the app.
+**Fix:** as the web's BUG-117: a success other than 204 without a JSON body fails with status 0, like network trouble;
+`checkSession` ends the session only on a refusal and leaves it as it is on anything else. Test: `ChatApiTest`.
+
+## BUG-160 — Android kept a room you were taken out of (Medium, privacy)
+
+The web's BUG-101, never ported: only the open room was saved empty on losing access (BUG-98's port); a room kept by
+prefetching or an earlier visit kept its messages on the device, and showed them when opened from a link or a
+notification until the server's answer. **Fix:** a room that leaves the loaded room list while the app runs is kept
+empty (`ChatServices`, as `forgetGone`). Test: `ServicesTest`.
+
+## BUG-152, BUG-154, BUG-156, BUG-159 (Low)
+
+- **BUG-152:** one `RecentlyOpened` per account (`ChatServices.opened`), cleared when the session changes.
+- **BUG-154:** the notification's message carries its own time (`UiNotifyTest`).
+- **BUG-156:** the room closes a message's menu and reaction picker when the message is deleted or leaves the list.
+- **BUG-159:** a repeated key press is ignored (`UiPortsTest` presses Ctrl+K with a repeat count).
+
+The Android ports (BUG-152, BUG-155, BUG-156, BUG-158, BUG-159, BUG-160) were found by going through every web fix
+since the app was built (BUG-109 on) for the ones it lacked.
+
+## Checked and fine
+
+- **Folding and unread first (web):** a room getting a message moves first; folded, a section lists its unread rooms
+  and the open one, a new one appears, a read one leaves; the choice survives a reload; focus stays on the heading
+  when folding by keyboard; DMs and collections fold too; phone width; axe in both themes with every section folded.
+- **Session (web):** an expired stored session at start is forgotten with its drafts (BUG-145); a garbled stored
+  session; `/#//host` (BUG-146); a password change elsewhere logs the other browser out once 30 s have passed.
+- **Media grid and viewer history (web):** every sequence of open, a tile, Escape or Back, the arrows, at both widths
+  with the service worker: each layer closes in turn (the randomized run's "still open" was the viewer's ArrowLeft
+  leaving the viewer open, so Escape closed only it).
+- **Routes:** no 5xx and nothing private for odd bodies (empty, `null`, arrays, broken JSON), odd values (huge
+  numbers, 5 000 characters, NUL, filter syntax, `%`, ids of rooms one can't see), long and odd queries, with no
+  session, a garbled one, or someone else's; `/assets/../` stays in its folder.
+- **Races:** both people opening their DM at once (×10) get one DM; six people reacting at once count right; an edit
+  and a delete at once end deleted.
+- **Android on the emulator:** the notifications of ANDROID.md §22.1; attaching through the system picker; a new
+  profile picture through it; a draft across a rotation; the room filled in after the background, and a DM started
+  meanwhile listed with its badge.
+- **Regressions:** pass 19's Jump to and theme scripts, axe on the profile and Jump to.
+- After the fixes: typecheck, lint, unit (678), integration (415) and the Chromium e2e suite (71); Android: 76 JVM tests
+  in `:core:data` and 39 in `:app` (twice in a row), lint, the release APK 3.14 MB of 6 MB. `app.js` is 47.24 of 47.25 KB:
+  no budget was raised.
+
+Not changed, by design or for a decision:
+- Unread first moves a room you open back to its place by name at once, and new messages reorder the list under the
+  pointer.
+- Folded sections are kept per browser, not per person.
+- Under a "Yesterday" divider, message times still carry their date (the web's `formatTime`, matched by the app).

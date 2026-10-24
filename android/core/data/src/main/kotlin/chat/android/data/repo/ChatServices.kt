@@ -5,6 +5,7 @@ package chat.android.data.repo
 
 import chat.android.data.api.ApiError
 import chat.android.data.api.ChatApi
+import chat.android.data.api.toApiError
 import chat.android.data.db.ChatDatabase
 import chat.android.data.model.User
 import chat.android.data.pb.AuthStore
@@ -67,6 +68,8 @@ class ChatServices(
     val actions = RoomActions(api, store)
     val recentEmoji = RecentEmoji(db, appScope)
     val notifyCheck = NotifyCheck(api, db)
+    /** When each room was last open, for Jump to's order. */
+    val opened = chat.android.data.lib.RecentlyOpened()
     val settings = settings ?: DeviceSettings(db, appScope)
 
     private var who: String? = null
@@ -80,6 +83,17 @@ class ChatServices(
         appScope.launch { site.refresh() }
         sessionChanged()
         appScope.launch { authStore.session.collect { sessionChanged() } }
+        // A room that leaves the loaded room list (taken out of a private room, deleted) is kept empty: nothing of it
+        // shows again, opened from a link or a notification (the web's forgetGone, QA BUG-101; BUG-160).
+        appScope.launch {
+            var prev = store.get()
+            store.flow.collect { s ->
+                val p = prev
+                prev = s
+                if (s.roomsStatus != LoadStatus.Ready || p.roomsStatus != LoadStatus.Ready || s.user?.id != p.user?.id) return@collect
+                for (id in p.rooms.keys) if (id !in s.rooms) cache.put(s.user?.id.orEmpty(), id, Kept(emptyList(), false))
+            }
+        }
         // Renew the session after launch, off the critical path; one the server refuses ends here.
         appScope.launch { checkSession() }
         api.onRejected { appScope.launch { checkSession() } }
@@ -94,6 +108,7 @@ class ChatServices(
         }
         val first = who == null
         who = id
+        opened.clear()
         unread.stop()
         collections.stop()
         prefetch.stop()
@@ -130,8 +145,13 @@ class ChatServices(
         if (api.currentUser() == null) return
         try {
             api.refreshAuth()
-        } catch (e: ApiError) {
-            if (e.status == 401 || e.status == 403 || e.status == 404) logOut()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Anything else (an answer it can't read) leaves the session as it is: this runs in appScope, where a throw
+            // would end the app.
+            val status = e.toApiError().status
+            if (status == 401 || status == 403 || status == 404) logOut()
         }
     }
 

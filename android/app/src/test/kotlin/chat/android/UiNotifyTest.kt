@@ -49,17 +49,21 @@ class UiNotifyTest {
         }
         // The first check begins: what came before isn't news.
         check()
-        runBlocking {
-            alice.api.send(NewMessage(newId(), dm.id, "hi bob"))
-            alice.api.send(NewMessage(newId(), room.id, "not for bob"))
-            alice.api.send(NewMessage(newId(), room.id, "the answer", replyTo = question.id))
+        val hi = runBlocking {
+            alice.api.send(NewMessage(newId(), dm.id, "hi bob")).also {
+                alice.api.send(NewMessage(newId(), room.id, "not for bob"))
+                alice.api.send(NewMessage(newId(), room.id, "the answer", replyTo = question.id))
+            }
         }
+        Thread.sleep(1_100) // the check comes later than the message: it shows when the message was sent (QA BUG-154)
         check()
         val nm = app.getSystemService(NotificationManager::class.java)
         val shown = shadowOf(nm).allNotifications.associate { n ->
             n.channelId to NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(n)!!.messages.map { it.text.toString() }
         }
         assertEquals(mapOf(Notifications.DMS to listOf("hi bob"), Notifications.ROOMS to listOf("the answer")), shown)
+        val dmNote = shadowOf(nm).allNotifications.single { it.channelId == Notifications.DMS }
+        assertEquals(chat.android.data.lib.parsePb(hi.created), NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(dmNote)!!.messages.single().timestamp)
 
         // Read on another device: the next check takes its notification away.
         runBlocking {

@@ -145,7 +145,9 @@ fun RoomScreen(roomId: String, msgId: String?, nav: RoomNav, incoming: Pair<Stri
     androidx.activity.compose.BackHandler(enabled = !vm.selecting && !vm.searching && vm.editing != null, onBack = vm::cancelEdit)
 
     val atBottom by remember { derivedStateOf { list.firstVisibleItemIndex == 0 && list.firstVisibleItemScrollOffset < 64 } }
-    LaunchedEffect(atBottom, rows) { vm.onAtBottom(atBottom) }
+    // Also on coming back: what arrived while the app was in the background (realtime stays up for a while) is read
+    // once it is on screen again (QA BUG-157).
+    LaunchedEffect(atBottom, rows, app_.away) { vm.onAtBottom(atBottom) }
     // The newest row the list has been given (composed, so its next layout has it), for Scroll.Bottom to wait on.
     val composedFirst = remember { kotlinx.coroutines.flow.MutableStateFlow<String?>(null) }
     androidx.compose.runtime.SideEffect { composedFirst.value = (rows.firstOrNull() as? ListRow.Msg)?.m?.id }
@@ -158,6 +160,13 @@ fun RoomScreen(roomId: String, msgId: String?, nav: RoomNav, incoming: Pair<Stri
     }
     // The badges the window's files need (§31.3), asked once each.
     LaunchedEffect(state.items) { vm.badges.want(state.items.flatMap { it.fileSources.values }) }
+    // A message deleted (or gone from the list) while its menu or reaction picker is open: they close, rather than
+    // offer what the server would refuse (the web's QA BUG-121; BUG-156).
+    LaunchedEffect(state.items, sheetFor, emojiFor) {
+        fun gone(m: Message?) = m != null && state.items.none { it.id == m.id && !it.deleted }
+        if (gone(sheetFor)) sheetFor = null
+        if (gone(emojiFor)) emojiFor = null
+    }
     LaunchedEffect(vm.toast) { vm.toast?.let { snackbar.showSnackbar(it); vm.toast = null } }
 
     // The list nears an end: extend the window there.

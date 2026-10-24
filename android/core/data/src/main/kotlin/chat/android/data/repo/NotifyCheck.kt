@@ -4,6 +4,7 @@
 package chat.android.data.repo
 
 import chat.android.data.api.ChatApi
+import chat.android.data.api.toApiError
 import chat.android.data.db.ChatDatabase
 import chat.android.data.db.Keys
 import chat.android.data.db.KvEntity
@@ -52,21 +53,32 @@ class NotifyCheck(private val api: ChatApi, private val db: ChatDatabase) {
         // and skip what the last check already saw.
         val since = maxOf(toPb(parsePb(state.at) - OVERLAP_MS), state.from)
         val fetched = unreadRooms.toList().chunked(CHUNK).flatMap { api.notifiable(it, since) }
-        save(CheckState(counts.at, fetched.map { it.id }.take(MAX_IDS), state.from))
+        // Saved once the check is through: one that fails on the way (offline) is made again, nothing lost (QA BUG-153).
+        val next = CheckState(counts.at, fetched.map { it.id }.take(MAX_IDS), state.from)
         // The open room's are seen.
         val fresh = fetched.filter { it.id !in state.ids && it.room != openRoom }
-        if (fresh.isEmpty()) return CheckResult(emptyList(), unreadRooms)
+        if (fresh.isEmpty()) {
+            save(next)
+            return CheckResult(emptyList(), unreadRooms)
+        }
         val byRoom = fresh.groupBy { it.room }
         val read = api.readPositions(byRoom.keys.toList())
         val hidden = runCatching { api.listHidden().map { it.room }.toSet() }.getOrDefault(emptySet())
         val notices = byRoom.mapNotNull { (id, ms) ->
             // Hidden and archived rooms stay silent (DESIGN.md §13).
             if (id in hidden) return@mapNotNull null
-            val room = runCatching { api.getRoom(id) }.getOrNull() ?: return@mapNotNull null
+            // Gone or no longer yours: skipped. Offline: the check fails, to be made again.
+            val room = try {
+                api.getRoom(id)
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException || e.toApiError().status == 0) throw e
+                return@mapNotNull null
+            }
             if (room.archived) return@mapNotNull null
             val unread = ms.filter { it.created > read[id].orEmpty() }.sortedWith(compareBy({ it.created }, { it.id }))
             if (unread.isEmpty()) null else Notice(room, unread, counts.rooms[id] ?: unread.size)
         }
+        save(next)
         return CheckResult(notices.sortedBy { it.messages.last().created }, unreadRooms)
     }
 

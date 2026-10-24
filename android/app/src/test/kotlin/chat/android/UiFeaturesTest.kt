@@ -11,6 +11,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTouchInput
 import chat.android.data.api.NewMessage
 import chat.android.data.lib.Pages
@@ -118,6 +119,34 @@ class UiFeaturesTest {
         ui.until { a.api.getMessage(m.id).reactions.singleOrNull()?.users == listOf(a.user.id) }
     }
 
+    @Test fun `a message that came while the app was in the background is read once you are back (QA BUG-157)`() {
+        val a = newUser()
+        val b = newUser()
+        val room = runBlocking { a.api.createRoom("bg-${uniq()}") }
+        ui.signedIn(a)
+        ui.accounts!!.setVisible(true)
+        openRoom(room.name)
+        ui.accounts!!.setVisible(false)
+        val m = runBlocking { b.api.send(NewMessage(newId(), room.id, "while you were away")) }
+        ui.waitFor("while you were away") // realtime stays up for a while in the background
+        ui.accounts!!.setVisible(true)
+        ui.until { (a.api.readPositions(listOf(room.id))[room.id] ?: "") >= m.created }
+    }
+
+    @Test fun `a message's menu closes when its author deletes it meanwhile (QA BUG-156)`() {
+        val a = newUser()
+        val b = newUser()
+        val room = runBlocking { a.api.createRoom("md-${uniq()}") }
+        val m = runBlocking { b.api.send(NewMessage(newId(), room.id, "soon gone")) }
+        ui.signedIn(a)
+        openRoom(room.name)
+        longPress("soon gone")
+        ui.waitFor(hasContentDescription("React with 👍"))
+        runBlocking { b.api.softDelete(m.id) }
+        ui.waitFor("Message deleted")
+        ui.until { compose.onAllNodes(hasContentDescription("React with 👍")).fetchSemanticsNodes().isEmpty() }
+    }
+
     @Test fun `deleting asks first, then shows the message as deleted (edit spec)`() {
         val a = newUser()
         val room = runBlocking { a.api.createRoom("de-${uniq()}") }
@@ -172,9 +201,11 @@ class UiFeaturesTest {
         val room = runBlocking { a.api.createRoom("hi-${uniq()}") }
         ui.signedIn(a)
         ui.showRoom(room.name)
-        compose.onNodeWithContentDescription("Actions for #${room.name}").performClick()
+        // Its click action, not a tap: scrolled to the bottom edge, the row can be under the New button.
+        compose.onNodeWithContentDescription("Actions for #${room.name}").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
+        ui.waitFor("Hide")
         compose.onNodeWithText("Hide").performClick()
-        ui.waitFor("Hidden (1)")
+        ui.reveal(hasText("Hidden (1)"))
         ui.until { a.api.listHidden().any { it.room == room.id } }
     }
 

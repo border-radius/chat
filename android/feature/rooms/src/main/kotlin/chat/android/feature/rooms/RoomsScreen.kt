@@ -132,7 +132,8 @@ fun RoomsScreen(onOpenRoom: (String) -> Unit, onProfile: () -> Unit, onLogIn: ()
         // Ctrl+K or Ctrl+P from a hardware keyboard: Jump to (§32), as on the web.
         modifier = Modifier.onPreviewKeyEvent { e ->
             if (e.type == KeyEventType.KeyDown && e.isCtrlPressed && !e.isAltPressed && !e.isShiftPressed && (e.key == Key.K || e.key == Key.P)) {
-                if (jumping) closeJump() else jumping = true
+                // Held down, the key repeats: only the first press toggles (the web's QA BUG-137; BUG-159).
+                if (e.nativeKeyEvent.repeatCount == 0) { if (jumping) closeJump() else jumping = true }
                 true
             } else false
         },
@@ -156,7 +157,7 @@ fun RoomsScreen(onOpenRoom: (String) -> Unit, onProfile: () -> Unit, onLogIn: ()
                             ),
                             keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Go),
                             keyboardActions = androidx.compose.foundation.text.KeyboardActions(onGo = {
-                                jumpMatches(jumpTargets(sections, me?.id), jumpQuery).firstOrNull()?.let { closeJump(); onOpenRoom(it.room.id) }
+                                jumpMatches(jumpTargets(sections, me?.id, services.opened::get), jumpQuery).firstOrNull()?.let { closeJump(); onOpenRoom(it.room.id) }
                             }),
                             modifier = Modifier.fillMaxWidth().focusRequester(focus).semantics { contentDescription = "Jump to" },
                         )
@@ -209,7 +210,7 @@ fun RoomsScreen(onOpenRoom: (String) -> Unit, onProfile: () -> Unit, onLogIn: ()
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         if (jumping) {
-            val found = remember(sections, jumpQuery, me) { jumpMatches(jumpTargets(sections, me?.id), jumpQuery) }
+            val found = remember(sections, jumpQuery, me) { jumpMatches(jumpTargets(sections, me?.id, services.opened::get), jumpQuery) }
             LazyColumn(Modifier.fillMaxSize().semantics { contentDescription = "Rooms" }, contentPadding = padding) {
                 if (found.isEmpty()) empty("Nothing found.")
                 items(found, key = { "j" + it.room.id }) { t ->

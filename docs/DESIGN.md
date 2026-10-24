@@ -1889,8 +1889,9 @@ It is the only way to change a password: the users update rule refuses `password
 
 Who a realtime client is comes from the token its subscriptions were sent with, so whenever the token changes the
 client sends them again (`pb.ts`, QA BUG-52). A device that was signed out finds out when the server refuses a change
-it sends (`api.onRejected`, checked at most every 30 s) or when its tab comes back after 5 minutes: the session check
-(`refreshAuth`) then fails and it goes to the login screen (QA BUG-51).
+it sends (`api.onRejected`, checked at most every 30 s: a refusal sooner than that is checked once the 30 s are up, QA
+BUG-151) or when its tab comes back after 5 minutes: the session check (`refreshAuth`) then fails and it goes to the
+login screen (QA BUG-51).
 
 The profile page has a "Password" form (current, new, confirm; checked in the page first, each error under its field)
 and a "Session" section with **Log out**, which moved there from the app bar. The Password form is the last section

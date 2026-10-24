@@ -46,6 +46,7 @@ class UiCollectionsTest {
 
     /** Bring [text] into view in whichever list holds it, then tap it. */
     private fun tapInList(text: String) {
+        ui.reveal(hasText(text))
         ui.waitFor(hasText(text) and hasClickAction(), merged = true)
         compose.onNode(hasText(text) and hasClickAction()).performScrollTo().performClick()
     }
@@ -100,6 +101,7 @@ class UiCollectionsTest {
 
         // Something new: the room list counts it, the page marks it and the count goes.
         runBlocking { owner.api.uploadItem(coll, dot("second.png")) }
+        ui.reveal(hasContentDescription("1 new"))
         ui.waitFor(hasContentDescription("1 new"))
         tapInList(name)
         ui.waitFor("1 new since your last visit")

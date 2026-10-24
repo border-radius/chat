@@ -19,6 +19,7 @@ import androidx.core.app.RemoteInput
 import androidx.core.content.ContextCompat
 import chat.android.MainActivity
 import chat.android.R
+import chat.android.data.lib.parsePb
 import chat.android.data.lib.quoteText
 import chat.android.data.lib.title
 import chat.android.data.model.Message
@@ -90,7 +91,9 @@ object Notifications {
         val style = existing?.let { NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(it) } ?: NotificationCompat.MessagingStyle(self)
         if (!room.isDm) style.setConversationTitle(room.title(me.id)).setGroupConversation(true)
         val author = m.expand?.author
-        style.addMessage(bodyOf(m), System.currentTimeMillis(), Person.Builder().setName(author?.name ?: "Unknown").setKey(m.author).build())
+        // When it was sent: a check finds it up to 15 minutes later (QA BUG-154).
+        val sent = parsePb(m.created).takeIf { it != Long.MIN_VALUE } ?: System.currentTimeMillis()
+        style.addMessage(bodyOf(m), sent, Person.Builder().setName(author?.name ?: "Unknown").setKey(m.author).build())
         val reply = NotificationCompat.Action.Builder(0, "Reply", action(context, ActionReceiver.REPLY, acct, room.id, m, mutable = true))
             .addRemoteInput(RemoteInput.Builder(KEY_REPLY).setLabel("Reply").build())
             .setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_REPLY)

@@ -1,6 +1,10 @@
 package chat.android.data.repo
 
+import chat.android.data.api.ChatApi
 import chat.android.data.api.NewMessage
+import chat.android.data.pb.MemoryAuthStore
+import chat.android.data.pb.PbClient
+import chat.android.data.testing.TestServer
 import chat.android.data.lib.newId
 import chat.android.data.testing.TestServer.newUser
 import chat.android.data.testing.TestServer.uniq
@@ -62,5 +66,25 @@ class NotifyCheckTest {
         alice.api.send(NewMessage(newId(), dm.id, "in the open room"))
         assertTrue(check.run(openRoom = dm.id)!!.notices.isEmpty())
         assertTrue(check.run()!!.notices.isEmpty())
+    }
+
+    @Test fun `a check that fails on the way loses nothing, the next one notifies (QA BUG-153)`() = runBlocking {
+        val alice = newUser()
+        val bob = newUser()
+        val dm = alice.api.openDm(bob.user.id)
+        var offline = false
+        val http = TestServer.http.newBuilder().addInterceptor { chain ->
+            val url = chain.request().url.toString()
+            if (offline && ("room_reads" in url || "/rooms/records/" in url)) throw java.io.IOException("offline")
+            chain.proceed(chain.request())
+        }.build()
+        val api = ChatApi(PbClient(TestServer.url, http, MemoryAuthStore(bob.api.pb.authStore.session.value)))
+        val check = NotifyCheck(api, testDb())
+        check.begin()
+        alice.api.send(NewMessage(newId(), dm.id, "hi bob"))
+        offline = true
+        assertTrue(runCatching { check.run() }.isFailure)
+        offline = false
+        assertEquals(listOf("hi bob"), check.run()!!.notices.single().messages.map { it.text })
     }
 }

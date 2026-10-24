@@ -10,6 +10,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performKeyPress
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import chat.android.data.api.NewMessage
@@ -58,6 +59,25 @@ class UiPortsTest {
         ui.waitFor("Beginning of #${room.name}")
     }
 
+    @Test fun `holding Ctrl+K doesn't open and close Jump to on every repeat (QA BUG-159)`() {
+        val a = newUser()
+        ui.signedIn(a)
+        ui.waitFor(hasContentDescription("Jump to a room or person"))
+        compose.onNodeWithContentDescription("Jump to a room or person").performClick()
+        val field = hasSetTextAction() and hasContentDescription("Jump to")
+        ui.waitFor(field)
+        fun ctrlK(repeat: Int) = compose.onNode(field).performKeyPress(
+            androidx.compose.ui.input.key.KeyEvent(
+                android.view.KeyEvent(0, 0, android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_K, repeat, android.view.KeyEvent.META_CTRL_ON or android.view.KeyEvent.META_CTRL_LEFT_ON),
+            ),
+        )
+        ctrlK(repeat = 1)
+        ui.pump()
+        ui.waitFor(field) // still open
+        ctrlK(repeat = 0)
+        ui.until { compose.onAllNodes(field).fetchSemanticsNodes().isEmpty() }
+    }
+
     @Test fun `the media grid shows a room's images and opens the viewer (media spec)`() {
         val a = newUser()
         val room = runBlocking { a.api.createRoom("md-${uniq()}") }
@@ -70,6 +90,31 @@ class UiPortsTest {
         ui.waitFor(hasContentDescription("dot.png", substring = true))
         compose.onNode(hasContentDescription("dot.png", substring = true)).performClick()
         ui.waitFor(hasContentDescription("Download"))
+    }
+
+    @Test fun `the viewer drops a message deleted meanwhile, and closes with none left (QA BUG-155)`() {
+        val a = newUser()
+        val room = runBlocking { a.api.createRoom("vd-${uniq()}") }
+        fun send(name: String) = runBlocking {
+            a.api.send(NewMessage(newId(), room.id, "pic $name", listOf(UploadFile(name, "image/png", png.toRequestBody("image/png".toMediaType())))))
+        }
+        val first = send("one.png")
+        val second = send("two.png")
+        ui.signedIn(a)
+        ui.showRoom(room.name)
+        compose.onNodeWithText(room.name).performClick()
+        ui.waitFor("pic two.png")
+        compose.onNodeWithContentDescription("Media").performClick()
+        ui.waitFor(hasContentDescription("two.png", substring = true))
+        compose.onNode(hasContentDescription("two.png", substring = true)).performClick()
+        ui.waitFor("2 of 2")
+        runBlocking { a.api.softDelete(second.id) }
+        ui.waitGone("of 2")
+        // The one before shows instead.
+        ui.waitFor("· one.png")
+        ui.waitFor(hasContentDescription("Download"))
+        runBlocking { a.api.softDelete(first.id) }
+        ui.until { compose.onAllNodes(hasContentDescription("Download")).fetchSemanticsNodes().isEmpty() }
     }
 
     @Test fun `an empty room's media grid says so`() {

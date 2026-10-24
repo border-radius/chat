@@ -114,8 +114,9 @@ private const val DOUBLE_TAP_ZOOM = 2.5f
 @Composable
 fun ViewerScreen(roomId: String, msgId: String, file: String, onClose: () -> Unit) {
     val services = LocalServices.current
-    val items by produceState<List<Item>?>(null, roomId, msgId) {
-        value = runCatching {
+    var items by remember(roomId, msgId) { mutableStateOf<List<Item>?>(null) }
+    LaunchedEffect(roomId, msgId) {
+        items = runCatching {
             val m = services.api.getMessage(msgId)
             val c = Cursor(m.created, m.id)
             coroutineScope {
@@ -124,6 +125,26 @@ fun ViewerScreen(roomId: String, msgId: String, file: String, onClose: () -> Uni
                 (before.await().reversed() + m + after.await())
             }.flatMap { msg -> msg.files.filter { isMedia(msg.attachmentName(it)) }.map { Item(msg, it) } }
         }.getOrElse { listOf() }
+    }
+    // A message deleted meanwhile (or a forward whose original was) takes its images and videos with it; none left,
+    // the viewer closes (the web's QA BUG-120; BUG-155).
+    LaunchedEffect(roomId) {
+        val changes = kotlinx.coroutines.channels.Channel<chat.android.data.api.Change<Message>>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+        val off = runCatching { services.api.subscribeMessages(roomId) { changes.trySend(it) } }.getOrNull() ?: return@LaunchedEffect
+        try {
+            for (c in changes) {
+                val now = items ?: continue
+                val m = c.record
+                if (now.none { it.m.id == m.id }) continue
+                val has = if (c.action == chat.android.data.api.Action.Delete || m.deleted) emptySet() else m.files.filter { isMedia(m.attachmentName(it)) }.toSet()
+                val next = now.filter { it.m.id != m.id || it.file in has }
+                if (next.size == now.size) continue
+                items = next
+                if (next.isEmpty()) onClose()
+            }
+        } finally {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { runCatching { off() } }
+        }
     }
     Viewer(items, "$msgId/$file", onClose)
 }
@@ -183,7 +204,8 @@ private fun Viewer(items: List<Item>?, startKey: String, onClose: () -> Unit) {
                         Picture(item, pager.currentPage == page) { chrome = !chrome }
                     }
                 }
-                val current = list[pager.currentPage]
+                // The pager catches up with a shorter list (an item deleted) only at its next layout.
+                val current = list[pager.currentPage.coerceAtMost(list.lastIndex)]
                 AnimatedVisibility(chrome, Modifier.align(Alignment.BottomStart), enter = fadeIn(), exit = fadeOut()) {
                     Column(
                         Modifier
@@ -213,7 +235,7 @@ private fun Viewer(items: List<Item>?, startKey: String, onClose: () -> Unit) {
                     ) {
                         IconButton(onClick = onClose) { Icon(ChatIcons.Back, contentDescription = "Close", tint = Color.White) }
                         Text(
-                            if (list.size > 1) "${pager.currentPage + 1} of ${list.size}" else "",
+                            if (list.size > 1) "${pager.currentPage.coerceAtMost(list.lastIndex) + 1} of ${list.size}" else "",
                             color = Color.White,
                             style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.weight(1f),

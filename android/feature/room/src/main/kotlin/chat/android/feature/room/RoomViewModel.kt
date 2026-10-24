@@ -103,7 +103,7 @@ class RoomViewModel(
     private var savedText: TextFieldValue? = null
 
     init {
-        chat.android.data.lib.RecentlyOpened.note(roomId)
+        services.opened.note(roomId)
         viewModelScope.launch {
             val d = services.drafts.get(me, roomId) ?: return@launch
             if (text.text.isEmpty()) text = TextFieldValue(d.text, TextRange(d.text.length))
@@ -432,7 +432,7 @@ class RoomViewModel(
     }
 
     override fun onCleared() {
-        chat.android.data.lib.RecentlyOpened.note(roomId)
+        services.opened.note(roomId)
         val s = controller.state.value
         reader?.close(caughtUp = controller.atBottom && !s.hasNewer)
         controller.close()
