@@ -788,6 +788,10 @@ works the same on de-Googled phones and on any server, with no push credentials 
 Unchanged. The push collections, hook and worker (§8.1, §8.2) stay but are unused by the app: no server needs
 `FCM_SERVICE_ACCOUNT` for it.
 
+The web app got the same notifications on 2026-10-24 (DESIGN.md §34: DMs and replies, chosen on the profile page, live
+while a tab is open, a pop-up and/or a sound). No server or API change, so nothing for the app to follow; its
+settings already match (one channel per kind).
+
 ### 21.4 Tests and checks
 
 `NotifyCheckTest` (`:core:data`): a DM and a reply notify once, a plain room message and messages from before the

@@ -40,7 +40,7 @@ These are left out on purpose. The design should not block them later.
 - File and image uploads (avatars and attachments: now designed in §15 and §17), link previews
 - Reactions, threads, replies, mentions (replies: now designed in §19; reactions: §20)
 - Typing indicators, presence, read receipts
-- Push notifications, email notifications
+- Push notifications (notifications while a tab is open, without a push service: now §34), email notifications
 - Message search (now designed in §29)
 - OAuth providers (email and password only)
 - Email verification (not required to sign up or post, so no SMTP needed)
@@ -557,6 +557,7 @@ while its first page loads.
 | Room access dialog (§23.2, §33.10), loaded on first use | ≤ 3 KB script (its styles are in `app.css`); moved out of `app.js` for linked instances |
 | Media grid (§30), loaded on first use | ≤ 3 KB script, ≤ 1 KB stylesheet |
 | Media collections (§31), loaded on first use | ≤ 6.65 KB script, ≤ 1.5 KB stylesheet |
+| Notifications (§34), loaded once turned on, or with the profile page | ≤ 3 KB script (its styles are in `app.css`) |
 | Web fonts | **none** (system font stack) |
 | Requests on first load | 3 (html, js, css) + API; the manifest, its icons and `sw.js` (§27) come after, off the critical path |
 
@@ -3027,3 +3028,58 @@ Where the build settled what the plan above left open:
   everything §33.12 lists but the member limit, which a mirror's own 100-member limit reaches first),
   `tests/unit/views/room/linked.test.ts` and the "linked instance" case of `rooms.test.ts` (web), `LinkedTest`,
   `ChatApiTest` and `UiLinkedTest` (Android).
+
+## 34. Notifications (2026-10-24)
+
+The user asked for "notifications to web app. push/sound. without google", turned on in the profile, for replies and
+DMs. Asked whether that meant Web Push (which, with every tab closed, can only come through the browser's own push
+service: Google's for Chrome and Edge, Mozilla's, Apple's), they chose **open tab only**: no third party at all.
+
+### 34.1 What alerts, and when
+
+- **DMs**: every message from someone else in a DM. **Replies to you**: a message in a room that replies to one of
+  yours. Each can be chosen on its own, as the Android app's (ANDROID.md §21.1).
+- Not: your own messages, service messages, deleted ones, archived rooms, hidden rooms (§13; a closed DM opens again
+  with a message, §16.4, so it alerts).
+- Only while the app is open in a tab of this browser, in the background or minimised too. The alert comes from the
+  tab's realtime connection (§18.3's messages subscription, which now carries `reply_to` too). With every tab closed,
+  nothing arrives, and nothing missed meanwhile is told later: the unread counts show it.
+- **In front** (a tab of the app focused): no pop-up. The sound only, and nothing at all for the room open there.
+- **How**, each chosen on its own: **a pop-up** (a system notification: who wrote, "… replied in #room" for a reply,
+  the text on one line, cut at 140 characters, or "Sent an attachment"), and/or **a sound** (a short two-note chime
+  made with Web Audio, no sound file; when it plays, the pop-up is silent). Browsers play sound only in a page that has
+  been clicked or typed in once since it loaded, so a tab restored and never touched alerts silently.
+
+### 34.2 Settings (profile page)
+
+A **Notifications** group after Appearance: Direct messages, Replies to you, Show a pop-up, Play a sound. Saved on
+this device (localStorage `chat.notify`, gone when nothing is ticked), like the theme: the browser's permission is
+per device anyway. Ticking DMs or replies with neither way chosen ticks the pop-up. Ticking the pop-up asks the
+browser's permission (a click is needed for that). If the browser refused, or can't show notifications (an iPhone
+outside an installed app), the group says so. Ticking the sound plays it once.
+
+### 34.3 Code
+
+- `web/src/notify.ts`, a lazy chunk (≤ 3 KB, §7.7): loaded by `app.ts` when a signed-in user has `chat.notify`
+  (at start, when the profile page changes it, or another tab does: the `storage` event), and by the profile page
+  for its settings. Stopped with the session.
+- **One tab alerts**: the one holding the Web Lock `chat.notify`. When it closes, another takes it. It fetches the
+  message (one request, only for DMs and replies), checks the quoted message is yours, and asks the other tabs over a
+  BroadcastChannel whether one is in front (200 ms). The tab in front plays the sound itself.
+- Pop-ups go through the service worker's `showNotification` when one is active (Android Chrome allows no other
+  way), else `new Notification`. Tag = the room: a newer message replaces the room's pop-up. A read of the room
+  (`room_reads`, from any tab or device), or opening it here, closes it.
+- **Clicking** one opens its message (`/r/{room}/m/{message}`): `sw.ts`'s `notificationclick` focuses the app's
+  tab in front (else a visible one, else any) and tells it where to go, or opens a new tab. Only paths of the app.
+- No server change. The Android app is unchanged: it already notifies by its own check (ANDROID.md §21).
+
+### 34.4 Tests
+
+`tests/unit/notify.test.ts`: what alerts (DMs, replies, choices, hidden/archived/own/deleted), the text, the
+stored choices; live against PocketBase: a DM's pop-up and chime and its click, a reply to you (not a plain message,
+not a reply to someone else), in front (silent for the open room, the chime for another), the sound alone, blocked
+pop-ups, a read elsewhere closing it, stopped; the settings group. `tests/unit/sw.test.ts`: the click handler.
+`tests/e2e/notify.spec.ts`: turned on in the profile page, a reply and a DM pop up in a background tab and a click
+opens the DM at its message, off again silent; with the service worker, one pop-up per room that a read elsewhere
+takes away. Headless Chromium answers "denied" to every notification, granted or not, so the e2e replaces the
+browser's `Notification` and the registration's `showNotification`/`getNotifications` with recorders.

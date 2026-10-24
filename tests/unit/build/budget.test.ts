@@ -15,6 +15,7 @@ describe("checkBudget", () => {
       mediaCss: 1024,
       collJs: 6.65 * 1024,
       collCss: 1.5 * 1024,
+      notifyJs: 3 * 1024,
     });
   });
 
@@ -32,6 +33,7 @@ describe("checkBudget", () => {
         mediaCss: 500,
         collJs: 1000,
         collCss: 500,
+        notifyJs: 1000,
       }),
     ).toEqual([]);
   });
@@ -54,6 +56,7 @@ describe("checkBudget", () => {
         mediaCss: 10,
         collJs: 10,
         collCss: BUDGET.collCss + 1,
+        notifyJs: 10,
       }),
     ).toEqual(["js", "html", "viewerCss", "collCss"]);
   });
@@ -73,6 +76,7 @@ describe("formatSizes", () => {
       mediaCss: 512,
       collJs: 1024,
       collCss: 512,
+      notifyJs: 1024,
     });
     expect(out).toContain("js          2.00 KB / 47.25 KB");
     expect(out).toContain("viewerJs    1.00 KB / 4.00 KB");

@@ -10,7 +10,7 @@ import type { Ctx } from "./context.ts";
 import { clear, h } from "./dom.ts";
 import { createDrafts } from "./drafts.ts";
 import { startFavicon } from "./favicon.ts";
-import { otherMember, VISIBILITY, visibilityOf } from "./lib/rooms.ts";
+import { otherMember, roomTitle, VISIBILITY, visibilityOf } from "./lib/rooms.ts";
 import { toPb } from "./lib/time.ts";
 import type { User } from "./lib/types.ts";
 import { createPrefetch } from "./prefetch.ts";
@@ -47,6 +47,9 @@ const RENEW_RETRY_MS = 60 * 1000;
  */
 const CHECK_MIN_MS = 30 * 1000;
 const CHECK_STALE_MS = 5 * 60 * 1000;
+
+/** notify.ts's NOTIFY_KEY (§34): someone here turned notifications on. */
+export const NOTIFY_KEY = "chat.notify";
 
 /** The pages for logging in and signing up: only for guests, and never where to go back to after logging in. */
 const AUTH_PAGES = new Set(["/login", "/signup"]);
@@ -117,6 +120,27 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
   }
   const offGone = forgetGone(cache, store);
   const prefetch = createPrefetch({ api, store, cache });
+  /** Notifications (§34), a lazy chunk loaded only once they are on: its stop. */
+  let notify: Promise<() => void> | null = null;
+  const startNotify = () => {
+    try {
+      if (notify || !store.get().user || !localStorage.getItem(NOTIFY_KEY)) return;
+    } catch {
+      return;
+    }
+    const loading = import("./notify.ts").then(
+      (m) => m.startNotify({ api, store, title: roomTitle, navigate: (path) => router.navigate(path) }),
+      () => {
+        if (notify === loading) notify = null; // tried again next time
+        return () => {};
+      },
+    );
+    notify = loading;
+  };
+  const stopNotify = () => {
+    void notify?.then((stop) => stop());
+    notify = null;
+  };
   /** Start following the rooms (and, signed in, the unread counts and prefetching, §7.5) as whoever is logged in now, or as a guest. */
   let running = false;
   const startSession = () => {
@@ -126,6 +150,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     unread.start();
     collections.start();
     prefetch.start();
+    startNotify();
   };
   /** The page a guest was on before going to log in or sign up: where logging in takes them back to (§23.3). */
   let lastPage = AUTH_PAGES.has(here()) ? "/" : here();
@@ -148,6 +173,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     unread.stop();
     collections.stop();
     prefetch.stop();
+    stopNotify();
     sync.stop();
     void api.unsubscribeAll().catch(() => {});
     drafts.clear(store.get().user?.id ?? "");
@@ -293,6 +319,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     drafts,
     cache,
     logOut,
+    notify: startNotify,
   };
   const rooms = () => createRoomsView(ctx);
   const roomPage = withSidebar(rooms, () => createRoomView(ctx));
@@ -391,6 +418,8 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
   window.addEventListener("dragover", swallowFileDrag);
   window.addEventListener("drop", swallowFileDrag);
   document.addEventListener("visibilitychange", onVisible);
+  const onStorage = (e: StorageEvent) => (e.key === NOTIFY_KEY || e.key === null) && startNotify();
+  window.addEventListener("storage", onStorage);
   const stopSite = startSite(api, store);
   const stopFavicon = startFavicon(store);
   renderHeader();
@@ -411,6 +440,8 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
       window.removeEventListener("drop", swallowFileDrag);
       document.removeEventListener("visibilitychange", onVisible);
       document.removeEventListener("keydown", onKey);
+      window.removeEventListener("storage", onStorage);
+      stopNotify();
       clearTimeout(renewTimer);
       stopFavicon();
       stopSite();

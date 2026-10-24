@@ -1,6 +1,6 @@
 // Pure helpers for scripts/build.mjs. Kept side-effect free so they can be unit-tested.
 
-/** @typedef {{ js: number, css: number, html: number, viewerJs: number, viewerCss: number, searchJs: number, accessJs: number, mediaJs: number, mediaCss: number, collJs: number, collCss: number }} Sizes gzipped byte sizes */
+/** @typedef {{ js: number, css: number, html: number, viewerJs: number, viewerCss: number, searchJs: number, accessJs: number, mediaJs: number, mediaCss: number, collJs: number, collCss: number, notifyJs: number }} Sizes gzipped byte sizes */
 
 /** Where builds go: PocketBase serves this directory. */
 export const OUTDIR = "pb_public";
@@ -25,6 +25,9 @@ export const MEDIA = Object.freeze({ js: "web/src/views/room/media.ts", css: "we
 
 /** Media collections (§31): the page, the save menu and the picker, a lazy chunk with a stylesheet it links (`COLLECTIONS_CSS`). */
 export const COLLECTIONS = Object.freeze({ js: "web/src/views/collection/lazy.ts", css: "web/styles/collections.css" });
+
+/** Notifications (§34): following the messages and the profile page's settings, a lazy chunk. Its styles are in app.css. */
+export const NOTIFY = Object.freeze({ js: "web/src/notify.ts" });
 
 /**
  * The service worker (§27): built on its own, unhashed, to the root of the public dir (a worker controls only the paths
@@ -85,6 +88,7 @@ export const BUDGET = Object.freeze({
   mediaCss: 1024,
   collJs: 6.65 * 1024,
   collCss: 1.5 * 1024,
+  notifyJs: 3 * 1024,
 });
 
 /**

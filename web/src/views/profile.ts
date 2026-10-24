@@ -1,5 +1,5 @@
 // Profile (§15.5, §22.2): change or remove your avatar, change your display name (unique, §22.1), pick this
-// device's theme (§7.8), change your password, log out.
+// device's theme (§7.8) and notifications (§34, a lazy chunk), change your password, log out.
 
 import { ApiError, errorMessage } from "../api.ts";
 import type { Ctx } from "../context.ts";
@@ -35,7 +35,7 @@ export function passwordProblem(current: string, next: string, confirm: string):
   return {};
 }
 
-export function createProfileView({ api, store, logOut }: Ctx): View {
+export function createProfileView({ api, store, logOut, notify }: Ctx): View {
   const vid = uniqueId("profile");
   const scope = createScope();
   const { signal } = scope;
@@ -98,6 +98,9 @@ export function createProfileView({ api, store, logOut }: Ctx): View {
     const theme = savedTheme();
     for (const [t, input] of themeRadios) input.checked = t === theme;
   };
+
+  // Notifications (§34): their settings come with notify.ts, a lazy chunk.
+  const notifyBox = h("div");
 
   function dropPreview() {
     if (preview) URL.revokeObjectURL(preview);
@@ -288,6 +291,7 @@ export function createProfileView({ api, store, logOut }: Ctx): View {
             themeChoices,
             h("p", { id: `${vid}-theme-hint`, class: "field-status" }, "Auto follows your system. Saved on this device."),
           ]),
+          notifyBox,
           h(
             "form",
             {
@@ -309,6 +313,10 @@ export function createProfileView({ api, store, logOut }: Ctx): View {
       root.append(shell);
       renderPicture();
       showTheme();
+      void import("../notify.ts").then(
+        (m) => scope.active && notifyBox.replaceWith(m.notifySettings({ h, id: vid, onChange: notify, signal })),
+        () => {},
+      );
       themeChoices.addEventListener(
         "change",
         (e) => {

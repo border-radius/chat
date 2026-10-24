@@ -141,3 +141,11 @@ label.button.disabled {
 .profile-password .field-error {
   margin: 0;
 }
+
+/* Notifications (§34): one checkbox a line; the box itself is styled with .vis-choice's (access.css). */
+.notify-choice {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.2rem 0;
+}

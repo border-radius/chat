@@ -7,6 +7,8 @@
 // - Attachment thumbnails and video posters (§30.1): cache first, kept under their URL without the file token (§17.3). The token changes every
 //   few minutes, so the browser's own cache, keyed by the whole URL, misses on every room switch.
 // - Everything else, the API and realtime included, is left to the browser: no stale data, no other cached files.
+// - Notifications (§34) are made by the pages (notify.ts) through this worker; a click opens the message in a tab of
+//   the app (the one in front, else any), or in a new one. No push: nothing wakes this worker but the pages.
 
 // Only what this file uses: the "dom" lib has no service worker types, and "webworker" conflicts with it.
 interface ExtendableEvent extends Event {
@@ -16,11 +18,26 @@ interface FetchEvent extends ExtendableEvent {
   readonly request: Request;
   respondWith(r: Promise<Response>): void;
 }
+interface NotificationEvent extends ExtendableEvent {
+  readonly notification: Notification;
+}
+interface WindowClient {
+  readonly url: string;
+  readonly focused: boolean;
+  readonly visibilityState: DocumentVisibilityState;
+  focus(): Promise<WindowClient>;
+  postMessage(data: unknown): void;
+}
 interface Scope {
   addEventListener(type: "install" | "activate", fn: (e: ExtendableEvent) => void): void;
   addEventListener(type: "fetch", fn: (e: FetchEvent) => void): void;
+  addEventListener(type: "notificationclick", fn: (e: NotificationEvent) => void): void;
   skipWaiting(): Promise<void>;
-  clients: { claim(): Promise<void> };
+  clients: {
+    claim(): Promise<void>;
+    matchAll(o: { type: "window"; includeUncontrolled: boolean }): Promise<WindowClient[]>;
+    openWindow(url: string): Promise<unknown>;
+  };
 }
 
 export {}; // a module: these types stay out of the global scope
@@ -48,6 +65,21 @@ const TRIM_EVERY = 50;
 // A new worker takes over at once: it holds no state an old page depends on.
 sw.addEventListener("install", (e) => e.waitUntil(sw.skipWaiting()));
 sw.addEventListener("activate", (e) => e.waitUntil(sw.clients.claim()));
+
+sw.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  const url = (e.notification.data as { url?: unknown } | null)?.url;
+  if (typeof url === "string" && /^\/(?![/\\])/.test(url)) e.waitUntil(openPage(url)); // a path here, not "//elsewhere"
+});
+
+/** Show `url` in the app's tab in front (else a visible one, else any), or in a new tab; that page navigates (notify.ts). */
+async function openPage(url: string) {
+  const tabs = await sw.clients.matchAll({ type: "window", includeUncontrolled: true });
+  const tab = tabs.find((c) => c.focused) ?? tabs.find((c) => c.visibilityState === "visible") ?? tabs[0];
+  if (!tab) return sw.clients.openWindow(url);
+  await tab.focus().catch(() => {});
+  tab.postMessage({ open: url });
+}
 
 sw.addEventListener("fetch", (e) => {
   const req = e.request;

@@ -13,6 +13,7 @@ import {
   formatSizes,
   injectAssets,
   MEDIA,
+  NOTIFY,
   OUTDIR,
   outputOf,
   SEARCH,
@@ -78,6 +79,7 @@ const sizes = {
   mediaCss: await gz(`${OUTDIR}/${mediaCssPath}`),
   collJs: await gz(`${OUTDIR}/${outputOf(result.metafile, OUTDIR, COLLECTIONS.js)}`),
   collCss: await gz(`${OUTDIR}/${collCssPath}`),
+  notifyJs: await gz(`${OUTDIR}/${outputOf(result.metafile, OUTDIR, NOTIFY.js)}`),
 };
 
 console.log(`built ${OUTDIR}/ (gzipped):\n${formatSizes(sizes)}`);

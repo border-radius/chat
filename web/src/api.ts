@@ -39,7 +39,7 @@ export interface UnreadCounts {
 }
 
 /** What the unread counter needs to know about a message event in any room (§18.3). */
-export type MessageActivity = Pick<Message, "id" | "room" | "author" | "deleted">;
+export type MessageActivity = Pick<Message, "id" | "room" | "author" | "deleted" | "reply_to">;
 
 export interface NewMessage {
   /** Client-generated (lib/id.ts) so retries can't duplicate (§7.5). */
@@ -206,7 +206,7 @@ export interface Api {
   subscribeMessages(room: string, fn: RealtimeHandler<Message>): Promise<Unsubscribe>;
   subscribeRooms(fn: RealtimeHandler<Room>): Promise<Unsubscribe>;
   subscribeHidden(fn: RealtimeHandler<HiddenRow>): Promise<Unsubscribe>;
-  /** Every message event in every room you can see, without text or files (§18.3). */
+  /** Every message event in every room you can see, without text or files (§18.3, §34). */
   subscribeAllMessages(fn: RealtimeHandler<MessageActivity>): Promise<Unsubscribe>;
   /** Your own room_reads rows, e.g. written by another tab or device. */
   subscribeReads(fn: RealtimeHandler<ReadRow>): Promise<Unsubscribe>;
@@ -274,7 +274,8 @@ interface SiteRow {
   logo?: string;
   invite_only?: boolean;
 }
-const ACTIVITY_FIELDS = "id,room,author,deleted";
+/** reply_to: notifications (§34) look closer at replies only. */
+const ACTIVITY_FIELDS = "id,room,author,deleted,reply_to";
 
 function toApiError(e: unknown): ApiError {
   if (e instanceof ApiError) return e;

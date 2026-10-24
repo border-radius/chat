@@ -272,6 +272,7 @@ export function viewContext(api: Api, store: Store<AppState>, navigate: (hash: s
     drafts,
     cache,
     logOut: vi.fn(),
+    notify: vi.fn(),
   };
 }
 

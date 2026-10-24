@@ -141,7 +141,8 @@ dialog.access h3 {
   background: var(--tint);
 }
 
-.vis-choice input {
+.vis-choice input,
+.notify-choice input {
   width: auto;
   margin: 0.2rem 0 0;
   accent-color: var(--accent);

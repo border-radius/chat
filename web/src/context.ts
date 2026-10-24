@@ -26,4 +26,6 @@ export interface Ctx {
   cache: Cache;
   /** End the session and go to the login screen (the profile page's Log out, §22.2). */
   logOut: () => void;
+  /** The notification settings changed (§34): follow them, if not yet. */
+  notify: () => void;
 }
