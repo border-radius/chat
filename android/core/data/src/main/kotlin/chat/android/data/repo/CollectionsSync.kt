@@ -79,6 +79,10 @@ class CollectionsSync(private val api: ChatApi, private val store: Store, privat
         job = r.scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
             try {
                 off = api.subscribeCollections(ids) { r.post { refresh() } }
+                // A change after the list was read but before the server had the subscription reaches neither (a
+                // follow from another device just then): read it once more (as the room does, QA BUG-61). The same
+                // subscription isn't made again, so this ends there.
+                refresh()
                 kotlinx.coroutines.awaitCancellation()
             } catch (e: chat.android.data.api.ApiError) {
                 // Not subscribed: the next load tries again.

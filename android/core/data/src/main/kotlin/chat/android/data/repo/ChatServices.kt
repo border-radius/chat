@@ -182,15 +182,23 @@ class ChatServices(
         }
     }
 
+    /**
+     * The room screens open, oldest first: the newest is the active room. A screen can open before the one it replaces
+     * is gone (a link or a notification to the room already open), and that one's close must not end the new one's.
+     */
+    private val openRooms = mutableListOf<String>()
+
     /** The room screen opened [roomId] (around [msgId]): its controller, started. [RoomController.close] ends it. */
     fun openRoom(roomId: String, msgId: String? = null): RoomController {
+        openRooms += roomId
         store.update { it.copy(activeRoomId = roomId) }
         return RoomController(api, store, outbox, cache, tokens, roomId, msgId, main, appScope).also { it.start() }
     }
 
-    /** The room screen closed: no room is active (if it still was this one). */
+    /** A room screen closed: the room still open under it (or none) is active. */
     fun closeRoom(roomId: String) {
-        store.update { if (it.activeRoomId == roomId) it.copy(activeRoomId = null) else it }
+        openRooms.lastIndexOf(roomId).takeIf { it >= 0 }?.let { openRooms.removeAt(it) }
+        store.update { it.copy(activeRoomId = openRooms.lastOrNull()) }
     }
 
     /** Another account became active: send what was read, then stop. */

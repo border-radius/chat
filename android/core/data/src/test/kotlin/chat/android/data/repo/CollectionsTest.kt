@@ -13,6 +13,7 @@ import chat.android.data.testing.services
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.runBlocking
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -87,6 +88,27 @@ class CollectionsTest {
         // Made private: it leaves the list, live.
         owner.api.updateCollection(coll, public = false)
         eventually(what = "gone private") { s.store.get().collections?.subs?.none { it.id == coll } == true }
+    }
+
+    @Test fun `a follow made while the list's subscription is on its way still shows`() = runBlocking {
+        val owner = newUser()
+        val b = newUser()
+        val coll = owner.api.createCollection("Shared ${uniq()}", true)
+        // The subscriptions reach the server late: a follow from another device lands in between.
+        val http = chat.android.data.testing.TestServer.http.newBuilder().addInterceptor { chain ->
+            if (chain.request().method == "POST" && chain.request().url.encodedPath == "/api/realtime") Thread.sleep(1500)
+            chain.proceed(chain.request())
+        }.build()
+        val main = java.util.concurrent.Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+        val s = ChatServices(chat.android.data.testing.TestServer.url, http, chat.android.data.pb.MemoryAuthStore(b.api.pb.authStore.session.value), chat.android.data.testing.testDb(), main)
+        try {
+            s.start()
+            eventually(what = "the list") { s.store.get().collections != null }
+            b.api.follow(coll, true)
+            eventually(what = "followed") { s.store.get().collections?.subs?.any { it.id == coll } == true }
+        } finally {
+            s.close()
+        }
     }
 
     @Test fun `a message attaches collection items through the outbox, and its badge names the collection`() = runBlocking {

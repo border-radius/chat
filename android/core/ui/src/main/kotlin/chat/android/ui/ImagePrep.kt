@@ -51,10 +51,36 @@ object ImagePrep {
                 d.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
             }
         }
+        return decodeLegacy(file, maxEdge)
+    }
+
+    /** Before Android 9: BitmapFactory, sampled down near [maxEdge], turned upright. Public for its test. */
+    fun decodeLegacy(file: File, maxEdge: Int): Bitmap? {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(file.path, bounds)
         var sample = 1
         while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= maxEdge) sample *= 2
-        return BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample })
+        val bitmap = BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample }) ?: return null
+        // BitmapFactory ignores the EXIF orientation, and the re-encoded file has none: a portrait photo would go
+        // sideways (Android 8). Turned upright here, as ImageDecoder does.
+        val m = orientation(runCatching { androidx.exifinterface.media.ExifInterface(file.path).getAttributeInt(androidx.exifinterface.media.ExifInterface.TAG_ORIENTATION, 1) }.getOrDefault(1))
+            ?: return bitmap
+        return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, m, true)
+    }
+
+    /** The turn (and mirror) that makes an image with EXIF orientation [o] upright; null when it already is. */
+    private fun orientation(o: Int): android.graphics.Matrix? {
+        val m = android.graphics.Matrix()
+        when (o) {
+            2 -> m.setScale(-1f, 1f)
+            3 -> m.setRotate(180f)
+            4 -> m.setScale(1f, -1f)
+            5 -> { m.setRotate(90f); m.postScale(-1f, 1f) }
+            6 -> m.setRotate(90f)
+            7 -> { m.setRotate(-90f); m.postScale(-1f, 1f) }
+            8 -> m.setRotate(-90f)
+            else -> return null
+        }
+        return m
     }
 }

@@ -3,6 +3,7 @@ package chat.android
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.ComposeContentTestRule
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.printToString
 import chat.android.data.pb.Session
@@ -101,6 +102,23 @@ class UiHarness(private val compose: ComposeContentTestRule) {
             pump()
             val lists = compose.onAllNodes(androidx.compose.ui.test.hasScrollAction())
             (0 until lists.fetchSemanticsNodes().size).any { i -> runCatching { lists[i].performScrollToNode(hasText(shown)) }.isSuccess }
+        }
+    }
+
+    /**
+     * Open room [name] from the list, by its row's click action: scrolled to from below, the row stops at the top edge,
+     * under the top bar (the list runs under it), where a tap lands on the bar. Tried again until the room shows (rows
+     * move while the shared server's rooms get messages).
+     */
+    fun openRoom(name: String) = dumping {
+        val open = { compose.onAllNodes(hasText("#$name"), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(30_000) {
+            if (!open()) {
+                showRoom(name)
+                runCatching { compose.onNode(hasText(name) and androidx.compose.ui.test.hasClickAction()).performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick) }
+                repeat(10) { pump() }
+            }
+            open()
         }
     }
 

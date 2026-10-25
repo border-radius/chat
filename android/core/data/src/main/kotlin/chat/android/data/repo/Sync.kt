@@ -4,6 +4,7 @@ package chat.android.data.repo
 
 import chat.android.data.api.Action
 import chat.android.data.api.ChatApi
+import chat.android.data.api.toApiError
 import chat.android.data.db.ChatDatabase
 import chat.android.data.db.Keys
 import chat.android.data.db.KvEntity
@@ -142,6 +143,8 @@ class Unread(
     private val main: CoroutineDispatcher,
     private val refreshMs: Long = 250,
     private val readMs: Long = 1000,
+    /** The first wait before a read that failed is sent again; it doubles with each failure, up to a minute. */
+    private val retryMs: Long = 2000,
 ) {
     private var run: Run? = null
     private var recent = mutableListOf<Pair<String, String>>()
@@ -202,19 +205,31 @@ class Unread(
         var readAt = ""
         var timer: Job? = null
         var closed = false
+        var failures = 0
         val live = { !closed && r != null && r.active && r === run }
         val self = object : Sender {
             override fun send(): Job? {
+                val sender = this
                 timer?.cancel()
                 timer = null
                 pending -= this
                 if (r == null || !r.active || api.currentUser()?.id != reader) return null // never as someone else
                 val at = readAt
                 return r.scope.launch {
-                    runCatching { api.markRead(roomId, at) }.onFailure {
-                        // Tried again with the next seen() (after a reconnect's gap fill).
-                        if (readAt == at && live()) readAt = ""
-                    }
+                    runCatching { api.markRead(roomId, at) }
+                        .onSuccess { failures = 0 }
+                        .onFailure { e ->
+                            // Offline, or the server in trouble: sent again a little later. Nothing else may ask (the room
+                            // on screen doesn't change), and the room would stay unread everywhere. A refusal is final.
+                            val status = e.toApiError().status
+                            if (e is kotlinx.coroutines.CancellationException || (status in 400..499 && status != 429) || !live() || timer != null) return@onFailure
+                            val wait = minOf(retryMs shl minOf(failures++, 5), MAX_RETRY_MS)
+                            pending += sender
+                            timer = r.scope.launch {
+                                delay(wait)
+                                sender.send()
+                            }
+                        }
                 }
             }
         }
@@ -297,5 +312,9 @@ class Unread(
         pending.clear()
         run?.dispose()
         run = null
+    }
+
+    private companion object {
+        const val MAX_RETRY_MS = 60_000L
     }
 }

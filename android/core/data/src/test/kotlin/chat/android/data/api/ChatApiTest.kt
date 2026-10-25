@@ -66,6 +66,22 @@ class ChatApiTest {
         assertEquals(0, runCatching { api.listRooms() }.exceptionOrNull()?.toApiError()?.status)
     }
 
+    @Test fun `JSON that isn't a session is network trouble too, not a crash`() = runBlocking {
+        val a = newUser()
+        val session = a.api.pb.authStore.session.value
+        // A site that answers every path with JSON of its own: an object without a session, a list.
+        for (body in listOf("""{"status":"ok"}""", """[1,2]""", """{"token":5,"record":{}}""")) {
+            val http = TestServer.http.newBuilder().addInterceptor { chain ->
+                okhttp3.Response.Builder().request(chain.request()).protocol(okhttp3.Protocol.HTTP_1_1).code(200).message("OK")
+                    .body(body.toResponseBody("application/json".toMediaType())).build()
+            }.build()
+            val api = ChatApi(chat.android.data.pb.PbClient(TestServer.url, http, chat.android.data.pb.MemoryAuthStore(session)))
+            val e = runCatching { api.refreshAuth() }.exceptionOrNull()
+            assertTrue("$body: $e", e is ApiError && e.status == 0)
+            assertEquals(session.token, api.pb.authStore.session.value.token)
+        }
+    }
+
     @Test fun `a wrong password is a 400 with the server's message`() = runBlocking {
         val u = newUser()
         try {

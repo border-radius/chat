@@ -3,10 +3,7 @@
 // carries (ANDROID.md §4.1, §11).
 package chat.android.feature.viewer
 
-import android.app.DownloadManager
 import android.content.Context
-import android.net.Uri
-import android.os.Environment
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
@@ -459,12 +456,5 @@ private fun clock(ms: Long): String {
 /** Download a file with the system's download manager (a fresh file token in its URL, §17.3). */
 private suspend fun download(context: Context, services: ChatServices, item: Item) {
     val token = runCatching { services.tokens.ensure() }.getOrDefault("")
-    val url = item.url(services, token).toString()
-    val name = item.name
-    val req = DownloadManager.Request(Uri.parse(url))
-        .setTitle(name)
-        .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-        .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name.replace('/', '_'))
-    runCatching { (context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(req) }
-        .onSuccess { android.widget.Toast.makeText(context, "Downloading $name", android.widget.Toast.LENGTH_SHORT).show() }
+    chat.android.ui.download(context, item.url(services, token).toString(), item.name)
 }

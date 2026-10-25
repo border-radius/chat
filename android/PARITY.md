@@ -18,7 +18,7 @@ Test classes: `UiFlowTest`, `UiFeaturesTest`, `UiPortsTest`, `UiCollectionsTest`
 | `realtime` | `UiFlowTest`: a live message; `ServicesTest`, `ChatApiTest`: realtime events | Covered |
 | `reconnect` | `ChatApiTest`: reconnect after a pause says events may have been missed | Partial: gap fill after it |
 | `history` | `ServicesTest`: opens around a message far back, jumps to the latest | Partial: scrolling the edges |
-| `unread` | `ServicesTest`: live counts, read on the server; `UiPortsTest`: unread rooms listed first, a folded section lists only them; `UiFeaturesTest`: what came while the app was in the background is read on coming back (QA BUG-157); `UiPortsTest`: opening a room reads only what is on screen, scrolling down the rest (ANDROID.md §25); `RoomSectionsTest` | Partial: the badge and the "New" line on screen |
+| `unread` | `ServicesTest`: live counts, read on the server; `UiPortsTest`: unread rooms listed first, a folded section lists only them; `UiFeaturesTest`: what came while the app was in the background is read on coming back (QA BUG-157); `UiPortsTest`: opening a room reads only what is on screen, scrolling down the rest (ANDROID.md §25); `ServicesTest`: a read that fails is sent again by itself (QA BUG-162); `RoomSectionsTest` | Partial: the badge and the "New" line on screen |
 | `edit` | `UiFeaturesTest`: edit, delete, a message's menu closing when it is deleted meanwhile (QA BUG-156); `ServicesTest`: edit, delete | Covered |
 | `reactions` | `UiFeaturesTest`: quick reactions; `ServicesTest`; `HelpersTest`: the web's reaction cases | Covered |
 | `replies` | `UiFeaturesTest`: reply and its quote; `ChatApiTest` | Partial: going to the original |
@@ -27,9 +27,9 @@ Test classes: `UiFlowTest`, `UiFeaturesTest`, `UiPortsTest`, `UiCollectionsTest`
 | `hide` | `UiFeaturesTest`: hiding a room | Partial: unhide |
 | `archive` | `UiFeaturesTest`: an archived room is read-only; `ServicesTest` | Covered |
 | `room_access` | `UiFeaturesTest`: private with a member; `ChatApiTest` | Partial: who can post, Open Air |
-| `attachments` | `UiPortsTest`: the viewer drops a message deleted while it is open (QA BUG-155) | Partial: picking files (pickers; sent through the system picker by hand on the emulator, ANDROID.md §22.3; the outbox sends files: `Outbox`) |
-| `search` | `UiFeaturesTest`: find and go to a message far back; `TextTest`: the web's search cases | Covered |
-| `cache` | `ServicesTest`: the room is kept for next time; a private room you are taken out of is kept empty (QA BUG-160) | Partial: opening from it |
+| `attachments` | `UiPortsTest`: the viewer drops a message deleted while it is open (QA BUG-155) | Partial: picking files (pickers; sent through the system picker by hand on the emulator, ANDROID.md §22.3; the outbox sends files: `Outbox`); `ImagePrepTest`: photos upright before re-encoding on Android 8 (QA BUG-164); downloads by hand on the emulator (QA BUG-161, ANDROID.md §26) |
+| `search` | `UiFeaturesTest`: find and go to a message far back; the message gone to shows whole though the ones after it are tall (QA BUG-163); `TextTest`: the web's search cases | Covered |
+| `cache` | `ServicesTest`: the room is kept for next time; a private room you are taken out of is kept empty (QA BUG-160); the room opened again from a link stays the active one (QA BUG-168) | Partial: opening from it |
 | `urls` | `RoutesTest`: links to rooms, messages and collections | Covered |
 | `xss` | `LinksTest`: only http(s) become links. Compose shows text as text: there is no HTML to inject | Covered |
 | `a11y` | — | Not yet (content descriptions are set; no automated check, no TalkBack pass) |
@@ -37,7 +37,7 @@ Test classes: `UiFlowTest`, `UiFeaturesTest`, `UiPortsTest`, `UiCollectionsTest`
 | `media` | `UiPortsTest`: a room's images in the grid, one opened in the viewer; an empty room says so | Partial: paging, video posters (on the emulator only) |
 | `switcher` | `UiPortsTest`: Jump to finds a room by a word and opens it; `JumpTest`: the web's matching and ranking cases; `ServicesTest`: the last-open times are forgotten with the session (QA BUG-152) | Covered |
 | `theme` | `UiPortsTest`: Appearance set to Dark is kept | Covered |
-| `collections` | `UiCollectionsTest`: make one from the room list, save from a tile, a badge to a public one, subscribe, "1 new" live and seen, attach from the picker with its badge, save and unsave in the viewer; `CollectionsTest`: badges follow a collection made public, renamed, private and deleted, live | Partial: uploading (the photo picker can't be driven on Robolectric), axe |
+| `collections` | `UiCollectionsTest`: make one from the room list, save from a tile, a badge to a public one, subscribe, "1 new" live and seen, attach from the picker with its badge, save and unsave in the viewer; `CollectionsTest`: badges follow a collection made public, renamed, private and deleted, live; a follow made while the subscription is on its way shows (QA BUG-170) | Partial: uploading (the photo picker can't be driven on Robolectric), axe |
 | `pwa` | — | Not applicable: the app is the installed app (§3) |
 | `linked` (two servers; also `tests/unit/views/room/linked.test.ts`, `rooms.test.ts`) | `UiLinkedTest`: a shared room's top bar and access screen, New message by address; `LinkedTest`; `ChatApiTest`: a shared room and a stand-in decode, an address refused with its reason. Between servers: `tests/integration/federation.test.ts` | Covered |
 | — (Android only) | Servers and accounts (ANDROID.md §17): `AccountsTest`, `ServersTest` (add, switch, links and pushes find their account, refused sessions, addresses), `UiAccountsTest` (add an account on another server, switch from the account list opened by the brand, a bad address, log out to another account) | Covered |

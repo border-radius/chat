@@ -255,8 +255,13 @@ class Accounts(
             val refused = if (s.api.currentUser() == null) true else try {
                 s.api.refreshAuth()
                 false
-            } catch (e: ApiError) {
-                e.status == 401 || e.status == 403 || e.status == 404
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Only a refusal ends it; anything else (offline, an answer it can't read) leaves it for next time:
+                // this runs in the accounts' scope, where a throw would end the app.
+                val status = (e as? ApiError)?.status
+                status == 401 || status == 403 || status == 404
             }
             if (refused) lock.withLock { if (r.id != activeState.value?.accountId) removeLocked(r.id) }
         }

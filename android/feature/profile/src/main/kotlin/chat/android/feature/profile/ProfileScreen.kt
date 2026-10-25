@@ -108,11 +108,20 @@ fun ProfileScreen(onBack: () -> Unit) {
         }
         busy = true
         scope.launch {
+            // A picture that can't be read (gone from the provider, no longer allowed) says so; thrown here, it would
+            // end the app.
             val prepared = withContext(Dispatchers.IO) {
-                val dir = File(context.cacheDir, "avatar").apply { deleteRecursively(); mkdirs() }
-                val raw = File(dir, "avatar." + (type.substringAfter('/')))
-                context.contentResolver.openInputStream(uri)?.use { i -> raw.outputStream().use { i.copyTo(it) } }
-                ImagePrep.prepare(raw, raw.name, type, ImagePrep.AVATAR_EDGE) ?: Triple(raw, raw.name, type)
+                runCatching {
+                    val dir = File(context.cacheDir, "avatar").apply { deleteRecursively(); mkdirs() }
+                    val raw = File(dir, "avatar." + (type.substringAfter('/')))
+                    context.contentResolver.openInputStream(uri)!!.use { i -> raw.outputStream().use { i.copyTo(it) } }
+                    ImagePrep.prepare(raw, raw.name, type, ImagePrep.AVATAR_EDGE) ?: Triple(raw, raw.name, type)
+                }.getOrNull()
+            }
+            if (prepared == null) {
+                avatarError = "Couldn't read that image."
+                busy = false
+                return@launch
             }
             val (file, fname, ftype) = prepared
             if (file.length() > Limits.AVATAR_BYTES) {

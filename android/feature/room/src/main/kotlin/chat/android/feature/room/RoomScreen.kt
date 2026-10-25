@@ -2,13 +2,12 @@
 // or why you can't post, search (§29), selecting messages to forward or delete (§21), and the room's menu.
 package chat.android.feature.room
 
-import android.app.DownloadManager
 import android.content.ClipData
 import android.content.Context
 import android.net.Uri
-import android.os.Environment
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -60,6 +59,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
@@ -130,6 +130,7 @@ fun RoomScreen(roomId: String, msgId: String?, nav: RoomNav, incoming: Pair<Stri
     val snackbar = remember { SnackbarHostState() }
     val focus = remember { FocusRequester() }
     val clipboard = LocalClipboard.current
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     var sheetFor by remember { mutableStateOf<Message?>(null) }
     var emojiFor by remember { mutableStateOf<Message?>(null) }
     var composerEmoji by remember { mutableStateOf(false) }
@@ -209,9 +210,16 @@ fun RoomScreen(roomId: String, msgId: String?, nav: RoomNav, incoming: Pair<Stri
                     Scroll.Target -> {
                         val key = c.state.value.targetId ?: c.state.value.unreadId ?: return@runCatching
                         val rowsNow = withTimeoutOrNull(1000) { vm.rows.first { r -> r.any { it.key == key } } } ?: return@runCatching
-                        // The list is laid out from the bottom: two rows newer than the target at the bottom puts it a
-                        // little above the composer, with what follows it in view.
-                        list.scrollToItem(maxOf(0, rowsNow.indexOfFirst { it.key == key } - 2))
+                        // The list is laid out from the bottom: the target's bottom edge at the bottom, then raised a
+                        // quarter of the list so what follows it shows too, as far as the target stays whole. (Two rows
+                        // newer at the bottom put it off screen when they are tall: images, a keyboard open.)
+                        val i = rowsNow.indexOfFirst { it.key == key }
+                        list.scrollToItem(i)
+                        val info = list.layoutInfo
+                        val size = info.visibleItemsInfo.firstOrNull { it.index == i }?.size ?: 0
+                        val viewport = info.viewportEndOffset - info.viewportStartOffset
+                        val raise = minOf(viewport / 4, viewport - size).coerceAtLeast(0)
+                        if (raise > 0 && i > 0) list.scrollBy(-raise.toFloat())
                     }
                     Scroll.Anchor -> {}
                 }
@@ -345,8 +353,7 @@ fun RoomScreen(roomId: String, msgId: String?, nav: RoomNav, incoming: Pair<Stri
                             when (row) {
                                 is ListRow.Msg -> MessageRow(row.m, row.first, row.target, me?.id, vm.selecting, row.m.id in vm.selected, actions)
                                 is ListRow.Day -> DayHeader(row.label)
-                                // The line fades out when its time is up, instead of vanishing.
-                                ListRow.NewLine -> NewLine(Modifier.animateItem(fadeInSpec = null, placementSpec = null, fadeOutSpec = androidx.compose.animation.core.tween(700)))
+                                ListRow.NewLine -> NewLine()
                                 is ListRow.Beginning -> Beginning(row.text, room, me?.id)
                             }
                         }
@@ -373,7 +380,8 @@ fun RoomScreen(roomId: String, msgId: String?, nav: RoomNav, incoming: Pair<Stri
                     }
                 }
             }
-            if (vm.searching) SearchResults(vm) { vm.pick(it) }
+            // Picking a result puts the keyboard away too: it would cover half of the message gone to.
+            if (vm.searching) SearchResults(vm) { focusManager.clearFocus(); vm.pick(it) }
         }
     }
 
@@ -413,6 +421,8 @@ fun RoomScreen(roomId: String, msgId: String?, nav: RoomNav, incoming: Pair<Stri
         ForwardSheet(ids.size, forwardTargets(app_), me?.id, onPick = { r -> forwarding = null; vm.forward(ids, r.id) {} }, onDismiss = { forwarding = null })
     }
 }
+
+private const val NEW_LINE_FADE_MS = 700L
 
 private fun FocusRequester.requestFocusSafely() {
     runCatching { requestFocus() }
@@ -491,9 +501,18 @@ private fun Beginning(text: String, room: chat.android.data.model.Room?, me: Str
     }
 }
 
+/**
+ * The line fades out in its last moments, in its own place, instead of vanishing. (Faded out as it left the list, it
+ * was drawn over the message under it while the list closed the gap.)
+ */
 @Composable
-private fun NewLine(modifier: Modifier = Modifier) {
-    Row(modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+private fun NewLine() {
+    val alpha = remember { androidx.compose.animation.core.Animatable(1f) }
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(chat.android.data.repo.UNREAD_LINE_MS - NEW_LINE_FADE_MS)
+        alpha.animateTo(0f, androidx.compose.animation.core.tween(NEW_LINE_FADE_MS.toInt()))
+    }
+    Row(Modifier.fillMaxWidth().graphicsLayer { this.alpha = alpha.value }.padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         HorizontalDivider(Modifier.weight(1f), color = MaterialTheme.colorScheme.secondary)
         Text("New", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.padding(horizontal = 8.dp))
     }
@@ -535,11 +554,5 @@ private fun SearchResults(vm: RoomViewModel, onPick: (Message) -> Unit) {
 /** Download an attachment with the system's download manager (a fresh file token in its URL, §17.3). */
 private suspend fun download(context: Context, services: chat.android.data.repo.ChatServices, m: Message, file: String) {
     val token = runCatching { services.tokens.ensure() }.getOrDefault("")
-    val url = services.api.fileUrl(m, file, token = token).toString()
-    val name = m.attachmentName(file)
-    val req = DownloadManager.Request(Uri.parse(url))
-        .setTitle(name)
-        .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-        .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name.replace('/', '_'))
-    runCatching { (context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(req) }
+    chat.android.ui.download(context, services.api.fileUrl(m, file, token = token).toString(), m.attachmentName(file))
 }

@@ -287,8 +287,8 @@ private fun AudioPlayer(m: Message, name: String, label: String) {
             onClick = {
                 val p = player
                 when {
-                    p != null && playing -> { p.pause(); playing = false }
-                    p != null && !preparing -> { p.start(); playing = true }
+                    p != null && playing -> { runCatching { p.pause() }; playing = false }
+                    p != null && !preparing -> runCatching { p.start(); playing = true }.onFailure { failed = true; player = null; p.release() }
                     p == null -> scope.launch {
                         preparing = true
                         failed = false
@@ -304,7 +304,15 @@ private fun AudioPlayer(m: Message, name: String, label: String) {
                                 playing = true
                             }
                             mp.setOnCompletionListener { playing = false; position = 0; it.seekTo(0) }
-                            mp.setOnErrorListener { _, _, _ -> failed = true; playing = false; preparing = false; true }
+                            // An errored player throws on start(): it goes, and the next tap tries afresh (a new token).
+                            mp.setOnErrorListener { p, _, _ ->
+                                failed = true
+                                playing = false
+                                preparing = false
+                                if (player === p) player = null
+                                p.release()
+                                true
+                            }
                             mp.prepareAsync()
                             player = mp
                         }.onFailure { failed = true; preparing = false; mp.release() }

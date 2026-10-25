@@ -13,4 +13,5 @@ dependencies {
     implementation(libs.coil.okhttp)
     implementation(libs.browser)
     implementation(libs.emoji2)
+    implementation(libs.exifinterface)
 }

@@ -173,10 +173,14 @@ class ChatApi(val pb: PbClient) {
     }
 
     private suspend fun auth(path: String, body: JsonObject): User {
-        val json = call(path, "POST", body = Body.Json(body)).obj
-        val record = json["record"] as JsonObject
-        pb.authStore.save(Session((json["token"] as JsonPrimitive).content, record))
-        return decode(record)
+        // Not a session (another server's answer, a proxy's): like network trouble, never a crash (QA BUG-158).
+        val unreadable = { ApiError("The server's answer couldn't be read.", 0) }
+        val json = call(path, "POST", body = Body.Json(body)) as? JsonObject ?: throw unreadable()
+        val record = json["record"] as? JsonObject ?: throw unreadable()
+        val token = (json["token"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: throw unreadable()
+        val user = runCatching { decode<User>(record) }.getOrElse { throw unreadable() }
+        pb.authStore.save(Session(token, record))
+        return user
     }
 
     /** Update a user, keeping the stored auth record in step when it is the one logged in. */

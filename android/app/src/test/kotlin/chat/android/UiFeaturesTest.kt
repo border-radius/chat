@@ -40,8 +40,7 @@ class UiFeaturesTest {
     @After fun tearDown() = ui.stop()
 
     private fun openRoom(name: String) {
-        ui.showRoom(name)
-        compose.onNodeWithText(name).performClick()
+        ui.openRoom(name)
         ui.waitFor("Beginning of #$name")
     }
 
@@ -63,8 +62,7 @@ class UiFeaturesTest {
             a.api.markRead(room.id, last.created) // read: the room opens at the bottom, not at the first unread one
         }
         ui.signedIn(a)
-        ui.showRoom(room.name)
-        compose.onNodeWithText(room.name).performClick()
+        ui.openRoom(room.name)
         ui.waitFor("filler 12")
         type("line one\nline two\nline three\nline four")
         send()
@@ -181,6 +179,32 @@ class UiFeaturesTest {
         compose.onAllNodes(hasText("number one", substring = true))[0].performClick()
         compose.onNodeWithContentDescription("Close search").performClick()
         ui.waitFor("Needle number one")
+    }
+
+    @Test fun `a message gone to shows whole, though the messages after it are tall`() {
+        val a = newUser()
+        val room = runBlocking { a.api.createRoom("tg-${uniq()}") }
+        val tall = (1..30).joinToString("\n") { "line $it" }
+        runBlocking {
+            a.api.send(NewMessage(newId(), room.id, "Needle here"))
+            repeat(2) { a.api.send(NewMessage(newId(), room.id, "tall $it\n$tall")) }
+            repeat(40) { a.api.send(NewMessage(newId(), room.id, "filler $it")) }
+        }
+        ui.signedIn(a)
+        ui.showRoom(room.name)
+        compose.onNodeWithText(room.name).performClick()
+        ui.waitFor("filler 39")
+        compose.onNodeWithContentDescription("Search messages").performClick()
+        compose.onNode(hasSetTextAction() and hasContentDescription("Search messages")).performTextInput("NEEDLE")
+        ui.waitFor("1 message found.")
+        compose.onAllNodes(hasText("Needle here"))[0].performClick()
+        ui.waitGone("1 message found.")
+        repeat(10) { ui.pump() }
+        // Before the fix the two rows after it were put at the bottom: taller than the list, they pushed it off the top.
+        val target = compose.onNodeWithText("Needle here").fetchSemanticsNode().boundsInRoot
+        val list = compose.onNodeWithContentDescription("Messages").fetchSemanticsNode().boundsInRoot
+        val composer = compose.onNode(hasContentDescription("Message")).fetchSemanticsNode().boundsInRoot
+        assertTrue("the message is at ${target.top}..${target.bottom}, the list ${list.top}..${composer.top}", target.top >= list.top && target.bottom <= composer.top)
     }
 
     @Test fun `a new DM opens from the people search (dm spec)`() {

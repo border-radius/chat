@@ -17,6 +17,7 @@ import chat.android.data.db.RoomEntity
 import chat.android.data.model.Room
 import chat.android.data.pb.PbJson
 import chat.android.data.pb.Session
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -134,6 +135,33 @@ class ServicesTest {
         s.closeRoom(room.id)
     }
 
+    @Test fun `a read that fails on the way is sent again, with nothing new on screen`() = runBlocking {
+        val a = newUser()
+        val b = newUser()
+        val room = a.api.createRoom("r-${uniq()}")
+        // The network comes back just after the message showed: the first read doesn't get through.
+        var failed = 0
+        val http = TestServer.http.newBuilder().addInterceptor { chain ->
+            if (chain.request().url.encodedPath == "/api/chat/reads" && failed++ == 0) throw java.io.IOException("offline")
+            chain.proceed(chain.request())
+        }.build()
+        val main = java.util.concurrent.Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+        val s = ChatServices(TestServer.url, http, chat.android.data.pb.MemoryAuthStore(b.api.pb.authStore.session.value), testDb(), main)
+        try {
+            s.start()
+            eventually(what = "counted") { s.store.get().counted && room.id in s.store.get().rooms }
+            val m = a.api.send(NewMessage(newId(), room.id, "one"))
+            eventually(what = "unread") { s.store.get().unread[room.id] == 1 }
+            val reader = kotlinx.coroutines.withContext(main) { s.unread.open(room.id) }
+            kotlinx.coroutines.withContext(main) { reader.seen(m.created, caughtUp = true) }
+            // No other seen(): the room on screen doesn't change.
+            eventually(ms = 15_000, what = "read on the server") { runBlocking { b.api.unreadCounts().rooms[room.id] == null } }
+            assertTrue(failed >= 2)
+        } finally {
+            s.close()
+        }
+    }
+
     @Test fun `a refused send shows as failed and can be discarded`() = runBlocking {
         val a = newUser()
         val room = a.api.createRoom("r-${uniq()}")
@@ -170,6 +198,27 @@ class ServicesTest {
         ada.api.setAccess(room.id, Visibility.Private, emptyList())
         eventually(what = "the room gone") { room.id !in s.store.get().rooms }
         eventually(what = "kept empty") { runBlocking { s.cache.get(bob.user.id, room.id)?.items?.isEmpty() == true } }
+    }
+
+    @Test fun `a room opened again before its screen closes stays the active room`() = runBlocking {
+        val a = newUser()
+        val room = a.api.createRoom("r-${uniq()}")
+        val other = a.api.createRoom("r-${uniq()}")
+        val s = services(a)
+        // A link (or a notification) to the room on screen opens a new screen of it; the old one goes after.
+        val first = s.openRoom(room.id)
+        val second = s.openRoom(room.id, msgId = null)
+        first.close()
+        s.closeRoom(room.id)
+        assertEquals(room.id, s.store.get().activeRoomId)
+        // And to another room: that one is active once the old screen goes.
+        val third = s.openRoom(other.id)
+        second.close()
+        s.closeRoom(room.id)
+        assertEquals(other.id, s.store.get().activeRoomId)
+        third.close()
+        s.closeRoom(other.id)
+        assertNull(s.store.get().activeRoomId)
     }
 
     @Test fun `Jump to forgets which rooms were opened when the session ends (QA BUG-152)`() = runBlocking {

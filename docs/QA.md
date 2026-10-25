@@ -1703,3 +1703,91 @@ Not changed, by design or for a decision:
   pointer.
 - Folded sections are kept per browser, not per person.
 - Under a "Yesterday" divider, message times still carry their date (the web's `formatTime`, matched by the app).
+
+---
+
+# QA pass 21 — the Android app
+
+Exploratory testing of the Android app on 2026-10-25: by hand on the emulator (Android 9, ANDROID.md §18.1) against
+the seeded server (rooms, the viewer, downloads, search, the soft keyboard, an audio file that can't play, the network
+dropped and back, a cold start after the process was killed), the JVM suites, and a read through the app's code against
+the web's. No web fix since the last sweep (BUG-150) was left unported. Numbering continues from BUG-160. Each fix lands
+with a test that fails without it, except where noted.
+
+| # | Severity | Area | Summary | Status |
+|---|---|---|---|---|
+| BUG-161 | Medium | Files (Android 8–9) | Download (a file chip, the viewer's button) did nothing: the shared Downloads folder needs the storage permission before Android 10, the download manager refused, and the refusal was swallowed | Fixed (by hand on the emulator) |
+| BUG-162 | Medium | Unread | A read that failed on its way (the network back a moment after the message showed) was never sent again while the room on screen didn't change: the room stayed unread on the server, so on every device | Fixed |
+| BUG-163 | Medium | Room | Going to a message (a search result, a quote, the first unread one) could leave it off the top of the list when the messages after it were tall; a first unread message off screen was then read unseen. The keyboard also stayed up after picking a search result | Fixed |
+| BUG-164 | Medium | Attachments (Android 8) | Photos sent from Android 8 and 8.1 arrived sideways: their EXIF orientation was ignored, then dropped by re-encoding (profile pictures too) | Fixed |
+| BUG-165 | Low | Audio | An audio file that failed to play once (offline, an expired file token) could never play in that room again: Play restarted the same broken player | Fixed (by hand on the emulator) |
+| BUG-166 | Low | Accounts | A sign-in or renewal answered with JSON that wasn't a session (another site, a proxy) threw outside any handler while the idle accounts were renewed at launch, ending the app | Fixed |
+| BUG-167 | Low | Profile | A picture that couldn't be read (gone from its provider, permission taken back) ended the app | Fixed (by reading: the picker can't be driven) |
+| BUG-168 | Low | Room | A link or a notification to the room already open left no room active once the old screen closed: messages arriving in the room on screen counted as unread, its notification wasn't taken away | Fixed |
+| BUG-169 | Low | Room | The "New" line faded out after leaving the list, drawn across the first unread message's text for 0.7 s | Fixed (seen on the emulator; no test) |
+| BUG-170 | Low | Collections | A collection followed (from another device) just after the app read the list, before its live subscription was in, never showed until the next reconnect | Fixed |
+
+## BUG-161 — Downloads did nothing on Android 8 and 9 (Medium)
+
+**Steps:** on Android 9, open an image in the viewer and tap Download (or tap a file in a room). **Expected:** the
+file downloads. **Actual:** nothing, not even a message; the log has `SecurityException: No permission to write to
+/storage/emulated/0/Download/…: Neither user … nor current process has android.permission.WRITE_EXTERNAL_STORAGE`.
+**Fix:** one `download()` for the room and the viewer: before Android 10 the file goes to the app's own Downloads
+folder, which needs no permission (the download's notification opens it); a toast says it started, or that it couldn't.
+
+## BUG-162 — A read that failed was never sent again (Medium)
+
+**Steps:** a room open at its bottom; the network drops; a message comes as it returns. **Expected:** read, once on
+screen. **Actual:** shown, but unread on the server, the room list, the web and every device; the server's log had no
+read at all. **Cause:** the reader's request failed (the network not quite back), and a failed read was only retried
+with the next report of what is on screen, which nothing brought since the screen didn't change (the web's `unread.ts`
+works the same way, and relies on a reconnect's gap fill re-rendering). **Fix:** the reader sends it again by itself,
+after 2 s and then doubling up to a minute, until it is in or refused (`ServicesTest` fails the first request).
+
+## BUG-163 — The message gone to was off screen (Medium)
+
+**Steps:** search a room for a message followed by images (or long messages), pick it. **Expected:** the message, in
+view, highlighted. **Actual:** the two messages after it, the message itself above the top. The list put the row two
+below the target at its bottom; tall rows (and the keyboard, still up) pushed the target out. The room opens at the
+first unread message the same way, and with reading only what is on screen (DESIGN.md §18.3) a first unread message
+off the top counted as read. **Fix:** the target's bottom edge goes to the bottom, then the list is raised a quarter of
+its height as far as the target stays whole; picking a result also puts the keyboard away (`UiFeaturesTest`).
+
+## BUG-164 — Photos from Android 8 arrived sideways (Medium)
+
+Before Android 9 images are decoded with `BitmapFactory`, which ignores EXIF; re-encoding them (to drop the GPS
+location, §15.3) then dropped the orientation too. **Fix:** turned upright from the EXIF orientation before re-encoding,
+as `ImageDecoder` does on 9+ (`ImagePrepTest`, all on the old path).
+
+## BUG-165 to BUG-170 (Low)
+
+- **BUG-165:** the second tap logged `start called in state 0` and error -38. A failed player is now released, and the
+  next tap prepares a new one with a fresh file token (checked on the emulator: a new prepare, not -38). Not a crash:
+  first thought to be one from the code, `start()` in the error state reports an error instead of throwing.
+- **BUG-166:** `ChatApi.auth` reads a session or fails with status 0; the idle accounts' renewal ends a session only
+  when it is refused (`ChatApiTest`: `{"status":"ok"}`, a list, a token that isn't a string).
+- **BUG-167:** "Couldn't read that image." instead.
+- **BUG-168:** the new screen of the room opens before the old one goes; the old one's close cleared the active room.
+  The services keep the open room screens in order (`ServicesTest`).
+- **BUG-169:** the line now fades in its own place in its last 0.7 s, then goes.
+- **BUG-170:** found by `CollectionsTest` failing in full runs (the follow came while the subscription was on its
+  way). Once subscribed, the list is read once more, as the room catches up after its subscription (QA BUG-61). A new
+  `CollectionsTest` holds the subscription back 1.5 s. The web's `collections.ts` has the same gap.
+
+## Checked and fine
+
+- Sending, the soft keyboard's Enter (a new line; only a hardware keyboard's sends), search, the viewer and its
+  counter, a message missed while the network was down (shown once it was back), a cold start after the process was
+  killed (signed in, the room list, the badges).
+- After the fixes: 84 JVM tests in `:core:data` and 46 in `:app`, three full runs in a row; lint without errors; the
+  release APK 2.99 MB of 6 MB.
+- The UI harness's `openRoom` uses the row's click action: scrolled to from below, a row stops under the top bar,
+  where a tap lands on the bar (a full run's failure, not the app's).
+
+Not changed, by design or for a decision:
+- Images uploaded straight into a collection keep their EXIF (GPS location included), on the web and on Android:
+  neither re-encodes them as attachments are (§15.3). Re-encoding would also scale them down to 2048 px.
+- The web has BUG-162's and BUG-170's weaknesses too (`unread.ts`, `collections.ts`): not changed in this pass, which
+  was the app's.
+- On the emulator (software CPU) Android's 10 s stop timeout passes before the activity has saved its state, so after
+  the process is killed it starts at the room list. Settings saves its state there; a phone is fast enough.

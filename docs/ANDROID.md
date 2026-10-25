@@ -905,3 +905,47 @@ scrolling in the room messages will be marked as read." Done on the web too (DES
 - **Counts:** `RoomReader.seen(created, caughtUp)` clears the room's count only when caught up; `close(false)`
   refetches the counts after the pending read is in, so the badge shows what is left below.
 - Tests: `UiPortsTest` (a room opened with 30 unread reads only what is on screen; scrolled to the bottom, all).
+
+## 26. QA pass 21: downloads, reads that fail, going to a message (2026-10-25)
+
+Tested on the emulator (Android 9, §18.1) against the seeded server, and by reading the code against the web's; the
+QA write-up is QA.md "QA pass 21". No web fix since the last sweep (BUG-150) was left unported.
+
+### 26.1 Bugs fixed
+
+| Bug | Fix |
+|---|---|
+| QA BUG-161: downloading a file (the room's file chips, the viewer's Download) did nothing on Android 8 and 9: the shared Downloads folder needs the storage permission there, the download manager refused, and the refusal was swallowed. The room said nothing either way | `chat.android.ui.download` (core:ui), used by the room and the viewer: Android 10+ the shared Downloads folder, before that the app's own (`Android/data/…/files/Download`, no permission; the download's notification opens it). A toast says it started or couldn't |
+| QA BUG-162: a read that failed on its way (the network back a moment after the message showed) was tried again only with the next `seen()`, which nothing brought when the room on screen didn't change: the room stayed unread on the server, the list, the web, every device | `Unread`'s reader sends it again by itself, after 2 s, then doubling up to a minute, until it is in or refused (a 4xx other than 429) (`ServicesTest`) |
+| QA BUG-163: going to a message (a search result, a quote, the first unread one when a room opens) put the row two below it at the bottom of the list: when those rows were tall (images, long messages, the keyboard up) the message itself was off the top. With reading what is on screen (§25), a first unread message off the top was read unseen. After picking a search result the keyboard also stayed up over half the room | The message's bottom edge goes to the bottom, then the list is raised a quarter of its height, as far as the message stays whole; picking a result clears the focus (`UiFeaturesTest`) |
+| QA BUG-164: photos sent from Android 8 and 8.1 lost their orientation: `BitmapFactory` ignores EXIF, and re-encoding (§15.3) dropped it, so a portrait photo arrived sideways (also profile pictures) | `ImagePrep.decodeLegacy` turns the bitmap upright from the EXIF orientation (all eight, read with androidx's `ExifInterface`, now a direct dependency of core:ui), as `ImageDecoder` does on 9+ (`ImagePrepTest`) |
+| QA BUG-165: an audio attachment that failed to play once ("Couldn't play …": offline, an expired file token) could never play in that room again: Play restarted the same broken `MediaPlayer`, which failed at once ("start called in state 0", error -38) | A failed player is released and forgotten: the next tap starts afresh, with a fresh file token; `start()`/`pause()` failures are caught too |
+| QA BUG-166: a sign-in or renewal that got JSON other than a session (another site's, a proxy's) threw a `ClassCastException`/`NullPointerException`; renewing the idle accounts at launch (`Accounts.renewIdle`, catching only `ApiError`) then ended the app | `ChatApi.auth` fails with status 0 ("couldn't be read") unless the answer has a token and a user; `renewIdle` ends a session only on a refusal and leaves anything else for next time (`ChatApiTest`) |
+| QA BUG-167: a profile picture that couldn't be read (gone from the provider, permission revoked) threw out of the screen's coroutine and ended the app | "Couldn't read that image." |
+| QA BUG-168: a link or a notification to the room already open opens a new screen of it, and the old one closing afterwards set "no active room": messages arriving in the room on screen counted as unread, the prefetch fetched it, its notification wasn't taken away | `ChatServices` keeps the room screens open in order; the active room is the newest still open (`ServicesTest`) |
+| QA BUG-169: the "New" line over the first unread message faded out after leaving the list, so for its 0.7 s it was drawn across that message's text while the list closed the gap | It fades out in its own place in its last 0.7 s, then goes |
+| QA BUG-170: a collection followed (another device) just after the list was read, before the live subscription was in, never showed until a reconnect | Once subscribed, `CollectionsSync` reads the list once more, as the room catches up (`CollectionsTest` holds the subscription back) |
+
+### 26.2 Checked on the emulator
+
+Before the fixes: BUG-161 (the `SecurityException` in the log), BUG-162 (no read in the server's log), BUG-163, BUG-165
+(`start called in state 0`, error -38) and BUG-169. With them: the viewer's Download finished into the app's Downloads
+folder; Play on a broken audio file twice prepared a new player each time; a search result showed whole with the
+keyboard put away. Also fine: sending, the soft keyboard's Enter (a new line, as designed), the viewer, the network
+dropped and back (the message missed shows), a cold start after the process was killed. Under TCG the activity takes
+over 10 s to stop, so Android drops its saved state ("Activity stop timeout"): after a kill it starts at the room list,
+not the room. That is the emulator's speed (Settings saves its state there), not the app.
+
+### 26.3 Not changed, for a decision
+
+- Images uploaded straight into a collection (§19) keep their EXIF, GPS included, on the web as on Android: neither
+  re-encodes them as attachments are (§15.3). Re-encoding would also scale them to 2048 px.
+- The web's `unread.ts` and `collections.ts` have BUG-162's and BUG-170's weaknesses too.
+
+### 26.4 Tests
+
+New: `ServicesTest` (a failing read sent again; the active room with two screens of it), `ChatApiTest` (JSON that
+isn't a session), `CollectionsTest` (a follow during the subscription), `ImagePrepTest`, `UiFeaturesTest` (a message gone
+to shows whole). `UiHarness.openRoom` opens a room by its row's click action, tried again until it shows: scrolled to
+from below, a row stops under the top bar, where a tap lands on the bar. All JVM tests pass, three full runs in a row
+(84 in `:core:data`, 46 in `:app`); lint has no errors; the release APK is 2.99 MB (budget 6 MB).
