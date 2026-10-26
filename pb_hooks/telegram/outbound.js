@@ -69,6 +69,9 @@ function queueUpdate(app, rec, change) {
 
 const esc = (/** @type {string} */ s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
+/** A header over a text, either of which may be "". */
+const joined = (/** @type {string} */ header, /** @type {string} */ text) => (header && text ? `${header}\n${text}` : header || text);
+
 /**
  * @param {core.App} app
  * @param {string} id
@@ -95,21 +98,22 @@ function userName(app, id) {
 
 /**
  * What a message shows, as Telegram HTML: its author in bold over its text; a forward says whose it is, and shows its
- * original's text and files (§21.3).
+ * original's text and files (§21.3). An anonymous link's group gets no header: only the text (and files).
  * @param {core.App} app
  * @param {core.Record} msg
+ * @param {boolean} anonymous
  */
-function contentOf(app, msg) {
+function contentOf(app, msg, anonymous) {
   let source = msg;
-  let header = `<b>${esc(userName(app, msg.getString("author")) || "Someone")}</b>`;
+  let header = anonymous ? "" : `<b>${esc(userName(app, msg.getString("author")) || "Someone")}</b>`;
   if (msg.getString("forwarded_from")) {
-    header += ` <i>forwarded from ${esc(userName(app, msg.getString("forwarded_from")) || "someone")}</i>`;
+    if (!anonymous) header += ` <i>forwarded from ${esc(userName(app, msg.getString("forwarded_from")) || "someone")}</i>`;
     const original = msg.getString("forward_of") ? findMessage(app, msg.getString("forward_of")) : null;
     if (msg.getString("forward_of")) source = original && !original.getBool("deleted") ? original : msg;
   }
   const text = source.getString("text");
-  const plain = `${header.replace(/<[^>]+>/g, "")}\n${text}`;
-  return { html: text ? `${header}\n${esc(text)}` : header, plain, source, header, text };
+  const plain = joined(header.replace(/<[^>]+>/g, ""), text);
+  return { html: joined(header, esc(text)), plain, source, header, text };
 }
 
 /**
@@ -121,7 +125,7 @@ function captionOf({ html, plain, header, text }) {
   const over = [...plain].length - MAX_CAPTION;
   if (over <= 0) return html;
   const chars = [...text];
-  return `${header}\n${esc(chars.slice(0, chars.length - over - 1).join(""))}…`;
+  return joined(header, `${esc(chars.slice(0, chars.length - over - 1).join(""))}…`);
 }
 
 /**
@@ -193,7 +197,7 @@ function send(app, messageId, chatId) {
   // Came from this group, or already sent (a retry after the worker stopped halfway).
   if (mappings(app, messageId, chatId).length) return;
 
-  const { html, plain, source } = contentOf(app, msg);
+  const { html, plain, source } = contentOf(app, msg, link.getBool("anonymous"));
   const replyTo = msg.getString("reply_to") ? mappings(app, msg.getString("reply_to"), chatId)[0] : null;
   /** @type {any} */
   let reply = replyTo ? { reply_parameters: { message_id: replyTo.getInt("tg_message_id"), allow_sending_without_reply: true } } : {};
@@ -203,6 +207,7 @@ function send(app, messageId, chatId) {
     const files = filesOf(fsys, source);
     const groups = [files.filter((f) => f.kind !== "document"), files.filter((f) => f.kind === "document")].filter((g) => g.length);
     let caption = groups.length && [...plain].length <= MAX_CAPTION ? { caption: html, parse_mode: "HTML" } : null;
+    if (!caption && !html) return; // anonymous, with nothing to say (a forward of a deleted message)
     if (!caption) {
       remember(app, messageId, chatId, call("sendMessage", { chat_id: chatId, text: html, parse_mode: "HTML", ...reply }), "text");
       reply = {};
@@ -248,7 +253,7 @@ function send(app, messageId, chatId) {
 function edit(app, messageId, chatId) {
   const msg = findMessage(app, messageId);
   if (!msg || msg.getBool("deleted")) return;
-  const content = contentOf(app, msg);
+  const content = contentOf(app, msg, !!linkOfChat(app, chatId)?.getBool("anonymous"));
   const { html } = content;
   for (const row of mappings(app, messageId, chatId, " && direction = 'out' && kind != 'media'")) {
     const id = row.getInt("tg_message_id");

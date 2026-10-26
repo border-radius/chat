@@ -237,7 +237,8 @@ the bot posts chat messages with the author's name above them.
 
    With Dokku: `dokku config:set chat TELEGRAM_BOT_TOKEN='…' TELEGRAM_WEBHOOK_URL='https://chat.example.com/api/telegram/webhook'`.
 3. Add the bot to a Telegram group. A row for it appears in the admin UI under *Collections → tg_links*: pick the
-   room and tick `enabled`. `/chatid` in the group says whether it is linked.
+   room and tick `enabled`. `/chatid` in the group says whether it is linked. Tick `anonymous` too to repost the
+   room's messages to that group without their authors' names.
 
 The bridge is self-contained: `pb_hooks/telegram.pb.js`, `pb_hooks/telegram/` and its own `tg_*` collections. Delete
 the first two to remove it.

@@ -110,6 +110,7 @@ chat/
 │   ├── 1760000017_no_dms.js            # §16.7
 │   ├── 1760000018_attachment_limits.js # §17.1
 │   ├── 1760000019_telegram.js          # §26 (tg_* collections)
+│   ├── 1760000035_telegram_anonymous.js # §26.6 (tg_links.anonymous)
 │   ├── 1760000020_service_messages.js  # §5.3 (messages.author optional: service messages)
 │   ├── 1760000032_federation.js        # §33 (fed_* collections, the core's federation fields)
 │   └── 1760000033_federation_requests.js # §33.2–3 (site.federation, fed_peers "requested")
@@ -2269,7 +2270,7 @@ doesn't hold the next ones back) or polling hands each update to `inbound.js`:
 
 ### 26.5 Linking
 
-`tg_links` has a row per group: `chat_id`, `title`, `room`, `enabled`. When the bot is added to a group (or first
+`tg_links` has a row per group: `chat_id`, `title`, `room`, `enabled`, `anonymous` (§26.6). When the bot is added to a group (or first
 hears from it) it makes the row, disabled and without a room, and posts the group's chat id. **A superuser links the
 group in the admin UI** (*Collections → tg_links*): pick the room, tick `enabled`. `/chatid` (or `/start`) in the group
 says whether it is linked. A DM can't be linked, a link can't be enabled without a room, and a group that removes the
@@ -2287,6 +2288,12 @@ Telegram (`outbound.js`):
 
 - **The message** goes as the bot, with the author's name in bold over the text (Telegram HTML, escaped): "**Bob**
   hello". A forward says "*forwarded from Ann*" and shows its original's text and files (§21.3).
+- **Anonymous links:** a link with `anonymous` ticked (admin UI, next to `enabled`;
+  `1760000035_telegram_anonymous.js`) reposts to its group without the header: no author's name and no "forwarded
+  from", only the text and files, so the whole 1024 characters are the caption's. Its edits follow the same way; the
+  setting is read at each send and edit, so changing it affects what comes next, not what was sent. A forward with
+  nothing left to show (its original deleted) isn't sent. It only changes what goes to that group: other groups of
+  the room, and what comes from Telegram, are as before.
 - **Files:** photos (jpg, png, webp up to 10 MB, Telegram's photo limit) and videos (mp4, m4v, mov; sent with `supports_streaming`, so they play inline as they load) go together as an album,
   other files as a second album of documents (Telegram doesn't mix them); one file goes alone. The text is the first
   item's caption when it fits (1024 characters), else a message of its own before the files. Files keep their original
@@ -2317,7 +2324,7 @@ halfway (some of its files sent) isn't sent again.
 the developer's own `TELEGRAM_*` variables to a test server. Covered: setWebhook and the secret; a new group's link
 and `/chatid`; links only for rooms; a stand-in (name, picture, `no_dms`); files, an album as one message (by the next
 update, and once quiet), files too large; replies, edits and a repeated delivery; a stand-in joining a private room; a
-message, reply, edit and delete going out; service messages for a group connected, disconnected, moved, deleted and removing the bot; files going out as an album with a caption plus documents; a room linked to
+message, reply, edit and delete going out; an anonymous link's (no header, a whole caption); service messages for a group connected, disconnected, moved, deleted and removing the bot; files going out as an album with a caption plus documents; a room linked to
 two groups; retries in order and dropping; nothing while disabled or archived; polling.
 
 ---

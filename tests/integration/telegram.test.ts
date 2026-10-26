@@ -465,6 +465,37 @@ describe("Telegram bridge (§26)", () => {
     await eventually(() => expect(stub.callsOf("deleteMessage").find((x) => x.params.chat_id === String(chat))).toBeDefined());
   });
 
+  it("an anonymous link's group gets only what was said: no author, nor whose a forward is", async () => {
+    const owner = await signUp(`Bob-${uniq()}`);
+    const room = await owner.pb.collection("rooms").create({ name: `tg-${uniq()}`, created_by: owner.user.id });
+    const chat = newChat();
+    await admin.collection("tg_links").create({ chat_id: String(chat), title: "Group", room: room.id, enabled: true, anonymous: true });
+    const sentTo = (method: string, n = 1) =>
+      eventually(() => {
+        const c = stub.callsOf(method).filter((x) => x.params.chat_id === String(chat));
+        expect(c).toHaveLength(n);
+        return c[n - 1]!;
+      });
+
+    const sent = await owner.pb.collection("messages").create({ room: room.id, author: owner.user.id, text: "a <b>secret</b>" });
+    expect((await sentTo("sendMessage")).params).toMatchObject({ text: "a &lt;b&gt;secret&lt;/b&gt;", parse_mode: "HTML" });
+    await owner.pb.collection("messages").update(sent.id, { text: "edited" });
+    expect((await sentTo("editMessageText")).params.text).toBe("edited");
+
+    const elsewhere = await owner.pb.collection("rooms").create({ name: `src-${uniq()}`, created_by: owner.user.id });
+    const original = await owner.pb.collection("messages").create({ room: elsewhere.id, author: owner.user.id, text: "passed on" });
+    await owner.pb.send("/api/chat/forward", { method: "POST", body: { messages: [original.id], room: room.id } });
+    expect((await sentTo("sendMessage", 2)).params.text).toBe("passed on");
+
+    const pic = await owner.pb
+      .collection("messages")
+      .create({ room: room.id, author: owner.user.id, text: "x".repeat(1000), files: [new File([PNG], "a.png", { type: "image/png" })] });
+    expect((await sentTo("sendPhoto")).params.caption).toBe("x".repeat(1000));
+    // An edit too long for a caption is cut to exactly Telegram's limit, with no header to make room for.
+    await owner.pb.collection("messages").update(pic.id, { text: "y".repeat(1100) });
+    expect((await sentTo("editMessageCaption")).params.caption).toBe(`${"y".repeat(1023)}…`);
+  });
+
   it("attachments go as an album of photos with the text as its caption, and documents apart", async () => {
     const owner = await signUp();
     const { room, chat } = await linkedRoom(owner);

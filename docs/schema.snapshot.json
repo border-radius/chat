@@ -2245,6 +2245,15 @@
           "presentable": false,
           "system": false,
           "type": "autodate"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "name": "anonymous",
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "bool"
         }
       ],
       "indexes": [
