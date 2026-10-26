@@ -2245,6 +2245,12 @@ doesn't hold the next ones back) or polling hands each update to `inbound.js`:
   X" above a forward), and the files, downloaded from Telegram (`getFile`) and saved like uploads: photos (the largest
   size), videos, documents, audio, voice, video notes, GIFs, static stickers. A file over 20 MB, an animated sticker, a
   location, a contact, a poll or a dice becomes a line of text saying what it was.
+- **A rich message** (Bot API 10.1, `rich_message`: headings, lists, tables, quotes…) has no text or caption: its
+  blocks become plain text (`rich.js`; the room has no markdown, §5): a heading as its line with a blank line above
+  it, list items with their labels ("1.", "•", ☑/☐), table rows as cells joined by " | ", quotes as "> " lines, a
+  link as its text and address. Its photos, videos, documents, audio and voice notes come over as the message's
+  files, their captions in the text where they were. Before this, a rich message was taken for a service message
+  and left out without a word.
 - **A long message** (Telegram takes 4096 characters, a chat message 2000) comes over as **several messages**, in
   order, instead of cut: each ends at a line break, else a space, in its second half (a text with neither is cut at
   2000). The first has the files and the reply; the rest follow under the same stand-in. `tg_messages.part` (0, 1, 2…;

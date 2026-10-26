@@ -246,6 +246,77 @@ describe("Telegram bridge (§26)", () => {
     expect(Object.values(list[1]!.file_names)).toEqual(["Report 2026.pdf"]);
   });
 
+  it("a rich message (headings, lists, tables…) comes over as plain text, with its media as files; edits too", async () => {
+    const owner = await signUp();
+    const { room, chat } = await linkedRoom(owner);
+    stub.addFile("rich-photo", PNG, "photos/rich.jpg");
+    const blocks = [
+      { type: "heading", size: 1, text: "Trip plan" },
+      {
+        type: "paragraph",
+        text: ["We leave ", { type: "bold", text: "Friday" }, ", see ", { type: "url", text: "the map", url: "https://example.com/m" }],
+      },
+      {
+        type: "list",
+        items: [
+          { label: "1.", blocks: [{ type: "paragraph", text: "Tickets" }], has_checkbox: true, is_checked: true },
+          { label: "2.", blocks: [{ type: "paragraph", text: "Hotel" }], has_checkbox: true },
+        ],
+      },
+      { type: "heading", size: 2, text: { type: "italic", text: "Costs" } },
+      {
+        type: "table",
+        cells: [
+          [
+            { text: "Item", is_header: true },
+            { text: "€", is_header: true },
+          ],
+          [{ text: "Train" }, { text: "40" }],
+        ],
+      },
+      { type: "blockquote", blocks: [{ type: "paragraph", text: "Pack light" }], credit: "Mum" },
+      {
+        type: "photo",
+        photo: [
+          { file_id: "small", width: 9, height: 9 },
+          { file_id: "rich-photo", width: 90, height: 90 },
+        ],
+        caption: { text: "the view" },
+      },
+      { type: "divider" },
+      { type: "footer", text: [{ type: "custom_emoji", custom_emoji_id: "1", alternative_text: "👋" }, " bye"] },
+    ];
+    const msg = tgMessage(chat, { rich_message: { blocks } });
+    await deliver({ message: msg });
+    const [m] = await eventually(async () => {
+      const l = await messagesOf(room.id);
+      expect(l).toHaveLength(1);
+      return l;
+    });
+    expect(m!.text).toBe(
+      [
+        "Trip plan",
+        "We leave Friday, see the map (https://example.com/m)",
+        "1. ☑ Tickets",
+        "2. ☐ Hotel",
+        "",
+        "Costs",
+        "Item | €",
+        "Train | 40",
+        "> Pack light",
+        "> — Mum",
+        "the view",
+        "———",
+        "👋 bye",
+      ].join("\n"),
+    );
+    expect(m!.files).toHaveLength(1);
+    expect(m!.files[0]).toMatch(/\.jpg$/);
+
+    await deliver({ edited_message: { ...msg, rich_message: { blocks: [{ type: "heading", text: "Trip cancelled" }] }, edit_date: 1 } });
+    await eventually(async () => expect((await messagesOf(room.id)).map((x) => x.text)).toEqual(["Trip cancelled"]));
+  });
+
   it("an album item delivered twice (a webhook retry) comes over once, with the rest of the album (QA BUG-147)", async () => {
     const owner = await signUp();
     const { room, chat } = await linkedRoom(owner);

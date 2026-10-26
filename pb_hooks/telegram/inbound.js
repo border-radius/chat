@@ -6,6 +6,7 @@
 const { call, config, download } = require(`${__hooks}/telegram/api.js`);
 const { personOf } = require(`${__hooks}/telegram/people.js`);
 const { activeLink, ensureLink, linkedRoom, linkOfChat, moveLink, tellLinkChange } = require(`${__hooks}/telegram/links.js`);
+const { richText } = require(`${__hooks}/telegram/rich.js`);
 const { isBlank } = require(`${__hooks}/lib/text.js`);
 
 /** The largest file the Bot API lets a bot download, and the largest attachment (§17.1). */
@@ -75,10 +76,10 @@ function quoteLines(msg, known) {
 }
 
 /**
- * A Telegram message's files (that can be brought over), and lines for what can't be: files over the download limit,
- * and things that aren't files (a location, a poll…).
+ * A Telegram message's text (its caption, or a rich message's blocks as text), its files (that can be brought over),
+ * and lines for what can't be: files over the download limit, and things that aren't files (a location, a poll…).
  * @param {any} msg
- * @returns {{ files: { id: string, name: string }[], notes: string[] }}
+ * @returns {{ text: string, files: { id: string, name: string }[], notes: string[] }}
  */
 function partsOf(msg) {
   /** @type {{ id: string, name: string }[]} */
@@ -115,7 +116,9 @@ function partsOf(msg) {
     notes.push(`[contact: ${[msg.contact.first_name, msg.contact.last_name].filter(Boolean).join(" ")} ${msg.contact.phone_number}]`);
   if (msg.poll) notes.push(`[poll: ${msg.poll.question}]`);
   if (msg.dice) notes.push(`[${msg.dice.emoji} ${msg.dice.value}]`);
-  return { files, notes };
+  // A rich message (Bot API 10.1) has neither text nor caption: without this it was taken for a service message.
+  const text = msg.text || msg.caption || (msg.rich_message ? richText(msg.rich_message, n, add, notes) : "");
+  return { text, files, notes };
 }
 
 /**
@@ -265,7 +268,7 @@ function bringOver(app, link, room, msgs) {
   const notes = parts.flatMap((p) => p.notes);
   // A service message (a new group photo, a timer, a topic…) has nothing to show: it makes no stand-in, and none joins
   // a private room for it (QA BUG-88).
-  if (!notes.length && !parts.some((p) => p.files.length) && !msgs.some((m) => (m.text || m.caption || "").trim())) return;
+  if (!notes.length && !parts.some((p) => p.files.length) && !parts.some((p) => p.text.trim())) return;
   const author = personOf(app, first);
   ensureMember(app, room, author.id);
 
@@ -286,9 +289,7 @@ function bringOver(app, link, room, msgs) {
   const reply = first.reply_to_message ? mapped(app, chatId, first.reply_to_message.message_id) : null;
   const known = !!reply && reply.getString("room") === room.id && !reply.getBool("deleted");
   const textOf = (/** @type {boolean} */ withReply) =>
-    [forwardLine(first), ...quoteLines(first, withReply && known), ...msgs.map((m) => m.text || m.caption || ""), ...notes]
-      .filter(Boolean)
-      .join("\n");
+    [forwardLine(first), ...quoteLines(first, withReply && known), ...parts.map((p) => p.text), ...notes].filter(Boolean).join("\n");
   if (!textOf(true).trim() && !files.length) return;
 
   // The messages and what they map to in one transaction: the outbound hook queues them for the room's other linked
@@ -333,7 +334,8 @@ function editOver(app, msg) {
   const rec = rows[0]?.getInt("part") === 0 ? findMessage(app, rows[0].getString("message")) : null;
   if (!rec || rec.getBool("deleted") || rec.getString("forwarded_from")) return;
   const quoted = quoteLines(msg, !!rec.getString("reply_to"));
-  const lines = [forwardLine(msg), ...quoted, msg.text || msg.caption || "", ...partsOf(msg).notes].filter(Boolean);
+  const { text, notes } = partsOf(msg);
+  const lines = [forwardLine(msg), ...quoted, text, ...notes].filter(Boolean);
   const pieces = split(lines.join("\n"));
   if (!pieces[0] && !rec.getStringSlice("files").length) return;
   // The parts still in the room get the pieces in order: a shorter text deletes the parts left over, a longer one adds
