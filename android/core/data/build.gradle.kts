@@ -1,12 +1,12 @@
 plugins {
-    id("chat.android.library")
+    id("chirkle.android.library")
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
     alias(libs.plugins.room)
 }
 
 android {
-    namespace = "chat.android.data"
+    namespace = "chirkle.android.data"
 }
 
 room {

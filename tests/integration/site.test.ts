@@ -27,7 +27,7 @@ describe("site settings (§24)", () => {
   });
   // Files run one at a time: put the site back for the next one.
   afterEach(async () => {
-    await setSite({ title: "Chat", logo: null, invite_only: false, invite_code: "" });
+    await setSite({ title: "Chirkle", logo: null, invite_only: false, invite_code: "" });
   });
 
   it("there is one record, readable by anyone, without its invite code", async () => {
@@ -35,7 +35,7 @@ describe("site settings (§24)", () => {
     await setSite({ invite_only: true, invite_code: "secret-code" });
     const { items } = await client().collection("site").getList(1, 10);
     expect(items).toHaveLength(1);
-    expect(items[0]).toMatchObject({ title: "Chat", invite_only: true });
+    expect(items[0]).toMatchObject({ title: "Chirkle", invite_only: true });
     expect(items[0]).not.toHaveProperty("invite_code");
     expect(await u.pb.collection("site").getOne(site.id)).not.toHaveProperty("invite_code");
   });
@@ -108,7 +108,7 @@ describe("site settings (§24)", () => {
       expect(res.headers.get("cache-control")).toBe("no-cache");
       return res.json();
     };
-    expect(await manifest()).toMatchObject({ name: "Chat", short_name: "Chat", start_url: "/", scope: "/", display: "standalone" });
+    expect(await manifest()).toMatchObject({ name: "Chirkle", short_name: "Chirkle", start_url: "/", scope: "/", display: "standalone" });
     await setSite({ title: "Acme chat" });
     const m = await manifest();
     expect(m).toMatchObject({ name: "Acme chat", short_name: "Acme chat" });

@@ -118,7 +118,7 @@ describe("schema (§5)", () => {
 
 describe("migrations", () => {
   it("are idempotent: restarting on the same data dir keeps the schema unchanged", async () => {
-    const tmp = await mkdtemp(join(tmpdir(), "chat-mig-"));
+    const tmp = await mkdtemp(join(tmpdir(), "chirkle-mig-"));
     const dataDir = join(tmp, "pb_data");
     const snapshot = async (url: string) => {
       const pb = new PocketBase(url);

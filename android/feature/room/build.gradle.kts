@@ -1,7 +1,7 @@
 plugins {
-    id("chat.android.feature")
+    id("chirkle.android.feature")
 }
 
 android {
-    namespace = "chat.android.feature.room"
+    namespace = "chirkle.android.feature.room"
 }

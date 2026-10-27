@@ -11,15 +11,15 @@ dependencies {
 gradlePlugin {
     plugins {
         register("library") {
-            id = "chat.android.library"
+            id = "chirkle.android.library"
             implementationClass = "LibraryConventionPlugin"
         }
         register("compose") {
-            id = "chat.android.compose"
+            id = "chirkle.android.compose"
             implementationClass = "ComposeConventionPlugin"
         }
         register("feature") {
-            id = "chat.android.feature"
+            id = "chirkle.android.feature"
             implementationClass = "FeatureConventionPlugin"
         }
     }

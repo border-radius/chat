@@ -197,4 +197,4 @@ export interface Site {
 }
 
 /** What the app shows before (or without) the site record. */
-export const DEFAULT_SITE: Site = { title: "Chat", logo: "", inviteOnly: false };
+export const DEFAULT_SITE: Site = { title: "Chirkle", logo: "", inviteOnly: false };

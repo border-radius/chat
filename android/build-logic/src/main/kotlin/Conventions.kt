@@ -47,7 +47,7 @@ internal fun Project.configureAndroid(android: CommonExtension) {
     tasks.withType<Test>().configureEach {
         maxHeapSize = "1g"
         // Integration tests start PocketBase from the repository's bin/ (§13).
-        systemProperty("chat.repoRoot", rootProject.projectDir.parentFile.absolutePath)
+        systemProperty("chirkle.repoRoot", rootProject.projectDir.parentFile.absolutePath)
         testLogging { events("failed"); exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL }
     }
 }

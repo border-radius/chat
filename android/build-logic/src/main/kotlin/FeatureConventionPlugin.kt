@@ -8,8 +8,8 @@ import org.gradle.kotlin.dsl.dependencies
  */
 class FeatureConventionPlugin : Plugin<Project> {
     override fun apply(target: Project) = with(target) {
-        pluginManager.apply("chat.android.library")
-        pluginManager.apply("chat.android.compose")
+        pluginManager.apply("chirkle.android.library")
+        pluginManager.apply("chirkle.android.compose")
         dependencies {
             add("implementation", project(":core:data"))
             add("implementation", project(":core:ui"))

@@ -23,7 +23,7 @@ describe.skipIf(!run)("media worker, files in S3 (§30.1)", () => {
   let me = "";
   let messagesId = "";
   /** The PocketBase process's temp folder (TMPDIR), where the video copies go. */
-  const temp = mkdtempSync(join(tmpdir(), "chat-pb-tmp-"));
+  const temp = mkdtempSync(join(tmpdir(), "chirkle-pb-tmp-"));
 
   beforeAll(async () => {
     s3 = await startS3();
@@ -75,7 +75,7 @@ describe.skipIf(!run)("media worker, files in S3 (§30.1)", () => {
     await su.send("/api/media/tick", { method: "POST" });
     expect(inBucket(m.id, `thumbs_${clip}/poster.jpg`)).toBe(true);
     expect(inBucket(m.id, `thumbs_${pic}/240x240_${pic}`)).toBe(true);
-    expect(readdirSync(temp).filter((f) => f.startsWith("chat-poster-"))).toEqual([]);
+    expect(readdirSync(temp).filter((f) => f.startsWith("chirkle-poster-"))).toEqual([]);
 
     const { items } = await pb.send<{ items: { file: string; poster: boolean }[] }>(`/api/chat/media/${room.id}`, {});
     expect(items.find((i) => i.file === clip)?.poster).toBe(true);
@@ -111,6 +111,6 @@ describe.skipIf(!run)("media worker, files in S3 (§30.1)", () => {
     const sent = await pb.collection("messages").create({ room: room.id, author: me, items: JSON.stringify([item.id]) });
     expect(inBucket(sent.id, sent.files[0])).toBe(true);
     expect(sent.file_names[sent.files[0]]).toBe("clip.mp4");
-    expect(readdirSync(temp).filter((f) => f.startsWith("chat-poster-"))).toEqual([]);
+    expect(readdirSync(temp).filter((f) => f.startsWith("chirkle-poster-"))).toEqual([]);
   });
 });

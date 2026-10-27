@@ -1,4 +1,4 @@
-/* Chat — one stylesheet, no framework (DESIGN.md §7.8). Mobile-first; light/dark via prefers-color-scheme.
+/* Chirkle — one stylesheet, no framework (DESIGN.md §7.8). Mobile-first; light/dark via prefers-color-scheme.
    Look: grape-to-pink accent gradient, violet-tinted neutrals, round shapes, soft depth, small bouncy motion.
    Written as one file per part in app/; the build bundles them into one stylesheet, in this order. Order matters:
    later rules win, so motion and narrow screens come last. */

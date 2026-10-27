@@ -46,7 +46,7 @@ function checkOAuth2Signup(e) {
  * @param {core.RequestEvent} e
  */
 function manifest(e) {
-  const name = siteOf(e.app)?.getString("title") || "Chat";
+  const name = siteOf(e.app)?.getString("title") || "Chirkle";
   const icon = (/** @type {string} */ src, /** @type {string} */ sizes, purpose = "any") => ({
     src: `/icons/${src}`,
     sizes,

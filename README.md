@@ -1,4 +1,4 @@
-# Chat
+# Chirkle
 
 A small, fast, real-time group chat. One [PocketBase](https://pocketbase.io) binary is the whole backend
 (auth, data, realtime, static files); the frontend is vanilla TypeScript bundled by esbuild — no framework,
@@ -6,7 +6,7 @@ A small, fast, real-time group chat. One [PocketBase](https://pocketbase.io) bin
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshot-dark.png">
-  <img alt="A room in Chat: the room list with unread counts on the left; messages with avatars, a reply, a photo and emoji reactions on the right" src="docs/screenshot-light.png">
+  <img alt="A room in Chirkle: the room list with unread counts on the left; messages with avatars, a reply, a photo and emoji reactions on the right" src="docs/screenshot-light.png">
 </picture>
 
 - Public rooms anyone can create; hide rooms you don't care about; creators archive rooms (read-only, history kept)
@@ -28,7 +28,7 @@ A small, fast, real-time group chat. One [PocketBase](https://pocketbase.io) bin
   a room with unread messages opens at the first of them, under a "New" line
 - What you were typing is kept per room, even across a reload; "Jump to latest" whenever you are scrolled up
 - Your own branding (title and logo) and, if you like, invite-only signups: set by the admin in PocketBase
-- Telegram bridge (optional): link rooms to Telegram groups through a bot; messages, replies, edits and files go both ways (deletes from the chat to Telegram), Telegram people show under stand-in accounts with their names and pictures — see [Telegram integration](#telegram-integration)
+- Telegram bridge (optional): link rooms to Telegram groups through a bot; messages, replies, edits and files go both ways (deletes from Chirkle to Telegram), Telegram people show under stand-in accounts with their names and pictures — see [Telegram integration](#telegram-integration)
 - Fast room switching: each room's latest messages are kept in the browser (IndexedDB) and shown at once while the
   server answers; unread rooms are fetched ahead. Attachment thumbnails are kept by the service worker, so going back
   to a room (or reloading) doesn't download them again. All of it is cleared on logout
@@ -101,21 +101,21 @@ Migrations run automatically on start.
 
 ```sh
 npm ci && npm run setup && npm run build
-rsync -a bin/pocketbase pb_public pb_migrations pb_hooks server:/opt/chat/
+rsync -a bin/pocketbase pb_public pb_migrations pb_hooks server:/opt/chirkle/
 ```
 
 With a domain pointing at the server, PocketBase serves HTTPS itself (Let's Encrypt):
 
 ```ini
-# /etc/systemd/system/chat.service
+# /etc/systemd/system/chirkle.service
 [Unit]
-Description=Chat (PocketBase)
+Description=Chirkle (PocketBase)
 After=network-online.target
 
 [Service]
-User=chat
-WorkingDirectory=/opt/chat
-ExecStart=/opt/chat/pocketbase serve chat.example.com --hooksPool=100 --dir=/opt/chat/pb_data --publicDir=/opt/chat/pb_public --migrationsDir=/opt/chat/pb_migrations --hooksDir=/opt/chat/pb_hooks
+User=chirkle
+WorkingDirectory=/opt/chirkle
+ExecStart=/opt/chirkle/pocketbase serve chat.example.com --hooksPool=100 --dir=/opt/chirkle/pb_data --publicDir=/opt/chirkle/pb_public --migrationsDir=/opt/chirkle/pb_migrations --hooksDir=/opt/chirkle/pb_hooks
 Restart=on-failure
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 LimitNOFILE=65536
@@ -125,8 +125,8 @@ WantedBy=multi-user.target
 ```
 
 ```sh
-sudo systemctl enable --now chat
-sudo -u chat /opt/chat/pocketbase superuser upsert you@example.com <password> --dir=/opt/chat/pb_data
+sudo systemctl enable --now chirkle
+sudo -u chirkle /opt/chirkle/pocketbase superuser upsert you@example.com <password> --dir=/opt/chirkle/pb_data
 ```
 
 Behind an existing reverse proxy instead, use `serve --http=127.0.0.1:8090` and proxy to it (keep
@@ -144,26 +144,26 @@ The `Dockerfile` builds the production image (frontend + pinned PocketBase), and
 check. On the server:
 
 ```sh
-dokku apps:create chat
+dokku apps:create chirkle
 # All data (SQLite + uploads) lives in /pb_data: keep it on the host. The directory is owned by uid 32767, the
 # image's user.
-dokku storage:ensure-directory chat
-dokku storage:mount chat /var/lib/dokku/data/storage/chat:/pb_data
-dokku domains:set chat chat.example.com
+dokku storage:ensure-directory chirkle
+dokku storage:mount chirkle /var/lib/dokku/data/storage/chirkle:/pb_data
+dokku domains:set chirkle chat.example.com
 # nginx allows 1 MB bodies by default; a message may carry 10 files of 20 MB.
-dokku nginx:set chat client-max-body-size 210m
-dokku letsencrypt:enable chat   # with the dokku-letsencrypt plugin
+dokku nginx:set chirkle client-max-body-size 210m
+dokku letsencrypt:enable chirkle   # with the dokku-letsencrypt plugin
 ```
 
-Then deploy (`git push dokku master` from a clone with `dokku@server:chat` as the `dokku` remote) and create a
+Then deploy (`git push dokku master` from a clone with `dokku@server:chirkle` as the `dokku` remote) and create a
 superuser:
 
 ```sh
-dokku run chat /app/pocketbase superuser upsert you@example.com <password> --dir=/pb_data
+dokku run chirkle /app/pocketbase superuser upsert you@example.com <password> --dir=/pb_data
 ```
 
-Settings go in as environment variables (`dokku config:set chat KEY=value`, which restarts the app); the image already
-sets `TRUSTED_PROXY` for Dokku's proxy. `dokku logs chat -t` shows PocketBase's output; the app's own log (request
+Settings go in as environment variables (`dokku config:set chirkle KEY=value`, which restarts the app); the image already
+sets `TRUSTED_PROXY` for Dokku's proxy. `dokku logs chirkle -t` shows PocketBase's output; the app's own log (request
 log and errors from hooks) is in the admin UI under *Logs*.
 
 ### Running it
@@ -182,10 +182,10 @@ are set by the migrations and adjustable under *Settings → Rate limits*.
 
 ## Android app
 
-**Frozen since 2026-10-21:** only the web client is being worked on. The app is not changed, built or tested until it
-is unfrozen ([`CLAUDE.md`](CLAUDE.md)).
+In active development alongside the web client (it was frozen 2026-10-21..23): web features and fixes are ported to
+it ([`CLAUDE.md`](CLAUDE.md), [`android/PARITY.md`](android/PARITY.md)).
 
-A native client for any server running the chat, with several accounts at once on one server or many (`android/`,
+A native client for any server running Chirkle, with several accounts at once on one server or many (`android/`,
 design: [`docs/ANDROID.md`](docs/ANDROID.md), §17 for servers and accounts). It needs JDK 17+
 (21 recommended) and the Android SDK (`ANDROID_HOME`, or `sdk.dir` in `android/local.properties`); Gradle fetches the
 rest. Its tests start PocketBase from `bin/`, so run `npm run setup` first.
@@ -194,15 +194,16 @@ rest. Its tests start PocketBase from `bin/`, so run `npm run setup` first.
 cd android
 ./gradlew assembleDebug          # app/build/outputs/apk/debug: offers http://10.0.2.2:8090 (the dev server, from the emulator)
 ./gradlew check                  # lint, unit tests, API tests against PocketBase, UI tests on Robolectric
-./gradlew checkApkSize -Pchat.server=https://chat.example.org -Pchat.appId=org.example.chat
+./gradlew checkApkSize -Pchirkle.server=https://chat.example.org -Pchirkle.appId=org.example.chirkle
 ```
 
 People choose their server when they log in or sign up (Change server), and add more accounts from their profile.
-A build only sets the server offered first: `-Pchat.devServer=http://192.168.1.20:8090` for a debug build on a device,
-`chat.server` for a release (without one, the app asks for a server, and no host's links open in the app). Debug builds
+A build only sets the server offered first: `-Pchirkle.devServer=http://192.168.1.20:8090` for a debug build on a device,
+`chirkle.server` for a release (without one, the app asks for a server, and no host's links open in the app). Debug builds
 take http addresses; release builds take https only. The app notifies of DMs and replies to you by checking each
 account's server about every 15 minutes (WorkManager), with no Google services and nothing to set up on the server
-(ANDROID.md §21). Links to rooms on the build's server open in the app with `ANDROID_APP_ID` and `ANDROID_CERT_SHA256` (`/.well-known/assetlinks.json`). An admin can set
+(ANDROID.md §21). Links to rooms on the build's server open in the app once `ANDROID_CERT_SHA256` is
+set (`/.well-known/assetlinks.json`; `ANDROID_APP_ID` only for a build with another `chirkle.appId`). An admin can set
 `min_android_version` on the site record to make older apps ask for an update. What is built and what isn't yet:
 [`docs/ANDROID.md` §16](docs/ANDROID.md#16-implementation-2026-10-18), and [`android/PARITY.md`](android/PARITY.md).
 
@@ -222,9 +223,9 @@ go without: videos then show their first frame in the room as before, and plain 
 ## Telegram integration
 
 An optional bridge between rooms and Telegram groups ([`docs/DESIGN.md` §26](docs/DESIGN.md)). A bot sits in your
-groups; once a group is linked to a room, messages, replies, edits and files go both ways (deletes only from the chat
+groups; once a group is linked to a room, messages, replies, edits and files go both ways (deletes only from Chirkle
 to Telegram). Telegram people show in the room under stand-in users ("Ann Lee (TG)") with their names and pictures;
-the bot posts chat messages with the author's name above them.
+the bot posts Chirkle messages with the author's name above them.
 
 **Setup**
 
@@ -235,7 +236,7 @@ the bot posts chat messages with the author's name above them.
    - `TELEGRAM_WEBHOOK_URL` — `https://<your domain>/api/telegram/webhook` (without it the bridge polls Telegram,
      for local development)
 
-   With Dokku: `dokku config:set chat TELEGRAM_BOT_TOKEN='…' TELEGRAM_WEBHOOK_URL='https://chat.example.com/api/telegram/webhook'`.
+   With Dokku: `dokku config:set chirkle TELEGRAM_BOT_TOKEN='…' TELEGRAM_WEBHOOK_URL='https://chat.example.com/api/telegram/webhook'`.
 3. Add the bot to a Telegram group. A row for it appears in the admin UI under *Collections → tg_links*: pick the
    room and tick `enabled`. `/chatid` in the group says whether it is linked. Tick `anonymous` too to repost the
    room's messages to that group without their authors' names.

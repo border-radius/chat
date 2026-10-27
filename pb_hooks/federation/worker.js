@@ -189,7 +189,7 @@ function sendEvents(app, peer) {
 /**
  * A temp file for a download.
  */
-const tempPath = () => `${$os.tempDir()}/chat-fed-${$security.randomString(16)}`;
+const tempPath = () => `${$os.tempDir()}/chirkle-fed-${$security.randomString(16)}`;
 
 /**
  * A name to store a fetched file under (PocketBase's style: safe characters, a random suffix).

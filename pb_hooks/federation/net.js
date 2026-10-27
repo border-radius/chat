@@ -13,7 +13,7 @@ const SKEW_S = 300;
 /** Biggest inbox body (§33.6), and the most of an answer read. */
 const MAX_BODY = 256 * 1024;
 const MAX_ANSWER = 1 << 20;
-const UA = "ChatFederation/1.0";
+const UA = "ChirkleFederation/1.0";
 
 /**
  * The signature of a request: hex HMAC-SHA256 of "method\npath\ndate\nsha256(body)".
@@ -96,7 +96,7 @@ function target(o) {
  * @returns {Answer}
  */
 function curl(url, ip, o) {
-  const tmp = `${$os.tempDir()}/chat-fed-${$security.randomString(16)}`;
+  const tmp = `${$os.tempDir()}/chirkle-fed-${$security.randomString(16)}`;
   const head = `${tmp}.head`;
   const data = `${tmp}.body`;
   const u = /** @type {NonNullable<ReturnType<typeof parse>>} */ (parse(url));

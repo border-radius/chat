@@ -64,7 +64,7 @@ async function hooksWithFixtureRoute(tmp: string): Promise<string> {
 }
 
 export async function startPocketBase(opts: StartOptions = {}): Promise<PocketBaseServer> {
-  const tmp = await mkdtemp(join(tmpdir(), "chat-pb-"));
+  const tmp = await mkdtemp(join(tmpdir(), "chirkle-pb-"));
   const dataDir = opts.dataDir ?? join(tmp, "pb_data");
   const publicDir = opts.publicDir ?? join(tmp, "pb_public");
   const hooksDir = opts.fixtureRoute ? await hooksWithFixtureRoute(tmp) : join(root, "pb_hooks");

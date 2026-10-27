@@ -21,7 +21,7 @@ function memoryStorage(init: Record<string, string> = {}): Storage {
 
 describe("site settings (§24)", () => {
   it("loads the site record: the defaults' title, no logo, open signups", async () => {
-    expect(await newApi().site()).toEqual({ title: "Chat", logo: "", inviteOnly: false });
+    expect(await newApi().site()).toEqual({ title: "Chirkle", logo: "", inviteOnly: false });
   });
 
   it("shows the cached site right away, then the server's, and caches it", async () => {

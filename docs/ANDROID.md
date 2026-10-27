@@ -1,8 +1,8 @@
-# Chat — Android App Design Document
+# Chirkle — Android App Design Document
 
 | | |
 |---|---|
-| **Status** | **Frozen (2026-10-21): no work on the app until it is unfrozen, see [`CLAUDE.md`](../CLAUDE.md).** Built (2026-10-18): what changed in implementation is §16. Several servers and accounts: §17 (2026-10-19) |
+| **Status** | **Active (frozen 2026-10-21, unfrozen 2026-10-23, §18): web features and fixes are ported, see [`CLAUDE.md`](../CLAUDE.md).** Built (2026-10-18): what changed in implementation is §16. Several servers and accounts: §17 (2026-10-19) |
 | **Date** | 2026-10-18 |
 | **Scope** | A native Android client with the web app's features (§1–§14); the server additions it needs: push notifications §8, App Links §9.4, minimum app version §12.4 |
 
@@ -316,7 +316,7 @@ them attached: the Android form of dropping files on the web composer.
 
 ### 9.4 App Links (server addition)
 
-`/.well-known/assetlinks.json`, served by a hook from `ANDROID_APP_ID` and `ANDROID_CERT_SHA256` (both unset → 404).
+`/.well-known/assetlinks.json`, served by a hook from `ANDROID_APP_ID` (`com.chirkle.android` when unset) and `ANDROID_CERT_SHA256` (unset → 404).
 The app declares the server's host for `/r/*`, so a link to a room or a message opens in the app.
 
 ## 10. Security considerations
@@ -446,6 +446,7 @@ Estimates for one Android developer: about 13 weeks to a closed beta with full p
 1. **Accounts:** who owns the Play Console account? (No Firebase project any more, §21.)
 2. ~~**UnifiedPush:** at launch or after the beta?~~ No push at all for now (§21; open question 8).
 3. **Package name and default server** (for example `com.<org>.chat`; the default server is also the App Links host, §17.3).
+   The package is `com.chirkle.android` since the rename (§27); the default server is still open.
 4. **Web Push:** should the web app get notifications too, from the same `push_queue`?
 5. **Per-room mute:** the web has hide only. Add mute to both clients, or keep hide as the one control?
 
@@ -491,11 +492,11 @@ account's public key.
 | `FCM_SERVICE_ACCOUNT` | A Firebase service account's JSON: FCM pushes on |
 | `UNIFIEDPUSH=on` | UnifiedPush endpoints (public https addresses only, as link previews, §28.1) |
 | `FCM_ENDPOINT`, `PUSH_ALLOW_HOSTS`, `PUSH_CRON=off` | Tests: a stub FCM, stub endpoints on 127.0.0.1, pushes only on `POST /api/push/tick` |
-| `ANDROID_APP_ID`, `ANDROID_CERT_SHA256` | `/.well-known/assetlinks.json` (fingerprints comma-separated); 404 without them |
+| `ANDROID_APP_ID`, `ANDROID_CERT_SHA256` | `/.well-known/assetlinks.json` (fingerprints comma-separated; the app id is `com.chirkle.android` when unset); 404 without fingerprints |
 | `site.min_android_version` | Set by an admin: older apps show "Update required" |
 
 ~~The app reads Firebase's settings from Gradle properties (`chat.fcm.*`).~~ Firebase was removed on 2026-10-24
-(§21). `chat.server` and `chat.appId` set the release build's server and package
+(§21). `chirkle.server` and `chirkle.appId` set the release build's server and package
 (open question 3).
 
 ### 16.4 Status against the milestones
@@ -536,7 +537,7 @@ Device settings (screenshots, §10) are the device's, in that file too, not an a
 
 ### 17.2 Choosing a server
 
-- **First launch:** the build's default server (`chat.server`, §12.2) when it has one, on the Log in screen; without
+- **First launch:** the build's default server (`chirkle.server`, §12.2) when it has one, on the Log in screen; without
   one, the app asks for a server first.
 - **Log in and Sign up** show the server they act on, with **Change server**.
 - **Accounts** (the brand at the top of the room list; it was in the profile until 2026-10-23) lists your accounts
@@ -597,7 +598,7 @@ stay per account and room, as below.
 
 `core/data` `repo/Accounts.kt` (the accounts, their index and lifecycle), `lib/Servers.kt` (addresses and links);
 `app` `AppAccounts.kt` (where they live on the device); `feature/auth` `ServerScreen.kt`; `feature/profile`
-`AccountsScreen.kt`; `AppRoot` in `nav/ChatNav.kt` (a back stack per account). Tested by `AccountsTest` and `ServersTest`
+`AccountsScreen.kt`; `AppRoot` in `nav/ChirkleNav.kt` (a back stack per account). Tested by `AccountsTest` and `ServersTest`
 (`:core:data`) and `UiAccountsTest` (`:app`); the tests use the test server by two addresses (127.0.0.1 and
 localhost) as two servers. An idle account's session is renewed each time the app starts (one the server refuses is
 removed, as a log out would). Nothing migrates the single session of the 2026-10-18 build: it never shipped.
@@ -628,7 +629,7 @@ current image works and none of this applies.
 | Search: a narrower query that found the same messages kept the old highlight ("gre" of "green") | The highlighted words are Compose state |
 | A single image was letterboxed in a fixed 240 dp box | The tile takes the picture's shape (at most 320 × 240 dp), remembered so a row doesn't jump when it comes back |
 | A single video was a dark square | Its poster (`/api/chat/posters`, §30.1), in the video's shape |
-| Bottom sheets (message actions, emoji, forward): the last row under the navigation bar (Android ≤ 10) | `ChatSheet` pads with the navigation bar's height from the screen behind it |
+| Bottom sheets (message actions, emoji, forward): the last row under the navigation bar (Android ≤ 10) | `ChirkleSheet` pads with the navigation bar's height from the screen behind it |
 | Bottom sheets: menu rows on another background than the sheet | Transparent rows |
 | Back in a room during search, selection or an edit left the room | Back closes search, ends the selection, cancels the edit; only then leaves |
 | Bottom sheets opened half way, cutting off their last rows (Delete, the last rooms to forward to) | They open all the way (their content is short or scrolls) |
@@ -658,7 +659,7 @@ the accent; the app's version at the end of the profile.
 |---|---|
 | Appearance: System, Light, Dark (DESIGN.md §7.8) | Profile → Appearance; kept in the device settings (`DeviceSettings.theme`, the account index's `theme`), the system bars follow it |
 | Media grid (§30) | The room's 🖼 button → `MediaScreen`: `GET /api/chat/media/{room}`, month headings, 60 a page, posters, a tile opens the viewer |
-| Jump to (§32) | The room list's search button (or Ctrl+K / Ctrl+P): `lib/Jump.kt` ports `matches`/`score`; rooms you just had open come first (`ChatServices.opened`, per account, forgotten when the session changes: QA BUG-152) |
+| Jump to (§32) | The room list's search button (or Ctrl+K / Ctrl+P): `lib/Jump.kt` ports `matches`/`score`; rooms you just had open come first (`ChirkleServices.opened`, per account, forgotten when the session changes: QA BUG-152) |
 | Media collections (§31) | §19 |
 
 ### 18.5 Tests
@@ -684,7 +685,7 @@ DESIGN.md §31, the last web feature the app lacked, ported from `web/src/collec
 - Models (`Models.kt`): `MediaCollection` (not `Collection`, which Kotlin already has), `Collections`,
   `CollectionItem`, `CollectionMeta`, `Badge` and `SaveFrom` (a message's file, or an item). `Message.fileSources`
   (`file_sources`, now in `MSG_FIELDS`), and `Message.localItems`, the items a message on its way attaches.
-- `ChatApi`: `collections`, `markSeen`, `badges`, `collection`, `createCollection`, `updateCollection`,
+- `ChirkleApi`: `collections`, `markSeen`, `badges`, `collection`, `createCollection`, `updateCollection`,
   `deleteCollection`, `collectionItems` (60 a page, cursor on `(created, id)`, older or newer), `itemIdsSince`,
   `saveItem`, `uploadItem`, `removeItem`, `savedIn`, `follow`, `itemUrl`, `itemPosterUrl`,
   `subscribeCollections` (yours, your subscriptions, and one topic per collection you follow), `subscribeBadges`
@@ -769,7 +770,7 @@ works the same on de-Googled phones and on any server, with no push credentials 
   one job for all accounts), cancelled by itself when no account is signed in. Offline: `Result.retry()`.
 - For each signed-in account, `NotifyCheck` (`core/data/…/repo/`, no new server route) makes:
   1. `GET /api/chat/unread`: which rooms have unread messages, and the server's time.
-  2. Only if some do: `ChatApi.notifiable`, one messages list over those rooms (40 per request: each a range scan
+  2. Only if some do: `ChirkleApi.notifiable`, one messages list over those rooms (40 per request: each a range scan
      on `idx_messages_room_created`): `created > since && author != me && deleted = false && (room.kind = "dm" ||
      reply_to.author = me)`, newest first, at most 100.
   3. Only if something is new: `room_reads` for those rooms (what is past your read position is unread),
@@ -823,14 +824,14 @@ the guest clock forward as root (`adb root`, `date @<epoch>`), then force the jo
 
 | Bug | Fix |
 |---|---|
-| QA BUG-152: Jump to's "rooms you just had open first" was one list for the whole process: the next person signed in on the phone (or another account on the same server) got their rooms in the order the last one used them. The web's BUG-136 forgets them | `RecentlyOpened` is per account (`ChatServices.opened`) and cleared when its session changes (`ServicesTest`) |
+| QA BUG-152: Jump to's "rooms you just had open first" was one list for the whole process: the next person signed in on the phone (or another account on the same server) got their rooms in the order the last one used them. The web's BUG-136 forgets them | `RecentlyOpened` is per account (`ChirkleServices.opened`) and cleared when its session changes (`ServicesTest`) |
 | QA BUG-153: a check that failed part way (offline while it fetched the read positions or a room) had already saved what it found as seen: those DMs and replies were never notified | The check's state is saved once it is through; a room that can't be fetched for being offline fails the check (tried again), only a refused one is skipped (`NotifyCheckTest`) |
 | QA BUG-154: a notification showed when the check ran, up to 15 minutes (or a Doze window) after the message | Its message's time (`UiNotifyTest`) |
 | QA BUG-155: the viewer kept the images of a message deleted while it was open (the web's BUG-120, Medium, privacy) | The room viewer follows the room's messages: a message deleted, or a forward whose original was, takes its images and videos with it; the next shows (or the one before), none left closes it (`UiPortsTest`) |
 | QA BUG-156: a message's menu or reaction picker stayed open when the message was deleted meanwhile; Reply, Edit or a reaction were then refused by the server (the web's BUG-121) | They close when their message is deleted or leaves the list (`UiFeaturesTest`) |
-| QA BUG-158: a 200 that wasn't the server's answer (a captive portal's page) read as `{}`: lists came back empty, and the session renewal at start threw outside any handler, ending the app (the web's BUG-117) | A success other than 204 without a JSON body fails with status 0; `checkSession` ends the session only on a refusal (`ChatApiTest`) |
+| QA BUG-158: a 200 that wasn't the server's answer (a captive portal's page) read as `{}`: lists came back empty, and the session renewal at start threw outside any handler, ending the app (the web's BUG-117) | A success other than 204 without a JSON body fails with status 0; `checkSession` ends the session only on a refusal (`ChirkleApiTest`) |
 | QA BUG-159: holding Ctrl+K toggled Jump to on every key repeat (the web's BUG-137) | A repeated press is ignored (`UiPortsTest`) |
-| QA BUG-160: a private room you were taken out of stayed kept on the device, shown when opened from a link or a notification until the server refused (the web's BUG-101, privacy) | A room that leaves the loaded list is kept empty (`ChatServices`, as the web's `forgetGone`; `ServicesTest`) |
+| QA BUG-160: a private room you were taken out of stayed kept on the device, shown when opened from a link or a notification until the server refused (the web's BUG-101, privacy) | A room that leaves the loaded list is kept empty (`ChirkleServices`, as the web's `forgetGone`; `ServicesTest`) |
 | QA BUG-157: a message that arrived while the app was in the background (realtime stays up for a while, §9.1) stayed unread after coming back to it on screen: in the room list, on the web, everywhere | The room reports what is on screen again when the app comes back (`UiFeaturesTest`) |
 
 ### 22.3 Checked by hand on the emulator
@@ -860,10 +861,10 @@ ordinary rooms and users to the app; it only shows what the server says of them:
 - **Room access:** where else the room's messages are kept (or, on a copy, that its home decides who is in it); people
   on other instances listed with their instance even though they may take no DMs (Telegram's stand-ins still aren't);
   in a shared room, the people search takes an address, `ann@b.example`, looked up on that instance.
-- **New message:** the same search takes an address (`ChatApi.remoteUser`, `POST /api/chat/remote-users`); a refusal
+- **New message:** the same search takes an address (`ChirkleApi.remoteUser`, `POST /api/chat/remote-users`); a refusal
   ("This instance isn't linked to b.example.") shows as the search's status. Results from other instances say "On
   b.example".
-- **Tests:** `LinkedTest` (addresses, the top bar's line), `ChatApiTest` (a shared room and a stand-in decode; an address
+- **Tests:** `LinkedTest` (addresses, the top bar's line), `ChirkleApiTest` (a shared room and a stand-in decode; an address
   on an instance not linked is refused with its reason), `UiLinkedTest` (the top bar and the access screen of a shared
   room; New message with an address). The test server runs with the module on (since 2026-10-24 its Application URL and the
   site's `federation` are set after it starts, as `TestServer.enableFederation`; there is no environment variable), paired with no
@@ -879,7 +880,7 @@ web's DESIGN.md §34.5).
 - Kept per account on this device, in the account's kv table (`notify_rooms`, space-separated ids; a session key, so
   gone at log out). `NotifyRooms` (`core/data/…/repo/Caches.kt`) holds it for the menu; `NotifyCheck` reads the
   table itself, since the check runs for accounts not open in the app.
-- The check (§21.2) adds `|| room = {:rN}` for each chosen room of the chunk to `ChatApi.notifiable`'s condition:
+- The check (§21.2) adds `|| room = {:rN}` for each chosen room of the chunk to `ChirkleApi.notifiable`'s condition:
   still one request, still only over rooms with unread messages. Hidden, archived and the open room stay silent.
 - A new channel, **Room messages** (`room_all`, default importance), so they can be silenced apart from Replies.
   A room's notification uses Replies when its newest message is a reply to you, else Room messages.
@@ -915,14 +916,14 @@ QA write-up is QA.md "QA pass 21". No web fix since the last sweep (BUG-150) was
 
 | Bug | Fix |
 |---|---|
-| QA BUG-161: downloading a file (the room's file chips, the viewer's Download) did nothing on Android 8 and 9: the shared Downloads folder needs the storage permission there, the download manager refused, and the refusal was swallowed. The room said nothing either way | `chat.android.ui.download` (core:ui), used by the room and the viewer: Android 10+ the shared Downloads folder, before that the app's own (`Android/data/…/files/Download`, no permission; the download's notification opens it). A toast says it started or couldn't |
+| QA BUG-161: downloading a file (the room's file chips, the viewer's Download) did nothing on Android 8 and 9: the shared Downloads folder needs the storage permission there, the download manager refused, and the refusal was swallowed. The room said nothing either way | `chirkle.android.ui.download` (core:ui), used by the room and the viewer: Android 10+ the shared Downloads folder, before that the app's own (`Android/data/…/files/Download`, no permission; the download's notification opens it). A toast says it started or couldn't |
 | QA BUG-162: a read that failed on its way (the network back a moment after the message showed) was tried again only with the next `seen()`, which nothing brought when the room on screen didn't change: the room stayed unread on the server, the list, the web, every device | `Unread`'s reader sends it again by itself, after 2 s, then doubling up to a minute, until it is in or refused (a 4xx other than 429) (`ServicesTest`) |
 | QA BUG-163: going to a message (a search result, a quote, the first unread one when a room opens) put the row two below it at the bottom of the list: when those rows were tall (images, long messages, the keyboard up) the message itself was off the top. With reading what is on screen (§25), a first unread message off the top was read unseen. After picking a search result the keyboard also stayed up over half the room | The message's bottom edge goes to the bottom, then the list is raised a quarter of its height, as far as the message stays whole; picking a result clears the focus (`UiFeaturesTest`) |
 | QA BUG-164: photos sent from Android 8 and 8.1 lost their orientation: `BitmapFactory` ignores EXIF, and re-encoding (§15.3) dropped it, so a portrait photo arrived sideways (also profile pictures) | `ImagePrep.decodeLegacy` turns the bitmap upright from the EXIF orientation (all eight, read with androidx's `ExifInterface`, now a direct dependency of core:ui), as `ImageDecoder` does on 9+ (`ImagePrepTest`) |
 | QA BUG-165: an audio attachment that failed to play once ("Couldn't play …": offline, an expired file token) could never play in that room again: Play restarted the same broken `MediaPlayer`, which failed at once ("start called in state 0", error -38) | A failed player is released and forgotten: the next tap starts afresh, with a fresh file token; `start()`/`pause()` failures are caught too |
-| QA BUG-166: a sign-in or renewal that got JSON other than a session (another site's, a proxy's) threw a `ClassCastException`/`NullPointerException`; renewing the idle accounts at launch (`Accounts.renewIdle`, catching only `ApiError`) then ended the app | `ChatApi.auth` fails with status 0 ("couldn't be read") unless the answer has a token and a user; `renewIdle` ends a session only on a refusal and leaves anything else for next time (`ChatApiTest`) |
+| QA BUG-166: a sign-in or renewal that got JSON other than a session (another site's, a proxy's) threw a `ClassCastException`/`NullPointerException`; renewing the idle accounts at launch (`Accounts.renewIdle`, catching only `ApiError`) then ended the app | `ChirkleApi.auth` fails with status 0 ("couldn't be read") unless the answer has a token and a user; `renewIdle` ends a session only on a refusal and leaves anything else for next time (`ChirkleApiTest`) |
 | QA BUG-167: a profile picture that couldn't be read (gone from the provider, permission revoked) threw out of the screen's coroutine and ended the app | "Couldn't read that image." |
-| QA BUG-168: a link or a notification to the room already open opens a new screen of it, and the old one closing afterwards set "no active room": messages arriving in the room on screen counted as unread, the prefetch fetched it, its notification wasn't taken away | `ChatServices` keeps the room screens open in order; the active room is the newest still open (`ServicesTest`) |
+| QA BUG-168: a link or a notification to the room already open opens a new screen of it, and the old one closing afterwards set "no active room": messages arriving in the room on screen counted as unread, the prefetch fetched it, its notification wasn't taken away | `ChirkleServices` keeps the room screens open in order; the active room is the newest still open (`ServicesTest`) |
 | QA BUG-169: the "New" line over the first unread message faded out after leaving the list, so for its 0.7 s it was drawn across that message's text while the list closed the gap | It fades out in its own place in its last 0.7 s, then goes |
 | QA BUG-170: a collection followed (another device) just after the list was read, before the live subscription was in, never showed until a reconnect | Once subscribed, `CollectionsSync` reads the list once more, as the room catches up (`CollectionsTest` holds the subscription back) |
 
@@ -944,8 +945,32 @@ not the room. That is the emulator's speed (Settings saves its state there), not
 
 ### 26.4 Tests
 
-New: `ServicesTest` (a failing read sent again; the active room with two screens of it), `ChatApiTest` (JSON that
+New: `ServicesTest` (a failing read sent again; the active room with two screens of it), `ChirkleApiTest` (JSON that
 isn't a session), `CollectionsTest` (a follow during the subscription), `ImagePrepTest`, `UiFeaturesTest` (a message gone
 to shows whole). `UiHarness.openRoom` opens a room by its row's click action, tried again until it shows: scrolled to
 from below, a row stops under the top bar, where a tap lands on the bar. All JVM tests pass, three full runs in a row
 (84 in `:core:data`, 46 in `:app`); lint has no errors; the release APK is 2.99 MB (budget 6 MB).
+
+## 27. Name: Chirkle (2026-10-27)
+
+The user: "let's go with chirkle. change app name everywhere. android app also. reinstalls are not problem". The web
+app, the server and the docs were renamed too (DESIGN.md §1, §24).
+
+- **A new app:** the application id is `com.chirkle.android` (was `org.chat.android`). Phones see it as another app:
+  it installs beside the old one, which can then be uninstalled. Nothing carries over, so each account logs in again.
+  The launcher label is "Chirkle"; inside, the app shows the server's own title, as before.
+- **Code:** the Kotlin package is `chirkle.android` (namespaces, the convention plugins `chirkle.android.*`, sources
+  under `kotlin/chirkle/android/`). The classes named after the app are `ChirkleApp`, `ChirkleNav`, `ChirkleServices`,
+  `ChirkleApi`, `ChirkleDatabase` (schemas under `schemas/chirkle.android.data.db.ChirkleDatabase/`), `ChirkleTheme`,
+  `ChirkleColors`, `ChirkleIcons`, `ChirkleSheet` and the `Chirkle.colors` accessor; the style is `Theme.Chirkle`.
+- **Build:** the Gradle properties are `chirkle.server`, `chirkle.appId` and `chirkle.devServer`; the tests' system
+  property is `chirkle.repoRoot`.
+- **Server:** `ANDROID_APP_ID` defaults to the new id (`/.well-known/assetlinks.json`, §9.4); set it only for a build
+  with another `chirkle.appId`.
+- **Kept:** the server's API (`/api/chat/…`, the `chat/badges` topic), so the app still talks to servers that haven't
+  been updated yet.
+- **Release build:** it didn't compile, before the rename too: `Downloads.kt` (QA BUG-161) used core-ktx's `toUri`,
+  which `:core:ui` has only in debug builds, through Compose's tooling. It uses `Uri.parse`, as `Linked.kt` does;
+  lint's `UseKtx` warning on both says otherwise. The release APK is 2.99 MB (budget 6 MB).
+
+All JVM tests pass (84 in `:core:data`, 46 in `:app`); lint has no errors.

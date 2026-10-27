@@ -1,5 +1,5 @@
 // Unread badge on the tab (§22.4): the favicon shows how many messages are unread across every room and DM that has
-// a badge in the room list (§18.4), and the title starts with it, e.g. "(3) #general – Chat": the open room's name, then
+// a badge in the room list (§18.4), and the title starts with it, e.g. "(3) #general – Chirkle": the open room's name, then
 // the site's title (§24).
 
 import { roomTitle } from "./lib/rooms.ts";
@@ -36,7 +36,7 @@ export function faviconSvg(label: string): string {
 
 export const faviconUrl = (label: string): string => `data:image/svg+xml,${encodeURIComponent(faviconSvg(label))}`;
 
-/** The tab's title: the unread count, the open room and the site's title, e.g. "(3) #general – Chat". */
+/** The tab's title: the unread count, the open room and the site's title, e.g. "(3) #general – Chirkle". */
 export function tabTitle(s: AppState, label: string): string {
   const room = s.activeRoomId ? s.rooms.get(s.activeRoomId) : undefined;
   const title = room ? `${roomTitle(room, s.user)} – ${s.site.title}` : s.site.title;

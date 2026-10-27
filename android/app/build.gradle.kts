@@ -5,22 +5,22 @@ plugins {
 }
 
 /** The server a debug build talks to: the dev server as the emulator reaches it (ANDROID.md §12.2). */
-val devServer = providers.gradleProperty("chat.devServer").orElse("http://10.0.2.2:8090")
+val devServer = providers.gradleProperty("chirkle.devServer").orElse("http://10.0.2.2:8090")
 /**
  * The release build's default server (ANDROID.md §17.2): offered at first launch, and the App Links host (§17.3).
  * Unset, the app asks for a server and claims no host's links.
  */
-val server = providers.gradleProperty("chat.server").orElse("")
+val server = providers.gradleProperty("chirkle.server").orElse("")
 
 /** The host whose /r/ links open in the app; a reserved name (RFC 2606) when there is no default server. */
 fun appLinksHost(url: String) = url.substringAfter("://").substringBefore('/').substringBefore(':').ifEmpty { "app-links.invalid" }
 
 android {
-    namespace = "chat.android"
+    namespace = "chirkle.android"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = providers.gradleProperty("chat.appId").getOrElse("org.chat.android")
+        applicationId = providers.gradleProperty("chirkle.appId").getOrElse("com.chirkle.android")
         minSdk = 26
         targetSdk = 36
         versionCode = 1
@@ -105,7 +105,7 @@ dependencies {
 tasks.withType<Test>().configureEach {
     maxHeapSize = "1g"
     // The UI tests start PocketBase from the repository's bin/ (ANDROID.md §13).
-    systemProperty("chat.repoRoot", rootProject.projectDir.parentFile.absolutePath)
+    systemProperty("chirkle.repoRoot", rootProject.projectDir.parentFile.absolutePath)
     testLogging { events("failed"); exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL }
 }
 

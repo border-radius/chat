@@ -156,7 +156,7 @@ describe("pairing (§33.3)", () => {
       // A real one shows, with a label suggested from the host and A's site name.
       const asked = await A.admin.collection("fed_peers").create({ origin: D.url, label: "D" });
       const request = await requestOn(D, A);
-      expect(request).toMatchObject({ status: "requested", label: "127", name: "Chat", dms: false });
+      expect(request).toMatchObject({ status: "requested", label: "127", name: "Chirkle", dms: false });
       // Asking again while it waits is refused here, with what to do.
       await expect(D.admin.collection("fed_peers").create({ origin: A.url, label: "A" })).rejects.toMatchObject({
         response: { data: { origin: { message: expect.stringMatching(/asked to link already/) } } },

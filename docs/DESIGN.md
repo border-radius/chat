@@ -1,4 +1,4 @@
-# Chat — MVP Design Document
+# Chirkle — MVP Design Document
 
 | | |
 |---|---|
@@ -13,7 +13,7 @@ mark obsolete ones as such instead of deleting them.
 
 ## 1. Summary
 
-Chat is a small, fast, real-time group chat web app. Users sign up, see a list of public rooms, join one, and talk. New messages show up live without a page reload.
+Chirkle (called Chat until 2026-10-27) is a small, fast, real-time group chat web app. Users sign up, see a list of public rooms, join one, and talk. New messages show up live without a page reload.
 
 The whole system is **one PocketBase binary**. It handles auth, data, realtime and serving the static frontend. The frontend is **vanilla TypeScript** with no UI framework, bundled by **esbuild** into one small JS file and one CSS file.
 
@@ -1930,8 +1930,8 @@ else) removes that user's drafts. Storage that is full or disabled only means no
 
 `web/src/favicon.ts` sums the room list's badges (§18.4: not the open room, hidden or archived ones) and draws an SVG
 favicon (a speech bubble in the app's gradient) with a red badge holding the count (`99+` past 99); the title becomes
-"(3) Chat". In a room, the title also names it as the room list does (`#name`, or the other member's name in a DM):
-"(3) #general – Chat". `index.html` carries the plain icon, so the tab has one before the script runs.
+"(3) Chirkle". In a room, the title also names it as the room list does (`#name`, or the other member's name in a DM):
+"(3) #general – Chirkle". `index.html` carries the plain icon, so the tab has one before the script runs.
 
 While the tab is away (`document.visibilityState` is `hidden`, kept as `AppState.away` by `app.ts`), nobody is
 reading the open room, so its new messages count too: `unread.ts` counts them live, keeps the server's count for it
@@ -2122,7 +2122,7 @@ is no admin page in the app: it is all in the PocketBase admin UI (`/_/`, *Colle
 
 | Field | Type | Notes |
 |---|---|---|
-| `title` | text, required, 1–48 | Shown in the app bar, on the login page and in the tab's title. "Chat" at first. |
+| `title` | text, required, 1–48 | Shown in the app bar, on the login page and in the tab's title. "Chirkle" at first (a site still titled "Chat", the name before 2026-10-27, takes it: migration `1760000036`). |
 | `logo` | file, optional | SVG, PNG, JPEG, WebP or GIF, up to 1 MB, public. Replaces the app bar's speech bubble and sits above the title on the login page. |
 | `invite_only` | bool | Signing up needs `invite_code`. |
 | `invite_code` | text, **hidden**, ≤ 100 | Only superusers see it. Empty while invite-only: signups are closed. |
@@ -2286,7 +2286,7 @@ group, in the new) comes first (QA BUG-89). An archived room, or a disabled link
 
 The room says when a group starts or stops passing messages to it, in a service message (§5.3): "Telegram group "Friends" was connected to this room." when a link gets enabled with a room (created so, ticked, or moved to it), "… was disconnected from this room." when it stops (unticked, moved to another room, or deleted), and "… was disconnected from this room: the bot was removed from the group." when the group removes the bot. An archived room is told nothing. A title change or a group becoming a supergroup says nothing. The title is tidied like a name (no bidi overrides or line breaks), and a blank one reads "A Telegram group". The same news delivered twice at once (the bot removed, a link unticked) tells the room once: the link is read again in the save's transaction.
 
-### 26.6 Chat → Telegram
+### 26.6 Chirkle → Telegram
 
 The messages hooks only **queue** the work (`tg_queue`, in the same transaction as the save): a new message, an edit
 of the text, a delete, for each group the room is linked to. The worker sends it, so nobody's request waits for

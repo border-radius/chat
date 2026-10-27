@@ -1,0 +1,55 @@
+package chirkle.android.data.repo
+
+import chirkle.android.data.pb.Unsubscribe
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+
+/**
+ * One run of a service (the web's Scope): its coroutines, and what to undo when it ends. Callbacks hold on to their run,
+ * so a restart can't revive them.
+ */
+class Run(parent: Job?, val main: CoroutineDispatcher) {
+    val scope = CoroutineScope(SupervisorJob(parent) + main)
+    private val undo = mutableListOf<() -> Unit>()
+
+    val active: Boolean get() = scope.isActive
+
+    fun defer(fn: () -> Unit) {
+        undo += fn
+    }
+
+    /** Run [fn] on the main thread, if this run is still going (realtime listeners call from their own thread). */
+    fun post(fn: () -> Unit) {
+        scope.launch { if (active) fn() }
+    }
+
+    /** Subscribe now; unsubscribed when the run ends. */
+    fun sub(subscribe: suspend () -> Unsubscribe) {
+        scope.launch {
+            val off = subscribe()
+            if (active) defer { cleanup(off) } else cleanup(off)
+        }
+    }
+
+    fun dispose() {
+        scope.cancel()
+        undo.asReversed().forEach { runCatching(it) }
+        undo.clear()
+    }
+
+    companion object {
+        /** Unsubscribes outlive the run that made them. */
+        private val CLEANUP = CoroutineScope(SupervisorJob() + Dispatchers.Default + NonCancellable)
+
+        fun cleanup(off: Unsubscribe) {
+            CLEANUP.launch { runCatching { off() } }
+        }
+    }
+}

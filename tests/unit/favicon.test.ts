@@ -47,7 +47,7 @@ describe("favicon unread badge (§22.4)", () => {
   });
 
   it("follows the store: favicon and title, back to plain when everything is read or it stops", () => {
-    document.title = "Chat";
+    document.title = "Chirkle";
     const store = createStore<AppState>({
       ...initialState(),
       rooms: new Map([
@@ -58,12 +58,12 @@ describe("favicon unread badge (§22.4)", () => {
     const stop = startFavicon(store);
     const icon = () => document.head.querySelector<HTMLLinkElement>('link[rel="icon"]')!;
     expect(icon().href).toBe(faviconUrl(""));
-    expect(document.title).toBe("Chat");
+    expect(document.title).toBe("Chirkle");
     store.set(bumpUnread("a"));
     store.set(bumpUnread("b"));
     store.set(bumpUnread("b"));
     expect(icon().href).toBe(faviconUrl("3"));
-    expect(document.title).toBe("(3) Chat");
+    expect(document.title).toBe("(3) Chirkle");
     // A fresh <link> each time, not a new href on the old one, which Firefox doesn't pick up.
     const before = icon();
     store.set(bumpUnread("a"));
@@ -72,18 +72,18 @@ describe("favicon unread badge (§22.4)", () => {
     store.set(clearUnread("a"));
     store.set(bumpUnread("a"));
     store.set({ activeRoomId: "b" }); // opening a room: its messages are being read, and its name is in the title
-    expect(document.title).toBe("(1) #b – Chat");
+    expect(document.title).toBe("(1) #b – Chirkle");
     store.set(bumpUnread("b"));
-    expect(document.title).toBe("(1) #b – Chat");
+    expect(document.title).toBe("(1) #b – Chirkle");
     // The tab away: nobody is reading the open room, so its messages count too.
     store.set({ away: true });
-    expect(document.title).toBe("(4) #b – Chat");
+    expect(document.title).toBe("(4) #b – Chirkle");
     store.set({ away: false });
-    expect(document.title).toBe("(1) #b – Chat");
+    expect(document.title).toBe("(1) #b – Chirkle");
     store.set(clearUnread("b"));
     store.set(clearUnread("a"));
     expect(icon().href).toBe(faviconUrl(""));
-    expect(document.title).toBe("#b – Chat");
+    expect(document.title).toBe("#b – Chirkle");
     // A DM is called after the other member; leaving the room leaves the site's title.
     store.set({
       user: { id: "me", name: "Me" } as AppState["user"],
@@ -93,12 +93,12 @@ describe("favicon unread badge (§22.4)", () => {
       ]),
       activeRoomId: "dm",
     });
-    expect(document.title).toBe("Xia – Chat");
+    expect(document.title).toBe("Xia – Chirkle");
     store.set({ activeRoomId: null });
-    expect(document.title).toBe("Chat");
+    expect(document.title).toBe("Chirkle");
     store.set(bumpUnread("a"));
     stop();
-    expect(document.title).toBe("Chat");
+    expect(document.title).toBe("Chirkle");
     expect(icon().href).toBe(faviconUrl(""));
   });
 });

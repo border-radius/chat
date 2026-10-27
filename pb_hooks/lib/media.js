@@ -253,7 +253,7 @@ function ffmpeg(/** @type {core.App} */ app) {
  */
 function tempCopy(fs, key, file) {
   const dir = $os.tempDir();
-  const name = `chat-poster-${$security.randomString(16)}.${ext(file)}`;
+  const name = `chirkle-poster-${$security.randomString(16)}.${ext(file)}`;
   const root = $os.openRoot(dir);
   try {
     const out = root.create(name);

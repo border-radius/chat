@@ -24,14 +24,14 @@ FROM alpine:3.22
 # -e FFMPEG=off) the room loads videos to draw their first frame, as before. busybox's `timeout` stops a run that hangs.
 # curl: the link previews worker fetches pages with it (DESIGN.md §28.1), connecting only to addresses it has checked.
 RUN apk add --no-cache ca-certificates tzdata ffmpeg curl \
-  && adduser -D -H -u 32767 chat \
-  && mkdir /pb_data && chown chat /pb_data
+  && adduser -D -H -u 32767 chirkle \
+  && mkdir /pb_data && chown chirkle /pb_data
 WORKDIR /app
 COPY --from=pocketbase /src/bin/pocketbase ./pocketbase
 COPY --from=web /src/pb_public ./pb_public
 COPY pb_migrations ./pb_migrations
 COPY pb_hooks ./pb_hooks
-USER chat
+USER chirkle
 # Rate limits are per client IP, and Dokku's proxy is always in front: trust the address it adds to X-Forwarded-For.
 # Use -e TRUSTED_PROXY=off when clients reach the container directly (README "Deploying").
 ENV TRUSTED_PROXY=X-Forwarded-For

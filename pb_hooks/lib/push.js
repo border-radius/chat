@@ -290,17 +290,18 @@ function tick(e) {
 
 /**
  * GET /.well-known/assetlinks.json: lets the Android app open links to rooms and messages (§9.4). From ANDROID_APP_ID
- * and ANDROID_CERT_SHA256 (comma-separated fingerprints); 404 without them.
+ * (the app's own id, com.chirkle.android, when unset) and ANDROID_CERT_SHA256 (comma-separated fingerprints); 404
+ * without fingerprints.
  * @param {core.RequestEvent} e
  */
 function assetLinks(e) {
-  const app = $os.getenv("ANDROID_APP_ID").trim();
+  const app = $os.getenv("ANDROID_APP_ID").trim() || "com.chirkle.android";
   const certs = $os
     .getenv("ANDROID_CERT_SHA256")
     .split(",")
     .map((c) => c.trim().toUpperCase())
     .filter(Boolean);
-  if (!app || !certs.length) throw new NotFoundError();
+  if (!certs.length) throw new NotFoundError();
   e.response.header().set("Cache-Control", "public, max-age=3600");
   return e.json(200, [
     {

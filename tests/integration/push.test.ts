@@ -13,7 +13,7 @@ import { disableRateLimits, type PocketBaseServer, SUPERUSER, startPocketBase } 
 import { status } from "./helpers.ts";
 
 const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
-const PROJECT = "chat-test";
+const PROJECT = "chirkle-test";
 
 interface Sent {
   token: string;
@@ -87,7 +87,7 @@ beforeAll(async () => {
   const account = {
     type: "service_account",
     project_id: PROJECT,
-    client_email: "push@chat-test.iam.gserviceaccount.com",
+    client_email: "push@chirkle-test.iam.gserviceaccount.com",
     private_key: privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
     token_uri: `${base}/token`,
   };
@@ -99,7 +99,6 @@ beforeAll(async () => {
       UNIFIEDPUSH: "on",
       PUSH_ALLOW_HOSTS: `127.0.0.1:${port}`,
       PUSH_CRON: "off",
-      ANDROID_APP_ID: "org.chat.android",
       ANDROID_CERT_SHA256: "AB:CD:EF, 12:34:56",
     },
   });
@@ -162,7 +161,7 @@ describe("pushes (§8.2)", () => {
     expect(toB.body).not.toContain("secret words");
     expect(badSignatures).toBe(0);
     expect(claims[0]).toMatchObject({
-      iss: "push@chat-test.iam.gserviceaccount.com",
+      iss: "push@chirkle-test.iam.gserviceaccount.com",
       scope: "https://www.googleapis.com/auth/firebase.messaging",
       aud: `${base}/token`,
     });
@@ -299,20 +298,20 @@ describe("push_tokens (§8.1)", () => {
 });
 
 describe("App Links and the minimum app version (§9.4, §12.4)", () => {
-  it("serve assetlinks.json from ANDROID_APP_ID and ANDROID_CERT_SHA256", async () => {
+  it("serve assetlinks.json from ANDROID_CERT_SHA256, for the app's own id when ANDROID_APP_ID is unset", async () => {
     const res = await fetch(`${server.url}/.well-known/assetlinks.json`);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual([
       {
         relation: ["delegate_permission/common.handle_all_urls"],
-        target: { namespace: "android_app", package_name: "org.chat.android", sha256_cert_fingerprints: ["AB:CD:EF", "12:34:56"] },
+        target: { namespace: "android_app", package_name: "com.chirkle.android", sha256_cert_fingerprints: ["AB:CD:EF", "12:34:56"] },
       },
     ]);
   });
 
   it("show min_android_version on the site record to everyone", async () => {
     const existing = await admin.collection("site").getList(1, 1);
-    const site: RecordModel = existing.items[0] ?? (await admin.collection("site").create({ title: "Chat" }));
+    const site: RecordModel = existing.items[0] ?? (await admin.collection("site").create({ title: "Chirkle" }));
     await admin.collection("site").update(site.id, { min_android_version: 3 });
     const row = await new PocketBase(server.url).collection("site").getOne(site.id, { fields: "id,min_android_version" });
     expect(row.min_android_version).toBe(3);

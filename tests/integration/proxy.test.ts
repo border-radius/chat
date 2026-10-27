@@ -23,7 +23,7 @@ const failLogin = async (url: string, forwardedFor: string) =>
 
 describe("TRUSTED_PROXY: the client IP behind a reverse proxy", () => {
   it("trusts the proxy's (rightmost) X-Forwarded-For address, so rate limits are per client; off and unset", async () => {
-    const dataDir = await mkdtemp(join(tmpdir(), "chat-proxy-"));
+    const dataDir = await mkdtemp(join(tmpdir(), "chirkle-proxy-"));
     try {
       const behind = await startPocketBase({ dataDir, env: { TRUSTED_PROXY: "X-Forwarded-For" } });
       try {

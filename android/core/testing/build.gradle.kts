@@ -1,10 +1,10 @@
 // Test support shared by the modules' JVM tests (ANDROID.md §13): a throwaway PocketBase, users, the app's services.
 plugins {
-    id("chat.android.library")
+    id("chirkle.android.library")
 }
 
 android {
-    namespace = "chat.android.data.testing"
+    namespace = "chirkle.android.data.testing"
 }
 
 dependencies {

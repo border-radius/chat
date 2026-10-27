@@ -1,10 +1,10 @@
 plugins {
-    id("chat.android.library")
-    id("chat.android.compose")
+    id("chirkle.android.library")
+    id("chirkle.android.compose")
 }
 
 android {
-    namespace = "chat.android.ui"
+    namespace = "chirkle.android.ui"
 }
 
 dependencies {

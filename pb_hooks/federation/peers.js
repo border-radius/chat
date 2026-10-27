@@ -34,7 +34,7 @@ const GENERIC = new Set(["chat", "www", "app", "im", "talk", "m", "web"]);
 /** @param {core.App} app */
 function siteName(app) {
   const found = app.findRecordsByFilter("site", "", "created", 1, 0);
-  return found[0]?.getString("title") || "Chat";
+  return found[0]?.getString("title") || "Chirkle";
 }
 
 /** Why this instance can't pair now, or "". */

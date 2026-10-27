@@ -1,9 +1,9 @@
 plugins {
-    id("chat.android.feature")
+    id("chirkle.android.feature")
 }
 
 android {
-    namespace = "chat.android.feature.viewer"
+    namespace = "chirkle.android.feature.viewer"
 }
 
 dependencies {

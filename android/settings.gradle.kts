@@ -15,7 +15,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "chat-android"
+rootProject.name = "chirkle-android"
 
 include(
     ":app",

@@ -35,7 +35,7 @@ const MAX_REDIRECTS = 3;
  * that never answer would otherwise hold up everyone's previews behind it, for minutes.
  */
 const MESSAGE_MS = 12_000;
-const UA = "Mozilla/5.0 (compatible; ChatLinkPreview/1.0)";
+const UA = "Mozilla/5.0 (compatible; ChirkleLinkPreview/1.0)";
 
 const LOCK = "previews.worker";
 const RUN_MS = 57_000;
@@ -221,7 +221,7 @@ function tools(/** @type {core.App} */ app) {
  * @returns {Response}
  */
 function request(u, ip, headers, seconds, max, data) {
-  const head = `${$os.tempDir()}/chat-preview-${$security.randomString(16)}`;
+  const head = `${$os.tempDir()}/chirkle-preview-${$security.randomString(16)}`;
   // No ~/.curlrc, no proxy (it would look the host up itself), no globbing of [] and {} in the URL; no redirects (get
   // checks each). The headers go to a file, written as they come: there even when curl is stopped mid-body.
   const args = ["-q", "--silent", "--globoff", "--noproxy", "*", "--proto", "=http,https", "--max-time", seconds.toFixed(1)];

@@ -19,7 +19,7 @@ const freePort = () =>
 
 test("after a dropped connection, everything missed appears in order once it reconnects", async ({ browser }) => {
   test.setTimeout(90_000);
-  const tmp = await mkdtemp(join(tmpdir(), "chat-e2e-reconnect-"));
+  const tmp = await mkdtemp(join(tmpdir(), "chirkle-e2e-reconnect-"));
   const dataDir = join(tmp, "pb_data");
   const port = await freePort();
   const base = `http://127.0.0.1:${port}`;

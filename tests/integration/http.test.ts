@@ -9,7 +9,7 @@ describe("security and cache headers (§5.6)", () => {
   beforeAll(async () => {
     const pub = inject("pbPublicDir");
     await mkdir(join(pub, "assets"), { recursive: true });
-    await writeFile(join(pub, "index.html"), "<!doctype html><title>Chat</title>");
+    await writeFile(join(pub, "index.html"), "<!doctype html><title>Chirkle</title>");
     await writeFile(join(pub, "assets/app-TEST1234.js"), "console.log(1)");
     await writeFile(join(pub, "assets/app.js"), "console.log(2)"); // unhashed, as written by npm run dev
     await writeFile(join(pub, "sw.js"), "console.log(3)");
@@ -73,7 +73,7 @@ describe("security and cache headers (§5.6)", () => {
     for (const path of ["/r/abc", "/me", "/r/abc/m/def"]) {
       const res = await fetch(url(path));
       expect(res.status, path).toBe(200);
-      expect(await res.text(), path).toContain("<title>Chat</title>");
+      expect(await res.text(), path).toContain("<title>Chirkle</title>");
     }
   });
 

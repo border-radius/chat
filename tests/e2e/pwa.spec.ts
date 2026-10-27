@@ -18,7 +18,7 @@ test("the manifest and its icons load; the service worker serves the app's shell
   await page.goto("/");
   const href = await page.locator('link[rel="manifest"]').getAttribute("href");
   const manifest = await (await page.request.get(href!)).json();
-  expect(manifest).toMatchObject({ name: "Chat", display: "standalone", start_url: "/" });
+  expect(manifest).toMatchObject({ name: "Chirkle", display: "standalone", start_url: "/" });
   for (const icon of manifest.icons as { src: string; type: string }[]) {
     const res = await page.request.get(icon.src);
     expect(res.ok(), icon.src).toBe(true);

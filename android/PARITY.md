@@ -5,28 +5,28 @@ without an entry here fails review. **Covered**: the scenario runs on the app's 
 PocketBase). **Partial**: the behaviour is tested below the screens (API, services, room controller), or only some of
 the spec's cases are. **Not yet**: no Android test.
 
-Test classes: `UiFlowTest`, `UiFeaturesTest`, `UiPortsTest`, `UiCollectionsTest`, `UiNotifyTest`, `UiLinkedTest`, `RoutesTest` (`app/src/test`); `ServicesTest`, `ChatApiTest`, `CollectionsTest`, `NotifyCheckTest`, the
+Test classes: `UiFlowTest`, `UiFeaturesTest`, `UiPortsTest`, `UiCollectionsTest`, `UiNotifyTest`, `UiLinkedTest`, `RoutesTest` (`app/src/test`); `ServicesTest`, `ChirkleApiTest`, `CollectionsTest`, `NotifyCheckTest`, the
 `lib` tests (`core/data/src/test`).
 
 | Web spec | Android | Status |
 |---|---|---|
 | `smoke` | `UiFlowTest`: log in, open a room, send, the server has it; `UiFeaturesTest`: a message sent at the bottom of a full room shows whole | Covered |
-| `signup` | `UiFeaturesTest`: signing up logs you in; `ChatApiTest`: sign up | Covered |
+| `signup` | `UiFeaturesTest`: signing up logs you in; `ChirkleApiTest`: sign up | Covered |
 | `session` | `UiFlowTest`: a wrong password says so; `ServicesTest`: logging out clears the session's data, and so does a session that ran out while the app was closed (QA BUG-145, web: `app.test.ts`) | Partial: a session revoked elsewhere, two sessions |
 | `accounts` | `UiFeaturesTest`: renaming yourself | Partial: password change |
 | `avatar` | — | Not yet (the photo picker can't be driven on Robolectric; changed by hand on the emulator, ANDROID.md §22.3) |
-| `realtime` | `UiFlowTest`: a live message; `ServicesTest`, `ChatApiTest`: realtime events | Covered |
-| `reconnect` | `ChatApiTest`: reconnect after a pause says events may have been missed | Partial: gap fill after it |
+| `realtime` | `UiFlowTest`: a live message; `ServicesTest`, `ChirkleApiTest`: realtime events | Covered |
+| `reconnect` | `ChirkleApiTest`: reconnect after a pause says events may have been missed | Partial: gap fill after it |
 | `history` | `ServicesTest`: opens around a message far back, jumps to the latest | Partial: scrolling the edges |
 | `unread` | `ServicesTest`: live counts, read on the server; `UiPortsTest`: unread rooms listed first, a folded section lists only them; `UiFeaturesTest`: what came while the app was in the background is read on coming back (QA BUG-157); `UiPortsTest`: opening a room reads only what is on screen, scrolling down the rest (ANDROID.md §25); `ServicesTest`: a read that fails is sent again by itself (QA BUG-162); `RoomSectionsTest` | Partial: the badge and the "New" line on screen |
 | `edit` | `UiFeaturesTest`: edit, delete, a message's menu closing when it is deleted meanwhile (QA BUG-156); `ServicesTest`: edit, delete | Covered |
 | `reactions` | `UiFeaturesTest`: quick reactions; `ServicesTest`; `HelpersTest`: the web's reaction cases | Covered |
-| `replies` | `UiFeaturesTest`: reply and its quote; `ChatApiTest` | Partial: going to the original |
-| `forward` | `UiFeaturesTest`: forwarding one message; `ChatApiTest` | Partial: several at once, delete together |
-| `dm` | `UiFeaturesTest`: a new DM from the people search; `ChatApiTest` | Partial: close and reopen |
+| `replies` | `UiFeaturesTest`: reply and its quote; `ChirkleApiTest` | Partial: going to the original |
+| `forward` | `UiFeaturesTest`: forwarding one message; `ChirkleApiTest` | Partial: several at once, delete together |
+| `dm` | `UiFeaturesTest`: a new DM from the people search; `ChirkleApiTest` | Partial: close and reopen |
 | `hide` | `UiFeaturesTest`: hiding a room | Partial: unhide |
 | `archive` | `UiFeaturesTest`: an archived room is read-only; `ServicesTest` | Covered |
-| `room_access` | `UiFeaturesTest`: private with a member; `ChatApiTest` | Partial: who can post, Open Air |
+| `room_access` | `UiFeaturesTest`: private with a member; `ChirkleApiTest` | Partial: who can post, Open Air |
 | `attachments` | `UiPortsTest`: the viewer drops a message deleted while it is open (QA BUG-155) | Partial: picking files (pickers; sent through the system picker by hand on the emulator, ANDROID.md §22.3; the outbox sends files: `Outbox`); `ImagePrepTest`: photos upright before re-encoding on Android 8 (QA BUG-164); downloads by hand on the emulator (QA BUG-161, ANDROID.md §26) |
 | `search` | `UiFeaturesTest`: find and go to a message far back; the message gone to shows whole though the ones after it are tall (QA BUG-163); `TextTest`: the web's search cases | Covered |
 | `cache` | `ServicesTest`: the room is kept for next time; a private room you are taken out of is kept empty (QA BUG-160); the room opened again from a link stays the active one (QA BUG-168) | Partial: opening from it |
@@ -39,7 +39,7 @@ Test classes: `UiFlowTest`, `UiFeaturesTest`, `UiPortsTest`, `UiCollectionsTest`
 | `theme` | `UiPortsTest`: Appearance set to Dark is kept | Covered |
 | `collections` | `UiCollectionsTest`: make one from the room list, save from a tile, a badge to a public one, subscribe, "1 new" live and seen, attach from the picker with its badge, save and unsave in the viewer; `CollectionsTest`: badges follow a collection made public, renamed, private and deleted, live; a follow made while the subscription is on its way shows (QA BUG-170) | Partial: uploading (the photo picker can't be driven on Robolectric), axe |
 | `pwa` | — | Not applicable: the app is the installed app (§3) |
-| `linked` (two servers; also `tests/unit/views/room/linked.test.ts`, `rooms.test.ts`) | `UiLinkedTest`: a shared room's top bar and access screen, New message by address; `LinkedTest`; `ChatApiTest`: a shared room and a stand-in decode, an address refused with its reason. Between servers: `tests/integration/federation.test.ts` | Covered |
+| `linked` (two servers; also `tests/unit/views/room/linked.test.ts`, `rooms.test.ts`) | `UiLinkedTest`: a shared room's top bar and access screen, New message by address; `LinkedTest`; `ChirkleApiTest`: a shared room and a stand-in decode, an address refused with its reason. Between servers: `tests/integration/federation.test.ts` | Covered |
 | — (Android only) | Servers and accounts (ANDROID.md §17): `AccountsTest`, `ServersTest` (add, switch, links and pushes find their account, refused sessions, addresses), `UiAccountsTest` (add an account on another server, switch from the account list opened by the brand, a bad address, log out to another account) | Covered |
 | `notify` (web: while a tab is open, DESIGN.md §34) | Notifications of DMs and replies by a periodic check, no Google (ANDROID.md §21): `NotifyCheckTest` (DMs and replies once; every message of a room chosen in its menu, ANDROID.md §24; not other plain messages, from before sign-in, read elsewhere, hidden, on screen, the open room; a check failing part way loses nothing, QA BUG-153), `UiNotifyTest` (the worker's check posts them on their channels at their messages' times, takes a read one away; Notify of every message from the room's menu) | Covered; tried on the emulator (ANDROID.md §22.1). The app checks every 15 minutes, the web alerts live but only with a tab open; the web's sound has no app equivalent (the channels' own sounds) |
 | — (Android only) | `push.test.ts` (server): App Links, minimum version; its push cases are unused by the app since §21 | Covered on the server |

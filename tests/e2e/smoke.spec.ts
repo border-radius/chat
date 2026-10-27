@@ -8,7 +8,7 @@ test("app boots to the guest home (Open Air rooms) without console errors; Log i
 
   await page.goto("/");
 
-  await expect(page).toHaveTitle("Chat");
+  await expect(page).toHaveTitle("Chirkle");
   await expect(page.getByRole("heading", { name: "Welcome!" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Rooms" })).toContainText("Open Air rooms");
   await page.locator("header.app-bar").getByRole("link", { name: "Log in" }).click();

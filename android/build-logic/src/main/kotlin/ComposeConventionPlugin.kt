@@ -5,7 +5,7 @@ import org.gradle.kotlin.dsl.dependencies
 import org.jetbrains.kotlin.compose.compiler.gradle.ComposeCompilerGradlePluginExtension
 import org.gradle.kotlin.dsl.configure
 
-/** Compose in an Android module: `chat.android.compose`. */
+/** Compose in an Android module: `chirkle.android.compose`. */
 class ComposeConventionPlugin : Plugin<Project> {
     override fun apply(target: Project) = with(target) {
         pluginManager.apply("org.jetbrains.kotlin.plugin.compose")

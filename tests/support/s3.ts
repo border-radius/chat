@@ -40,7 +40,7 @@ const freePort = () =>
   });
 
 export async function startS3(): Promise<S3Server> {
-  const root = mkdtempSync(join(tmpdir(), "chat-s3-"));
+  const root = mkdtempSync(join(tmpdir(), "chirkle-s3-"));
   const bucket = "chat";
   const dir = join(root, bucket);
   mkdirSync(dir);

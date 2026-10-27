@@ -1,5 +1,5 @@
 /// <reference path="../../types/pocketbase.d.ts" />
-// Chat → Telegram (DESIGN.md §26.6). The messages hooks only queue the work (tg_queue): a message, edit or delete in
+// Chirkle → Telegram (DESIGN.md §26.6). The messages hooks only queue the work (tg_queue): a message, edit or delete in
 // a linked room. The worker (worker.js) sends it, so a user's request never waits for Telegram, and what Telegram
 // refuses for now (it is down, or asks to slow down) is retried in order.
 
