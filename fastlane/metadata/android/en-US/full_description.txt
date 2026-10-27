@@ -1,0 +1,17 @@
+Chirkle is a small, fast, real-time group chat. This is its Android app: it connects to any Chirkle server, such as one you host yourself (the server is free software too, a single PocketBase binary).
+
+<b>Features</b>
+<ul>
+<li>Rooms anyone can create, Private, Public or Open Air (readable without an account), and direct messages</li>
+<li>Live messages, edits, deletes, replies and emoji reactions</li>
+<li>Full history: scroll back to the very first message, or search any room</li>
+<li>Photos, videos and files, with an image viewer; save media to your own collections</li>
+<li>Forward or delete several messages at once</li>
+<li>Unread counts kept in sync with the web app and your other devices</li>
+<li>Several accounts, on one server or several</li>
+<li>Notifications of direct messages, replies to you and the rooms you choose</li>
+<li>Light and dark themes; a download of about 3 MB</li>
+</ul>
+
+<b>No Google services</b>
+Notifications come from the app checking your servers about every 15 minutes (WorkManager), so there is no push service involved and the app works the same on phones without Google Play services. Messages can therefore arrive a few minutes late.

@@ -1,0 +1,28 @@
+# F-Droid build recipe (ANDROID.md §28): a copy goes to fdroiddata as metadata/com.chirkle.android.yml.
+# Replace OWNER/chirkle with the public repository before submitting.
+Categories:
+  - Internet
+License: GPL-3.0-only
+AuthorName: Chirkle
+SourceCode: https://github.com/OWNER/chirkle
+IssueTracker: https://github.com/OWNER/chirkle/issues
+
+AutoName: Chirkle
+
+RepoType: git
+Repo: https://github.com/OWNER/chirkle.git
+
+Builds:
+  - versionName: 0.1.0
+    versionCode: 1
+    commit: android-v0.1.0
+    subdir: android/app
+    gradle:
+      - yes
+    gradleprops:
+      - chirkle.unsigned=true
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags ^android-v
+CurrentVersion: 0.1.0
+CurrentVersionCode: 1

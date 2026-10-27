@@ -12,6 +12,15 @@ val devServer = providers.gradleProperty("chirkle.devServer").orElse("http://10.
  */
 val server = providers.gradleProperty("chirkle.server").orElse("")
 
+/**
+ * Release signing (ANDROID.md §28.2): a keystore for builds published by us (GitHub Releases, IzzyOnDroid), with
+ * `chirkle.keystorePassword`, `chirkle.keyAlias` and `chirkle.keyPassword` (the store's password when unset); these
+ * can come from the environment as `ORG_GRADLE_PROJECT_chirkle.…`. `chirkle.unsigned=true` builds an unsigned APK,
+ * as F-Droid's recipe does.
+ */
+val releaseKeystore = providers.gradleProperty("chirkle.keystore")
+val unsigned = providers.gradleProperty("chirkle.unsigned").map { it.toBoolean() }.getOrElse(false)
+
 /** The host whose /r/ links open in the app; a reserved name (RFC 2606) when there is no default server. */
 fun appLinksHost(url: String) = url.substringAfter("://").substringBefore('/').substringBefore(':').ifEmpty { "app-links.invalid" }
 
@@ -28,6 +37,17 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (releaseKeystore.isPresent) {
+            create("release") {
+                storeFile = file(releaseKeystore.get())
+                storePassword = providers.gradleProperty("chirkle.keystorePassword").get()
+                keyAlias = providers.gradleProperty("chirkle.keyAlias").get()
+                keyPassword = providers.gradleProperty("chirkle.keyPassword").orElse(storePassword!!).get()
+            }
+        }
+    }
+
     buildTypes {
         debug {
             buildConfigField("String", "SERVER", "\"${devServer.get()}\"")
@@ -39,9 +59,21 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             buildConfigField("String", "SERVER", "\"${server.get()}\"")
             manifestPlaceholders["appLinksHost"] = appLinksHost(server.get())
-            // CI signs with the release key (secrets); without one, the debug key, so a local build installs.
-            signingConfig = signingConfigs.getByName("debug")
+            // The release key when one is given (§28.2); unsigned for F-Droid, which signs it itself; else the debug
+            // key, so a local build installs.
+            signingConfig = when {
+                releaseKeystore.isPresent -> signingConfigs.getByName("release")
+                unsigned -> null
+                else -> signingConfigs.getByName("debug")
+            }
         }
+    }
+
+    // AGP's encrypted list of dependencies in the APK signing block: only Google Play can read it, and F-Droid
+    // rejects APKs that carry it (§28.1).
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
     }
 
     buildFeatures {

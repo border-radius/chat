@@ -1,0 +1,1 @@
+First release: rooms, DMs, replies, reactions, attachments, collections, search and notifications without Google services.

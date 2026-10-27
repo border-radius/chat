@@ -377,7 +377,7 @@ The app lives in `android/` in this repo, so a schema change and its client chan
 ### 12.3 Release
 
 AAB to Google Play (internal, closed, then production with a staged rollout) and a signed APK on GitHub Releases
-(the same build: it needs no Google services, §21).
+(the same build: it needs no Google services, §21). F-Droid builds it from source (§28).
 
 ### 12.4 Minimum app version (server addition)
 
@@ -974,3 +974,48 @@ app, the server and the docs were renamed too (DESIGN.md §1, §24).
   lint's `UseKtx` warning on both says otherwise. The release APK is 2.99 MB (budget 6 MB).
 
 All JVM tests pass (84 in `:core:data`, 46 in `:app`); lint has no errors.
+
+## 28. F-Droid (2026-10-27)
+
+The user: "how do we add this app to fdroid", then "go". The app qualifies as it is: GPL-3.0, every dependency free
+software from Google's Maven and Maven Central, and no Google services since §21. F-Droid builds from source and signs
+with its own key.
+
+### 28.1 Build
+
+- `dependenciesInfo` is off for the APK and the AAB: AGP otherwise puts an encrypted list of dependencies (block
+  `0x504b4453`) in the APK signing block, which only Google Play can read and F-Droid's scanner rejects.
+- The release build takes no server (`chirkle.server` unset): it asks for one at first launch and claims no App Links
+  host (§17.2). That suits a store whose users run their own servers.
+
+### 28.2 Signing
+
+| Gradle properties | Release APK signed with |
+|---|---|
+| `chirkle.keystore` (path), `chirkle.keystorePassword`, `chirkle.keyAlias`, `chirkle.keyPassword` (defaults to the store's password) | the release key: GitHub Releases, IzzyOnDroid |
+| `chirkle.unsigned=true` | nothing: `app-release-unsigned.apk`, for F-Droid to sign |
+| none | the debug key, so a local build installs |
+
+### 28.3 Store listing
+
+`fastlane/metadata/android/en-US/` at the repository root, where F-Droid and IzzyOnDroid look: title, short and full
+description, `changelogs/<versionCode>.txt`, `images/icon.png` (512 px, the launcher icon's layers) and
+`images/phoneScreenshots/` (the room list and a room, taken on Robolectric with seeded users). Each release adds a
+changelog named after its `versionCode`.
+
+### 28.4 Releasing
+
+Bump `versionCode` and `versionName` in `app/build.gradle.kts` (F-Droid reads them there), add the changelog, and tag
+the commit `android-v<versionName>`. F-Droid's update checker finds new tags (`UpdateCheckMode: Tags ^android-v`)
+and builds them on its own.
+
+### 28.5 Submitting
+
+`android/fdroid/com.chirkle.android.yml` is the recipe. Once the repository is public: fork
+gitlab.com/fdroid/fdroiddata, copy the recipe to `metadata/` with the repository's URL in place of `OWNER/chirkle`,
+check it with `fdroid lint` and `fdroid build -v -l com.chirkle.android` (or the merge request's CI), and open the merge
+request. The first tag must exist before that. Risk: AGP 9.4, Gradle 9.8 and compileSdk 37 are recent; if F-Droid's
+build server lacks them, the recipe needs extra steps.
+
+Verified: the unsigned and the debug-signed release APKs build; the signed one's signing block holds only the v2
+signature and padding (no dependency block). Release APK 3.0 MB.
