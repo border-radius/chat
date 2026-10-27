@@ -1011,8 +1011,8 @@ and builds them on its own.
 
 ### 28.5 Submitting
 
-`android/fdroid/com.chirkle.android.yml` is the recipe. Once the repository is public: fork
-gitlab.com/fdroid/fdroiddata, copy the recipe to `metadata/` with the repository's URL in place of `OWNER/chirkle`,
+`android/fdroid/com.chirkle.android.yml` is the recipe. To submit: fork
+gitlab.com/fdroid/fdroiddata, copy the recipe to `metadata/` (the repository is github.com/border-radius/chirkle),
 check it with `fdroid lint` and `fdroid build -v -l com.chirkle.android` (or the merge request's CI), and open the merge
 request. The first tag must exist before that. Risk: AGP 9.4, Gradle 9.8 and compileSdk 37 are recent; if F-Droid's
 build server lacks them, the recipe needs extra steps.

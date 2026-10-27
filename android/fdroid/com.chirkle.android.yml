@@ -1,16 +1,14 @@
 # F-Droid build recipe (ANDROID.md §28): a copy goes to fdroiddata as metadata/com.chirkle.android.yml.
-# Replace OWNER/chirkle with the public repository before submitting.
 Categories:
   - Internet
 License: GPL-3.0-only
-AuthorName: Chirkle
-SourceCode: https://github.com/OWNER/chirkle
-IssueTracker: https://github.com/OWNER/chirkle/issues
+SourceCode: https://github.com/border-radius/chirkle
+IssueTracker: https://github.com/border-radius/chirkle/issues
 
 AutoName: Chirkle
 
 RepoType: git
-Repo: https://github.com/OWNER/chirkle.git
+Repo: https://github.com/border-radius/chirkle.git
 
 Builds:
   - versionName: 0.1.0
