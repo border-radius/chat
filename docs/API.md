@@ -11,8 +11,15 @@ client keeps its own copy, and tests compare those copies with the contract:
 - `android/…/lib/ContractTest.kt` checks the app's.
 - `tests/integration/schema.test.ts` checks the limits against the migrations.
 
-Rules that more than one implementation must follow (text folding, search queries, Jump to's ranking) have test
-vectors in [`shared/vectors/`](../shared/vectors/). The web, the hooks and the app each run all of them.
+Rules that more than one implementation must follow have test vectors in [`shared/vectors/`](../shared/vectors/):
+- `text.json`, `jump.json`: text folding, search queries, Jump to's ranking. The web, the hooks and the app run them.
+- `window.json`: the message window (merge, trim, pages, groups, page queries; DESIGN.md §7.5). The web
+  (`tests/unit/lib/window-vectors.test.ts`) and the app (`WindowVectorsTest.kt`) run it. Messages in it are written out
+  or generated as `tests/support/vectors.ts` says.
+- `room.json`: the room controller against a real server (open, page, jump, go to, live messages, pill, unread line,
+  deletes). Recorded from the web's controller (`RECORD=1 npx vitest run --project unit
+  tests/unit/views/room/scenarios.test.ts`) and replayed by it and by the app's `RoomScenariosTest.kt`. A change to
+  what the controller does is recorded again, then the app is made to pass.
 
 ## What the clients use
 

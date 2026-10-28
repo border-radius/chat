@@ -69,15 +69,14 @@ const popups = (page: Page) =>
     (window as unknown as { made: Made[] }).made.map(({ title, body, tag, url, closed, via }) => ({ title, body, tag, url, closed, via })),
   );
 
-/** Run `go`, and wait until the notifications chunk it loads has subscribed (its POST /api/realtime is answered). */
+/**
+ * Run `go`, and wait until the notifications chunk it loads alerts: the server has its subscriptions and the tab leads
+ * (notify.ts says so as `data-notify` on the page). Its realtime POST can't tell: the unread counts follow the same
+ * topics, so the subscriptions may already be there and the next POST someone else's.
+ */
 async function following(page: Page, go: () => Promise<unknown>) {
-  // Both waits start before `go`: the subscribe can be answered before a wait started after the chunk came would see it.
-  let loaded = false;
-  const chunk = page.waitForResponse((r) => (loaded ||= /\/assets\/notify(-[A-Z0-9]+)?\.js$/.test(new URL(r.url()).pathname)));
-  const subscribed = page.waitForResponse((r) => loaded && new URL(r.url()).pathname === "/api/realtime" && r.request().method() === "POST");
   await go();
-  await chunk;
-  await subscribed;
+  await expect(page.locator("html")).toHaveAttribute("data-notify", "on");
 }
 
 async function dmWith(me: User, other: User): Promise<{ id: string }> {

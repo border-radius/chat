@@ -142,9 +142,13 @@ export function startNotify({ api, store, title, navigate }: NotifyOptions): () 
   const { signal } = ac;
   const me = store.get().user?.id ?? "";
   let leader = !globalThis.navigator?.locks; // without Web Locks, each tab alerts
+  /** This tab alerts once it leads (another tab may hold the lock until it closes). */
+  let leading: () => void = () => {};
+  const leads = leader ? Promise.resolve() : new Promise<void>((resolve) => (leading = resolve));
   void navigator.locks
     ?.request("chat.notify", { signal }, () => {
       leader = true;
+      leading();
       return new Promise<void>((done) => signal.addEventListener("abort", () => done()));
     })
     .catch(() => {});
@@ -252,6 +256,13 @@ export function startNotify({ api, store, title, navigate }: NotifyOptions): () 
     api.subscribeAllMessages((action, m) => action === "create" && void onMessage(m)),
     api.subscribeReads((_action, row) => void dismiss(row.room)),
   ];
+  // Alerting from here on: the server has both subscriptions and this tab leads. Said on the page, for tests to wait on.
+  void Promise.all([...subs, leads]).then(
+    () => {
+      if (live()) document.documentElement.dataset.notify = "on";
+    },
+    () => {},
+  );
   const offStore = store.subscribe((s, prev) => {
     if (s.activeRoomId && !s.away && (s.activeRoomId !== prev.activeRoomId || prev.away)) void dismiss(s.activeRoomId);
   });
@@ -272,6 +283,7 @@ export function startNotify({ api, store, title, navigate }: NotifyOptions): () 
 
   return () => {
     ac.abort();
+    delete document.documentElement.dataset.notify;
     channel?.close();
     offStore();
     for (const n of shown.values()) n.close();

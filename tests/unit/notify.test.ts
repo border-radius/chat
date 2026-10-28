@@ -246,6 +246,16 @@ describe("notifications: live (§34)", () => {
     await vi.waitFor(() => expect(FakeNotification.made[0]!.closed).toBe(true), { timeout: 3000 });
   });
 
+  it("says on the page once it alerts (the server has its subscriptions), and no more once stopped", async () => {
+    store.set({ roomsStatus: "ready" });
+    stop = startNotify({ api: me.api, store, title: roomTitle, navigate: vi.fn() });
+    expect(document.documentElement.dataset.notify).toBeUndefined();
+    await vi.waitFor(() => expect(document.documentElement.dataset.notify).toBe("on"));
+    stop();
+    stop = undefined;
+    expect(document.documentElement.dataset.notify).toBeUndefined();
+  });
+
   it("stopped (logged out): silent", async () => {
     const dm = await me.api.openDm(other.user.id);
     await start(dm);

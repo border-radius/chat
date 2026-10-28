@@ -3113,6 +3113,9 @@ outside an installed app), the group says so. Ticking the sound plays it once.
 - **One tab alerts**: the one holding the Web Lock `chat.notify`. When it closes, another takes it. It fetches the
   message (one request, only for DMs and replies), checks the quoted message is yours, and asks the other tabs over a
   BroadcastChannel whether one is in front (200 ms). The tab in front plays the sound itself.
+- **Alerting** from the moment the server has both its subscriptions and the tab holds the lock: it says so as
+  `<html data-notify="on">` (gone once stopped), which the e2e waits on. The realtime POST can't tell: the unread counts
+  follow the same topics, so the subscriptions may already be there (2026-10-28; the e2e failed about once in 30 runs).
 - Pop-ups go through the service worker's `showNotification` when one is active (Android Chrome allows no other
   way), else `new Notification`. Tag = the room: a newer message replaces the room's pop-up. A read of the room
   (`room_reads`, from any tab or device), or opening it here, closes it.

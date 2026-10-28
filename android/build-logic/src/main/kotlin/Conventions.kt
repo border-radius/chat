@@ -48,6 +48,8 @@ internal fun Project.configureAndroid(android: CommonExtension) {
         maxHeapSize = "1g"
         // Integration tests start PocketBase from the repository's bin/ (§13).
         systemProperty("chirkle.repoRoot", rootProject.projectDir.parentFile.absolutePath)
+        // The shared contract and vectors (docs/API.md) the lib tests read: a change to them runs the tests again.
+        inputs.dir(rootProject.projectDir.parentFile.resolve("shared")).withPathSensitivity(org.gradle.api.tasks.PathSensitivity.RELATIVE)
         testLogging { events("failed"); exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL }
     }
 }

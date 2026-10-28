@@ -1,0 +1,1131 @@
+{
+  "$comment": "The message window (DESIGN.md §7.5): web/src/lib/messages.ts and cursor.ts, android/…/lib/Window.kt and Cursors.kt. Run by tests/unit/lib/window-vectors.test.ts and android/…/lib/WindowVectorsTest.kt; messages as tests/support/vectors.ts reads them. Each step's `expect` is the window after it: its ids (or count, first and last), its flags, what the step dropped, and the copies kept of some ids.",
+  "pageSize": 50,
+  "windowMax": 300,
+  "window": [
+    {
+      "name": "a full latest page: there are older messages",
+      "start": null,
+      "steps": [
+        {
+          "op": "page",
+          "kind": "latest",
+          "messages": [
+            {
+              "gen": [
+                60,
+                11
+              ]
+            }
+          ],
+          "expect": {
+            "count": 50,
+            "first": "m0011",
+            "last": "m0060",
+            "hasOlder": true,
+            "hasNewer": false,
+            "dropped": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "a short latest page is the whole room",
+      "start": null,
+      "steps": [
+        {
+          "op": "page",
+          "kind": "latest",
+          "messages": [
+            {
+              "gen": [
+                20,
+                1
+              ]
+            }
+          ],
+          "expect": {
+            "count": 20,
+            "first": "m0001",
+            "last": "m0020",
+            "hasOlder": false,
+            "hasNewer": false,
+            "dropped": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "the first page: newer messages, none older",
+      "start": null,
+      "steps": [
+        {
+          "op": "page",
+          "kind": "first",
+          "messages": [
+            {
+              "gen": [
+                1,
+                50
+              ]
+            }
+          ],
+          "expect": {
+            "count": 50,
+            "first": "m0001",
+            "last": "m0050",
+            "hasOlder": false,
+            "hasNewer": true,
+            "dropped": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "older pages extend the window, then trim its newest beyond 300; a short page is the beginning",
+      "start": null,
+      "steps": [
+        {
+          "op": "page",
+          "kind": "latest",
+          "messages": [
+            {
+              "gen": [
+                400,
+                351
+              ]
+            }
+          ],
+          "expect": {
+            "count": 50,
+            "first": "m0351",
+            "last": "m0400",
+            "hasOlder": true,
+            "hasNewer": false,
+            "dropped": []
+          }
+        },
+        {
+          "op": "page",
+          "kind": "older",
+          "messages": [
+            {
+              "gen": [
+                350,
+                301
+              ]
+            }
+          ],
+          "expect": {
+            "count": 100,
+            "first": "m0301",
+            "last": "m0400",
+            "hasOlder": true,
+            "hasNewer": false,
+            "dropped": []
+          }
+        },
+        {
+          "op": "page",
+          "kind": "older",
+          "messages": [
+            {
+              "gen": [
+                300,
+                251
+              ]
+            }
+          ],
+          "expect": {
+            "count": 150,
+            "first": "m0251",
+            "last": "m0400",
+            "hasOlder": true,
+            "hasNewer": false,
+            "dropped": []
+          }
+        },
+        {
+          "op": "page",
+          "kind": "older",
+          "messages": [
+            {
+              "gen": [
+                250,
+                201
+              ]
+            }
+          ],
+          "expect": {
+            "count": 200,
+            "first": "m0201",
+            "last": "m0400",
+            "hasOlder": true,
+            "hasNewer": false,
+            "dropped": []
+          }
+        },
+        {
+          "op": "page",
+          "kind": "older",
+          "messages": [
+            {
+              "gen": [
+                200,
+                151
+              ]
+            }
+          ],
+          "expect": {
+            "count": 250,
+            "first": "m0151",
+            "last": "m0400",
+            "hasOlder": true,
+            "hasNewer": false,
+            "dropped": []
+          }
+        },
+        {
+          "op": "page",
+          "kind": "older",
+          "messages": [
+            {
+              "gen": [
+                150,
+                101
+              ]
+            }
+          ],
+          "expect": {
+            "count": 300,
+            "first": "m0101",
+            "last": "m0400",
+            "hasOlder": true,
+            "hasNewer": false,
+            "dropped": []
+          }
+        },
+        {
+          "op": "page",
+          "kind": "older",
+          "messages": [
+            {
+              "gen": [
+                100,
+                51
+              ]
+            }
+          ],
+          "expect": {
+            "count": 300,
+            "first": "m0051",
+            "last": "m0350",
+            "hasOlder": true,
+            "hasNewer": true,
+            "dropped": {
+              "count": 50,
+              "first": "m0351",
+              "last": "m0400"
+            }
+          }
+        },
+        {
+          "op": "page",
+          "kind": "older",
+          "messages": [
+            {
+              "gen": [
+                50,
+                21
+              ]
+            }
+          ],
+          "expect": {
+            "count": 300,
+            "first": "m0021",
+            "last": "m0320",
+            "hasOlder": false,
+            "hasNewer": true,
+            "dropped": {
+              "count": 30,
+              "first": "m0321",
+              "last": "m0350"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "newer pages extend the window, then trim its oldest; a short page is the live edge",
+      "start": null,
+      "steps": [
+        {
+          "op": "page",
+          "kind": "first",
+          "messages": [
+            {
+              "gen": [
+                1,
+                50
+              ]
+            }
+          ],
+          "expect": {
+            "count": 50,
+            "first": "m0001",
+            "last": "m0050",
+            "hasOlder": false,
+            "hasNewer": true,
+            "dropped": []
+          }
+        },
+        {
+          "op": "page",
+          "kind": "newer",
+          "messages": [
+            {
+              "gen": [
+                51,
+                100
+              ]
+            }
+          ],
+          "expect": {
+            "count": 100,
+            "first": "m0001",
+            "last": "m0100",
+            "hasOlder": false,
+            "hasNewer": true,
+            "dropped": []
+          }
+        },
+        {
+          "op": "page",
+          "kind": "newer",
+          "messages": [
+            {
+              "gen": [
+                101,
+                150
+              ]
+            }
+          ],
+          "expect": {
+            "count": 150,
+            "first": "m0001",
+            "last": "m0150",
+            "hasOlder": false,
+            "hasNewer": true,
+            "dropped": []
+          }
+        },
+        {
+          "op": "page",
+          "kind": "newer",
+          "messages": [
+            {
+              "gen": [
+                151,
+                200
+              ]
+            }
+          ],
+          "expect": {
+            "count": 200,
+            "first": "m0001",
+            "last": "m0200",
+            "hasOlder": false,
+            "hasNewer": true,
+            "dropped": []
+          }
+        },
+        {
+          "op": "page",
+          "kind": "newer",
+          "messages": [
+            {
+              "gen": [
+                201,
+                250
+              ]
+            }
+          ],
+          "expect": {
+            "count": 250,
+            "first": "m0001",
+            "last": "m0250",
+            "hasOlder": false,
+            "hasNewer": true,
+            "dropped": []
+          }
+        },
+        {
+          "op": "page",
+          "kind": "newer",
+          "messages": [
+            {
+              "gen": [
+                251,
+                300
+              ]
+            }
+          ],
+          "expect": {
+            "count": 300,
+            "first": "m0001",
+            "last": "m0300",
+            "hasOlder": false,
+            "hasNewer": true,
+            "dropped": []
+          }
+        },
+        {
+          "op": "page",
+          "kind": "newer",
+          "messages": [
+            {
+              "gen": [
+                301,
+                340
+              ]
+            }
+          ],
+          "expect": {
+            "count": 300,
+            "first": "m0041",
+            "last": "m0340",
+            "hasOlder": true,
+            "hasNewer": false,
+            "dropped": {
+              "count": 40,
+              "first": "m0001",
+              "last": "m0040"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "a page in any order, and messages already there, give one copy each in (created, id) order",
+      "start": null,
+      "steps": [
+        {
+          "op": "page",
+          "kind": "latest",
+          "messages": [
+            {
+              "gen": [
+                3,
+                5
+              ]
+            },
+            {
+              "gen": [
+                1,
+                2
+              ]
+            }
+          ],
+          "expect": {
+            "ids": [
+              "m0001",
+              "m0002",
+              "m0003",
+              "m0004",
+              "m0005"
+            ],
+            "hasOlder": false,
+            "hasNewer": false,
+            "dropped": []
+          }
+        },
+        {
+          "op": "merge",
+          "messages": [
+            {
+              "gen": [
+                4,
+                6
+              ]
+            }
+          ],
+          "expect": {
+            "ids": [
+              "m0001",
+              "m0002",
+              "m0003",
+              "m0004",
+              "m0005",
+              "m0006"
+            ],
+            "hasOlder": false,
+            "hasNewer": false
+          }
+        }
+      ]
+    },
+    {
+      "name": "the same time: ordered by id",
+      "start": null,
+      "steps": [
+        {
+          "op": "merge",
+          "messages": [
+            {
+              "id": "b",
+              "created": "2026-10-01 10:00:01.000Z"
+            },
+            {
+              "id": "c",
+              "created": "2026-10-01 10:00:01.000Z"
+            },
+            {
+              "id": "a",
+              "created": "2026-10-01 10:00:01.000Z"
+            },
+            {
+              "id": "z",
+              "created": "2026-10-01 10:00:00.000Z"
+            }
+          ],
+          "expect": {
+            "ids": [
+              "z",
+              "a",
+              "b",
+              "c"
+            ],
+            "hasOlder": false,
+            "hasNewer": false
+          }
+        }
+      ]
+    },
+    {
+      "name": "copies of one message: the newer update wins, the server's beats a pending one, never back to pending",
+      "start": null,
+      "steps": [
+        {
+          "op": "merge",
+          "messages": [
+            {
+              "id": "x",
+              "created": "2026-10-01 10:00:01.000Z",
+              "updated": "2026-10-01 10:00:01.000Z",
+              "text": "one"
+            }
+          ],
+          "expect": {
+            "ids": [
+              "x"
+            ],
+            "hasOlder": false,
+            "hasNewer": false,
+            "copies": [
+              {
+                "id": "x",
+                "updated": "2026-10-01 10:00:01.000Z",
+                "text": "one",
+                "status": null
+              }
+            ]
+          }
+        },
+        {
+          "op": "merge",
+          "messages": [
+            {
+              "id": "x",
+              "created": "2026-10-01 10:00:01.000Z",
+              "updated": "2026-10-01 10:00:05.000Z",
+              "text": "edited"
+            }
+          ],
+          "expect": {
+            "ids": [
+              "x"
+            ],
+            "hasOlder": false,
+            "hasNewer": false,
+            "copies": [
+              {
+                "id": "x",
+                "updated": "2026-10-01 10:00:05.000Z",
+                "text": "edited",
+                "status": null
+              }
+            ]
+          }
+        },
+        {
+          "op": "merge",
+          "messages": [
+            {
+              "id": "x",
+              "created": "2026-10-01 10:00:01.000Z",
+              "updated": "2026-10-01 10:00:02.000Z",
+              "text": "late echo"
+            }
+          ],
+          "expect": {
+            "ids": [
+              "x"
+            ],
+            "hasOlder": false,
+            "hasNewer": false,
+            "copies": [
+              {
+                "id": "x",
+                "updated": "2026-10-01 10:00:05.000Z",
+                "text": "edited",
+                "status": null
+              }
+            ]
+          }
+        },
+        {
+          "op": "merge",
+          "messages": [
+            {
+              "id": "p",
+              "created": "2026-10-01 10:00:09.000Z",
+              "updated": "2026-10-01 10:00:09.000Z",
+              "text": "sending",
+              "status": "pending"
+            }
+          ],
+          "expect": {
+            "ids": [
+              "x",
+              "p"
+            ],
+            "hasOlder": false,
+            "hasNewer": false,
+            "copies": [
+              {
+                "id": "x",
+                "updated": "2026-10-01 10:00:05.000Z",
+                "text": "edited",
+                "status": null
+              },
+              {
+                "id": "p",
+                "updated": "2026-10-01 10:00:09.000Z",
+                "text": "sending",
+                "status": "pending"
+              }
+            ]
+          }
+        },
+        {
+          "op": "merge",
+          "messages": [
+            {
+              "id": "p",
+              "created": "2026-10-01 10:00:09.000Z",
+              "updated": "2026-10-01 10:00:08.000Z",
+              "text": "sent"
+            }
+          ],
+          "expect": {
+            "ids": [
+              "x",
+              "p"
+            ],
+            "hasOlder": false,
+            "hasNewer": false,
+            "copies": [
+              {
+                "id": "x",
+                "updated": "2026-10-01 10:00:05.000Z",
+                "text": "edited",
+                "status": null
+              },
+              {
+                "id": "p",
+                "updated": "2026-10-01 10:00:08.000Z",
+                "text": "sent",
+                "status": null
+              }
+            ]
+          }
+        },
+        {
+          "op": "merge",
+          "messages": [
+            {
+              "id": "p",
+              "created": "2026-10-01 10:00:09.000Z",
+              "updated": "2026-10-01 10:00:09.000Z",
+              "text": "sending again",
+              "status": "failed"
+            }
+          ],
+          "expect": {
+            "ids": [
+              "x",
+              "p"
+            ],
+            "hasOlder": false,
+            "hasNewer": false,
+            "copies": [
+              {
+                "id": "x",
+                "updated": "2026-10-01 10:00:05.000Z",
+                "text": "edited",
+                "status": null
+              },
+              {
+                "id": "p",
+                "updated": "2026-10-01 10:00:08.000Z",
+                "text": "sent",
+                "status": null
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "remove: the one message, or nothing when it isn't there",
+      "start": {
+        "messages": [
+          {
+            "gen": [
+              1,
+              3
+            ]
+          }
+        ],
+        "hasOlder": true,
+        "hasNewer": false
+      },
+      "steps": [
+        {
+          "op": "remove",
+          "id": "m0002",
+          "expect": {
+            "ids": [
+              "m0001",
+              "m0003"
+            ],
+            "hasOlder": true,
+            "hasNewer": false
+          }
+        },
+        {
+          "op": "remove",
+          "id": "nope",
+          "expect": {
+            "ids": [
+              "m0001",
+              "m0003"
+            ],
+            "hasOlder": true,
+            "hasNewer": false
+          }
+        }
+      ]
+    },
+    {
+      "name": "trim: the bottom drops the newest (newer ones exist then), the top the oldest",
+      "start": {
+        "messages": [
+          {
+            "gen": [
+              1,
+              10
+            ]
+          }
+        ],
+        "hasOlder": false,
+        "hasNewer": false
+      },
+      "steps": [
+        {
+          "op": "trim",
+          "side": "bottom",
+          "max": 8,
+          "expect": {
+            "ids": [
+              "m0001",
+              "m0002",
+              "m0003",
+              "m0004",
+              "m0005",
+              "m0006",
+              "m0007",
+              "m0008"
+            ],
+            "hasOlder": false,
+            "hasNewer": true,
+            "dropped": [
+              "m0009",
+              "m0010"
+            ]
+          }
+        },
+        {
+          "op": "trim",
+          "side": "top",
+          "max": 5,
+          "expect": {
+            "ids": [
+              "m0004",
+              "m0005",
+              "m0006",
+              "m0007",
+              "m0008"
+            ],
+            "hasOlder": true,
+            "hasNewer": true,
+            "dropped": [
+              "m0001",
+              "m0002",
+              "m0003"
+            ]
+          }
+        },
+        {
+          "op": "trim",
+          "side": "top",
+          "max": 5,
+          "expect": {
+            "ids": [
+              "m0004",
+              "m0005",
+              "m0006",
+              "m0007",
+              "m0008"
+            ],
+            "hasOlder": true,
+            "hasNewer": true,
+            "dropped": []
+          }
+        }
+      ]
+    }
+  ],
+  "startsGroup": [
+    {
+      "prev": null,
+      "cur": {
+        "id": "t0",
+        "created": "2026-10-01 10:00:00.000Z",
+        "author": "a"
+      },
+      "output": true
+    },
+    {
+      "prev": {
+        "id": "t0",
+        "created": "2026-10-01 10:00:00.000Z",
+        "author": "a"
+      },
+      "cur": {
+        "id": "t5",
+        "created": "2026-10-01 10:05:00.000Z",
+        "author": "a"
+      },
+      "output": false
+    },
+    {
+      "prev": {
+        "id": "t0",
+        "created": "2026-10-01 10:00:00.000Z",
+        "author": "a"
+      },
+      "cur": {
+        "id": "t6",
+        "created": "2026-10-01 10:06:00.000Z",
+        "author": "a"
+      },
+      "output": true
+    },
+    {
+      "prev": {
+        "id": "t0",
+        "created": "2026-10-01 10:00:00.000Z",
+        "author": "a"
+      },
+      "cur": {
+        "id": "t1",
+        "created": "2026-10-01 10:01:00.000Z",
+        "author": "b"
+      },
+      "output": true
+    }
+  ],
+  "lastSaved": [
+    {
+      "items": [
+        {
+          "id": "a",
+          "created": "2026-10-01 10:00:01.000Z"
+        },
+        {
+          "id": "b",
+          "created": "2026-10-01 10:00:02.000Z",
+          "status": "pending"
+        },
+        {
+          "id": "c",
+          "created": "2026-10-01 10:00:03.000Z",
+          "status": "failed"
+        }
+      ],
+      "output": "a"
+    },
+    {
+      "items": [
+        {
+          "id": "a",
+          "created": "2026-10-01 10:00:01.000Z",
+          "status": "pending"
+        }
+      ],
+      "output": null
+    },
+    {
+      "items": [],
+      "output": null
+    }
+  ],
+  "lastOwnEditable": [
+    {
+      "me": "me",
+      "items": [
+        {
+          "id": "a",
+          "created": "2026-10-01 10:00:01.000Z",
+          "author": "me"
+        },
+        {
+          "id": "b",
+          "created": "2026-10-01 10:00:02.000Z",
+          "author": "you"
+        }
+      ],
+      "output": "a"
+    },
+    {
+      "me": "me",
+      "items": [
+        {
+          "id": "a",
+          "created": "2026-10-01 10:00:01.000Z",
+          "author": "me"
+        },
+        {
+          "id": "b",
+          "created": "2026-10-01 10:00:02.000Z",
+          "author": "me",
+          "deleted": true
+        }
+      ],
+      "output": "a"
+    },
+    {
+      "me": "me",
+      "items": [
+        {
+          "id": "a",
+          "created": "2026-10-01 10:00:01.000Z",
+          "author": "me"
+        },
+        {
+          "id": "b",
+          "created": "2026-10-01 10:00:02.000Z",
+          "author": "me",
+          "status": "pending"
+        }
+      ],
+      "output": "a"
+    },
+    {
+      "me": "me",
+      "items": [
+        {
+          "id": "a",
+          "created": "2026-10-01 10:00:01.000Z",
+          "author": "me"
+        },
+        {
+          "id": "b",
+          "created": "2026-10-01 10:00:02.000Z",
+          "author": "me",
+          "forwarded_from": "u"
+        }
+      ],
+      "output": "a"
+    },
+    {
+      "me": "me",
+      "items": [
+        {
+          "id": "b",
+          "created": "2026-10-01 10:00:02.000Z",
+          "author": "you"
+        }
+      ],
+      "output": null
+    }
+  ],
+  "quoteText": [
+    {
+      "text": "  two\n lines ",
+      "deleted": false,
+      "files": 0,
+      "output": "two lines"
+    },
+    {
+      "text": "gone",
+      "deleted": true,
+      "files": 0,
+      "output": "Message deleted"
+    },
+    {
+      "text": "",
+      "deleted": false,
+      "files": 0,
+      "output": "Message deleted"
+    },
+    {
+      "text": "",
+      "deleted": false,
+      "files": 1,
+      "output": "Attachment"
+    },
+    {
+      "text": " ",
+      "deleted": false,
+      "files": 3,
+      "output": "3 attachments"
+    }
+  ],
+  "emptyForward": [
+    {
+      "forwarded_from": "u",
+      "text": "",
+      "files": 0,
+      "output": true
+    },
+    {
+      "forwarded_from": "u",
+      "text": "x",
+      "files": 0,
+      "output": false
+    },
+    {
+      "forwarded_from": "u",
+      "text": "",
+      "files": 1,
+      "output": false
+    },
+    {
+      "forwarded_from": "",
+      "text": "",
+      "files": 0,
+      "output": false
+    }
+  ],
+  "cursors": [
+    {
+      "room": "r",
+      "fn": "latest",
+      "output": {
+        "filter": "room = {:room}",
+        "params": {
+          "room": "r"
+        },
+        "sort": "-created,-id"
+      }
+    },
+    {
+      "room": "r",
+      "fn": "first",
+      "output": {
+        "filter": "room = {:room}",
+        "params": {
+          "room": "r"
+        },
+        "sort": "created,id"
+      }
+    },
+    {
+      "room": "r",
+      "fn": "older",
+      "cursor": {
+        "created": "2026-10-01 10:00:05.000Z",
+        "id": "m5"
+      },
+      "output": {
+        "filter": "room = {:room} && (created < {:created} || (created = {:created} && id < {:id}))",
+        "params": {
+          "room": "r",
+          "created": "2026-10-01 10:00:05.000Z",
+          "id": "m5"
+        },
+        "sort": "-created,-id"
+      }
+    },
+    {
+      "room": "r",
+      "fn": "newer",
+      "cursor": {
+        "created": "2026-10-01 10:00:05.000Z",
+        "id": "m5"
+      },
+      "output": {
+        "filter": "room = {:room} && (created > {:created} || (created = {:created} && id > {:id}))",
+        "params": {
+          "room": "r",
+          "created": "2026-10-01 10:00:05.000Z",
+          "id": "m5"
+        },
+        "sort": "created,id"
+      }
+    },
+    {
+      "room": "r",
+      "fn": "changedIn",
+      "since": "2026-10-01 10:00:07.000Z",
+      "from": {
+        "created": "2026-10-01 10:00:05.000Z",
+        "id": "m5"
+      },
+      "to": {
+        "created": "2026-10-01 10:00:09.000Z",
+        "id": "m9"
+      },
+      "output": {
+        "filter": "room = {:room} && updated > {:since} && created >= {:from} && created <= {:to}",
+        "params": {
+          "room": "r",
+          "since": "2026-10-01 10:00:07.000Z",
+          "from": "2026-10-01 10:00:05.000Z",
+          "to": "2026-10-01 10:00:09.000Z"
+        },
+        "sort": "updated,id"
+      }
+    },
+    {
+      "room": "r",
+      "fn": "withFiles",
+      "of": "older",
+      "cursor": {
+        "created": "2026-10-01 10:00:05.000Z",
+        "id": "m5"
+      },
+      "output": {
+        "filter": "room = {:room} && (created < {:created} || (created = {:created} && id < {:id})) && (files:length > 0 || forward_of != \"\")",
+        "params": {
+          "room": "r",
+          "created": "2026-10-01 10:00:05.000Z",
+          "id": "m5"
+        },
+        "sort": "-created,-id"
+      }
+    }
+  ]
+}

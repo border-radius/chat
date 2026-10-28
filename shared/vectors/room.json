@@ -1,0 +1,368 @@
+{
+  "$comment": "The room controller (DESIGN.md §7.5, §18.5): web/src/views/room/controller.ts and android/…/repo/RoomController.kt, against a real PocketBase. Run by tests/unit/views/room/scenarios.test.ts and android/…/repo/RoomScenariosTest.kt. A room gets `seed` messages m1…mN by its author, oldest first; `reader` opens it ('author', or 'other': a second user who has read up to `readUpTo`, a label). Steps: open (at: a label, for a link to it), loadEdge (side), jump (to), goTo (at), atBottom (value: what the list answers), say (who: author|other, text: its label), delete (at). After each step the controller's state must come to `expect`: the window's first and last labels and count, its flags, the phase, the target and unread line (labels or null), the pill, and the labels shown deleted. Recorded from the web's controller: RECORD=1 npx vitest run --project unit tests/unit/views/room/scenarios.test.ts.",
+  "scenarios": [
+    {
+      "name": "opening shows the latest page; loading upwards reaches the first message",
+      "seed": 130,
+      "steps": [
+        {
+          "do": "open",
+          "expect": {
+            "first": "m81",
+            "last": "m130",
+            "count": 50,
+            "hasOlder": true,
+            "hasNewer": false,
+            "phase": "ready",
+            "target": null,
+            "unread": null,
+            "pill": null,
+            "deleted": []
+          }
+        },
+        {
+          "do": "loadEdge",
+          "side": "top",
+          "expect": {
+            "first": "m31",
+            "last": "m130",
+            "count": 100,
+            "hasOlder": true,
+            "hasNewer": false,
+            "phase": "ready",
+            "target": null,
+            "unread": null,
+            "pill": null,
+            "deleted": []
+          }
+        },
+        {
+          "do": "loadEdge",
+          "side": "top",
+          "expect": {
+            "first": "m1",
+            "last": "m130",
+            "count": 130,
+            "hasOlder": false,
+            "hasNewer": false,
+            "phase": "ready",
+            "target": null,
+            "unread": null,
+            "pill": null,
+            "deleted": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "jump to the first message, then page down to the live edge",
+      "seed": 130,
+      "steps": [
+        {
+          "do": "open",
+          "expect": {
+            "first": "m81",
+            "last": "m130",
+            "count": 50,
+            "hasOlder": true,
+            "hasNewer": false,
+            "phase": "ready",
+            "target": null,
+            "unread": null,
+            "pill": null,
+            "deleted": []
+          }
+        },
+        {
+          "do": "jump",
+          "to": "first",
+          "expect": {
+            "first": "m1",
+            "last": "m50",
+            "count": 50,
+            "hasOlder": false,
+            "hasNewer": true,
+            "phase": "ready",
+            "target": null,
+            "unread": null,
+            "pill": null,
+            "deleted": []
+          }
+        },
+        {
+          "do": "loadEdge",
+          "side": "bottom",
+          "expect": {
+            "first": "m1",
+            "last": "m100",
+            "count": 100,
+            "hasOlder": false,
+            "hasNewer": true,
+            "phase": "ready",
+            "target": null,
+            "unread": null,
+            "pill": null,
+            "deleted": []
+          }
+        },
+        {
+          "do": "loadEdge",
+          "side": "bottom",
+          "expect": {
+            "first": "m1",
+            "last": "m130",
+            "count": 130,
+            "hasOlder": false,
+            "hasNewer": false,
+            "phase": "ready",
+            "target": null,
+            "unread": null,
+            "pill": null,
+            "deleted": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "a link to a message far back opens around it; jump to the latest, then go back to another",
+      "seed": 130,
+      "steps": [
+        {
+          "do": "open",
+          "at": "m10",
+          "expect": {
+            "first": "m1",
+            "last": "m59",
+            "count": 59,
+            "hasOlder": false,
+            "hasNewer": true,
+            "phase": "ready",
+            "target": "m10",
+            "unread": null,
+            "pill": null,
+            "deleted": []
+          }
+        },
+        {
+          "do": "jump",
+          "to": "latest",
+          "expect": {
+            "first": "m81",
+            "last": "m130",
+            "count": 50,
+            "hasOlder": true,
+            "hasNewer": false,
+            "phase": "ready",
+            "target": null,
+            "unread": null,
+            "pill": null,
+            "deleted": []
+          }
+        },
+        {
+          "do": "goTo",
+          "at": "m2",
+          "expect": {
+            "first": "m1",
+            "last": "m51",
+            "count": 51,
+            "hasOlder": false,
+            "hasNewer": true,
+            "phase": "ready",
+            "target": "m2",
+            "unread": null,
+            "pill": null,
+            "deleted": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "live: followed at the bottom; scrolled up, a pill says there is more below",
+      "seed": 5,
+      "steps": [
+        {
+          "do": "open",
+          "expect": {
+            "first": "m1",
+            "last": "m5",
+            "count": 5,
+            "hasOlder": false,
+            "hasNewer": false,
+            "phase": "ready",
+            "target": null,
+            "unread": null,
+            "pill": null,
+            "deleted": []
+          }
+        },
+        {
+          "do": "say",
+          "who": "other",
+          "text": "live1",
+          "expect": {
+            "first": "m1",
+            "last": "live1",
+            "count": 6,
+            "hasOlder": false,
+            "hasNewer": false,
+            "phase": "ready",
+            "target": null,
+            "unread": null,
+            "pill": null,
+            "deleted": []
+          }
+        },
+        {
+          "do": "atBottom",
+          "value": false,
+          "expect": {
+            "first": "m1",
+            "last": "live1",
+            "count": 6,
+            "hasOlder": false,
+            "hasNewer": false,
+            "phase": "ready",
+            "target": null,
+            "unread": null,
+            "pill": null,
+            "deleted": []
+          }
+        },
+        {
+          "do": "say",
+          "who": "other",
+          "text": "live2",
+          "expect": {
+            "first": "m1",
+            "last": "live2",
+            "count": 7,
+            "hasOlder": false,
+            "hasNewer": false,
+            "phase": "ready",
+            "target": null,
+            "unread": null,
+            "pill": "below",
+            "deleted": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "in history, a new message isn't added: the pill says there are newer ones",
+      "seed": 130,
+      "steps": [
+        {
+          "do": "open",
+          "expect": {
+            "first": "m81",
+            "last": "m130",
+            "count": 50,
+            "hasOlder": true,
+            "hasNewer": false,
+            "phase": "ready",
+            "target": null,
+            "unread": null,
+            "pill": null,
+            "deleted": []
+          }
+        },
+        {
+          "do": "jump",
+          "to": "first",
+          "expect": {
+            "first": "m1",
+            "last": "m50",
+            "count": 50,
+            "hasOlder": false,
+            "hasNewer": true,
+            "phase": "ready",
+            "target": null,
+            "unread": null,
+            "pill": null,
+            "deleted": []
+          }
+        },
+        {
+          "do": "say",
+          "who": "other",
+          "text": "late",
+          "expect": {
+            "first": "m1",
+            "last": "m50",
+            "count": 50,
+            "hasOlder": false,
+            "hasNewer": true,
+            "phase": "ready",
+            "target": null,
+            "unread": null,
+            "pill": "history",
+            "deleted": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "another reader opens at the first message they haven't read",
+      "seed": 8,
+      "reader": "other",
+      "readUpTo": "m3",
+      "steps": [
+        {
+          "do": "open",
+          "expect": {
+            "first": "m1",
+            "last": "m8",
+            "count": 8,
+            "hasOlder": false,
+            "hasNewer": false,
+            "phase": "ready",
+            "target": null,
+            "unread": "m4",
+            "pill": null,
+            "deleted": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "a message deleted elsewhere shows as deleted, live",
+      "seed": 5,
+      "steps": [
+        {
+          "do": "open",
+          "expect": {
+            "first": "m1",
+            "last": "m5",
+            "count": 5,
+            "hasOlder": false,
+            "hasNewer": false,
+            "phase": "ready",
+            "target": null,
+            "unread": null,
+            "pill": null,
+            "deleted": []
+          }
+        },
+        {
+          "do": "delete",
+          "at": "m3",
+          "expect": {
+            "first": "m1",
+            "last": "m5",
+            "count": 5,
+            "hasOlder": false,
+            "hasNewer": false,
+            "phase": "ready",
+            "target": null,
+            "unread": null,
+            "pill": null,
+            "deleted": [
+              "m3"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

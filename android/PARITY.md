@@ -6,8 +6,9 @@ PocketBase). **Partial**: the behaviour is tested below the screens (API, servic
 the spec's cases are. **Not yet**: no Android test.
 
 Test classes: `UiFlowTest`, `UiFeaturesTest`, `UiPortsTest`, `UiCollectionsTest`, `UiNotifyTest`, `UiLinkedTest`, `RoutesTest` (`app/src/test`); `ServicesTest`, `ChirkleApiTest`, `CollectionsTest`, `NotifyCheckTest`, the
-`lib` tests (`core/data/src/test`), among them `ContractTest` and `VectorsTest`, which run the web's shared contract and
-vectors (`shared/`, docs/API.md).
+`lib` tests (`core/data/src/test`), among them `ContractTest`, `VectorsTest` and `WindowVectorsTest`, which run the web's shared
+contract and vectors (`shared/`, docs/API.md); and `RoomScenariosTest` (`core/data`, repo), which replays the web room
+controller's recorded scenarios (`shared/vectors/room.json`).
 
 | Web spec | Android | Status |
 |---|---|---|

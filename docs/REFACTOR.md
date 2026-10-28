@@ -435,9 +435,23 @@ and so do the Chromium e2e suite and the app's tests.
       and `create.ts`, with `calls.ts` (its typed requests and `ITEM_FIELDS`) and `shared.ts`. The no-shared-chunk
       rule stays. collJs went from 6.66 KB (with the contract's export) to 6.64 KB.
 
+### 39. The notifications e2e waits on a readiness signal ✅
+- [x] `notify.ts` sets `<html data-notify="on">` once the server has both subscriptions and the tab leads (Web
+      Locks), and removes it when stopped. `notify.spec.ts` waits on that rather than on the realtime POST, which the
+      unread counter also sends. Before: about 1 failure in 20–44 runs; after: 50 of 50 (DESIGN.md §34.3).
+
+### 40. Shared vectors for the message window and the room controller ✅
+- [x] `shared/vectors/window.json`: merge, trim, the four page kinds, `startsGroup`, `lastSaved`, `lastOwnEditable`,
+      `quoteText`, `emptyForward` and the page queries, run by `tests/unit/lib/window-vectors.test.ts` and the app's
+      `WindowVectorsTest.kt` (the app had no tests of its `Window.kt` before).
+- [x] `shared/vectors/room.json`: 7 scenarios against a real server (paging up and down, Jump to, a link far back,
+      live messages and the pill, the unread line, deletes), recorded from the web's controller and replayed by
+      `tests/unit/views/room/scenarios.test.ts` and `RoomScenariosTest.kt`. The app passed all of them as they were.
+- [x] The app's test tasks take `shared/` as an input, so a change to the vectors runs them again.
+
 ### Left open from the review
 - Scale (§26 above): `UNREAD_SQL`, realtime fan-out, queue polling. Not needed at the measured sizes.
 - Splitting the other large files (`views/room.ts`, `room/controller.ts`, `federation/rooms.js`, `previews.js`, Android's
-  `ChirkleApi.kt` and `RoomController.kt`). Shared vectors for the room window logic, which both clients implement.
+  `ChirkleApi.kt` and `RoomController.kt`).
 - `keepToRoom` (enrich hook) looks up the room per message with reactions or a reply.
 - "Unit" tests that start PocketBase: worth splitting into true unit tests and component tests.

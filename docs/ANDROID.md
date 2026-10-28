@@ -1043,7 +1043,11 @@ This section covers the app's side of the architecture review (docs/REFACTOR.md 
   installed apps.
 - **Shared vectors:** `VectorsTest` runs `shared/vectors/` (folding, search queries, highlighting, lengths, blank text,
   Jump to). The web and the server's `lib/text.js` run the same cases. Tests find the files through the build's
-  `chirkle.repoRoot`.
+  `chirkle.repoRoot`, and the test tasks take `shared/` as an input (a change to it runs them again).
+- **Window and room vectors:** `WindowVectorsTest` runs `shared/vectors/window.json` against `Window.kt` and
+  `Cursors.kt`; `RoomScenariosTest` replays `room.json`, recorded from the web's room controller, against
+  `RoomController` and a real server. A change to the web's controller is recorded again (docs/API.md), and the app
+  has to pass it.
 - **Push removed:** the server no longer has `push_tokens` or `push_queue` (§8 note). Gone from the app:
   `registerPush`, `unregisterPush`, `NotifyCheck.forgetPushToken` (with its calls in `CheckWorker` and at log out),
   `SessionHooks.beforeSignOut` (push was its only use) and `Keys.PUSH_ROW`. A value left under that key by a Firebase

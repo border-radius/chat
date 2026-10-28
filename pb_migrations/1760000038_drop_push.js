@@ -3,7 +3,7 @@
 // itself, so nothing registered push tokens any more and the push worker sent nothing. push_tokens and push_queue go;
 // site.min_android_version (same migration as them, 1760000026) stays.
 
-const OWNER = "user = @request.auth.id";
+const PUSH_OWNER = "user = @request.auth.id";
 
 migrate(
   (app) => {
@@ -24,10 +24,10 @@ migrate(
           type: "base",
           name: "push_tokens",
           listRule: null,
-          viewRule: OWNER,
-          createRule: `@request.auth.id != "" && @request.auth.collectionName = "users" && ${OWNER}`,
+          viewRule: PUSH_OWNER,
+          createRule: `@request.auth.id != "" && @request.auth.collectionName = "users" && ${PUSH_OWNER}`,
           updateRule: null,
-          deleteRule: OWNER,
+          deleteRule: PUSH_OWNER,
           fields: [
             { type: "relation", name: "user", required: true, maxSelect: 1, collectionId: users.id, cascadeDelete: true },
             { type: "text", name: "token", required: true, min: 1, max: 1024 },
