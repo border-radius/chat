@@ -101,7 +101,8 @@ function beforeMessageCreate(e) {
     return;
   }
   assertText(rec, fileNames(rec).length > 0 || isForward(rec));
-  assertImagesFit(rec, "files");
+  // Images' shapes, from the headers just read (§17.5); the media worker adds videos' (pb_hooks/lib/media.js).
+  rec.set("file_dims", assertImagesFit(rec, "files"));
   rec.set("file_names", originalNames(rec, "files")); // whatever the client sent is replaced
   rec.set("reactions", []); // only POST /api/chat/reactions adds them (§20.2)
   rec.set("previews", []); // only the previews worker sets them (§28)
@@ -223,9 +224,11 @@ function forwardSourceRemoved(app, rec, orig) {
 function beforeMessageCreateRequest(e) {
   const rec = recordOf(e);
   for (const f of ["forwarded_from", "forward_of"]) if (rec.getString(f) !== "") throw fieldError(f, "This field can't be set.");
-  // Only attachItems sets it, from the items named (§31).
-  const sources = rec.getString("file_sources");
-  if (sources !== "" && sources !== "null" && sources !== "{}") throw fieldError("file_sources", "This field can't be set.");
+  // Only attachItems sets file_sources, from the items named (§31); only the hooks set file_dims (§17.5).
+  for (const f of ["file_sources", "file_dims"]) {
+    const v = rec.getString(f);
+    if (v !== "" && v !== "null" && v !== "{}") throw fieldError(f, "This field can't be set.");
+  }
 }
 
 /**
@@ -275,6 +278,7 @@ function beforeMessageUpdate(e) {
     rec.set("files", []); // PocketBase deletes the stored files once the update commits (§17.1)
     rec.set("file_names", {});
     rec.set("file_sources", {});
+    rec.set("file_dims", {});
     rec.set("reactions", []);
     rec.set("previews", []);
     rec.set("deleted_at", new DateTime());
@@ -284,6 +288,8 @@ function beforeMessageUpdate(e) {
 
   rec.set("file_names", orig.get("file_names")); // never changed by an edit
   rec.set("file_sources", orig.get("file_sources")); // nor this (§31)
+  // Only the create hook and the media worker set these; the worker's may be newer than the loaded record's.
+  rec.set("file_dims", e.app.findRecordById("messages", rec.id).get("file_dims"));
   // Reactions only change through POST /api/chat/reactions (§20.2). Any other save (an edit) keeps the ones stored
   // now, not the ones loaded with the record: a reaction added meanwhile would be lost. (Edits save in a transaction.)
   if (rec.getString("reactions") === orig.getString("reactions")) {
@@ -308,12 +314,12 @@ function beforeMessageUpdate(e) {
 
 /**
  * messages update through the API: reactions only change through POST /api/chat/reactions, whose own saves don't
- * come through here (§20.2). Backs up the update rule.
+ * come through here (§20.2); previews and file_dims only through the workers (§28, §17.5). Backs up the update rule.
  * @param {core.RecordRequestEvent} e
  */
 function beforeMessageUpdateRequest(e) {
   const rec = recordOf(e);
-  for (const f of ["reactions", "previews"]) {
+  for (const f of ["reactions", "previews", "file_dims"]) {
     if (rec.getString(f) !== rec.original().getString(f)) throw fieldError(f, "This field can't be changed.");
   }
 }
@@ -368,6 +374,7 @@ function showOriginal(e) {
   rec.set("files", gone ? [] : original.getStringSlice("files"));
   rec.set("file_names", gone ? {} : original.get("file_names"));
   rec.set("file_sources", gone ? {} : original.get("file_sources"));
+  rec.set("file_dims", gone ? {} : original.get("file_dims"));
   rec.set("previews", gone ? [] : original.get("previews"));
   rec.set("edited_at", gone ? "" : original.get("edited_at"));
 }

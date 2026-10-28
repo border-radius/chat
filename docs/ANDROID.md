@@ -1019,3 +1019,11 @@ build server lacks them, the recipe needs extra steps.
 
 Verified: the unsigned and the debug-signed release APKs build; the signed one's signing block holds only the v2
 signature and padding (no dependency block). Release APK 3.0 MB.
+
+## 29. Attachment shapes before they load (2026-10-28)
+
+The server now keeps each image's and video's shape in `messages.file_dims` (DESIGN.md §17.5). `Message.fileDims`
+reads it (the message fields ask for `file_dims`). In `Attachments.kt`, a lone image or video's box takes that shape
+at once instead of the 240 × 160 placeholder, and an image tile in a row of several takes its width (80–112 dp)
+before it loads. Video tiles in a row keep their fixed size. A file whose shape the server doesn't know yet, and a
+message still sending, behave as before. `CollectionsTest` checks that an attached collection item gets its shape.

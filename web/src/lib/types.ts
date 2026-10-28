@@ -76,6 +76,8 @@ export interface Message {
   file_names?: Record<string, string>;
   /** Stored name → the collection it was attached from (§31); absent or empty for the others. */
   file_sources?: Record<string, string>;
+  /** Stored image or video name → [width, height] as shown (§17.5), set by the server; absent until it knows. */
+  file_dims?: Record<string, [number, number]>;
   /** The message this one replies to (§19); "" or absent when it isn't a reply. */
   reply_to?: string;
   /** Emoji reactions (§20), in the order they were first added; empty or absent when there are none. */

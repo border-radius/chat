@@ -76,6 +76,8 @@ describe.skipIf(!run)("media worker, files in S3 (§30.1)", () => {
     expect(inBucket(m.id, `thumbs_${clip}/poster.jpg`)).toBe(true);
     expect(inBucket(m.id, `thumbs_${pic}/240x240_${pic}`)).toBe(true);
     expect(readdirSync(temp).filter((f) => f.startsWith("chirkle-poster-"))).toEqual([]);
+    // The video's shape is read from its poster in the bucket (§17.5).
+    expect((await pb.collection("messages").getOne(m.id)).file_dims).toEqual({ [clip]: [64, 48], [pic]: [64, 48] });
 
     const { items } = await pb.send<{ items: { file: string; poster: boolean }[] }>(`/api/chat/media/${room.id}`, {});
     expect(items.find((i) => i.file === clip)?.poster).toBe(true);

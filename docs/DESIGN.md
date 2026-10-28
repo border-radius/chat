@@ -113,7 +113,8 @@ chat/
 │   ├── 1760000035_telegram_anonymous.js # §26.6 (tg_links.anonymous)
 │   ├── 1760000020_service_messages.js  # §5.3 (messages.author optional: service messages)
 │   ├── 1760000032_federation.js        # §33 (fed_* collections, the core's federation fields)
-│   └── 1760000033_federation_requests.js # §33.2–3 (site.federation, fed_peers "requested")
+│   ├── 1760000033_federation_requests.js # §33.2–3 (site.federation, fed_peers "requested")
+│   └── 1760000037_file_dims.js         # §17.5 (messages.file_dims, media.sized)
 ├── pb_hooks/                   # server-side JS hooks (committed)
 │   ├── main.pb.js              # registrations only
 │   ├── telegram.pb.js          # the Telegram bridge's registrations, only with TELEGRAM_BOT_TOKEN (§26)
@@ -1382,6 +1383,19 @@ other files as chips with name and size, each with a remove (×) button.
   aspect ratio before they load. Only files the server will show as images (by extension) show as previews. Clicking
   opens the image viewer (§17.7); a click asking for a new tab or window (Ctrl/Cmd/Shift/middle click) opens the full
   file there instead (`target="_blank" rel="noopener"`), served under the sandbox CSP.
+- **Shapes** (2026-10-28, user: "store media aspect ratio so placeholders will not change size while media is
+  loading"): `messages.file_dims` maps each stored image or video name to `[width, height]` as it is shown, and a
+  tile takes that aspect ratio before it loads, so it no longer starts narrow and widens (web: `aspect-ratio` on the
+  thumbnail; Android: the tile's width, and a single image's whole box). Only the server sets it (create and update
+  rules refuse it; an edit keeps the stored value). An image's comes from the header the create hook already reads for
+  the pixel limit (`pb_hooks/lib/images.js`), with a JPEG's EXIF orientation 5–8 swapping width and height, as
+  browsers and PocketBase's thumbnails show it; every upload path (the composer, collection items, Telegram, linked
+  instances) goes through that hook. A video's comes from its poster (§30.1), which is in its shape: the media
+  worker reads the poster's header once it is made, then marks the `media` row `sized`; files sent before this
+  (`sized` false after migration `1760000037_file_dims.js`) are sized the same way, newest first, after the
+  thumbnails. The worker writes the value with SQL, not a save: no hooks, no realtime event, `updated` unchanged,
+  so clients see it on their next load, and until then (a video just sent, an AVIF, no ffmpeg) a tile takes its
+  width once loaded, as before. A forward shows its original's (`showOriginal`); a delete clears it.
 - **Videos** (by extension: `mp4 m4v webm mov ogv`): tiles like images, in the same row and at the same sizes,
   showing the video's first frame with a play badge over it. The tile is the **poster** the server makes of the video
   (§30.1: its first frame, in its own shape, at most 800×480), an `<img loading="lazy">` like an image's thumbnail, so

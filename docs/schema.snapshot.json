@@ -1275,13 +1275,23 @@
           "required": false,
           "system": false,
           "type": "bool"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "name": "sized",
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "bool"
         }
       ],
       "indexes": [
         "CREATE INDEX idx_media_room ON media (room, sent, message, pos)",
         "CREATE INDEX idx_media_message ON media (message)",
         "CREATE INDEX idx_media_source ON media (source, file)",
-        "CREATE INDEX idx_media_pending ON media (sent) WHERE ready = FALSE"
+        "CREATE INDEX idx_media_pending ON media (sent) WHERE ready = FALSE",
+        "CREATE INDEX `idx_media_unsized` ON `media` (sent) WHERE sized = FALSE"
       ]
     },
     {
@@ -1303,7 +1313,8 @@
         "@request.body.previews:isset = false",
         "(@request.body.room.posting != \"selected\" || @request.body.room.writers.id ?= @request.auth.id || @request.body.room.created_by = @request.auth.id)",
         "@request.body.file_sources:isset = false",
-        "@request.body.remote_id:isset = false"
+        "@request.body.remote_id:isset = false",
+        "@request.body.file_dims:isset = false"
       ],
       "updateRule": [
         "author = @request.auth.id",
@@ -1323,7 +1334,8 @@
         "@request.body.previews:isset = false",
         "(room.posting != \"selected\" || room.writers.id ?= @request.auth.id || room.created_by = @request.auth.id)",
         "@request.body.file_sources:isset = false",
-        "@request.body.remote_id:isset = false"
+        "@request.body.remote_id:isset = false",
+        "@request.body.file_dims:isset = false"
       ],
       "deleteRule": null,
       "fields": [
@@ -1554,6 +1566,16 @@
           "required": false,
           "system": false,
           "type": "text"
+        },
+        {
+          "help": "",
+          "hidden": false,
+          "maxSize": 4096,
+          "name": "file_dims",
+          "presentable": false,
+          "required": false,
+          "system": false,
+          "type": "json"
         }
       ],
       "indexes": [

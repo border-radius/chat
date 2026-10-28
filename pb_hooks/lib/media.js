@@ -9,10 +9,13 @@
 // - The worker (a cron job, like the previews'): makes each new file's thumbnails before anyone asks for them, and a
 //   poster frame for each video with ffmpeg, so the room (§17.5) and the grid show an image instead of loading every
 //   video. PocketBase
-//   otherwise makes a thumbnail on its first request: a grid opened over old images made dozens at once.
+//   otherwise makes a thumbnail on its first request: a grid opened over old images made dozens at once. Then it
+//   records each video's shape (its poster's) in the message's `file_dims`, and those of files sent before there
+//   were any (§17.5): a new image's the create hook already set.
 // - GET /api/chat/posters/{message}/{file}: a video's poster, checked as PocketBase checks the file itself.
 
 const { visibleRoom } = require(`${__hooks}/lib/access.js`);
+const { HEADER_BYTES, shownSize } = require(`${__hooks}/lib/images.js`);
 
 /** As web/src/lib/files.ts says. */
 const IMAGE_EXT = ["jpg", "jpeg", "png", "gif", "webp", "avif"];
@@ -78,8 +81,8 @@ function add(app, rec) {
     app
       .db()
       .newQuery(
-        `INSERT INTO media (id, room, message, source, file, pos, video, sent, ready, poster)
-         VALUES ({:id}, {:room}, {:message}, {:source}, {:file}, {:pos}, {:video}, {:sent}, {:ready},
+        `INSERT INTO media (id, room, message, source, file, pos, video, sent, ready, sized, poster)
+         VALUES ({:id}, {:room}, {:message}, {:source}, {:file}, {:pos}, {:video}, {:sent}, {:ready}, {:sized},
                  COALESCE((SELECT poster FROM media WHERE message = {:source} AND file = {:file}), FALSE))`,
       )
       .bind({
@@ -92,6 +95,7 @@ function add(app, rec) {
         video: isVideo(file),
         sent: rec.getString("created"),
         ready: !!forward,
+        sized: !!forward || !isVideo(file), // an image's shape is the create hook's (§17.5)
       })
       .execute();
   });
@@ -396,7 +400,7 @@ function pass(app, beat, rest = true) {
     .newQuery("SELECT id, source, file, sent FROM media WHERE ready = FALSE ORDER BY sent DESC LIMIT {:n}")
     .bind({ n: BATCH })
     .all(rows);
-  if (!rows.length) return itemPass(app, beat, rest);
+  if (!rows.length) return itemPass(app, beat, rest) || sizePass(app, beat, rest);
   const fs = app.newFilesystem();
   try {
     for (const row of rows) {
@@ -476,6 +480,75 @@ function itemThumbs(app, fs, dir, id, file) {
   if (!THUMB_EXT.includes(ext(file))) return;
   const thumb = `${dir}/thumbs_${file}/${GRID_THUMB}_${file}`;
   if (!fs.exists(thumb)) fs.createThumb(key, thumb, GRID_THUMB);
+}
+
+/**
+ * As pass, once the thumbnails are done: the shapes (§17.5) of videos, from their posters, and of files sent before
+ * messages kept them. Returns how many it looked at.
+ * @param {core.App} app
+ * @param {() => void} [beat]
+ * @param {boolean} [rest]
+ */
+function sizePass(app, beat, rest = true) {
+  const rows = arrayOf(new DynamicModel({ source: "", file: "", video: false }));
+  app.db().newQuery("SELECT source, file, video FROM media WHERE sized = FALSE ORDER BY sent DESC LIMIT {:n}").bind({ n: BATCH }).all(rows);
+  if (!rows.length) return 0;
+  const fs = app.newFilesystem();
+  try {
+    for (const row of rows) {
+      const start = Date.now();
+      try {
+        const dir = dirOf(app, row.source);
+        const size = shapeOf(fs, row.video ? posterKey(dir, row.file) : `${dir}/${row.file}`);
+        if (size) setDims(app, row.source, row.file, size);
+      } catch (err) {
+        app.logger().warn("media: shape", "message", row.source, "file", row.file, "error", String(err));
+      }
+      // Once: without a poster (no ffmpeg) or a readable header, the room shows it as before.
+      app.db().newQuery("UPDATE media SET sized = TRUE WHERE source = {:source} AND file = {:file}").bind(row).execute();
+      beat?.();
+      if (rest) sleep(Math.min(2000, Date.now() - start));
+    }
+  } finally {
+    fs.close();
+  }
+  return rows.length;
+}
+
+/**
+ * The shape the stored image at `key` is shown in, from its header; null if it isn't there or isn't readable.
+ * @param {filesystem.System} fs
+ * @param {string} key
+ */
+function shapeOf(fs, key) {
+  if (!fs.exists(key)) return null;
+  const reader = fs.getReader(key);
+  try {
+    return shownSize(toBytes(reader, HEADER_BYTES));
+  } finally {
+    reader.close();
+  }
+}
+
+/**
+ * Record a file's shape in its message's `file_dims`. Not a save: no hooks, no realtime event, `updated` unchanged
+ * (clients have it from the next load; until then the tile takes its width once loaded, as before).
+ * @param {core.App} app
+ * @param {string} id
+ * @param {string} file
+ * @param {[number, number]} size
+ */
+function setDims(app, id, file, size) {
+  app
+    .db()
+    .newQuery(
+      `UPDATE messages SET file_dims = json_set(
+         CASE WHEN json_valid(file_dims) THEN (CASE WHEN json_type(file_dims) = 'object' THEN file_dims ELSE '{}' END) ELSE '{}' END,
+         {:path}, json_array({:w}, {:h}))
+       WHERE id = {:id}`,
+    )
+    .bind({ id, path: `$."${file}"`, w: size[0], h: size[1] })
+    .execute();
 }
 
 /**

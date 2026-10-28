@@ -34,7 +34,10 @@ export function createAttachments(opts: {
   signal: AbortSignal;
 }): Attachments {
   const { signal } = opts;
-  /** Aspect ratios of a sending message's image and video previews, so its tiles take their width before loading. */
+  /**
+   * Aspect ratios of a sending message's image and video previews, so its tiles take their width before loading. A
+   * message from the server says its files' own (`file_dims`); these cover the ones it doesn't know yet (a new video).
+   */
   const sentRatios = new Map<string, string[]>();
   /** Audio players by message id and file, kept across renders so a new reaction or edit doesn't stop one playing. */
   const players = new Map<string, HTMLAudioElement>();
@@ -102,7 +105,9 @@ export function createAttachments(opts: {
       for (const name of names) {
         if (isMedia(name)) {
           if (images.childElementCount === MAX_TILES) continue;
-          const tile = mediaTile(m, name, thumb, ratios?.[images.childElementCount]);
+          const dims = m.file_dims?.[name];
+          const ratio = ratios?.[images.childElementCount] ?? (dims ? `${dims[0]} / ${dims[1]}` : undefined);
+          const tile = mediaTile(m, name, thumb, ratio);
           images.append(cell(m, name, tile));
           more(tile);
         } else {

@@ -1,6 +1,7 @@
 // Message attachments (§17): rules, hooks, protected access, serving headers.
 
 import { describe, expect, it } from "vitest";
+import { gifHeader, jpegHeader, pngOf, webpHeader } from "../support/images.ts";
 import { expectRejected, newRoom, newUser, openDm, pngFile, post, type TestUser } from "./helpers.ts";
 
 const utf8 = (s: string) => new TextEncoder().encode(s).length;
@@ -187,6 +188,54 @@ describe("original file names (QA BUG-28)", () => {
     const a = await newUser();
     const room = await newRoom(a);
     expect((await post(a, room.id, "plain")).file_names).toEqual({});
+  });
+});
+
+describe("attachment shapes (§17.5)", () => {
+  const bin = (name: string, type: string, b: Buffer) => new File([new Uint8Array(b)], name, { type });
+
+  it("records each image's shape as shown, a quarter-turned JPEG's turned; not other files'", async () => {
+    const a = await newUser();
+    const room = await newRoom(a);
+    const m = await withFiles(a, room.id, [
+      bin("wide.png", "image/png", pngOf(64, 48)),
+      bin("plain.jpg", "image/jpeg", jpegHeader(400, 300)),
+      bin("turned.jpg", "image/jpeg", jpegHeader(400, 300, 0, 6)),
+      bin("turned-mm.jpg", "image/jpeg", jpegHeader(400, 300, 0, 8, true)),
+      bin("flipped.jpg", "image/jpeg", jpegHeader(400, 300, 0, 3)),
+      bin("anim.gif", "image/gif", gifHeader(30, 20)),
+      bin("pic.webp", "image/webp", webpHeader(50, 100)),
+      file("notes.pdf", "application/pdf"),
+    ]);
+    const f = m.files as string[];
+    expect(m.file_dims).toEqual({
+      [f[0]!]: [64, 48],
+      [f[1]!]: [400, 300],
+      [f[2]!]: [300, 400],
+      [f[3]!]: [300, 400],
+      [f[4]!]: [400, 300],
+      [f[5]!]: [30, 20],
+      [f[6]!]: [50, 100],
+    });
+    expect((await a.pb.collection("messages").getOne(m.id)).file_dims).toEqual(m.file_dims);
+  });
+
+  it("clients can't set or change them; a forward shows its original's; a delete clears them", async () => {
+    const a = await newUser();
+    const b = await newUser();
+    const room = await newRoom(a);
+    const forged = a.pb.collection("messages").create({ room: room.id, author: a.user.id, text: "x", file_dims: { x: [1, 2] } });
+    await expectRejected(forged);
+    const m = await withFiles(a, room.id, [bin("wide.png", "image/png", pngOf(64, 48))]);
+    await expectRejected(a.pb.collection("messages").update(m.id, { file_dims: { [m.files[0]]: [1, 1] } }));
+    expect((await a.pb.collection("messages").update(m.id, { text: "edited" })).file_dims).toEqual({ [m.files[0]]: [64, 48] });
+
+    const dm = await openDm(b, a);
+    await a.pb.send("/api/chat/forward", { method: "POST", body: { messages: [m.id], room: dm.id } });
+    const [fwd] = await b.pb.collection("messages").getFullList({ filter: `room = "${dm.id}"` });
+    expect(fwd!.file_dims).toEqual({ [m.files[0]]: [64, 48] });
+
+    expect((await a.pb.collection("messages").update(m.id, { deleted: true })).file_dims).toEqual({});
   });
 });
 

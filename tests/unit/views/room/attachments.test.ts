@@ -142,6 +142,8 @@ describe("room view", () => {
       const big = solo!.querySelector("img")!;
       // Uncropped thumbs of any aspect ratio: CSS fixes the height, the image's own ratio sets the width.
       expect([big.hasAttribute("width"), big.hasAttribute("height"), big.getAttribute("loading")]).toEqual([false, false, "lazy"]);
+      // The server says its shape, so the tile has its width before the image loads.
+      expect(big.style.aspectRatio).toBe("1 / 1");
       expect(big.getAttribute("src")).toMatch(/thumb=800x480f/);
       expect(big.getAttribute("alt")).toBe("solo.png");
       expect(solo!.getAttribute("target")).toBe("_blank");

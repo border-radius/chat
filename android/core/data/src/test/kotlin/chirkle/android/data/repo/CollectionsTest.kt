@@ -126,6 +126,8 @@ class CollectionsTest {
         val m = c.state.value.items.single { it.text == "with an item" }
         assertEquals(listOf("from-coll.png"), m.files.map { m.fileNames[it] })
         assertEquals(mapOf(m.files.single() to coll), m.fileSources)
+        // The copy's shape, as the server read it (§17.5): the tile has its size before the image loads.
+        assertEquals(mapOf(m.files.single() to listOf(1, 1)), m.fileDims)
         c.close()
         // The owner sees its name; someone else that it is private; a collection that is gone, nothing.
         assertEquals(name, a.api.badges(listOf(coll))[coll]?.name)

@@ -101,15 +101,23 @@ fun Attachments(m: Message, actions: RowActions) {
     }
 }
 
+/** A stored file's shape as the server says (§17.5), width / height; null until it knows, or for a local file. */
+private fun ratioOf(m: Message, f: Item): Float? =
+    if (f.local != null) null else m.fileDims[f.name]?.takeIf { it.size == 2 && it[0] > 0 && it[1] > 0 }?.let { it[0].toFloat() / it[1] }
+
 @Composable
 private fun MediaTile(m: Message, f: Item, height: Int, thumb: String, more: Int, onOpen: () -> Unit) {
     val services = LocalServices.current
     val context = LocalContext.current
     val video = isVideo(f.label)
+    val max = if (height > 200) 320f else 112f
+    // Known shape: the tile has its width before the image loads, so the row doesn't shift.
+    val width = if (video) null else ratioOf(m, f)?.let { r -> Modifier.width((height * r).coerceIn(80f, max).dp) }
     Box(
         Modifier
             .height(height.dp)
-            .widthIn(min = 80.dp, max = if (height > 200) 320.dp else 112.dp)
+            .widthIn(min = 80.dp, max = max.dp)
+            .then(width ?: Modifier)
             .clip(RoundedCornerShape(10.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .clickable(enabled = f.local == null, onClickLabel = "Open") { onOpen() }
@@ -148,8 +156,9 @@ private fun MediaTile(m: Message, f: Item, height: Int, thumb: String, more: Int
 }
 
 /**
- * One image or video alone: shown whole, in its own shape, at most 320 × 240 dp (a placeholder of 240 × 160 until it is
- * known). A video shows its poster, or a dark tile until the server has made one, with a play button.
+ * One image or video alone: shown whole, in its own shape, at most 320 × 240 dp (the server's `file_dims` say it
+ * before it loads, §17.5; a placeholder of 240 × 160 until it is known). A video shows its poster, or a dark tile until
+ * the server has made one, with a play button.
  */
 @Composable
 private fun SingleImage(m: Message, f: Item, onOpen: () -> Unit) {
@@ -163,7 +172,7 @@ private fun SingleImage(m: Message, f: Item, onOpen: () -> Unit) {
         else -> services.api.fileUrl(m, f.name, if (isGif(f.label)) null else "800x480f", services.tokens.current)
     }
     val key = url?.let { Images.cacheKey(it) } ?: f.local.orEmpty()
-    var ratio by remember(key) { mutableStateOf(Images.ratios[key]) }
+    var ratio by remember(key) { mutableStateOf(Images.ratios[key] ?: ratioOf(m, f)) }
     val shape = RoundedCornerShape(12.dp)
     val size = ratio?.let { r ->
         // The largest box of that shape within 320 × 240.

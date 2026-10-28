@@ -123,6 +123,8 @@ data class Message(
     val previews: List<LinkPreview> = emptyList(),
     /** Stored name → the collection the file was attached from (§31); a forward's are its original's. */
     @SerialName("file_sources") val fileSources: Map<String, String> = emptyMap(),
+    /** Stored image or video name → [width, height] as shown (§17.5), set by the server; absent until it knows. */
+    @SerialName("file_dims") val fileDims: Map<String, List<Int>> = emptyMap(),
     val expand: MessageExpand? = null,
     /** Client only: not on the server yet (§7.5). Never sent, never decoded. */
     @kotlinx.serialization.Transient val status: SendStatus? = null,

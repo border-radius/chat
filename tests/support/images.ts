@@ -57,11 +57,32 @@ export function gifHeader(w: number, h: number): Buffer {
   return Buffer.concat([b, Buffer.from([0x3b])]);
 }
 
-/** A baseline JPEG header (SOI, APP0, SOF0 with w×h) after `padding` bytes of APP segments. */
-export function jpegHeader(w: number, h: number, padding = 0): Buffer {
+/**
+ * A baseline JPEG header (SOI, APP0, SOF0 with w×h) after `padding` bytes of APP segments; with `orientation`, an
+ * EXIF APP1 segment saying it (big-endian when `bigEndian`).
+ */
+export function jpegHeader(w: number, h: number, padding = 0, orientation = 0, bigEndian = false): Buffer {
   const parts = [Buffer.from([0xff, 0xd8])];
   const app0 = Buffer.from([0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00]);
   parts.push(app0);
+  if (orientation) {
+    // TIFF header, IFD0 at 8 with one entry: Orientation (0x0112), SHORT, 1 value.
+    const tiff = Buffer.alloc(8 + 2 + 12 + 4);
+    const u16 = (v: number, at: number) => (bigEndian ? tiff.writeUInt16BE(v, at) : tiff.writeUInt16LE(v, at));
+    const u32 = (v: number, at: number) => (bigEndian ? tiff.writeUInt32BE(v, at) : tiff.writeUInt32LE(v, at));
+    tiff.write(bigEndian ? "MM" : "II", 0, "latin1");
+    u16(42, 2);
+    u32(8, 4);
+    u16(1, 8);
+    u16(0x0112, 10);
+    u16(3, 12);
+    u32(1, 14);
+    u16(orientation, 18);
+    const body = Buffer.concat([Buffer.from("Exif\0\0", "latin1"), tiff]);
+    const head = Buffer.from([0xff, 0xe1, 0, 0]);
+    head.writeUInt16BE(body.length + 2, 2);
+    parts.push(head, body);
+  }
   for (let left = padding; left > 0; left -= 65533) {
     const n = Math.min(65533, left);
     const seg = Buffer.alloc(n + 4);

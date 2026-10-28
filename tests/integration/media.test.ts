@@ -160,8 +160,10 @@ describe("the media worker (§30.1)", () => {
     const file = m.files[0] as string;
     const url = (token: string, id = m.id) => `${inject("pbUrl")}/api/chat/posters/${id}/${file}${token ? `?token=${token}` : ""}`;
     expect((await fetch(url(await a.pb.files.getToken()))).status).toBe(404); // not made yet
+    expect(m.file_dims).toEqual({}); // nor its shape, which is the poster's
 
     await tick();
+    expect((await a.pb.collection("messages").getOne(m.id)).file_dims).toEqual({ [file]: [64, 48] });
     expect((await media(a, room.id)).items[0]).toMatchObject({ video: true, poster: true });
     const res = await fetch(url(await a.pb.files.getToken()));
     expect(res.status).toBe(200);
@@ -195,6 +197,34 @@ describe("the media worker (§30.1)", () => {
     const url = async (u: TestUser) => `${inject("pbUrl")}/api/chat/posters/${m.id}/${m.files[0]}?token=${await u.pb.files.getToken()}`;
     expect((await fetch(await url(a))).status).toBe(200);
     expect((await fetch(await url(b))).status).toBe(404);
+  });
+
+  it("records the shapes of files sent before messages kept them (§17.5), each file once", async () => {
+    const a = await newUser();
+    const room = await newRoom(a);
+    const m = await send(a, room.id, [png("a.png"), pdf("a.pdf"), png("b.png")]);
+    const [f0, , f2] = m.files as string[];
+    expect(m.file_dims).toEqual({ [f0!]: [64, 48], [f2!]: [64, 48] });
+    await tick();
+    const db = rawDb({ write: true });
+    try {
+      db.prepare("UPDATE messages SET file_dims = 'null' WHERE id = ?").run(m.id);
+      db.prepare("UPDATE media SET sized = FALSE WHERE message = ?").run(m.id);
+    } finally {
+      db.close();
+    }
+    const before = await a.pb.collection("messages").getOne(m.id);
+    expect(before.file_dims).toBeNull();
+    await tick();
+    const after = await a.pb.collection("messages").getOne(m.id);
+    expect(after.file_dims).toEqual({ [f0!]: [64, 48], [f2!]: [64, 48] });
+    expect(after.updated).toBe(before.updated); // not a save: nothing else changes
+    const check = rawDb();
+    try {
+      expect(check.prepare("SELECT sized FROM media WHERE message = ?").all(m.id)).toEqual([{ sized: 1 }, { sized: 1 }]);
+    } finally {
+      check.close();
+    }
   });
 
   it("gives a file that isn't a video, or not the message's, no poster", async () => {
