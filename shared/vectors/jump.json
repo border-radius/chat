@@ -1,0 +1,64 @@
+{
+  "$comment": "Jump to's matching (DESIGN.md \u00a732). `score` takes the query folded. Run by tests/unit/vectors.test.ts and android/\u2026/lib/VectorsTest.kt.",
+  "fold": [
+    {
+      "input": "\u00c9t\u00e9 \uff21\uff22\uff23",
+      "output": "ete abc"
+    },
+    {
+      "input": "\u00d1and\u00fa",
+      "output": "nandu"
+    },
+    {
+      "input": "\uff25\uff2c\uff21\uff2e",
+      "output": "elan"
+    }
+  ],
+  "score": [
+    {
+      "name": "general",
+      "query": "general",
+      "output": 0
+    },
+    {
+      "name": "general",
+      "query": "gen",
+      "output": 1
+    },
+    {
+      "name": "old-general",
+      "query": "gen",
+      "output": 2
+    },
+    {
+      "name": "dev-ops",
+      "query": "ops",
+      "output": 2
+    },
+    {
+      "name": "general",
+      "query": "ner",
+      "output": 3
+    },
+    {
+      "name": "general",
+      "query": "gnrl",
+      "output": 4
+    },
+    {
+      "name": "general",
+      "query": "xyz",
+      "output": -1
+    },
+    {
+      "name": "\ud83c\udf55 pizza",
+      "query": "\ud83c\udf55z",
+      "output": 4
+    },
+    {
+      "name": "\u00c9t\u00e9",
+      "query": "ete",
+      "output": 0
+    }
+  ]
+}

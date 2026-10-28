@@ -1,0 +1,199 @@
+{
+  "$comment": "Text rules every client and the server share (DESIGN.md \u00a722.1, \u00a729). Run by tests/unit/vectors.test.ts (web and pb_hooks/lib/text.js) and android/core/data/src/test/kotlin/chirkle/android/data/lib/VectorsTest.kt.",
+  "foldKey": [
+    {
+      "input": "Stra\u00dfe \uff21\uff22\uff23 \u00dc\u200bber",
+      "output": "strasse abc \u00fcber"
+    },
+    {
+      "input": "\u041f\u0420\u0418\u0412\u0415\u0422",
+      "output": "\u043f\u0440\u0438\u0432\u0435\u0442"
+    },
+    {
+      "input": "\u0130STANBUL \u0130zmir",
+      "output": "istanbul izmir"
+    },
+    {
+      "input": "\u202eadmin\u2060",
+      "output": "admin"
+    },
+    {
+      "input": "\u01c5emal \ufb01ne",
+      "output": "d\u017eemal fine"
+    }
+  ],
+  "searchWords": [
+    {
+      "input": "  Hello   hello WORLD ",
+      "output": [
+        "hello",
+        "world"
+      ]
+    },
+    {
+      "input": "a b c d e f g",
+      "output": [
+        "a",
+        "b",
+        "c",
+        "d",
+        "e"
+      ]
+    },
+    {
+      "input": " \u200b ",
+      "output": []
+    },
+    {
+      "input": "\u0130zmir izmir",
+      "output": [
+        "izmir"
+      ]
+    }
+  ],
+  "searchQuery": [
+    {
+      "room": "r1",
+      "words": [
+        "100%",
+        "x"
+      ],
+      "before": null,
+      "output": {
+        "filter": "room = {:room} && text_key ~ {:w0} && text_key ~ {:w1}",
+        "params": {
+          "room": "r1",
+          "w0": "100\\%",
+          "w1": "x"
+        },
+        "sort": "-created,-id"
+      }
+    },
+    {
+      "room": "r1",
+      "words": [
+        "a\\%b"
+      ],
+      "before": null,
+      "output": {
+        "filter": "room = {:room} && text_key ~ {:w0}",
+        "params": {
+          "room": "r1",
+          "w0": "a\\\\\\%b"
+        },
+        "sort": "-created,-id"
+      }
+    },
+    {
+      "room": "r1",
+      "words": [
+        "x"
+      ],
+      "before": {
+        "created": "2026-10-18 10:00:00.000Z",
+        "id": "abc"
+      },
+      "output": {
+        "filter": "room = {:room} && text_key ~ {:w0} && (created < {:created} || (created = {:created} && id < {:id}))",
+        "params": {
+          "room": "r1",
+          "w0": "x",
+          "created": "2026-10-18 10:00:00.000Z",
+          "id": "abc"
+        },
+        "sort": "-created,-id"
+      }
+    }
+  ],
+  "highlight": [
+    {
+      "text": "Say HELLO to hello.",
+      "words": [
+        "hello"
+      ],
+      "output": [
+        "Say ",
+        "HELLO",
+        " to ",
+        "hello",
+        "."
+      ]
+    },
+    {
+      "text": "one\n\ntwo",
+      "words": [
+        "two"
+      ],
+      "output": [
+        "one ",
+        "two",
+        ""
+      ]
+    },
+    {
+      "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word needle end",
+      "words": [
+        "needle"
+      ],
+      "output": [
+        "\u2026word word word word ",
+        "needle",
+        " end"
+      ]
+    },
+    {
+      "text": "a.b axb",
+      "words": [
+        "a.b"
+      ],
+      "output": [
+        "",
+        "a.b",
+        " axb"
+      ]
+    },
+    {
+      "text": "nothing here",
+      "words": [],
+      "output": [
+        "nothing here"
+      ]
+    }
+  ],
+  "textLength": [
+    {
+      "input": "\ud83d\ude00",
+      "output": 1
+    },
+    {
+      "input": "h\u00e9llo",
+      "output": 5
+    },
+    {
+      "input": "\ud83d\udc69\u200d\ud83d\udc69\u200d\ud83d\udc67",
+      "output": 5
+    },
+    {
+      "input": "",
+      "output": 0
+    }
+  ],
+  "isBlank": [
+    {
+      "input": " \u200b\u2060 ",
+      "output": true
+    },
+    {
+      "input": "a",
+      "output": false
+    },
+    {
+      "input": "",
+      "output": true
+    },
+    {
+      "input": "\u00ad",
+      "output": true
+    }
+  ]
+}

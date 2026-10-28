@@ -37,7 +37,7 @@ A small, fast, real-time group chat. One [PocketBase](https://pocketbase.io) bin
   background), so no push service (Google, Mozilla, Apple) is involved
 - Installable as an app (PWA: Add to Home Screen, the browser's Install button); it opens offline to its shell
 - Optimistic sending with safe retries, reconnect gap-fill, light/dark themes, works on phones
-- A native Android app (Kotlin, Jetpack Compose) with the same features, push notifications and a 3 MB download — see
+- A native Android app (Kotlin, Jetpack Compose) with the same features, notifications and a 3 MB download — see
   [Android app](#android-app)
 
 Design: [`docs/DESIGN.md`](docs/DESIGN.md) · Android app: [`docs/ANDROID.md`](docs/ANDROID.md) · QA: [`docs/QA.md`](docs/QA.md) · Refactoring plan: [`docs/REFACTOR.md`](docs/REFACTOR.md) · Archived plans: [MVP build](docs/history/BUILD_PLAN.md), [avatars, DMs, attachments](docs/history/NEXT_FEATURES_PLAN.md)

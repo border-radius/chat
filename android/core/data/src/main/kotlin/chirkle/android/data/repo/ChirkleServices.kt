@@ -24,9 +24,6 @@ interface SessionHooks {
     /** Someone logged in (or the app started with a session): start the notification checks. */
     suspend fun onSignedIn(user: User) {}
 
-    /** Before the session ends, with it still valid: unregister an old push token. */
-    suspend fun beforeSignOut() {}
-
     /** The session ended or changed hands: clear notifications, image caches, the launcher badge. */
     suspend fun onSignedOut() {}
 
@@ -165,7 +162,6 @@ class ChirkleServices(
     /** Send what was read, then end the session; everything of it is cleared. */
     suspend fun logOut() = withContext(main) {
         unread.flush()
-        runCatching { hooks.beforeSignOut() }
         api.logOut()
     }
 

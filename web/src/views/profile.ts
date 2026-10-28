@@ -35,7 +35,7 @@ export function passwordProblem(current: string, next: string, confirm: string):
   return {};
 }
 
-export function createProfileView({ api, store, logOut, notify }: Ctx): View {
+export function createProfileView({ api, store, logOut, notify }: Pick<Ctx, "api" | "store" | "logOut" | "notify">): View {
   const vid = uniqueId("profile");
   const scope = createScope();
   const { signal } = scope;

@@ -41,7 +41,7 @@ data class OutboxEntity(
 @Entity(tableName = "drafts", primaryKeys = ["user", "room"])
 data class DraftEntity(val user: String, val room: String, val text: String, val replyTo: String = "")
 
-/** Small values: the site record, the unread counts, the push registration, recent emoji. */
+/** Small values: the site record, the unread counts, the notification check, recent emoji. */
 @Entity(tableName = "kv")
 data class KvEntity(@PrimaryKey val key: String, val value: String)
 
@@ -149,7 +149,7 @@ abstract class ChirkleDatabase : RoomDatabase() {
 
     companion object {
         /** Kv entries that belong to the session; the site record stays (it isn't anyone's). */
-        val SESSION_KEYS = listOf(Keys.UNREAD, Keys.PUSH_ROW, Keys.NOTIFY_CHECK, Keys.NOTIFY_ROOMS, Keys.RECENT_EMOJI)
+        val SESSION_KEYS = listOf(Keys.UNREAD, Keys.NOTIFY_CHECK, Keys.NOTIFY_ROOMS, Keys.RECENT_EMOJI)
 
         fun open(context: Context, name: String = "chirkle.db"): ChirkleDatabase =
             Room.databaseBuilder(context, ChirkleDatabase::class.java, name)
@@ -162,8 +162,6 @@ abstract class ChirkleDatabase : RoomDatabase() {
 object Keys {
     const val SITE = "site"
     const val UNREAD = "unread"
-    /** A push_tokens row of the Firebase builds, unregistered by the first check (ANDROID.md §8). */
-    const val PUSH_ROW = "push_row"
     const val NOTIFY_CHECK = "notify_check"
     /** Rooms whose every message notifies (ANDROID.md §24), space-separated. */
     const val NOTIFY_ROOMS = "notify_rooms"

@@ -3,22 +3,23 @@
 // to guests, who read the Open Air rooms and can log in or sign up from the header (§23.3).
 
 import { createRoomActions } from "./actions.ts";
-import { type Api, ApiError } from "./api.ts";
+import type { Api } from "./api.ts";
 import { type Cache, createCache, forgetGone } from "./cache.ts";
 import { createCollections } from "./collections.ts";
 import type { Ctx } from "./context.ts";
 import { clear, h } from "./dom.ts";
 import { createDrafts } from "./drafts.ts";
 import { startFavicon } from "./favicon.ts";
-import { otherMember, roomTitle, VISIBILITY, visibilityOf } from "./lib/rooms.ts";
-import { toPb } from "./lib/time.ts";
+import { createHeader } from "./header.ts";
+import { startJumpTo } from "./jump.ts";
+import { roomTitle } from "./lib/rooms.ts";
 import type { User } from "./lib/types.ts";
 import { createPrefetch } from "./prefetch.ts";
+import { createRenewal } from "./renewal.ts";
 import { createRouter, here, type Router, type View } from "./router.ts";
 import { startSite } from "./site.ts";
-import { type AppState, createStore, initialState, roomSections, type Store, unreadCount } from "./store.ts";
+import { type AppState, createStore, initialState, type Store } from "./store.ts";
 import { createSync } from "./sync.ts";
-import { avatar } from "./ui/avatar.ts";
 import { createUnread } from "./unread.ts";
 import { createCollectionView } from "./views/collection.ts";
 import { createHomeView } from "./views/home.ts";
@@ -26,7 +27,6 @@ import { createLoginView } from "./views/login.ts";
 import { createProfileView } from "./views/profile.ts";
 import { createRoomView } from "./views/room.ts";
 import { createRoomsView } from "./views/rooms.ts";
-import type { Switcher } from "./views/switcher.ts";
 
 export interface App {
   store: Store<AppState>;
@@ -36,32 +36,22 @@ export interface App {
   stop(): void;
 }
 
-/** Statuses meaning "the server rejected this session" (vs. 0 = network trouble). */
-const AUTH_REJECTED = new Set([401, 403, 404]);
-/** Longest wait between session renewals, and the wait before another try after one failed for lack of network. */
-const RENEW_MAX_MS = 24 * 60 * 60 * 1000;
-const RENEW_RETRY_MS = 60 * 1000;
-/**
- * A session can also be revoked before it expires: a password change signs out every other device. It is checked again
- * when the server refuses a change (at most this often), and when the tab comes back after this long (QA BUG-51).
- */
-const CHECK_MIN_MS = 30 * 1000;
-const CHECK_STALE_MS = 5 * 60 * 1000;
-
 /** notify.ts's NOTIFY_KEY (§34): someone here turned notifications on. */
 export const NOTIFY_KEY = "chat.notify";
 
 /** The pages for logging in and signing up: only for guests, and never where to go back to after logging in. */
 const AUTH_PAGES = new Set(["/login", "/signup"]);
 
-/** Starts the main view of the mounted layout over (a room that came back, §23.4). */
-const panes = { reload: () => {} };
+/** Starts the main view of the mounted layout over (a room that came back, §23.4): one per app. */
+interface Panes {
+  reload: () => void;
+}
 
 /**
  * Page layout (§7.1): the room list as a sidebar next to the main view. New params remount only the
  * main view, so switching rooms keeps the sidebar (and anything typed into it).
  */
-function withSidebar(sidebar: () => View, main: () => View, layoutClass = ""): () => View {
+function withSidebar(panes: Panes, sidebar: () => View, main: () => View, layoutClass = ""): () => View {
   return () => {
     const side = sidebar();
     let pane = main();
@@ -120,6 +110,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
   }
   const offGone = forgetGone(cache, store);
   const prefetch = createPrefetch({ api, store, cache });
+  const panes: Panes = { reload: () => {} };
   /** Notifications (§34), a lazy chunk loaded only once they are on: its stop. */
   let notify: Promise<() => void> | null = null;
   const startNotify = () => {
@@ -158,10 +149,10 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     if (!AUTH_PAGES.has(path)) lastPage = path;
   };
 
-  const header = h("header", { class: "app-bar" });
+  const header = createHeader({ api, store });
   const main = h("main", { class: "app-main" });
   clear(root);
-  root.append(header, main);
+  root.append(header.el, main);
 
   /** Drop everything that belonged to the logged-in user. The session itself is left as it is. */
   function endSession() {
@@ -211,52 +202,11 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
   /** The session ran out or was revoked: the login page, and back to this page once logged in again. */
   const expire = () => logOut("/login");
 
-  /**
-   * Renew the session halfway through its lifetime, for as long as the tab stays open. A tab left open longer than a
-   * session lasts (7 days by default) would otherwise look logged in while every request fails (QA BUG-45).
-   */
-  let renewTimer: ReturnType<typeof setTimeout> | undefined;
-  /** When the session was last checked with the server (renewed, or found revoked). */
-  let checkedAt = 0;
-  function scheduleRenew(ms = Math.min(Math.max((api.sessionExpiry() - Date.now()) / 2, 0), RENEW_MAX_MS)) {
-    clearTimeout(renewTimer);
-    if (store.get().user) renewTimer = setTimeout(renew, ms);
-  }
-  function renew() {
-    const user = store.get().user;
-    if (!user) return;
-    // Already over (e.g. the computer slept through it): it can't be renewed, so say so instead of failing quietly.
-    if (api.sessionExpiry() <= Date.now()) return expire();
-    checkedAt = Date.now();
-    api.refreshAuth().then(
-      (fresh) => {
-        if (store.get().user?.id !== fresh.id) return;
-        store.set({ user: fresh });
-        scheduleRenew();
-      },
-      (err: unknown) => {
-        if (store.get().user?.id !== user.id) return;
-        if (err instanceof ApiError && AUTH_REJECTED.has(err.status)) expire();
-        else scheduleRenew(RENEW_RETRY_MS); // offline ≠ logged out: try again later
-      },
-    );
-  }
-  // Timers are late (or paused) while the computer sleeps or the tab is in the background: check on coming back.
-  // Also check a session not checked for a while: revoked meanwhile, this tab would get nothing live and send nothing.
+  const renewal = createRenewal({ api, store, expire });
   const onVisible = () => {
     // Before the room view's own listener (registered later) reads what is on screen.
     store.set({ away: document.visibilityState === "hidden" });
-    if (document.visibilityState !== "visible") return;
-    if (store.get().user && Date.now() - checkedAt > CHECK_STALE_MS) renew();
-    else scheduleRenew();
-  };
-  /** A refused change: was it the session? A revoked one logs out instead of failing every send ("Not sent"). */
-  const onRejected = () => {
-    if (!store.get().user) return;
-    const wait = checkedAt + CHECK_MIN_MS - Date.now();
-    // Checked a moment ago: check again once allowed, not never (QA BUG-151).
-    if (wait <= 0) renew();
-    else scheduleRenew(wait);
+    if (document.visibilityState === "visible") renewal.visible();
   };
 
   /**
@@ -275,38 +225,6 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     switchTo(next);
   }
 
-  /** The site's logo (if any) and title (§24). */
-  function brand() {
-    const { title, logo } = store.get().site;
-    return h("a", { href: "/", class: logo ? "brand has-logo" : "brand" }, [
-      logo ? h("img", { src: logo, alt: "", class: "brand-logo" }) : null,
-      h("span", { class: "brand-title" }, title),
-    ]);
-  }
-
-  function renderHeader() {
-    const user = store.get().user;
-    clear(header);
-    if (!user) {
-      // A guest (§23.3): reading the Open Air rooms, with the way in.
-      header.append(
-        brand(),
-        h("nav", { class: "guest-links", "aria-label": "Account" }, [
-          h("a", { href: "/login", class: "guest-link" }, "Log in"),
-          h("a", { href: "/signup", class: "guest-link primary" }, "Sign up"),
-        ]),
-      );
-      return;
-    }
-    header.append(
-      brand(),
-      h("a", { href: "/me", class: "me-link", title: "Your profile" }, [
-        avatar(user, 24, api.avatarUrl),
-        h("span", { class: "who" }, user.name),
-      ]),
-    );
-  }
-
   const ctx: Ctx = {
     api,
     store,
@@ -322,7 +240,7 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     notify: startNotify,
   };
   const rooms = () => createRoomsView(ctx);
-  const roomPage = withSidebar(rooms, () => createRoomView(ctx));
+  const roomPage = withSidebar(panes, rooms, () => createRoomView(ctx));
 
   const authPage = (mode: "login" | "signup") => () =>
     createLoginView({
@@ -343,73 +261,16 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
       { pattern: "/login", public: true, guestOnly: true, view: authPage("login") },
       { pattern: "/signup", public: true, guestOnly: true, view: authPage("signup") },
       // Guests see the Open Air rooms (§23.3); a room they can't see says it doesn't exist.
-      { pattern: "/", public: true, view: withSidebar(rooms, () => createHomeView(ctx), "home") },
+      { pattern: "/", public: true, view: withSidebar(panes, rooms, () => createHomeView(ctx), "home") },
       { pattern: "/r/:id", public: true, view: roomPage },
       { pattern: "/r/:id/m/:msgId", public: true, view: roomPage },
-      { pattern: "/c/:id", public: true, view: withSidebar(rooms, () => createCollectionView(ctx)) },
-      { pattern: "/me", view: withSidebar(rooms, () => createProfileView(ctx)) },
+      { pattern: "/c/:id", public: true, view: withSidebar(panes, rooms, () => createCollectionView(ctx)) },
+      { pattern: "/me", view: withSidebar(panes, rooms, () => createProfileView(ctx)) },
     ],
   });
 
-  /** Jump to (§32): Ctrl+K or Ctrl+P (⌘ too) anywhere. A lazy chunk, loaded on the first press. */
-  let switcher: Promise<Switcher> | undefined;
-  /** When each room and collection was last opened, for Jump to's "most recent first" (QA BUG-134). */
-  const opened = new Map<string, string>();
-  const onKey = (e: KeyboardEvent) => {
-    // By the letter typed, or by the key's place when it types no Latin letter (a Cyrillic layout).
-    const k = /^[a-z]$/i.test(e.key) ? e.key.toLowerCase() : e.code;
-    if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || !/^(k|p|KeyK|KeyP)$/.test(k)) return;
-    e.preventDefault(); // not the browser's search bar or printing
-    if (e.repeat) return; // held down: not open, closed, open… (QA BUG-137)
-    switcher ??= import("./views/switcher.ts").then(
-      (m) => {
-        const s = m.createSwitcher({
-          h,
-          state: store.get,
-          sections: roomSections,
-          unread: unreadCount,
-          other: otherMember,
-          icon: (r) => VISIBILITY[visibilityOf(r)].icon,
-          avatar: (u) => avatar(u, 24, api.avatarUrl),
-          navigate: (path) => router.navigate(path),
-          opened: (id) => opened.get(id) ?? "",
-        });
-        root.append(s.el);
-        return s;
-      },
-      (err: unknown) => {
-        switcher = undefined; // tried again next time
-        throw err;
-      },
-    );
-    switcher.then(
-      (s) => s.toggle(),
-      () => {},
-    );
-  };
-  document.addEventListener("keydown", onKey);
-
-  const offStore = store.subscribe((s, prev) => {
-    // The page left too: the first one may have opened before this listened.
-    const open = s.activeRoomId ?? s.activeCollectionId;
-    const left = prev.activeRoomId ?? prev.activeCollectionId;
-    if (open !== left) for (const id of [left, open]) if (id) opened.set(id, toPb(Date.now()));
-    if (s.site !== prev.site) renderHeader();
-    if (s.user?.id !== prev.user?.id) {
-      // Someone else's rooms from here on: not the last user's list, nor where they went (QA BUG-136).
-      opened.clear();
-      switcher?.then(
-        (x) => x.el.close(),
-        () => {},
-      );
-    }
-    if (s.user === prev.user) return;
-    renderHeader();
-    if (s.user && !prev.user) scheduleRenew();
-    if (!s.user) clearTimeout(renewTimer);
-  });
+  const stopJumpTo = startJumpTo({ api, store, root, navigate: (path) => router.navigate(path) });
   const offAuth = api.onAuthChange(onAuthChange);
-  const offRejected = api.onRejected(onRejected);
   // A file dropped where nothing takes it must not make the browser open it and leave the app (QA BUG-27).
   // The room and the profile picture handle their own drops; this only cancels the browser's default.
   const swallowFileDrag = (e: DragEvent) => {
@@ -422,12 +283,11 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
   window.addEventListener("storage", onStorage);
   const stopSite = startSite(api, store);
   const stopFavicon = startFavicon(store);
-  renderHeader();
   startSession();
   router.start();
 
   // A restored session is checked (and renewed) right away.
-  if (store.get().user) renew();
+  renewal.renew();
 
   return {
     store,
@@ -435,17 +295,16 @@ export function startApp(deps: { api: Api; root: HTMLElement }): App {
     logOut,
     stop() {
       offAuth();
-      offRejected();
+      renewal.stop();
       window.removeEventListener("dragover", swallowFileDrag);
       window.removeEventListener("drop", swallowFileDrag);
       document.removeEventListener("visibilitychange", onVisible);
-      document.removeEventListener("keydown", onKey);
+      stopJumpTo();
       window.removeEventListener("storage", onStorage);
       stopNotify();
-      clearTimeout(renewTimer);
+      header.stop();
       stopFavicon();
       stopSite();
-      offStore();
       offGone();
       router.stop();
       unread.stop();

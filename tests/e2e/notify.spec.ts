@@ -71,10 +71,13 @@ const popups = (page: Page) =>
 
 /** Run `go`, and wait until the notifications chunk it loads has subscribed (its POST /api/realtime is answered). */
 async function following(page: Page, go: () => Promise<unknown>) {
-  const chunk = page.waitForResponse((r) => /\/assets\/notify(-[A-Z0-9]+)?\.js$/.test(new URL(r.url()).pathname));
+  // Both waits start before `go`: the subscribe can be answered before a wait started after the chunk came would see it.
+  let loaded = false;
+  const chunk = page.waitForResponse((r) => (loaded ||= /\/assets\/notify(-[A-Z0-9]+)?\.js$/.test(new URL(r.url()).pathname)));
+  const subscribed = page.waitForResponse((r) => loaded && new URL(r.url()).pathname === "/api/realtime" && r.request().method() === "POST");
   await go();
   await chunk;
-  await page.waitForResponse((r) => new URL(r.url()).pathname === "/api/realtime" && r.request().method() === "POST");
+  await subscribed;
 }
 
 async function dmWith(me: User, other: User): Promise<{ id: string }> {

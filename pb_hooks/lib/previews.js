@@ -38,7 +38,6 @@ const MESSAGE_MS = 12_000;
 const UA = "Mozilla/5.0 (compatible; ChirkleLinkPreview/1.0)";
 
 const LOCK = "previews.worker";
-const RUN_MS = 57_000;
 /** A lock not renewed for this long (ms) is a worker that died. Renewed after every message, which takes under 30 s. */
 const STALE_MS = 120_000;
 const BATCH = 10;
@@ -210,17 +209,16 @@ function tools(/** @type {core.App} */ app) {
  */
 
 /**
- * One GET with curl (a POST of `data` when given), connecting to `ip` ("": as curl looks the host up, for allowed
+ * One GET with curl, connecting to `ip` ("": as curl looks the host up, for allowed
  * hosts), reading at most `max` bytes of the body. Throws when there is no response (a timeout, a refused connection).
  * @param {{ origin: string, path: string, scheme: string }} u
  * @param {string} ip
  * @param {Record<string, string>} headers
  * @param {number} seconds
  * @param {number} max
- * @param {string} [data]
  * @returns {Response}
  */
-function request(u, ip, headers, seconds, max, data) {
+function request(u, ip, headers, seconds, max) {
   const head = `${$os.tempDir()}/chirkle-preview-${$security.randomString(16)}`;
   // No ~/.curlrc, no proxy (it would look the host up itself), no globbing of [] and {} in the URL; no redirects (get
   // checks each). The headers go to a file, written as they come: there even when curl is stopped mid-body.
@@ -229,8 +227,6 @@ function request(u, ip, headers, seconds, max, data) {
   if (ip) args.push("--connect-to", `::${ip}:${u.scheme === "https" ? 443 : 80}`);
   args.push("--user-agent", UA);
   for (const [k, v] of Object.entries(headers)) args.push("--header", `${k}: ${v}`);
-  // --data-raw: as is, never "@file".
-  if (data !== undefined) args.push("--data-raw", data);
   args.push("--dump-header", head, "--output", "-", "--url", u.origin + u.path);
   try {
     const cmd = $os.cmd("curl", ...args);
@@ -315,29 +311,6 @@ function get(url, headers, timeout, max, dead) {
     at = resolve(res.headers.location, at);
   }
   return null;
-}
-
-/**
- * POST `data` to `url`, once: to a public address only (or a host in `allow`), connecting to the address checked,
- * and never following a redirect, which is answered as the status it is. For UnifiedPush (lib/push.js): $http.send
- * follows a redirect anywhere, inward too. Returns the status; throws when there is no answer or the host may not be
- * reached.
- * @param {string} url
- * @param {Record<string, string>} headers
- * @param {string} data
- * @param {number} seconds
- * @param {string[]} allow
- */
-function post(url, headers, data, seconds, allow) {
-  const u = parse(url);
-  if (!u) throw new Error("not an http(s) URL");
-  let ip = "";
-  if (!allow.includes(u.host)) {
-    if (!publicHost(u.host)) throw new Error("not a public host");
-    ip = addressOf(u.host);
-    if (!ip) throw new Error("not a public address");
-  }
-  return request(u, ip, headers, seconds, 4096, data).status;
 }
 
 // ---------------------------------------------------------------- pages and icons
@@ -617,30 +590,12 @@ function pass(app, beat) {
  * @param {core.App} app
  */
 function run(app) {
-  let mine = false;
-  app.store().setFunc(LOCK, (old) => {
-    if (old && Date.now() - Number(old) < STALE_MS) return old;
-    mine = true;
-    return Date.now();
+  require(`${__hooks}/lib/worker.js`).run(app, {
+    name: LOCK,
+    label: "previews",
+    staleMs: STALE_MS,
+    pass: (/** @type {() => void} */ renew) => pass(app, renew),
   });
-  if (!mine) return;
-  // Renewed after every message, not every pass: a pass of slow sites can outlast STALE_MS, and the next minute's run
-  // took the lock as stale and fetched the same messages alongside (QA BUG-111).
-  const beat = () => app.store().set(LOCK, Date.now());
-  try {
-    const until = Date.now() + RUN_MS;
-    while (Date.now() < until) {
-      try {
-        if (!pass(app, beat)) sleep(1000);
-      } catch (err) {
-        app.logger().error("previews: worker", "error", String(err));
-        sleep(1000);
-      }
-      beat();
-    }
-  } finally {
-    app.store().remove(LOCK);
-  }
 }
 
 /**
@@ -652,4 +607,4 @@ function tick(e) {
   return e.noContent(204);
 }
 
-module.exports = { enabled, linksOf, parse, publicHost, addressOf, resolve, post, queue, run, tick };
+module.exports = { enabled, linksOf, parse, publicHost, addressOf, resolve, queue, run, tick };

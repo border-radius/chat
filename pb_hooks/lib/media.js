@@ -36,7 +36,6 @@ const FFMPEG_SECONDS = 20;
 const RECENT_MS = 7 * 86_400_000;
 
 const LOCK = "media.worker";
-const RUN_MS = 57_000;
 const STALE_MS = 120_000;
 const BATCH = 10;
 
@@ -556,28 +555,12 @@ function setDims(app, id, file, size) {
  * @param {core.App} app
  */
 function run(app) {
-  let mine = false;
-  app.store().setFunc(LOCK, (old) => {
-    if (old && Date.now() - Number(old) < STALE_MS) return old;
-    mine = true;
-    return Date.now();
+  require(`${__hooks}/lib/worker.js`).run(app, {
+    name: LOCK,
+    label: "media",
+    staleMs: STALE_MS,
+    pass: (/** @type {() => void} */ renew) => pass(app, renew),
   });
-  if (!mine) return;
-  const beat = () => app.store().set(LOCK, Date.now());
-  try {
-    const until = Date.now() + RUN_MS;
-    while (Date.now() < until) {
-      try {
-        if (!pass(app, beat)) sleep(1000);
-      } catch (err) {
-        app.logger().error("media: worker", "error", String(err));
-        sleep(1000);
-      }
-      beat();
-    }
-  } finally {
-    app.store().remove(LOCK);
-  }
 }
 
 /**

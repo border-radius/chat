@@ -10,9 +10,7 @@ const { edit, remove, send } = require(`${__hooks}/telegram/outbound.js`);
 
 const LOCK = "telegram.worker";
 const OFFSET = "telegram.offset";
-/** How long one run goes on: the next one starts on the next minute. */
-const RUN_MS = 57_000;
-/** A lock not renewed for this long was left by a run that died. Renewed after every item a pass handles. */
+/** A lock not renewed for this long was left by a run that died (lib/worker.js). Renewed after every item a pass handles. */
 const STALE_MS = 90_000;
 /**
  * A queue row being sent is claimed (locked_until) for this long: no other pass sends it meanwhile, even one that took
@@ -24,46 +22,6 @@ const CLAIM_MS = 10 * 60_000;
 const MAX_TRIES = 8;
 /** Queue rows looked at in one pass. */
 const BATCH = 50;
-
-/**
- * Take the worker lock, unless another run holds it. Returns the run's handle on it ("" when not taken): `beat` renews
- * it, `unlock` lets it go, each only while it is still this run's. One taken over as stale (a pass that took too long)
- * is then the new run's: the old one stops at its next beat, and its unlock leaves the new run's lock alone (QA BUG-147).
- * @param {core.App} app
- */
-function lock(app) {
-  const me = $security.randomString(12);
-  let mine = false;
-  app.store().setFunc(LOCK, (old) => {
-    if (old && Date.now() - Number(String(old).split(" ")[1]) < STALE_MS) return old;
-    mine = true;
-    return `${me} ${Date.now()}`;
-  });
-  return mine ? me : "";
-}
-
-/**
- * Renew the lock of run `me`. False when it isn't its lock any more (another run took it over).
- * @param {core.App} app
- * @param {string} me
- */
-function beat(app, me) {
-  let mine = false;
-  app.store().setFunc(LOCK, (old) => {
-    if (String(old || "").split(" ")[0] !== me) return old;
-    mine = true;
-    return `${me} ${Date.now()}`;
-  });
-  return mine;
-}
-
-/** @param {core.App} app @param {string} me */
-function unlock(app, me) {
-  app.store().setFunc(LOCK, (old) => (String(old || "").split(" ")[0] === me ? undefined : old));
-}
-
-/** Thrown out of a pass whose run lost the lock: it stops there. */
-const LOST = "telegram: lock lost";
 
 /**
  * Claim queue row `id` for sending (locked_until), unless another pass has it. In a transaction: PocketBase's writes
@@ -160,16 +118,13 @@ function drain(app, renew) {
 }
 
 /**
- * One pass: poll (when polling), bring over complete albums, send what is queued. Run `me`'s lock is renewed after
- * each item; the pass stops (throws LOST) once it isn't this run's any more.
+ * One pass: poll (when polling), bring over complete albums, send what is queued. `renew` (the worker's lock) after
+ * each item. True when polling: the poll has already waited, so the next pass goes at once.
  * @param {core.App} app
  * @param {number} pollTimeout seconds
- * @param {string} me
+ * @param {() => void} renew
  */
-function pass(app, pollTimeout, me) {
-  const renew = () => {
-    if (!beat(app, me)) throw new Error(LOST);
-  };
+function pass(app, pollTimeout, renew) {
   if (!config().webhookUrl) {
     try {
       poll(app, pollTimeout);
@@ -180,30 +135,23 @@ function pass(app, pollTimeout, me) {
   }
   flushAlbums(app, undefined, undefined, renew);
   drain(app, renew);
+  return !config().webhookUrl;
 }
+
+/** The worker (lib/worker.js); a pass waits `pollTimeout` seconds at most for Telegram's updates. */
+const worker = (/** @type {core.App} */ app, /** @type {number} */ pollTimeout) => ({
+  name: LOCK,
+  label: "telegram",
+  staleMs: STALE_MS,
+  pass: (/** @type {() => void} */ renew) => pass(app, pollTimeout, renew),
+});
 
 /**
  * The cron job: passes until the minute is nearly over.
  * @param {core.App} app
  */
 function run(app) {
-  const me = lock(app);
-  if (!me) return;
-  try {
-    const until = Date.now() + RUN_MS;
-    while (Date.now() < until) {
-      try {
-        pass(app, 1, me);
-      } catch (err) {
-        if (String(err).includes(LOST)) return app.logger().warn("telegram: worker took too long, another run took over");
-        app.logger().error("telegram: worker", "error", String(err));
-      }
-      if (config().webhookUrl) sleep(1000);
-      if (!beat(app, me)) return;
-    }
-  } finally {
-    unlock(app, me);
-  }
+  require(`${__hooks}/lib/worker.js`).run(app, worker(app, 1));
 }
 
 /**
@@ -211,14 +159,8 @@ function run(app) {
  * @param {core.RequestEvent} e
  */
 function tick(e) {
-  const me = lock(e.app);
-  if (!me) return e.json(202, { ran: false });
-  try {
-    pass(e.app, 0, me);
-  } finally {
-    unlock(e.app, me);
-  }
-  return e.json(200, { ran: true });
+  const ran = require(`${__hooks}/lib/worker.js`).once(e.app, worker(e.app, 0));
+  return e.json(ran ? 200 : 202, { ran });
 }
 
 /**

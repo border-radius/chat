@@ -101,7 +101,14 @@ test("§18.3: opening a room reads only what is on screen; scrolling down reads 
   await b.waitForTimeout(1_500); // longer than the read batching
   await toLobby();
   // What was on screen is read, the messages below it aren't (the count is refetched once the read is in).
-  const badge = async () => Number.parseInt((await row.locator(".badge").textContent({ timeout: 1_000 }).catch(() => "0")) ?? "0", 10);
+  const badge = async () =>
+    Number.parseInt(
+      (await row
+        .locator(".badge")
+        .textContent({ timeout: 1_000 })
+        .catch(() => "0")) ?? "0",
+      10,
+    );
   await expect.poll(badge, { timeout: 3_000 }).toBeLessThan(25);
   const left = await badge();
   expect(left).toBeGreaterThan(0);

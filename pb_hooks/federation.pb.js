@@ -8,8 +8,9 @@
 // always registered but skip at once while there is no fed_peers row (`inUse`), so an instance that never linked pays
 // one cached lookup.
 //
-// Its hooks wrap the core ones (files load by name, and this one comes first): they read a record as it was, let the
-// save go on (e.next), then queue what a peer needs to hear, in the save's transaction.
+// What it does on the core collections' saves (rooms, users, messages) main.pb.js calls, through lib/features.js, in the
+// order stated there: it reads a record as it was, lets the save go on, then queues what a peer needs to hear, in the
+// save's transaction. Here: its routes, its worker, and the hooks of its own collections.
 
 routerAdd("POST", "/api/fed/request", (e) => {
   require(`${__hooks}/federation/config.js`).requireOn(e.app);
@@ -138,73 +139,3 @@ onRecordDeleteRequest((e) => {
   if (e.record) require(`${__hooks}/federation/rooms.js`).beforeShareDelete(e.app, e.record);
   e.next();
 }, "fed_shares");
-
-// Rooms: a home room's changes go to its mirrors; a DM opened with someone on a peer is shared with it.
-onRecordCreate((e) => {
-  if (!require(`${__hooks}/federation/config.js`).inUse(e.app)) return e.next();
-  e.next();
-  if (e.record) require(`${__hooks}/federation/rooms.js`).roomCreated(e.app, e.record);
-}, "rooms");
-
-onRecordUpdate((e) => {
-  if (!require(`${__hooks}/federation/config.js`).inUse(e.app)) return e.next();
-  const rooms = require(`${__hooks}/federation/rooms.js`);
-  const before = e.record ? rooms.stateOf(e.record.original()) : "";
-  e.next();
-  if (e.record) rooms.roomChanged(e.app, e.record, before);
-}, "rooms");
-
-onRecordUpdateRequest((e) => {
-  if (!require(`${__hooks}/federation/config.js`).inUse(e.app)) return e.next();
-  const rooms = require(`${__hooks}/federation/rooms.js`);
-  rooms.checkHomeMembers(e);
-  const change = rooms.checkMirrorEdit(e);
-  e.next();
-  if (change && e.record) rooms.sendMembers(e.app, e.record, change);
-}, "rooms");
-
-onRecordDelete((e) => {
-  if (!require(`${__hooks}/federation/config.js`).inUse(e.app)) return e.next();
-  const rooms = require(`${__hooks}/federation/rooms.js`);
-  const room = e.record;
-  const peers = room ? rooms.peersToTell(e.app, room) : [];
-  e.next();
-  if (room) rooms.tellDeleted(e.app, room, peers);
-}, "rooms");
-
-// People: names ending in a peer's label are its people's; a changed profile goes to the peers that know it.
-onRecordCreateRequest((e) => {
-  if (!require(`${__hooks}/federation/config.js`).inUse(e.app)) return e.next();
-  require(`${__hooks}/federation/people.js`).refuseLabelName(e);
-  e.next();
-}, "users");
-
-onRecordUpdateRequest((e) => {
-  if (!require(`${__hooks}/federation/config.js`).inUse(e.app)) return e.next();
-  require(`${__hooks}/federation/people.js`).refuseLabelName(e);
-  e.next();
-}, "users");
-
-onRecordUpdate((e) => {
-  if (!require(`${__hooks}/federation/config.js`).inUse(e.app)) return e.next();
-  const people = require(`${__hooks}/federation/people.js`);
-  const before = e.record ? people.profileKey(e.record.original()) : "";
-  e.next();
-  if (e.record) people.userChanged(e.app, e.record, before);
-}, "users");
-
-// Messages in shared rooms (§33.5).
-onRecordCreate((e) => {
-  if (!require(`${__hooks}/federation/config.js`).inUse(e.app)) return e.next();
-  e.next();
-  if (e.record) require(`${__hooks}/federation/messages.js`).messageCreated(e.app, e.record);
-}, "messages");
-
-onRecordUpdate((e) => {
-  if (!require(`${__hooks}/federation/config.js`).inUse(e.app)) return e.next();
-  const messages = require(`${__hooks}/federation/messages.js`);
-  const was = e.record ? messages.before(e.record) : null;
-  if (e.record) messages.checkMirrorChange(e.app, e.record);
-  e.next();
-  if (e.record && was) messages.messageChanged(e.app, e.record, was);
-}, "messages");

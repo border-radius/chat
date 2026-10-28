@@ -284,8 +284,9 @@ its token after the first frame of a session and deletes it on log out. FCM `UNR
   URLs, POSTed to directly, with the same address checks as link previews (§28.1), and with their fetcher (curl, the
   checked address pinned): a redirect isn't followed (QA BUG-141), so an endpoint must answer where it is registered.
 
-**Superseded on 2026-10-24 (§21):** the app no longer uses FCM or any push service; it checks for news itself. The
-server's push collections and worker stay (nothing registers with them now).
+**Superseded on 2026-10-24 (§21):** the app no longer uses FCM or any push service; it checks for news itself.
+**Removed on 2026-10-28** (docs/REFACTOR.md round 4): `push_tokens`, `push_queue`, `pb_hooks/lib/push.js` and
+`lib/google.js` are gone (migration `1760000038_drop_push.js`). This section describes what was built.
 
 ### 8.3 On the device
 
@@ -485,7 +486,9 @@ and compileSdk 37, so §5's "Kotlin 2.2, AGP 8" became:
 
 As §8.1, §9.4 and §12.4 describe: migration `1760000026_push.js`, `pb_hooks/lib/push.js`, `pb_hooks/lib/google.js`,
 tested by `tests/integration/push.test.ts` against a stub FCM that checks the token's signature with the service
-account's public key.
+account's public key. The push parts were removed on 2026-10-28 (§8 note): what is left is App Links (`lib/site.js`)
+and the minimum version, tested by `tests/integration/android.test.ts`. The FCM, UnifiedPush and `PUSH_*` settings
+below no longer exist.
 
 | Setting | Effect |
 |---|---|
@@ -784,12 +787,13 @@ works the same on de-Googled phones and on any server, with no push credentials 
 - Notifications are the ones of §8.3 and §17.4 (MessagingStyle, Reply and Mark as read, per account and room); one
   alert per room per check. A room read elsewhere loses its notification at the next check (or live, while the app
   runs). The room is prefetched so it opens at once.
-- A Firebase build's `push_tokens` row is unregistered by the first check (or at log out).
+- A Firebase build's `push_tokens` row was unregistered by the first check (or at log out), until the server dropped
+  the collection (2026-10-28, §8 note).
 
 ### 21.3 Server
 
-Unchanged. The push collections, hook and worker (§8.1, §8.2) stay but are unused by the app: no server needs
-`FCM_SERVICE_ACCOUNT` for it.
+Unchanged. The push collections, hook and worker (§8.1, §8.2) stayed, unused by the app, until 2026-10-28 (removed,
+§8 note).
 
 The web app got the same notifications on 2026-10-24 (DESIGN.md §34: DMs and replies, chosen on the profile page, live
 while a tab is open, a pop-up and/or a sound). No server or API change, so nothing for the app to follow; its
@@ -1027,3 +1031,20 @@ reads it (the message fields ask for `file_dims`). In `Attachments.kt`, a lone i
 at once instead of the 240 × 160 placeholder, and an image tile in a row of several takes its width (80–112 dp)
 before it loads. Video tiles in a row keep their fixed size. A file whose shape the server doesn't know yet, and a
 message still sending, behave as before. `CollectionsTest` checks that an attached collection item gets its shape.
+
+## 30. Shared contract and push removed (2026-10-28)
+
+This section covers the app's side of the architecture review (docs/REFACTOR.md round 4).
+
+- **Contract:** `ContractTest` checks the app's field lists (`MSG_FIELDS`, `ROOM_FIELDS`, `USER_FIELDS`, `ROW_FIELDS`,
+  `ITEM_FIELDS`, `ACTIVITY_FIELDS`; all but the first two are now `internal` rather than `private`), its `Limits` and
+  its file types against the repository's `shared/contract.json`. The web and the server are checked against the same
+  file. docs/API.md lists what the app relies on from the server, and what a server change has to keep working for
+  installed apps.
+- **Shared vectors:** `VectorsTest` runs `shared/vectors/` (folding, search queries, highlighting, lengths, blank text,
+  Jump to). The web and the server's `lib/text.js` run the same cases. Tests find the files through the build's
+  `chirkle.repoRoot`.
+- **Push removed:** the server no longer has `push_tokens` or `push_queue` (§8 note). Gone from the app:
+  `registerPush`, `unregisterPush`, `NotifyCheck.forgetPushToken` (with its calls in `CheckWorker` and at log out),
+  `SessionHooks.beforeSignOut` (push was its only use) and `Keys.PUSH_ROW`. A value left under that key by a Firebase
+  build is never read.

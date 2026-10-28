@@ -1,7 +1,8 @@
 /// <reference path="../types/pocketbase.d.ts" />
 // Telegram bridge (DESIGN.md §26): messages go both ways between rooms and the Telegram groups they are linked to.
-// Self-contained: this file, telegram/ and the tg_* collections (pb_migrations/1760000019_telegram.js); nothing else
-// knows about it. Without TELEGRAM_BOT_TOKEN it registers nothing. To remove it, delete this file and telegram/.
+// This file, telegram/ and the tg_* collections (pb_migrations/1760000019_telegram.js); what it does on the core
+// collections' saves (messages, users) main.pb.js calls through lib/features.js, which is off without
+// TELEGRAM_BOT_TOKEN. Without it this file registers nothing either.
 
 if ($os.getenv("TELEGRAM_BOT_TOKEN").trim()) {
   // Only when serving: other commands (migrate, superuser…) bootstrap too.
@@ -14,28 +15,6 @@ if ($os.getenv("TELEGRAM_BOT_TOKEN").trim()) {
   routerAdd("POST", "/api/telegram/tick", (e) => require(`${__hooks}/telegram/worker.js`).tick(e), $apis.requireSuperuserAuth());
 
   cronAdd("telegram", "* * * * *", () => require(`${__hooks}/telegram/worker.js`).run($app));
-
-  onRecordCreate((e) => {
-    e.next();
-    if (e.record) require(`${__hooks}/telegram/outbound.js`).queueCreate(e.app, e.record);
-  }, "messages");
-
-  onRecordUpdate((e) => {
-    const outbound = require(`${__hooks}/telegram/outbound.js`);
-    const change = e.record ? outbound.changeOf(e.record) : "";
-    e.next();
-    if (e.record) outbound.queueUpdate(e.app, e.record, change);
-  }, "messages");
-
-  onRecordCreateRequest((e) => {
-    require(`${__hooks}/telegram/people.js`).refuseStandInName(e);
-    e.next();
-  }, "users");
-
-  onRecordUpdateRequest((e) => {
-    require(`${__hooks}/telegram/people.js`).refuseStandInName(e);
-    e.next();
-  }, "users");
 
   // A room says when a group is connected to it or disconnected from it (a service message, §26.5).
   onRecordCreate((e) => {

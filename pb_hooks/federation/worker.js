@@ -9,9 +9,9 @@ const { isActive, jsonOf, peerHost } = require(`${__hooks}/federation/config.js`
 const { call, errorOf, jsonBody } = require(`${__hooks}/federation/net.js`);
 const { applyMessage, MAX_FILES } = require(`${__hooks}/federation/messages.js`);
 const { setDown } = require(`${__hooks}/federation/rooms.js`);
+const { isLost } = require(`${__hooks}/lib/worker.js`);
 
 const LOCK = "federation.worker";
-const RUN_MS = 57_000;
 const STALE_MS = 90_000;
 const CLAIM_MS = 10 * 60_000;
 const BATCH = 50;
@@ -23,36 +23,6 @@ const MAX_WAIT_S = 600;
 const DOWN_AFTER = 3;
 const MAX_FILE = 20 * 1024 * 1024;
 const MAX_AVATAR = 5 * 1024 * 1024;
-
-/** @param {core.App} app */
-function lock(app) {
-  const me = $security.randomString(12);
-  let mine = false;
-  app.store().setFunc(LOCK, (old) => {
-    if (old && Date.now() - Number(String(old).split(" ")[1]) < STALE_MS) return old;
-    mine = true;
-    return `${me} ${Date.now()}`;
-  });
-  return mine ? me : "";
-}
-
-/** @param {core.App} app @param {string} me */
-function beat(app, me) {
-  let mine = false;
-  app.store().setFunc(LOCK, (old) => {
-    if (String(old || "").split(" ")[0] !== me) return old;
-    mine = true;
-    return `${me} ${Date.now()}`;
-  });
-  return mine;
-}
-
-/** @param {core.App} app @param {string} me */
-function unlock(app, me) {
-  app.store().setFunc(LOCK, (old) => (String(old || "").split(" ")[0] === me ? undefined : old));
-}
-
-const LOST = "federation: lock lost";
 
 /**
  * Claim queue row `id` unless another pass has it, or it isn't due yet.
@@ -369,14 +339,11 @@ function prune(app) {
 }
 
 /**
- * One pass over every active peer.
+ * One pass over every active peer. `renew` (the worker's lock) after each item.
  * @param {core.App} app
- * @param {string} me
+ * @param {() => void} renew
  */
-function pass(app, me) {
-  const renew = () => {
-    if (!beat(app, me)) throw new Error(LOST);
-  };
+function pass(app, renew) {
   prune(app);
   for (const peer of app.findRecordsByFilter("fed_peers", "status = 'active'", "created", 0, 0)) {
     if (!peer || !isActive(peer)) continue;
@@ -385,40 +352,37 @@ function pass(app, me) {
       renew();
       doWork(app, peer, renew);
     } catch (err) {
-      if (String(err).includes(LOST)) throw err;
+      if (isLost(err)) throw err;
       app.logger().error("federation: worker", "peer", peerHost(peer), "error", String(err));
     }
   }
 }
 
 /**
- * The cron job: passes, once a second, until the minute is nearly over.
+ * The cron job (lib/worker.js): passes, once a second, until the minute is nearly over; pending requests every 30 s.
  * @param {core.App} app
  */
 function run(app) {
-  const me = lock(app);
-  if (!me) return;
-  try {
-    const until = Date.now() + RUN_MS;
-    let pendingAt = 0;
-    while (Date.now() < until) {
+  let pendingAt = 0;
+  require(`${__hooks}/lib/worker.js`).run(app, {
+    ...worker(app),
+    pass: (/** @type {() => void} */ renew) => {
       if (Date.now() - pendingAt >= PENDING_MS) {
         pending(app);
         pendingAt = Date.now();
       }
-      try {
-        pass(app, me);
-      } catch (err) {
-        if (String(err).includes(LOST)) return app.logger().warn("federation: worker took too long, another run took over");
-        app.logger().error("federation: worker", "error", String(err));
-      }
-      sleep(1000);
-      if (!beat(app, me)) return;
-    }
-  } finally {
-    unlock(app, me);
-  }
+      pass(app, renew);
+    },
+  });
 }
+
+/** @param {core.App} app */
+const worker = (app) => ({
+  name: LOCK,
+  label: "federation",
+  staleMs: STALE_MS,
+  pass: (/** @type {() => void} */ renew) => pass(app, renew),
+});
 
 /** How often a run looks at pending pairing requests. */
 const PENDING_MS = 30_000;
@@ -442,14 +406,8 @@ function pending(app) {
  */
 function tick(e) {
   pending(e.app);
-  const me = lock(e.app);
-  if (!me) return e.json(202, { ran: false });
-  try {
-    pass(e.app, me);
-  } finally {
-    unlock(e.app, me);
-  }
-  return e.json(200, { ran: true });
+  const ran = require(`${__hooks}/lib/worker.js`).once(e.app, worker(e.app));
+  return e.json(ran ? 200 : 202, { ran });
 }
 
 module.exports = { run, tick };

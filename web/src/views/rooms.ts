@@ -43,7 +43,10 @@ export function visibilityMark(v: Visibility): HTMLElement | null {
   ]);
 }
 
-export function createRoomsView({ api, store, sync, unread, actions, navigate, collections }: Ctx): View {
+/** What the room list uses of the app shell's services. */
+export type RoomsCtx = Pick<Ctx, "api" | "store" | "sync" | "unread" | "actions" | "navigate" | "collections">;
+
+export function createRoomsView({ api, store, sync, unread, actions, navigate, collections }: RoomsCtx): View {
   const id = uniqueId("rooms");
   let root: HTMLElement;
   let scope: Scope;

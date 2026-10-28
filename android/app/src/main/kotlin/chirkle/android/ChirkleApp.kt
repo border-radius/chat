@@ -100,10 +100,6 @@ class AppHooks(private val app: ChirkleApp, private val id: String) : chirkle.an
         CheckWorker.schedule(app)
     }
 
-    override suspend fun beforeSignOut() {
-        app.servicesFor(id)?.notifyCheck?.forgetPushToken()
-    }
-
     override suspend fun onSignedOut() {
         Notifications.cancelAccount(app, id)
         androidx.work.WorkManager.getInstance(app).cancelUniqueWork(OutboxWorker.name(id))

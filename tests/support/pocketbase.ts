@@ -53,6 +53,30 @@ routerAdd(
   },
   $apis.requireSuperuserAuth(),
 );
+
+// The workers' lock (lib/worker.js), step by step: [{ op: "lock" | "beat" | "unlock" | "sleep" | "get", run, ms }].
+// Each step's result in order; "lock" names the run by the handle it got.
+routerAdd(
+  "POST",
+  "/api/test/worker-lock",
+  (e) => {
+    const w = require(\`\${__hooks}/lib/worker.js\`);
+    const { name, staleMs, steps } = e.requestInfo().body;
+    const runs = {};
+    const out = [];
+    for (const s of steps) {
+      if (s.op === "lock") {
+        runs[s.run] = w.lock(e.app, name, staleMs);
+        out.push(runs[s.run] !== "");
+      } else if (s.op === "beat") out.push(w.beat(e.app, name, runs[s.run]));
+      else if (s.op === "unlock") out.push(w.unlock(e.app, name, runs[s.run]) ?? null);
+      else if (s.op === "sleep") out.push(sleep(s.ms) ?? null);
+      else if (s.op === "get") out.push(e.app.store().get(name) ? String(e.app.store().get(name)).split(" ")[0] === runs[s.run] : false);
+    }
+    return e.json(200, out);
+  },
+  $apis.requireSuperuserAuth(),
+);
 `;
 
 /** A copy of pb_hooks with the fixture route added. */

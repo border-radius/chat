@@ -48,7 +48,10 @@ export function mergeChanges(a: Change, b: Change): Change {
   return c;
 }
 
-export function createRoomView({ api, store, unread, actions, navigate, reopen, drafts, cache, collections, notify }: Ctx): View {
+/** What the room view uses of the app shell's services. */
+export type RoomCtx = Pick<Ctx, "api" | "store" | "unread" | "actions" | "navigate" | "reopen" | "drafts" | "cache" | "collections" | "notify">;
+
+export function createRoomView({ api, store, unread, actions, navigate, reopen, drafts, cache, collections, notify }: RoomCtx): View {
   const vid = uniqueId("room");
   const scope = createScope();
   const { signal } = scope;

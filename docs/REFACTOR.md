@@ -382,3 +382,62 @@ opens.
 - [ ] **Owner's call:** load the picker as a lazy chunk on first open, as the image viewer already is (§17.7): frees
       about a tenth of the budget, but the first open needs the network (offline, the picker wouldn't open; the viewer
       falls back to a new tab, the picker has no such fallback). Or raise the budget on purpose, as §21 and §23 did.
+
+---
+
+## Round 4 (2026-10-28), architecture review
+
+The review's findings and what came of them, in the order they were done. `npm run check` stays green throughout,
+and so do the Chromium e2e suite and the app's tests.
+
+### 33. One worker loop and lock (`pb_hooks/lib/worker.js`) ✅
+- [x] Five copies of the cron worker's loop and lock (previews, media, push, Telegram, federation) are now `run(app,
+      worker)` and `once(app, worker)` for the tick routes. The workers keep their own passes and stale times.
+- [x] **A real bug, fixed on the way:** the previews', media and push locks had no owner. A run that took over a
+      stale lock was left without one when the old run's `finally` removed it, so a third run could start alongside
+      (the Telegram and federation locks already had owners, QA BUG-147). Every worker now stops at its next renew once
+      its lock is another run's. Test: `tests/integration/worker.test.ts`, through a test-only route that drives the
+      lock step by step.
+
+### 34. The core hooks in one place, in a stated order ✅
+- [x] `federation.pb.js` wrapped the core hooks only because PocketBase loads files by name, and "federation" sorts
+      before "main". Every hook on `messages`, `rooms` and `users` is now in `main.pb.js`, and it calls the features'
+      parts (`lib/features.js`) in the same order as before: federation, core, Telegram; after the save, the reverse.
+      The feature files keep their routes, workers and the hooks of their own collections.
+- [x] A new message's follow-ups (Telegram queue, previews, media index, federation) are listed in one place.
+
+### 35. A written client contract, shared values and shared test vectors ✅
+- [x] `docs/API.md`: what the web and the app rely on (collections, filters, routes, realtime topics), and how to
+      change any of it without breaking installed apps.
+- [x] `shared/contract.json`: field lists, limits and file types. `tests/unit/contract.test.ts` checks the web's and
+      the hooks' copies against it; `ContractTest.kt` checks the app's.
+- [x] `shared/vectors/`: text folding, search queries, highlighting, lengths, blank text, Jump to's fold and score.
+      They are run by the web (`tests/unit/vectors.test.ts`), the server's `lib/text.js` (same test) and the app
+      (`VectorsTest.kt`).
+- [ ] **Not done:** moving message pages and the room list behind `/api/chat/*` routes, so that the clients stop
+      writing filters. Both clients would change, and installed apps need the old way kept (API.md). Worth doing
+      when the schema next has to change in a way that would break them.
+
+### 36. Push removed ✅ (owner's decision)
+- [x] Since ANDROID.md §21 nothing registered push tokens. Removed `lib/push.js`, `lib/google.js`, the push cron and
+      tick route, `push_tokens` and `push_queue` (migration `1760000038_drop_push.js`), and the app's
+      `registerPush` / `unregisterPush` / `forgetPushToken`. App Links moved to `lib/site.js`; its tests, and the
+      minimum version's, are now `tests/integration/android.test.ts`. Link previews lost `post()`, which only push
+      used.
+
+### 37. App shell and view contexts ✅
+- [x] `app.ts` (458 → ~320 lines): session renewal and checks are `renewal.ts`, the app bar is `header.ts`, the
+      Ctrl+K shortcut is `jump.ts`. The module-level `panes` singleton is now per app.
+- [x] Views take the part of `Ctx` they use (`RoomCtx`, `RoomsCtx`, `Pick<Ctx, …>`).
+
+### 38. The collections chunk split ✅ (owner's decision: no shared chunk)
+- [x] `views/collection/lazy.ts` (1,052 lines) is now the chunk's entry, re-exporting `page.ts`, `save.ts`, `picker.ts`
+      and `create.ts`, with `calls.ts` (its typed requests and `ITEM_FIELDS`) and `shared.ts`. The no-shared-chunk
+      rule stays. collJs went from 6.66 KB (with the contract's export) to 6.64 KB.
+
+### Left open from the review
+- Scale (§26 above): `UNREAD_SQL`, realtime fan-out, queue polling. Not needed at the measured sizes.
+- Splitting the other large files (`views/room.ts`, `room/controller.ts`, `federation/rooms.js`, `previews.js`, Android's
+  `ChirkleApi.kt` and `RoomController.kt`). Shared vectors for the room window logic, which both clients implement.
+- `keepToRoom` (enrich hook) looks up the room per message with reactions or a reply.
+- "Unit" tests that start PocketBase: worth splitting into true unit tests and component tests.

@@ -1,5 +1,5 @@
 /// <reference path="../types/pocketbase.d.ts" />
-// Server-side hooks (DESIGN.md §5.6, §16, §18, §20, §21, §22, §23, §24, §28, §30, §31; docs/ANDROID.md §8, §9.4). Logic lives in lib/, one module per collection
+// Server-side hooks (DESIGN.md §5.6, §16, §18, §20, §21, §22, §23, §24, §28, §30, §31; docs/ANDROID.md §9.4). Logic lives in lib/, one module per collection
 // or route: PocketBase hook handlers can't see top-level variables, so each handler require()s its module.
 
 onBootstrap((e) => {
@@ -20,12 +20,11 @@ routerUse((e) => require(`${__hooks}/lib/http.js`).bodyLimit(e));
 // Not the app's index.html (PocketBase's fallback for any other path, §7.1) for a missing asset or API.
 routerAdd("GET", "/assets/{path...}", (e) => require(`${__hooks}/lib/http.js`).asset(e));
 routerAdd("GET", "/manifest.webmanifest", (e) => require(`${__hooks}/lib/site.js`).manifest(e));
-routerAdd("GET", "/.well-known/assetlinks.json", (e) => require(`${__hooks}/lib/push.js`).assetLinks(e));
+routerAdd("GET", "/.well-known/assetlinks.json", (e) => require(`${__hooks}/lib/site.js`).assetLinks(e));
 routerAdd("GET", "/api/{path...}", () => {
   throw new NotFoundError();
 });
 routerAdd("POST", "/api/previews/tick", (e) => require(`${__hooks}/lib/previews.js`).tick(e), $apis.requireSuperuserAuth());
-routerAdd("POST", "/api/push/tick", (e) => require(`${__hooks}/lib/push.js`).tick(e), $apis.requireSuperuserAuth());
 routerAdd("POST", "/api/chat/dms", (e) => require(`${__hooks}/lib/dms.js`).openDm(e), $apis.requireAuth("users"));
 routerAdd("GET", "/api/chat/unread", (e) => require(`${__hooks}/lib/reads.js`).unread(e), $apis.requireAuth("users"));
 routerAdd("GET", "/api/chat/unread/{room}", (e) => require(`${__hooks}/lib/reads.js`).firstUnread(e), $apis.requireAuth("users"));
@@ -47,13 +46,29 @@ routerAdd("POST", "/api/media/tick", (e) => require(`${__hooks}/lib/media.js`).t
 routerAdd("GET", "/api/chat/users", (e) => require(`${__hooks}/lib/users.js`).searchUsers(e), $apis.requireAuth("users"));
 routerAdd("POST", "/api/chat/password", (e) => require(`${__hooks}/lib/account.js`).changePassword(e), $apis.requireAuth("users"));
 
+// The core collections' hooks (messages, rooms, users) are all here, with the optional features' parts (lib/features.js)
+// called in order: the federation's first, then the core's, then the Telegram bridge's; after the save, the other way
+// round.
+
 onRecordCreate((e) => {
   require(`${__hooks}/lib/users.js`).beforeUserSave(e);
   e.next();
 }, "users");
 
 onRecordUpdate((e) => {
+  const fed = require(`${__hooks}/lib/features.js`).federation(e.app);
+  // A changed profile goes to the peers that know it (§33).
+  const profile = fed && e.record ? fed.people.profileKey(e.record.original()) : "";
   require(`${__hooks}/lib/users.js`).beforeUserSave(e);
+  e.next();
+  if (fed && e.record) fed.people.userChanged(e.app, e.record, profile);
+}, "users");
+
+// Names ending in a peer's label are its people's (§33), and a Telegram stand-in's are the bridge's (§26).
+onRecordUpdateRequest((e) => {
+  const features = require(`${__hooks}/lib/features.js`);
+  features.federation(e.app)?.people.refuseLabelName(e);
+  features.telegram()?.people.refuseStandInName(e);
   e.next();
 }, "users");
 
@@ -63,7 +78,10 @@ onRecordDelete((e) => {
 }, "users");
 
 onRecordCreateRequest((e) => {
+  const features = require(`${__hooks}/lib/features.js`);
+  features.federation(e.app)?.people.refuseLabelName(e);
   require(`${__hooks}/lib/site.js`).checkInvite(e);
+  features.telegram()?.people.refuseStandInName(e);
   e.next();
 }, "users");
 
@@ -83,22 +101,42 @@ onRecordCreateRequest((e) => {
 }, "rooms");
 
 onRecordUpdateRequest((e) => {
+  // A shared room's members (§33.5): checked against what each side may change, and sent once saved.
+  const fed = require(`${__hooks}/lib/features.js`).federation(e.app);
+  if (fed) fed.rooms.checkHomeMembers(e);
+  const members = fed ? fed.rooms.checkMirrorEdit(e) : null;
   require(`${__hooks}/lib/rooms.js`).beforeRoomUpdateRequest(e);
   e.next();
+  if (fed && members && e.record) fed.rooms.sendMembers(e.app, e.record, members);
 }, "rooms");
 
 onRecordCreate((e) => {
+  const fed = require(`${__hooks}/lib/features.js`).federation(e.app);
   require(`${__hooks}/lib/rooms.js`).beforeRoomCreate(e);
   e.next();
+  // A DM opened with someone on a peer is shared with it (§33).
+  if (fed && e.record) fed.rooms.roomCreated(e.app, e.record);
 }, "rooms");
 
 onRecordUpdate((e) => {
+  const fed = require(`${__hooks}/lib/features.js`).federation(e.app);
+  const state = fed && e.record ? fed.rooms.stateOf(e.record.original()) : "";
   require(`${__hooks}/lib/rooms.js`).beforeRoomUpdate(e);
   const access = require(`${__hooks}/lib/access.js`);
   const before = access.accessOf(e.record?.original() ?? e.record);
   e.next();
   // Saved: whoever can't see it any more is told (§23.4).
   if (e.record) access.dropLostAccess(e.app, before, e.record);
+  // A home room's changes go to its mirrors (§33).
+  if (fed && e.record) fed.rooms.roomChanged(e.app, e.record, state);
+}, "rooms");
+
+onRecordDelete((e) => {
+  const fed = require(`${__hooks}/lib/features.js`).federation(e.app);
+  const room = e.record;
+  const peers = fed && room ? fed.rooms.peersToTell(e.app, room) : [];
+  e.next();
+  if (fed && room) fed.rooms.tellDeleted(e.app, room, peers);
 }, "rooms");
 
 onRecordCreateRequest((e) => {
@@ -155,15 +193,15 @@ onRecordCreate((e) => {
   messages.beforeMessageCreate(e);
   if (e.record) messages.setTextKey(e.record);
   e.next();
-  if (e.record) require(`${__hooks}/lib/previews.js`).queue(e.app, e.record);
-  if (e.record) require(`${__hooks}/lib/push.js`).queue(e.app, e.record);
-  if (e.record) require(`${__hooks}/lib/media.js`).add(e.app, e.record);
+  const rec = e.record;
+  if (!rec) return;
+  // Saved: what each feature does with a new message is queued, in the save's transaction.
+  const features = require(`${__hooks}/lib/features.js`);
+  features.telegram()?.outbound.queueCreate(e.app, rec);
+  require(`${__hooks}/lib/previews.js`).queue(e.app, rec);
+  require(`${__hooks}/lib/media.js`).add(e.app, rec);
+  features.federation(e.app)?.messages.messageCreated(e.app, rec);
 }, "messages");
-
-onRecordCreateRequest((e) => {
-  require(`${__hooks}/lib/push.js`).beforeTokenCreate(e);
-  e.next();
-}, "push_tokens");
 
 onRecordAfterCreateSuccess((e) => {
   require(`${__hooks}/lib/messages.js`).afterMessageCreate(e);
@@ -171,18 +209,29 @@ onRecordAfterCreateSuccess((e) => {
 }, "messages");
 
 onRecordUpdate((e) => {
+  const rec = e.record;
+  if (!rec) return e.next();
+  const features = require(`${__hooks}/lib/features.js`);
+  // Messages in shared rooms (§33.5): what it was, and a mirror's message changed only as its home allows.
+  const fed = features.federation(e.app);
+  const was = fed ? fed.messages.before(rec) : null;
+  if (fed) fed.messages.checkMirrorChange(e.app, rec);
   const messages = require(`${__hooks}/lib/messages.js`);
   messages.beforeMessageUpdate(e);
-  if (e.record) messages.setTextKey(e.record);
-  const touch = !!e.record && messages.changesForwards(e.record);
-  const edited = !!e.record && e.record.getString("text") !== e.record.original().getString("text");
-  const deleted = !!e.record && e.record.getBool("deleted") && !e.record.original().getBool("deleted");
+  messages.setTextKey(rec);
+  const touch = messages.changesForwards(rec);
+  const edited = rec.getString("text") !== rec.original().getString("text");
+  const deleted = rec.getBool("deleted") && !rec.original().getBool("deleted");
+  const tg = features.telegram();
+  const change = tg ? tg.outbound.changeOf(rec) : "";
   e.next();
+  if (tg) tg.outbound.queueUpdate(e.app, rec, change);
   // Saved: a deleted message's media leave the grid, its forwards' too (§30.1).
-  if (deleted && e.record) require(`${__hooks}/lib/media.js`).drop(e.app, e.record.id);
+  if (deleted) require(`${__hooks}/lib/media.js`).drop(e.app, rec.id);
   // Saved: forwards of it tell their readers (§21.3).
-  if (touch && e.record) messages.touchForwards(e.app, e.record);
-  if (edited && e.record) require(`${__hooks}/lib/previews.js`).queue(e.app, e.record);
+  if (touch) messages.touchForwards(e.app, rec);
+  if (edited) require(`${__hooks}/lib/previews.js`).queue(e.app, rec);
+  if (fed && was) fed.messages.messageChanged(e.app, rec, was);
 }, "messages");
 
 onRecordEnrich((e) => {
@@ -210,10 +259,4 @@ if (require(`${__hooks}/lib/previews.js`).enabled()) {
 // leaves them to POST /api/media/tick (tests).
 if ($os.getenv("MEDIA_CRON").trim().toLowerCase() !== "off") {
   cronAdd("media", "* * * * *", () => require(`${__hooks}/lib/media.js`).run($app));
-}
-
-// Push notifications for the Android app (docs/ANDROID.md §8): sent by a worker, a minute's run at a time. PUSH_CRON=off
-// leaves them to POST /api/push/tick (tests, which decide when a push goes).
-if (require(`${__hooks}/lib/push.js`).enabled() && $os.getenv("PUSH_CRON").trim().toLowerCase() !== "off") {
-  cronAdd("push", "* * * * *", () => require(`${__hooks}/lib/push.js`).run($app));
 }

@@ -32,7 +32,7 @@ export function chunkContext({ api, store, collections }: Pick<Ctx, "api" | "sto
   };
 }
 
-export function createCollectionView(ctx: Ctx): View {
+export function createCollectionView(ctx: Pick<Ctx, "api" | "store" | "collections" | "navigate">): View {
   const scope = createScope();
   let root: HTMLElement;
   return {

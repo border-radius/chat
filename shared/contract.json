@@ -1,0 +1,56 @@
+{
+  "$comment": "What the clients (web/, android/) and the server (pb_hooks/) must agree on, kept in one place: docs/API.md says what each is for. tests/unit/contract.test.ts checks the web's and the hooks' copies against it, android/core/data/src/test/kotlin/chirkle/android/data/lib/ContractTest.kt the app's; tests/integration/schema.test.ts checks the limits against the migrations.",
+  "fields": {
+    "message": "id,room,text,created,updated,edited_at,deleted,files,file_names,file_sources,file_dims,reactions,previews,author,expand.author.id,expand.author.name,expand.author.avatar,expand.author.no_dms,expand.author.instance,reply_to,expand.reply_to.id,expand.reply_to.author,expand.reply_to.text,expand.reply_to.deleted,expand.reply_to.files,expand.reply_to.expand.author.id,expand.reply_to.expand.author.name,forwarded_from,forward_of,expand.forwarded_from.id,expand.forwarded_from.name",
+    "room": "id,name,archived,created_by,kind,visibility,members,posting,writers,last_message_at,created,shared,expand.members.id,expand.members.name,expand.members.avatar,expand.members.no_dms,expand.members.instance,expand.writers.id,expand.writers.name,expand.writers.avatar,expand.writers.no_dms,expand.writers.instance",
+    "user": "id,name,avatar,instance",
+    "roomRow": "id,room",
+    "activity": "id,room,author,deleted",
+    "collectionItem": "id,collection,file,name,video,poster,created"
+  },
+  "limits": {
+    "messageText": 2000,
+    "userName": 32,
+    "roomName": 48,
+    "passwordMin": 8,
+    "avatarBytes": 2097152,
+    "avatarTypes": [
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+      "image/gif"
+    ],
+    "attachments": 10,
+    "attachmentBytes": 20971520,
+    "roomMembers": 100,
+    "maxSelected": 50
+  },
+  "files": {
+    "image": [
+      "jpg",
+      "jpeg",
+      "png",
+      "gif",
+      "webp",
+      "avif"
+    ],
+    "video": [
+      "mp4",
+      "m4v",
+      "webm",
+      "mov",
+      "ogv"
+    ],
+    "audio": [
+      "mp3",
+      "m4a",
+      "aac",
+      "ogg",
+      "oga",
+      "opus",
+      "wav",
+      "flac",
+      "weba"
+    ]
+  }
+}

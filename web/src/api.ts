@@ -185,7 +185,7 @@ export interface Api {
   /** A page of the room's images and videos, newest first, older than `after` (the oldest shown) or the newest. */
   media(room: string, after?: { sent: string; message: string; pos: number }, signal?: AbortSignal): Promise<MediaPage>;
 
-  // collections (§31): the rest of their calls are the lazy chunk's (views/collection/lazy.ts), through `request`
+  // collections (§31): the rest of their calls are the lazy chunk's (views/collection/calls.ts), through `request`
   collections(signal?: AbortSignal): Promise<Collections>;
   /** You have seen the collection's items up to `at` (an item's `created`; default now). */
   markSeen(collection: string, at?: string): Promise<void>;
@@ -265,7 +265,7 @@ export const ROOM_FIELDS =
   "expand.members.id,expand.members.name,expand.members.avatar,expand.members.no_dms,expand.members.instance," +
   "expand.writers.id,expand.writers.name,expand.writers.avatar,expand.writers.no_dms,expand.writers.instance";
 const ROOM_OPTS = { expand: "members,writers", fields: ROOM_FIELDS } as const;
-const HIDDEN_FIELDS = "id,room";
+export const HIDDEN_FIELDS = "id,room";
 /** The site record (§24); its invite code is hidden from everyone but superusers. */
 const SITE_FIELDS = "id,title,logo,invite_only";
 interface SiteRow {
@@ -275,7 +275,7 @@ interface SiteRow {
   invite_only?: boolean;
 }
 /** reply_to: notifications (§34) look closer at replies only. */
-const ACTIVITY_FIELDS = "id,room,author,deleted,reply_to";
+export const ACTIVITY_FIELDS = "id,room,author,deleted,reply_to";
 
 function toApiError(e: unknown): ApiError {
   if (e instanceof ApiError) return e;
@@ -308,7 +308,7 @@ const toUser = (r: AuthRecord): User => ({
   ...(r.instance ? { instance: r.instance as string } : {}),
 });
 /** What the profile calls return: never the email, even for yourself. */
-const USER_FIELDS = "id,name,avatar,instance";
+export const USER_FIELDS = "id,name,avatar,instance";
 
 /** Query for a page of messages. `bind` is `pb.filter`: values are bound and escaped, never concatenated. */
 export function listOptions(q: PageQuery, bind: (expr: string, params: Record<string, string>) => string) {

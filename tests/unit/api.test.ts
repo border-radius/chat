@@ -34,6 +34,7 @@ describe("listOptions", () => {
       "files",
       "file_names",
       "file_sources",
+      "file_dims",
       "reactions",
       "previews",
       "author",

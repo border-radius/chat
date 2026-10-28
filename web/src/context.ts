@@ -1,4 +1,4 @@
-// What every logged-in view gets from the app shell.
+// The app shell's services. Each view takes the part of it that it uses (a Pick of Ctx), so its tests pass only that.
 
 import type { RoomActions } from "./actions.ts";
 import type { Api } from "./api.ts";

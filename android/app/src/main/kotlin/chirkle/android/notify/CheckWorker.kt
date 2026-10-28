@@ -62,7 +62,6 @@ class CheckWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
         }
 
         private suspend fun check(context: Context, accounts: Accounts, services: ChirkleServices, many: Boolean) {
-            services.notifyCheck.forgetPushToken()
             val s = services.store.get()
             // On screen with this account: the room list shows what is new.
             val onScreen = accounts.active.value === services && !s.away

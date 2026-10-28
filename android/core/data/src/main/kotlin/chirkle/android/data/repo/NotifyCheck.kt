@@ -83,13 +83,6 @@ class NotifyCheck(private val api: ChirkleApi, private val db: ChirkleDatabase) 
         return CheckResult(notices.sortedBy { it.messages.last().created }, unreadRooms)
     }
 
-    /** Builds with Firebase registered a push token: the server needn't push to it any more. */
-    suspend fun forgetPushToken() {
-        val row = db.kv().get(Keys.PUSH_ROW)?.substringBefore(' ') ?: return
-        runCatching { api.unregisterPush(row) }
-        db.kv().delete(Keys.PUSH_ROW)
-    }
-
     private suspend fun load(): CheckState? =
         db.kv().get(Keys.NOTIFY_CHECK)?.let { runCatching { PbJson.decodeFromString(CheckState.serializer(), it) }.getOrNull() }
 

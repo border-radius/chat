@@ -56,12 +56,12 @@ const val ROOM_FIELDS =
         "expand.members.id,expand.members.name,expand.members.avatar,expand.members.no_dms,expand.members.instance," +
         "expand.writers.id,expand.writers.name,expand.writers.avatar,expand.writers.no_dms,expand.writers.instance"
 private val ROOM_OPTS = mapOf("expand" to "members,writers", "fields" to ROOM_FIELDS)
-private const val ROW_FIELDS = "id,room"
+internal const val ROW_FIELDS = "id,room"
 private const val SITE_FIELDS = "id,title,logo,invite_only,min_android_version"
-private const val ACTIVITY_FIELDS = "id,room,author,deleted"
+internal const val ACTIVITY_FIELDS = "id,room,author,deleted"
 /** What the profile calls return: never the email, even your own. */
-private const val USER_FIELDS = "id,name,avatar,instance"
-private const val ITEM_FIELDS = "id,collection,file,name,video,poster,created"
+internal const val USER_FIELDS = "id,name,avatar,instance"
+internal const val ITEM_FIELDS = "id,collection,file,name,video,poster,created"
 /** A collection's page of items, as the media grid's (DESIGN.md §30.2). */
 const val COLLECTION_PAGE = 60
 
@@ -594,20 +594,6 @@ class ChirkleApi(val pb: PbClient) {
         } catch (e: Exception) {
             throw e.toApiError()
         }
-
-    // ---- push (ANDROID.md §8)
-
-    /** Register this device for pushes; returns the row id (to delete on log out). */
-    suspend fun registerPush(token: String, provider: String): String = (call(
-        records("push_tokens"),
-        "POST",
-        mapOf("fields" to "id"),
-        Body.Json(buildJsonObject { put("user", me()); put("token", token); put("provider", provider) }),
-    ).obj["id"] as JsonPrimitive).content
-
-    suspend fun unregisterPush(rowId: String) {
-        call(record("push_tokens", rowId), "DELETE")
-    }
 
     // ---- realtime
 

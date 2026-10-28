@@ -84,7 +84,9 @@ chat/
 │   ├── DESIGN.md               # this document (the living spec)
 │   ├── QA.md                   # QA findings and their fixes, BUG-24 onward (code and tests cite them)
 │   ├── REFACTOR.md
+│   ├── API.md                  # what the clients rely on from the server, and how to change it safely
 │   └── history/                # finished plans: BUILD_PLAN.md (MVP), NEXT_FEATURES_PLAN.md (§15–§17)
+├── shared/                     # contract.json (field lists, limits, file types) and vectors/: every client's and the server's tests run them
 ├── package.json
 ├── tsconfig.json, tsconfig.server.json
 ├── scripts/
@@ -114,12 +116,13 @@ chat/
 │   ├── 1760000020_service_messages.js  # §5.3 (messages.author optional: service messages)
 │   ├── 1760000032_federation.js        # §33 (fed_* collections, the core's federation fields)
 │   ├── 1760000033_federation_requests.js # §33.2–3 (site.federation, fed_peers "requested")
-│   └── 1760000037_file_dims.js         # §17.5 (messages.file_dims, media.sized)
+│   ├── 1760000037_file_dims.js         # §17.5 (messages.file_dims, media.sized)
+│   └── 1760000038_drop_push.js         # push_tokens and push_queue removed (REFACTOR round 4)
 ├── pb_hooks/                   # server-side JS hooks (committed)
-│   ├── main.pb.js              # registrations only
-│   ├── telegram.pb.js          # the Telegram bridge's registrations, only with TELEGRAM_BOT_TOKEN (§26)
+│   ├── main.pb.js              # registrations only; every hook on messages, rooms and users (features' parts in order, §5.6)
+│   ├── telegram.pb.js          # the Telegram bridge's routes, worker and tg_* hooks, only with TELEGRAM_BOT_TOKEN (§26)
 │   ├── telegram/               # the bridge: api, people, links, inbound, outbound, worker (§26)
-│   ├── federation.pb.js        # linked instances' registrations; on with site.federation (§33)
+│   ├── federation.pb.js        # linked instances' routes, worker and fed_* hooks; on with site.federation (§33)
 │   ├── federation/             # config, net (signing, curl), people, rooms, messages, peers, inbox, worker (§33)
 │   └── lib/
 │       ├── messages.js         # messages hooks: text, attachments, replies, forwards, soft delete, edit stamps (§5.6, §17, §19, §21)
@@ -133,7 +136,9 @@ chat/
 │       ├── reactions.js        # POST /api/chat/reactions (§20.2)
 │       ├── bulk.js             # POST /api/chat/delete, POST /api/chat/forward (§21)
 │       ├── account.js          # POST /api/chat/password (§22.2)
-│       ├── site.js             # invite-only signups (§24), GET /manifest.webmanifest (§27)
+│       ├── site.js             # invite-only signups (§24), GET /manifest.webmanifest (§27), App Links (ANDROID.md §9.4)
+│       ├── features.js         # the optional features' parts of the core hooks: federation, Telegram (§5.6)
+│       ├── worker.js           # the cron workers' loop and lock: previews, media, Telegram, federation (§28.1)
 │       ├── users.js            # users hooks (§5.1, §22.1), login by email, GET /api/chat/users (§16.5)
 │       ├── emoji.js            # the emoji a reaction may be (§20.1)
 │       └── images.js           # upload image size limit (§15, QA BUG-24)
@@ -146,7 +151,10 @@ chat/
 │   └── src/
 │       ├── main.ts             # boot; registers the service worker
 │       ├── sw.ts               # the service worker, built on its own to /sw.js (§27)
-│       ├── app.ts              # app shell: session, routes, app bar
+│       ├── app.ts              # app shell: session start/end, routes
+│       ├── renewal.ts          # session renewal and checks (QA BUG-45, BUG-51, BUG-151)
+│       ├── header.ts           # the app bar
+│       ├── jump.ts             # Ctrl+K / Ctrl+P opens Jump to (§32)
 │       ├── api.ts              # the only module that talks to PocketBase (through pb.ts)
 │       ├── pb.ts               # minimal PocketBase client: requests, auth store, realtime (§6)
 │       ├── store.ts            # tiny observable state + selectors
@@ -285,7 +293,11 @@ In plain terms:
 
 ### 5.6 Server hooks (`pb_hooks/main.pb.js`)
 
-The hooks are kept small. They only do things the rules can't express:
+The hooks are kept small. They only do things the rules can't express. Every hook on the core collections
+(`messages`, `rooms`, `users`) is registered in `main.pb.js`, which also calls the optional features' parts
+(`lib/features.js`) in one stated order: linked instances (§33) first, then the core, then the Telegram bridge (§26);
+after the save the other way round. They used to register their own hooks, and their order was the order PocketBase
+loads the files in (by name).
 
 - **Normalize text:** trim `messages.text`, `rooms.name` and `users.name` on create and update, and reject values that are empty after trimming or made only of invisible characters (zero-width spaces, bidi controls, BOM…). Names also lose bidi overrides and zero-width spaces, so they can't be used to spoof another name. Message text keeps tabs and line breaks (stored as `\n`: CR LF, a lone CR and U+2028/2029 become one) and loses every other control character (NUL, bell, escape codes from pasted terminal output; QA BUG-105). The one exception is message text on a delete (next bullet).
 - **Unique room names:** on `rooms` create and update, set `name_key` and reject a name whose key another room already has (`validation_not_unique` on `name`, like the index error it replaces).
@@ -384,7 +396,7 @@ interface View {
 
 Each view owns a `Scope` (`scope.ts`): an `AbortSignal` that every `addEventListener` call receives, plus `defer()`/`sub()` for store listeners and realtime subscriptions, so `unmount()` is `scope.dispose()`. After every `await`, async work checks `scope.active`. Views are single-use: the router and the sidebar layout create a fresh one for every mount. Both room menus (row and header) are `ui/menu.ts`, a `<details>` disclosure with an optional inline confirm step. It owns its focus handling.
 
-Logged-in views receive a `Ctx` (`context.ts`): `{ api, store, sync, actions, navigate }`. They render from the store and change data through `actions` (`actions.ts`: create, hide, unhide, archive). Only the room view subscribes to anything itself, and only to its own room's messages.
+Logged-in views receive the part of `Ctx` (`context.ts`) they use (a `Pick`, e.g. `RoomCtx`): `api`, `store`, `sync`, `actions`, `navigate` and the other services. They render from the store and change data through `actions` (`actions.ts`: create, hide, unhide, archive). Only the room view subscribes to anything itself, and only to its own room's messages.
 
 ### 7.3 DOM helpers (`dom.ts`)
 
@@ -2205,7 +2217,8 @@ the other, files included, so people in the room and people in the group talk to
 
 ### 26.1 A module apart
 
-The bridge is `pb_hooks/telegram.pb.js` (it registers everything), `pb_hooks/telegram/` (its code: PocketBase only
+The bridge is `pb_hooks/telegram.pb.js` (its routes, worker and `tg_*` hooks; its parts of the core's message and user
+hooks `main.pb.js` calls through `lib/features.js`, §5.6), `pb_hooks/telegram/` (its code: PocketBase only
 runs `*.pb.js` files, so these load only when required) and its own collections, `tg_*`
 (`pb_migrations/1760000019_telegram.js`). Nothing in the app refers to it. It reads the app's records, and saves
 messages and users through the same hooks as everything else, so trimming, limits, access checks, unread counts and
@@ -2418,7 +2431,8 @@ the link in the text (§7.6.3).
   edit of its original (§21.3).
 - **Queue:** a new message with links, or an edit of the text, adds a `link_queue` row in the save's transaction.
   A cron job (`* * * * *`) runs `pb_hooks/lib/previews.js` for 57 s, once a second (one run at a time, a lock in the
-  app store, renewed after every message: a pass can outlast the minute, QA BUG-111); `POST /api/previews/tick`
+  app store, renewed after every message: a pass can outlast the minute, QA BUG-111; the loop and lock are
+  `lib/worker.js`, shared by every worker: a run whose lock was taken over stops, and leaves the new run's lock alone); `POST /api/previews/tick`
   (superusers) runs it at once. Each message: its links (found as `linkify` finds them, each once, at most 5), fetched
   one at a time, for 12 s at most (the links after that get no line); a host that doesn't answer (a timeout, a refused
   connection) isn't asked again for that message. So a message linking to sites that never answer holds up the queue
@@ -2697,8 +2711,8 @@ when the file it was saved from has one; otherwise the media worker (§30.1) mak
   its badges). Made public or private, renamed or deleted meanwhile, a badge follows live: the room listens to
   `chat/badges` once it shows one and asks again about the ids it shows (the old badge stays until the answer), and
   about all of them after a reconnect.
-- **Loading:** `views/collection/lazy.ts` (the page, the save menu, the picker and the new-collection dialog, with
-  their requests, through `api.request`) is a lazy chunk with its own stylesheet, `styles/collections.css`
+- **Loading:** `views/collection/lazy.ts` (the page, the save menu, the picker and the new-collection dialog:
+  `page.ts`, `save.ts`, `picker.ts`, `create.ts`, with their requests in `calls.ts`, through `api.request`) is a lazy chunk with its own stylesheet, `styles/collections.css`
   (`COLLECTIONS_CSS`), imported on first use by `views/collection.ts`. In `app.js`: the service, the sidebar section,
   the badge and Save on tiles, the composer button and the route.
 - Guests read public collections and see badges, but can't save, subscribe or attach.
@@ -2787,7 +2801,8 @@ local. Built on 2026-10-24: server, web and Android (§33.13 says where the buil
 
 ### 33.2 A module apart
 
-Like the Telegram bridge (§26.1): `pb_hooks/federation.pb.js` registers everything, its code is in
+Like the Telegram bridge (§26.1): `pb_hooks/federation.pb.js` registers its routes, worker and `fed_*` hooks (its parts of
+the core's hooks are called from `main.pb.js`, §5.6), its code is in
 `pb_hooks/federation/`, its collections are `fed_*` (`pb_migrations/1760000032_federation.js`), and the core gets only
 the fields below. It saves messages, rooms and users through the same hooks as everything else, so text limits,
 attachment limits, access checks, unread counts and realtime apply to what comes from a peer.
