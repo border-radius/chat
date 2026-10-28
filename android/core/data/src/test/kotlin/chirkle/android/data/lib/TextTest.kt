@@ -5,7 +5,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-// Folding and search: the cases of tests/unit/views/room/search.test.ts (§29), and the lengths of limits.ts.
+// Folding and search: the cases of tests/component/views/room/search.test.ts (§29), and the lengths of limits.ts.
 class TextTest {
     @Test fun `folds like the server's nameKey`() {
         assertEquals("strasse abc über", foldKey("Straße ＡＢＣ Ü​ber"))

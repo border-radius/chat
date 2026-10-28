@@ -21,7 +21,7 @@ import { uniq } from "./ids.ts";
 import { withName } from "./names.ts";
 import { runSql } from "./sql.ts";
 
-// The unit project runs in happy-dom, where Vite refuses static imports of Node built-ins.
+// The unit and component projects run in happy-dom, where Vite refuses static imports of Node built-ins.
 const { DatabaseSync } = process.getBuiltinModule("node:sqlite") as typeof import("node:sqlite");
 const { join } = process.getBuiltinModule("node:path") as typeof import("node:path");
 

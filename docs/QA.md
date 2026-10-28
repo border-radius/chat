@@ -948,7 +948,7 @@ counts. Numbering continues from BUG-100. Each fix lands with a test that fails 
 | BUG-101 | Medium (privacy) | Room cache | A private room you lost access to while the app was open, but weren't in, kept its messages: the next load straight into it showed them until the server said no | Fixed |
 | BUG-102 | Medium | Unread | Reloading into a room whose kept window held its unread messages (prefetched) marked all of them read, though only the newest were on screen | Fixed |
 | BUG-103 | Low | Room cache | After a reload, an author's new avatar or name never showed in a kept room: the kept copies beat the page's (and were kept again) | Fixed |
-| BUG-104 | Low | Room cache | Leaving the page (a reload, a link, closing the tab) within a second of a room's last change often didn't keep it: the BUG-97 save on `pagehide` didn't reach IndexedDB | Fixed (mostly) |
+| BUG-104 | Low | Room cache | Leaving the page (a reload, a link, closing the tab) within a second of a room's last change often didn't keep it: the BUG-97 save on `pagehide` didn't reach IndexedDB | Fixed |
 
 ## BUG-101 — A room you lost access to stayed in the cache (Medium, privacy)
 
@@ -979,6 +979,9 @@ with nothing unread, it is read as soon as the server says so.
   IndexedDB calls logged: the put was made, and neither completed nor aborted). The transaction is now made at once
   once the database is open, and committed explicitly: 0 of 12 and 2 of 24 lost in the same setup. A write made as
   the page goes can still be lost under load; the room is then kept as it was a second earlier, or not at all.
+  **2026-10-28:** still about 1 in 10 at 4 workers (the put made, the database open, the transaction never completed
+  as the page went). What is kept after `pagehide` is now also written to `localStorage`, which is synchronous, and
+  the next page moves it to IndexedDB (taken once; dropped on `pageshow` and by `clear()`): 60 of 60.
 
 ## Checked and fine
 
@@ -1773,7 +1776,7 @@ as `ImageDecoder` does on 9+ (`ImagePrepTest`, all on the old path).
 - **BUG-170:** found by `CollectionsTest` failing in full runs (the follow came while the subscription was on its
   way). Once subscribed, the list is read once more, as the room catches up after its subscription (QA BUG-61). A new
   `CollectionsTest` holds the subscription back 1.5 s. The web's `collections.ts` had the same gap: fixed the same way
-  on 2026-10-28 (`tests/unit/collections.test.ts`).
+  on 2026-10-28 (`tests/component/collections.test.ts`).
 
 ## Checked and fine
 
@@ -1790,6 +1793,6 @@ Not changed, by design or for a decision:
   neither re-encodes them as attachments are (§15.3). Re-encoding would also scale them down to 2048 px.
 - The web had BUG-162's and BUG-170's weaknesses too (`unread.ts`, `collections.ts`): not changed in this pass, which
   was the app's. Ported on 2026-10-28: a failed read is sent again after 2 s, doubling up to a minute, until it is in
-  or refused; the collections list is read once more once subscribed (`tests/unit/unread.test.ts`, `collections.test.ts`).
+  or refused; the collections list is read once more once subscribed (`tests/component/unread.test.ts`, `collections.test.ts`).
 - On the emulator (software CPU) Android's 10 s stop timeout passes before the activity has saved its state, so after
   the process is killed it starts at the room list. Settings saves its state there; a phone is fast enough.

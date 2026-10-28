@@ -28,7 +28,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
 // The room controller's shared scenarios (shared/vectors/room.json), recorded from the web's controller.ts
-// (tests/unit/views/room/scenarios.test.ts): RoomController against the real server must come to the same states.
+// (tests/component/views/room/scenarios.test.ts): RoomController against the real server must come to the same states.
 @RunWith(RobolectricTestRunner::class)
 class RoomScenariosTest {
     @After fun tearDown() = closeServices()

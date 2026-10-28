@@ -45,7 +45,7 @@ rendering. Suggested split:
       edit / delete. No DOM. It emits "changed" with a hint (`anchor`, `scrollToBottom`, `pill`). Most of
       `tests/unit/views/room.test.ts` (867 lines) can then become fast controller tests.
       Done (2026-10-11): the controller owns the window, the phase (`loading` / `ready` / `failed` / `not-found`) and the pill,
-      and asks the view only `nearBottom()`. `tests/unit/views/room-controller.test.ts` has the window, race, reconnect,
+      and asks the view only `nearBottom()`. `tests/component/views/room-controller.test.ts` has the window, race, reconnect,
       send and edit tests with no DOM or fake layout. The 10 view tests that only checked window logic moved there.
 - [x] `room/messages.ts`: the list element, sentinels, `messageNode` + signature cache, day dividers, and the
       edit/delete-confirm/error UI state, plus its focus handling.
@@ -175,7 +175,7 @@ Every view has the same fields: `ac`, `active`, `subs: Promise<Unsubscribe>[]`, 
       read belongs to) and a store-listener trick for logout that depended on listener order.
 - [x] Now `web/src/unread.ts`: counts + `open(roomId) → RoomReader { seen, close }` + `flush()`. `sync.ts` is back to
       rooms and hidden rows. The room view only reports what is on screen. `app.ts` `endSession()` flushes pending
-      reads explicitly before the session ends. Tests: `tests/unit/unread.test.ts` (service and reader, no DOM).
+      reads explicitly before the session ends. Tests: `tests/component/unread.test.ts` (service and reader, no DOM).
 
 ### 19. Deterministic realtime tests ✅
 - [x] 36 `sleep()`s in unit and integration tests, many "let the subscriptions settle": a test that acted before its
@@ -366,7 +366,7 @@ Each looked like timing; the causes were four different things. 12 full runs sin
       again, an archive undone; and an older reload answering after a newer one overwrote it. Now events during a
       reload are applied again on top of its answer, in the same store update (applied one by one, the room vanished
       and came back, which the view took for a room let in again), and older answers are dropped. Tests:
-      `tests/unit/sync.test.ts` (both orders, and no flicker).
+      `tests/component/sync.test.ts` (both orders, and no flicker).
 - [x] `room/load.test.ts` "away from the live edge…": a test bug since §22.7: in history the button already shows
       "Jump to latest", so waiting for it to show passed before the new message arrived. It waits for the text now.
 - [x] `room/header.test.ts` (Hide/Unhide, Archive) timing out at 5 s: gone with item 30's fix (the 517 retries made the
@@ -446,7 +446,7 @@ and so do the Chromium e2e suite and the app's tests.
       `WindowVectorsTest.kt` (the app had no tests of its `Window.kt` before).
 - [x] `shared/vectors/room.json`: 7 scenarios against a real server (paging up and down, Jump to, a link far back,
       live messages and the pill, the unread line, deletes), recorded from the web's controller and replayed by
-      `tests/unit/views/room/scenarios.test.ts` and `RoomScenariosTest.kt`. The app passed all of them as they were.
+      `tests/component/views/room/scenarios.test.ts` and `RoomScenariosTest.kt`. The app passed all of them as they were.
 - [x] The app's test tasks take `shared/` as an input, so a change to the vectors runs them again.
 
 ### 41. The web's unread and collections gaps (QA BUG-162, BUG-170), and the room controllers split ✅
@@ -455,15 +455,29 @@ and so do the Chromium e2e suite and the app's tests.
       the room on screen didn't change.
 - [x] `collections.ts`: once subscribed, the list is read once more (a follow made between the read and the
       subscription was missed until a reconnect); a failed subscription is made again by the next load.
-      `tests/unit/collections.test.ts` is new.
+      `tests/component/collections.test.ts` is new.
 - [x] The room controllers' writes moved out: `views/room/writes.ts` (836 → 620 + 288 lines) and Android's
       `RoomWrites.kt` (748 → 657 + 195), each behind a narrow host interface. The shared room scenarios (item 40) and
       the controller tests pass unchanged on both.
 
+### 42. The room kept as the page goes (QA BUG-104, again) ✅
+- [x] Under load Chromium tore the page down before IndexedDB committed the `pagehide` write (logged: the put made with
+      the database open, the transaction never completing), about 1 run in 10 at 4 workers. `cache.ts` now also writes
+      what it keeps after `pagehide` to `localStorage`, synchronously; the next page moves it to IndexedDB (taken once,
+      dropped on `pageshow` and by `clear()`). 60 of 60. `app.js` budget 47.25 → 47.35 KB (the owner's call).
+
+### 43. Unit tests without a server ✅
+- [x] The 29 files of `tests/unit/` that talk to PocketBase (views, the room controller and its harness, the services)
+      moved to `tests/component/` (a new Vitest project with the old setup; same depth, so no import changed). What
+      is left in `tests/unit/` (39 files, 317 tests: pure logic, DOM helpers, shared vectors, the build) needs no
+      server and runs in ~10 s (`npm run test:unit`). `npm test` runs both, as CI does.
+
 ### Left open from the review
 - Scale (§26 above): `UNREAD_SQL`, realtime fan-out, queue polling. Not needed at the measured sizes.
 - Splitting the other large files (`views/room.ts`, `federation/rooms.js`, `previews.js`, Android's `ChirkleApi.kt`).
-- `cache.spec.ts` QA BUG-104 (the room kept when leaving right after a message) fails about 1 run in 10 with 4 workers,
-  before and after item 41 alike: the kept room comes back empty. Not looked into.
-- `keepToRoom` (enrich hook) looks up the room per message with reactions or a reply.
-- "Unit" tests that start PocketBase: worth splitting into true unit tests and component tests.
+- ~~`cache.spec.ts` QA BUG-104 flake~~: a real loss of the write made as the page goes; fixed (item 42).
+- `keepToRoom` (enrich hook) looks up the room per message with reactions or a reply. Measured 2026-10-28: a page of 50
+  messages with reactions takes ~15 ms against ~7.5 ms without (the lookup is all of the difference, ~0.15 ms a message).
+  The same check as one SQL query only got it to ~13 ms: the cost is the hook's call into Go, not the record. Checking
+  each room once per request needs request-scoped state the JSVM hooks don't have; a cross-request cache would have to
+  be invalidated on every membership change of a privacy check. Left as it is.

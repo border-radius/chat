@@ -50,6 +50,26 @@ export function createCache(name = "chat"): Cache {
   };
   /** Kept since the page loaded, by room. (Not what was read: a read answered after a clear would bring it back.) */
   const mem = new Map<string, Kept & { user: string }>();
+  /**
+   * Kept as the page went: IndexedDB may not get to write it before the page is gone (Chromium under load, QA BUG-104),
+   * so it is also written here, at once, and moved to IndexedDB by the next page.
+   */
+  const LEFT = `${name}.left`;
+  let leaving = false;
+  /** Write (or with nothing, remove) what was kept as the page went. */
+  const left = (row?: unknown) => {
+    try {
+      if (row) localStorage.setItem(LEFT, JSON.stringify(row));
+      else localStorage.removeItem(LEFT);
+    } catch {}
+  };
+  // Before the room view's own listener (the cache is made first), which keeps the room.
+  addEventListener("pagehide", () => (leaving = true));
+  // Back from the back/forward cache: the page lives on, and its writes with it.
+  addEventListener("pageshow", () => {
+    leaving = false;
+    left();
+  });
   const go = <T>(d: IDBDatabase, mode: IDBTransactionMode, op: (s: IDBObjectStore) => IDBRequest) => {
     const tx = d.transaction(STORE, mode);
     const result = done<T>(op(tx.objectStore(STORE)));
@@ -67,6 +87,13 @@ export function createCache(name = "chat"): Cache {
       return Promise.resolve(undefined); // the connection was closed (the browser does that, e.g. when storage is cleared)
     }
   };
+  try {
+    // Nothing left (null) throws here.
+    const [roomId, row] = JSON.parse(localStorage.getItem(LEFT) as string) as [string, Kept & { user: string }];
+    mem.set(roomId, row);
+    void run("readwrite", (s) => s.put(row, roomId));
+  } catch {}
+  left();
   return {
     async get(user, roomId) {
       const kept = mem.get(roomId) ?? (await run<(Kept & { user: string }) | undefined>("readonly", (s) => s.get(roomId)));
@@ -76,9 +103,11 @@ export function createCache(name = "chat"): Cache {
       const row = { ...kept, user };
       mem.set(roomId, row);
       void run("readwrite", (s) => s.put(row, roomId));
+      if (leaving) left([roomId, row]);
     },
     clear() {
       mem.clear();
+      left();
       void run("readwrite", (s) => s.clear());
     },
   };

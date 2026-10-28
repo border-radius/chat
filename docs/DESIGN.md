@@ -182,7 +182,8 @@ chat/
 │                               # viewer.ts (image viewer, a lazy chunk: §17.7), search.ts (message search, a lazy chunk: §29),
 │                               # media.ts (media grid, a lazy chunk: §30)
 ├── tests/
-│   ├── unit/                   # Vitest + happy-dom, against a real throwaway PocketBase
+│   ├── unit/                   # Vitest + happy-dom, no server: pure logic, DOM helpers, the build
+│   ├── component/              # Vitest + happy-dom, views and services against a real throwaway PocketBase
 │   ├── integration/            # Vitest against a real PocketBase process
 │   ├── e2e/                    # Playwright
 │   └── support/                # shared harness and fixtures
@@ -486,7 +487,7 @@ while its first page loads.
 - **What is kept:** per room, in IndexedDB (database `chat`, store `rooms`, keyed by room id), the latest page
   (at most 50 saved messages, never pending or failed ones), whether there is older history and the room record,
   tagged with the user it was loaded for ("" for a guest). Saved a second after the window last changed, when the view
-  goes and when the page is left (`pagehide`: a reload, the tab closed; QA BUG-97; written at once and committed, QA BUG-104), and only while the window is at the
+  goes and when the page is left (`pagehide`: a reload, the tab closed; QA BUG-97; written at once and committed, and also to `localStorage`, which the next page moves to IndexedDB, QA BUG-104), and only while the window is at the
   live edge, fresh (not itself from the cache) and the user is still the one it was loaded for: after a logout or a
   user switch nothing more is written. A room that turns out not to be there (not found, or gone from the loaded room
   list: access lost, §23.4) is saved empty, so it isn't shown again (QA BUG-98); so is any kept room that leaves the
@@ -564,7 +565,7 @@ while its first page loads.
 
 | Asset | Budget (gzipped) |
 |---|---|
-| `app.js` (including the PocketBase client) | **≤ 47.25 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, the room cache without waiting for the network, the QA pass 12 fixes, prefetching rooms not yet kept, the QA pass 13 fixes, thumbnail caching, the QA pass 14 fixes, Ctrl+Up/Down to pick the reply, link previews, the room access dialog fix, who can post, message search, message permalinks, the media grid, the QA pass 16 fixes, video posters in the room, the QA pass 17 fixes, media collections, Jump to, Appearance, the room in the tab title, the QA pass 19 fixes, live collection badges, the security audit fixes, see §13) |
+| `app.js` (including the PocketBase client) | **≤ 47.35 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, the room cache without waiting for the network, the QA pass 12 fixes, prefetching rooms not yet kept, the QA pass 13 fixes, thumbnail caching, the QA pass 14 fixes, Ctrl+Up/Down to pick the reply, link previews, the room access dialog fix, who can post, message search, message permalinks, the media grid, the QA pass 16 fixes, video posters in the room, the QA pass 17 fixes, media collections, Jump to, Appearance, the room in the tab title, the QA pass 19 fixes, live collection badges, the security audit fixes, the room kept as the page goes, see §13) |
 | `app.css` | **≤ 7.10 KB** (5 KB until §21, 5.5 KB until §23, 6 KB until audio attachments, 6.05 KB until §18.5, 6.10 KB until §28, 6.15 KB until the room access dialog fix, 6.20 KB until §29, 6.35 KB until message permalinks, 6.40 KB until §31, 6.85 KB until Jump to and Appearance, see §13) |
 | `index.html` | ≤ 1.5 KB |
 | Image viewer (§17.7), loaded on first use | ≤ 4 KB script, ≤ 1.5 KB stylesheet |
@@ -609,7 +610,7 @@ Other rules:
 | `pocketbase` | dev | JS SDK, only for tests (admin and raw-API clients); the app uses `web/src/pb.ts` |
 | `esbuild` | dev | bundling and minification |
 | `typescript` | dev | type checking only (`tsc --noEmit`) |
-| `vitest`, `happy-dom` | dev | unit and integration tests |
+| `vitest`, `happy-dom` | dev | unit, component and integration tests |
 | `@playwright/test` | dev | e2e tests |
 
 Nothing else. The PocketBase **binary** is not an npm package. `scripts/fetch-pocketbase.sh` downloads the pinned version for the current OS and architecture into `bin/` and checks its SHA-256.
@@ -648,14 +649,15 @@ await esbuild.build({
 
 | Layer | Tool | What it covers | Speed |
 |---|---|---|---|
-| Unit | Vitest + happy-dom + real PocketBase (temp dir) | pure logic, DOM helpers, views against the real API | ~5 s |
+| Unit | Vitest + happy-dom, no server | pure logic, DOM helpers, shared vectors, the build | ~10 s |
+| Component | Vitest + happy-dom + real PocketBase (temp dir) | views, the room controller and the services against the real API | ~80 s |
 | Integration | Vitest + real PocketBase (temp dir) | migrations, API rules, hooks, realtime, `createApi` | ~40 s (serial) |
 | E2E | Playwright (Chromium; Firefox and WebKit in CI) | golden user flows through the real built app | ~30 s |
 | Budget | build script | bundle size limits | in `build` |
 
-### 9.1 Unit tests (`tests/unit/`)
+### 9.1 Unit and component tests (`tests/unit/`, `tests/component/`)
 
-View tests run against a real, throwaway PocketBase (temp data dir) using the real `createApi`. There is no fake backend to drift from the server. Failures, latency and reconnects are injected with `vi.spyOn` wrappers over the real client (`tests/support/api.ts`). Large histories are seeded straight into the test DB.
+Unit tests need no server (`npm run test:unit`). Component tests, which do, run against a real, throwaway PocketBase (temp data dir) using the real `createApi`. There is no fake backend to drift from the server. Failures, latency and reconnects are injected with `vi.spyOn` wrappers over the real client (`tests/support/api.ts`). Large histories are seeded straight into the test DB.
 
 **`lib/messages.test.ts`**
 - `merge` keeps the list sorted by `(created, id)`, including for out-of-order input and for messages with the same `created` value.
@@ -1036,6 +1038,7 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 | Bundle budget (Jump to, Appearance, QA pass 19) | `app.js` raised from 46.05 KB to 47.10 KB, `app.css` from 6.85 KB to 7.10 KB and the collections chunk from 6 KB to 6.65 KB (§7.7), the user's call (2026-10-23): Jump to's shortcut and options (§32, the dialog itself a lazy chunk), the Appearance switch (§7.8), the room in the tab title and the QA pass 19 fixes took them to 47.03 KB and 7.06 KB; the collections chunk was at 6.58 KB. |
 | Bundle budget (live collection badges) | `app.js` raised from 47.10 KB to 47.15 KB (§7.7), the user's call (2026-10-23): badges following a collection made public or private, renamed or deleted (`chat/badges`) took it to 47.14 KB. |
 | Bundle budget (security audit fixes) | `app.js` raised from 47.15 KB to 47.25 KB (§7.7), the user's call (2026-10-24): the tree was already at about 47.17 KB, and clearing an expired session's leftovers at start (QA BUG-145) and the router's slash fix (QA BUG-146) took it to 47.22 KB. |
+| Bundle budget (room kept as the page goes) | `app.js` raised from 47.25 KB to 47.35 KB (§7.7), the user's call (2026-10-28): the `localStorage` fallback for the room kept on `pagehide` (QA BUG-104, which still failed about 1 in 10 under load) took it from 47.18 KB to 47.30 KB. |
 
 ### Decided (2026-10-24, linked instances)
 
@@ -3075,7 +3078,7 @@ Where the build settled what the plan above left open:
 - **Avatars** are served (`GET /api/fed/avatars/{user}`) only to a peer that was told of that person.
 - **Tests:** `tests/integration/federation.test.ts` (18 cases, three servers and more where a case needs its own pair:
   everything §33.12 lists but the member limit, which a mirror's own 100-member limit reaches first),
-  `tests/unit/views/room/linked.test.ts` and the "linked instance" case of `rooms.test.ts` (web), `LinkedTest`,
+  `tests/component/views/room/linked.test.ts` and the "linked instance" case of `rooms.test.ts` (web), `LinkedTest`,
   `ChatApiTest` and `UiLinkedTest` (Android).
 
 ## 34. Notifications (2026-10-24)
@@ -3127,7 +3130,7 @@ outside an installed app), the group says so. Ticking the sound plays it once.
 
 ### 34.4 Tests
 
-`tests/unit/notify.test.ts`: what alerts (DMs, replies, choices, hidden/archived/own/deleted), the text, the
+`tests/component/notify.test.ts`: what alerts (DMs, replies, choices, hidden/archived/own/deleted), the text, the
 stored choices; live against PocketBase: a DM's pop-up and chime and its click, a reply to you (not a plain message,
 not a reply to someone else), in front (silent for the open room, the chime for another), the sound alone, blocked
 pop-ups, a read elsewhere closing it, stopped; the settings group. `tests/unit/sw.test.ts`: the click handler.

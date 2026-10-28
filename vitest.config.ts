@@ -1,7 +1,14 @@
 import { defineConfig } from "vitest/config";
 
-// Both projects run against a real, throwaway PocketBase (temp data dir) started by tests/support/global-setup.ts.
+// unit: no server. component (the client against the server, in happy-dom) and integration (the server's API and hooks)
+// run against a real, throwaway PocketBase (temp data dir) started by tests/support/global-setup.ts.
 const globalSetup = ["tests/support/global-setup.ts"];
+// What the build defines (scripts/lib/build-utils.mjs).
+const define = {
+  VIEWER_CSS: JSON.stringify("/assets/viewer.css"),
+  MEDIA_CSS: JSON.stringify("/assets/media.css"),
+  COLLECTIONS_CSS: JSON.stringify("/assets/collections.css"),
+};
 
 export default defineConfig({
   test: {
@@ -12,15 +19,19 @@ export default defineConfig({
     },
     projects: [
       {
-        // What the build defines (scripts/lib/build-utils.mjs).
-        define: {
-          VIEWER_CSS: JSON.stringify("/assets/viewer.css"),
-          MEDIA_CSS: JSON.stringify("/assets/media.css"),
-          COLLECTIONS_CSS: JSON.stringify("/assets/collections.css"),
-        },
+        define,
         test: {
           name: "unit",
           include: ["tests/unit/**/*.test.ts"],
+          environment: "happy-dom",
+          env: { TZ: "UTC" },
+        },
+      },
+      {
+        define,
+        test: {
+          name: "component",
+          include: ["tests/component/**/*.test.ts"],
           environment: "happy-dom",
           globalSetup,
           // Node's built-in EventSource doesn't work under happy-dom; install a fetch-based one for the SDK.

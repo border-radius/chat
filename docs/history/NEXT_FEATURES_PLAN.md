@@ -88,7 +88,7 @@ Same loop as the MVP build plan ([`BUILD_PLAN.md`](BUILD_PLAN.md)):
 - [x] 🟢 `views/room/messages.ts` group header; `app.ts` header
 
 ### 1.6 Profile view `#/me` (§15.5)
-- [x] 🔴 `tests/unit/views/profile.test.ts`: shows current avatar and name; choosing a file previews immediately,
+- [x] 🔴 `tests/component/views/profile.test.ts`: shows current avatar and name; choosing a file previews immediately,
       uploads the prepared image, and updates the store user; failure restores the previous avatar and shows the
       error; Remove; rename saves and validates (`LIMITS.userName`); object URLs revoked on unmount
 - [x] 🟢 `web/src/views/profile.ts`, route `#/me` in `app.ts`

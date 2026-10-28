@@ -1,4 +1,4 @@
-// Per-test setup for the unit project (which runs against a real PocketBase).
+// Per-test setup for the component project (which runs against a real PocketBase).
 import { afterEach, vi } from "vitest";
 import { closeClients, stopContexts } from "./api.ts";
 

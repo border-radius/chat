@@ -69,7 +69,8 @@ The PocketBase admin UI is at http://127.0.0.1:8090/_/ (create a superuser with
 | `npm run typecheck` | `tsc` (strict) for the frontend, tests and scripts, plus `pb_hooks/` + `pb_migrations/` against PocketBase's generated types (`types/pocketbase.d.ts`, written by `scripts/pb-types.sh`) |
 | `npm run lint` | Biome: formatting, lint rules, import order (`npm run format` applies the fixes) |
 | `npm run lint:sinks` | Fails if frontend code uses `innerHTML` & co. (XSS guard) |
-| `npm test` | Unit/view tests (Vitest + happy-dom) against a real, throwaway PocketBase |
+| `npm test` | Unit tests (Vitest + happy-dom, no server) and component tests (views and services against a real, throwaway PocketBase) |
+| `npm run test:unit` | Only the unit tests: no server, ~10 s |
 | `npm run test:int` | Integration tests: schema, API rules, hooks, realtime, pagination |
 | `npm run test:e2e` | Playwright end-to-end tests against the production build |
 | `npm run schema:snapshot` | Rewrite `docs/schema.snapshot.json` (every collection's API rules, fields and indexes, and the rate limits) after a migration changes them; `test:int` fails while it is out of date |

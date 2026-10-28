@@ -7,7 +7,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-// Linked instances (DESIGN.md §33.10): the cases of tests/unit/views/room/linked.test.ts.
+// Linked instances (DESIGN.md §33.10): the cases of tests/component/views/room/linked.test.ts.
 class LinkedTest {
     @Test fun `tells an address on another instance from a name`() {
         assertTrue(isAddress("ann@b.example"))

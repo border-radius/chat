@@ -1,5 +1,5 @@
 // Fixture SQL for the test server, through its own write connection: the client side of the test-only route that
-// tests/support/pocketbase.ts adds (fixtureRoute). Only fetch, so the unit project (happy-dom) can use it too.
+// tests/support/pocketbase.ts adds (fixtureRoute). Only fetch, so the component project (happy-dom) can use it too.
 
 export const SUPERUSER = { email: "admin@test.local", password: "test-password-123" } as const;
 

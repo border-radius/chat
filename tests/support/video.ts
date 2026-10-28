@@ -1,4 +1,4 @@
-// A real video for upload tests, made with ffmpeg (FFMPEG names the binary). Node only: not for the unit project.
+// A real video for upload tests, made with ffmpeg (FFMPEG names the binary). Node only: not for the happy-dom projects.
 
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";

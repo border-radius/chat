@@ -17,8 +17,8 @@ Rules that more than one implementation must follow have test vectors in [`share
   (`tests/unit/lib/window-vectors.test.ts`) and the app (`WindowVectorsTest.kt`) run it. Messages in it are written out
   or generated as `tests/support/vectors.ts` says.
 - `room.json`: the room controller against a real server (open, page, jump, go to, live messages, pill, unread line,
-  deletes). Recorded from the web's controller (`RECORD=1 npx vitest run --project unit
-  tests/unit/views/room/scenarios.test.ts`) and replayed by it and by the app's `RoomScenariosTest.kt`. A change to
+  deletes). Recorded from the web's controller (`RECORD=1 npx vitest run --project component
+  tests/component/views/room/scenarios.test.ts`) and replayed by it and by the app's `RoomScenariosTest.kt`. A change to
   what the controller does is recorded again, then the app is made to pass.
 
 ## What the clients use
