@@ -1,6 +1,6 @@
 // One room's message window and everything that changes it (DESIGN.md §7.5, §7.6; ANDROID.md §6.3): a port of
 // web/src/views/room/controller.ts. Loading (the kept window at once, then the first page in one round trip), realtime,
-// reconnects and their gap fill, sends (through the outbox), edits, deletes, reactions (§20) and deleting several (§21).
+// reconnects and their gap fill here; sends (through the outbox), edits, deletes and reactions in RoomWrites.kt.
 // No UI: the screen renders [state] and follows [scrolls]. Runs on the main thread; writes outlive the screen.
 package chirkle.android.data.repo
 
@@ -18,20 +18,13 @@ import chirkle.android.data.lib.canPost
 import chirkle.android.data.lib.lastOwnEditable
 import chirkle.android.data.lib.lastSaved
 import chirkle.android.data.lib.merge
-import chirkle.android.data.lib.newId
-import chirkle.android.data.lib.parsePb
-import chirkle.android.data.lib.quote
 import chirkle.android.data.lib.remove
-import chirkle.android.data.lib.setReaction
-import chirkle.android.data.lib.toPb
 import chirkle.android.data.lib.trim
 import chirkle.android.data.model.Cursor
 import chirkle.android.data.model.LocalFile
 import chirkle.android.data.model.Message
-import chirkle.android.data.model.MessageExpand
 import chirkle.android.data.model.Reaction
 import chirkle.android.data.model.Room
-import chirkle.android.data.model.SendStatus
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
@@ -47,12 +40,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withTimeoutOrNull
 
 /** How long a message gone to (a quote, a search result) stays highlighted. */
 const val HIGHLIGHT_MS = 3000L
@@ -143,10 +132,27 @@ class RoomController(
     private var live: Deferred<Unit> = CompletableDeferred(Unit)
     private var liveReady = false
     private val owner = store.get().user?.id.orEmpty()
-    /** My reaction changes on their way, by message and emoji: whether it should be there, and which change said so. */
-    private val reacting = HashMap<String, HashMap<String, Pair<Boolean, Int>>>()
-    private var reactSeq = 0
-    private val queues = HashMap<String, Mutex>()
+    private val writer = RoomWrites(api, outbox, roomId, owner, writes, object : RoomWrites.Host {
+        override val scope get() = this@RoomController.scope
+        override var win
+            get() = this@RoomController.win
+            set(value) {
+                this@RoomController.win = value
+            }
+        override fun me() = this@RoomController.me()
+        override fun posting() = this@RoomController.posting()
+        override fun editable(m: Message) = this@RoomController.editable(m)
+        override fun deletable(m: Message) = this@RoomController.deletable(m)
+        override fun reactable(m: Message) = this@RoomController.reactable(m)
+        override fun find(id: String) = this@RoomController.find(id)
+        override fun patchLocal(id: String, fn: (Message) -> Message) = this@RoomController.patchLocal(id, fn)
+        override fun publish(scroll: Scroll?) = this@RoomController.publish(scroll)
+        override fun inPlace() = this@RoomController.inPlace()
+        override suspend fun toLatest() = jumpNow(PageKind.Latest)
+        override fun clearPill() {
+            pill = null
+        }
+    })
 
     private val follows get() = atBottom && !store.get().away
     private val ready get() = phase == Phase.Ready
@@ -192,7 +198,7 @@ class RoomController(
             stale = stale,
             unsure = stale && asking,
             notice = notice,
-            reacting = reacting.mapValues { (_, m) -> m.mapValues { it.value.first } },
+            reacting = writer.reactingNow(),
         )
         scroll?.let { scrollFlow.trySend(it) }
         keepJob?.cancel()
@@ -566,141 +572,33 @@ class RoomController(
         }
     }
 
-    // ---------------------------------------------------------------- sending
+    // ---------------------------------------------------------------- writes (RoomWrites.kt)
 
     /**
      * Send optimistically, as a reply to [replyTo] if given (§19). [files] are already in app storage (the outbox
      * deletes them once sent). False when sending isn't possible (no user, archived, not allowed to post: §23.6).
      */
-    fun send(text: String, files: List<LocalFile> = emptyList(), replyTo: Message? = null, items: List<chirkle.android.data.model.CollectionItem> = emptyList()): Boolean {
-        val user = me() ?: return false
-        if (room() == null || !posting()) return false
-        val quoted = replyTo?.quote()
-        scope.launch {
-            if (win.hasNewer) jumpNow(PageKind.Latest)
-            val last = (win.items + outbox.messages.value.filter { it.room == roomId }).maxByOrNull { it.created }
-            val created = toPb(maxOf(System.currentTimeMillis(), if (last != null) parsePb(last.created) + 1 else 0))
-            val msg = Message(
-                id = newId(),
-                room = roomId,
-                author = user.id,
-                text = text,
-                created = created,
-                updated = created,
-                replyTo = quoted?.id.orEmpty(),
-                expand = MessageExpand(author = user, replyTo = quoted),
-                status = SendStatus.Pending,
-                localFiles = files,
-                localItems = items,
-            )
-            pill = null
-            writes.launch { outbox.enqueue(owner, msg) }.join()
-            // The outbox reads back from the database a moment later: follow the message once it is shown, not before.
-            withTimeoutOrNull(2000) { outbox.messages.first { q -> q.any { it.id == msg.id } } }
-            publish(Scroll.Bottom)
-        }
-        return true
-    }
+    fun send(text: String, files: List<LocalFile> = emptyList(), replyTo: Message? = null, items: List<chirkle.android.data.model.CollectionItem> = emptyList()): Boolean =
+        writer.send(text, files, replyTo, items)
 
-    fun retrySend(id: String) {
-        writes.launch { outbox.retry(id) }
-    }
+    fun retrySend(id: String) = writer.retrySend(id)
 
-    fun discard(id: String) {
-        writes.launch { outbox.discard(id) }
-    }
-
-    // ---------------------------------------------------------------- edit / delete
-
-    /** Writes go one at a time per message, so the server applies them in the order they were made. */
-    private suspend fun <T> inTurn(key: String, write: suspend () -> T): T = queues.getOrPut(key) { Mutex() }.withLock { write() }
-
-    /** Show [patch] at once; keep the server's copy, or put [revert] back if the request fails. */
-    private fun optimistic(id: String, patch: (Message) -> Message, revert: (Message) -> Message, request: suspend () -> Message): Deferred<Boolean> {
-        patchLocal(id, patch)
-        publish(inPlace())
-        val done = CompletableDeferred<Boolean>()
-        writes.launch {
-            val saved = runCatching { inTurn(id) { request() } }.getOrNull()
-            scope.launch {
-                if (saved != null) win = win.merge(listOf(saved)) else patchLocal(id, revert)
-                publish(inPlace())
-            }
-            done.complete(saved != null)
-        }
-        return done
-    }
+    fun discard(id: String) = writer.discard(id)
 
     /** Save validated text. Null: nothing to save (unchanged, or no longer editable). */
-    fun edit(id: String, text: String): Deferred<Boolean>? {
-        val m = find(id) ?: return null
-        if (!editable(m) || text == m.text) return null
-        return optimistic(id, { it.copy(text = text, previews = emptyList()) }, { it.copy(text = m.text, editedAt = m.editedAt, previews = m.previews) }) { api.edit(id, text) }
-    }
+    fun edit(id: String, text: String): Deferred<Boolean>? = writer.edit(id, text)
 
     /** Soft delete. Null: not in the window. */
-    fun remove(id: String): Deferred<Boolean>? {
-        val m = find(id) ?: return null
-        return optimistic(id, { it.copy(text = "", deleted = true) }, { it.copy(text = m.text, deleted = false) }) { api.softDelete(id) }
-    }
+    fun remove(id: String): Deferred<Boolean>? = writer.remove(id)
 
     /** Soft-delete several messages in one request, all or none (§21.2). Null: none deletable. Resolves to the error, or null. */
-    fun removeMany(ids: List<String>): Deferred<Throwable?>? {
-        val ms = ids.mapNotNull { find(it) }.filter { deletable(it) }
-        if (ms.isEmpty()) return null
-        for (m in ms) patchLocal(m.id) { it.copy(text = "", deleted = true) }
-        publish(inPlace())
-        val done = CompletableDeferred<Throwable?>()
-        writes.launch {
-            val result = runCatching { api.deleteMany(ms.map { it.id }) }
-            scope.launch {
-                result.onSuccess { saved -> win = win.merge(saved.filter { find(it.id) != null }) }
-                    .onFailure { for (m in ms) patchLocal(m.id) { it.copy(text = m.text, deleted = false) } }
-                publish(inPlace())
-            }
-            done.complete(result.exceptionOrNull())
-        }
-        return done
-    }
-
-    // ---------------------------------------------------------------- reactions
+    fun removeMany(ids: List<String>): Deferred<Throwable?>? = writer.removeMany(ids)
 
     /** A message's reactions as they should show: the server's, with my changes on their way applied. */
-    fun reactions(m: Message): List<Reaction> {
-        var list = m.reactions
-        val user = me()?.id ?: return list
-        reacting[m.id]?.forEach { (emoji, p) -> list = setReaction(list, emoji, user, p.first) }
-        return list
-    }
+    fun reactions(m: Message): List<Reaction> = writer.reactions(m)
 
     /** Add ([on]) or remove my [emoji], shown at once. Null when not possible. Resolves false if it failed. */
-    fun react(id: String, emoji: String, on: Boolean): Deferred<Boolean>? {
-        val m = find(id) ?: return null
-        if (!reactable(m)) return null
-        val seq = ++reactSeq
-        val mine = reacting.getOrPut(id) { HashMap() }
-        mine[emoji] = on to seq
-        val latest = { mine[emoji]?.second == seq }
-        publish(inPlace())
-        val done = CompletableDeferred<Boolean>()
-        writes.launch {
-            val ok = inTurn(id) {
-                if (!latest()) return@inTurn true // changed again before it went out: the later change says what to send
-                val saved = runCatching { api.react(id, emoji, on) }.getOrNull()
-                if (saved != null) scope.launch { if (find(id) != null) win = win.merge(listOf(saved)) }
-                saved != null
-            }
-            scope.launch {
-                if (latest()) {
-                    mine.remove(emoji)
-                    if (mine.isEmpty() && reacting[id] === mine) reacting.remove(id)
-                    publish(inPlace())
-                }
-                done.complete(ok || !latest())
-            }
-        }
-        return done
-    }
+    fun react(id: String, emoji: String, on: Boolean): Deferred<Boolean>? = writer.react(id, emoji, on)
 
     /** Hide the "new messages below" pill: the list is at the bottom now. */
     fun dismissPill() {

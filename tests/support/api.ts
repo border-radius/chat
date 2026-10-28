@@ -246,7 +246,7 @@ export function instrument(api: Api): Controls {
  * (as they are whenever someone is logged in). Build it after `instrument()`/`intercept()` so they see those.
  */
 /** Unread timing for tests: the app's, shortened (reads batch for 100 ms, not 1 s). */
-export const TEST_TIMING: UnreadTiming = { refreshMs: 50, readMs: 100 };
+export const TEST_TIMING: UnreadTiming = { refreshMs: 50, readMs: 100, retryMs: 100 };
 /** Long enough that a read batched with TEST_TIMING would have been sent: to check that none was. */
 export const READ_WINDOW_MS = 300;
 

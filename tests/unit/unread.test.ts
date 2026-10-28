@@ -351,22 +351,34 @@ describe("unread counts (§18.3)", () => {
       expect(calls).toEqual([]);
     });
 
-    it("a failed read is sent again with the next seen()", async () => {
+    it("QA BUG-162: a failed read is sent again by itself, with nothing new on screen", async () => {
       const { r, msgs } = await freshRoom(1);
       const ctl = instrument(me.api);
       ctl.failNext("markRead", new ApiError("Failed to fetch", 0));
-      const sent: Promise<unknown>[] = [];
-      const calls = reads(sent); // outside the failure, so the failed call is recorded too
+      const calls = reads(); // outside the failure, so the failed call is recorded too
       start();
       const reader = unread!.open(r.id);
       reader.seen(msgs[0]!.created, true);
       unread!.flush();
       expect(calls).toHaveLength(1);
-      await Promise.all(sent); // the failure has come back
-      await Promise.resolve(); // and the reader's own catch has run
-      reader.seen(msgs[0]!.created, true); // the same position: sent again only because it failed
+      // No more seen(): the room on screen doesn't change. The retry comes after TEST_TIMING.retryMs.
       await vi.waitFor(() => expect(calls).toHaveLength(2), { timeout: 3000 });
+      expect(calls[1]).toEqual(calls[0]);
       await vi.waitFor(async () => expect((await me.api.unreadCounts()).rooms[r.id]).toBeUndefined());
+    });
+
+    it("a refused read (4xx) isn't sent again", async () => {
+      const { r, msgs } = await freshRoom(1);
+      const ctl = instrument(me.api);
+      ctl.failNext("markRead", new ApiError("Forbidden", 403));
+      const sent: Promise<unknown>[] = [];
+      const calls = reads(sent);
+      start();
+      unread!.open(r.id).seen(msgs[0]!.created, true);
+      unread!.flush();
+      await Promise.all(sent);
+      await sleep(TEST_TIMING.retryMs * 4);
+      expect(calls).toHaveLength(1);
     });
 
     it("after stop(), readers do nothing (the session is over)", async () => {

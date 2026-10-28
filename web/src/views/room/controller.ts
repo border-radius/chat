@@ -1,11 +1,10 @@
-// Room controller (§7.5, §7.6): one room's message window and everything that changes it. That covers loading,
-// realtime, reconnects, sending, edits, deletes, reactions (§20) and deleting several messages at once (§21). No DOM: every change is reported to `onChange` with a hint
-// (render, keep the anchor, scroll), and the room view (views/room.ts) applies it to the list.
+// Room controller (§7.5, §7.6): one room's message window and everything that changes it: loading, realtime and
+// reconnects here, and the writes (sending, edits, deletes, reactions) in writes.ts. No DOM: every change is reported to
+// `onChange` with a hint (render, keep the anchor, scroll), and the room view (views/room.ts) applies it to the list.
 
 import { type Action, type Api, ApiError } from "../../api.ts";
 import type { Cache } from "../../cache.ts";
 import { type Cursor, changedIn, first, latest, newer, older, PAGE_SIZE } from "../../lib/cursor.ts";
-import { newId } from "../../lib/id.ts";
 import {
   applyPage,
   compare,
@@ -15,36 +14,21 @@ import {
   type MessageWindow,
   merge,
   type PageKind,
-  quoteOf,
   remove,
   trim,
 } from "../../lib/messages.ts";
-import { setReaction } from "../../lib/reactions.ts";
 import { canPost } from "../../lib/rooms.ts";
-import { parsePb, toPb } from "../../lib/time.ts";
 import type { LocalFile, Message, Reaction, Room } from "../../lib/types.ts";
 import type { Scope } from "../../scope.ts";
 import { type AppState, type Store, UNCOUNTED, upsertRoom } from "../../store.ts";
+import { createWrites, revokeLocal, stray, takeStrays } from "./writes.ts";
 
-/** "loading" until the first page is in; "failed" offers Retry; "not-found": no such room (or not yours). */
 /** How long a message gone to (a quote, a link) stays highlighted; styles/app/messages.css fades it out over this time. */
 export const HIGHLIGHT_MS = 3000;
 /** How long the line over the first unread message shows; styles/app/messages.css fades it out before then. */
 export const UNREAD_LINE_MS = 5000;
 
-/**
- * Sends that failed, by room, kept for its next view when the view went: those that failed after it had gone (another
- * room was opened while they were on their way), and those it showed as not sent (QA BUG-119). The next view shows
- * them as not sent, with Retry: otherwise what was written would be lost without a word, as the composer and the draft
- * were cleared on sending.
- */
-const strays = new Map<string, Message[]>();
-/** Keep a failed send for the room's next view. Its previews went with the view: its files show by name. */
-function stray(m: Message) {
-  const files = m.localFiles?.map((f) => ({ ...f, url: "" }));
-  strays.set(m.room, [...(strays.get(m.room) ?? []), { ...m, ...(files && { localFiles: files }) }]);
-}
-
+/** "loading" until the first page is in; "failed" offers Retry; "not-found": no such room (or not yours). */
 export type Phase = "loading" | "ready" | "failed" | "not-found";
 /** "below": new messages under the viewport. "history": new messages, but the window isn't at the live edge. */
 export type Pill = "below" | "history" | null;
@@ -204,25 +188,6 @@ export function createRoomController(opts: {
     return !!me() && !!r && !r.archived && !m.deleted && !m.status;
   };
   const repliable = (m: Message) => reactable(m) && posting();
-  /**
-   * My reaction changes still on their way, by message id and emoji: whether it should be there, and which change said
-   * so last. They show over every copy of the message until that change is answered (§20.3).
-   */
-  const reacting = new Map<string, Map<string, { on: boolean; seq: number }>>();
-  /**
-   * Writes go one at a time, so the server applies them in the order they were made: sends (key ""), and each message's
-   * edits, deletes and reactions (key: its id). Two at once can land the other way round: a message with an attachment
-   * after the text sent just after it, or an older edit over a newer one.
-   */
-  const queues = new Map<string, Promise<unknown>>();
-  const inTurn = <T>(key: string, write: () => Promise<T>): Promise<T> => {
-    const run = (queues.get(key) ?? Promise.resolve()).then(write);
-    const done = run.catch(() => {});
-    queues.set(key, done);
-    void done.then(() => queues.get(key) === done && queues.delete(key));
-    return run;
-  };
-  let reactSeq = 0;
   const emit = (change: Change = {}) => {
     if (!scope.active) return;
     opts.onChange(change);
@@ -279,11 +244,6 @@ export function createRoomController(opts: {
       emit({ render: { anchor: true } });
     }, UNREAD_LINE_MS);
   };
-  /** Release a local message's preview URLs (sent, discarded, or the room is going away). */
-  const revokeLocal = (m: Message | undefined) => {
-    for (const f of m?.localFiles ?? []) if (f.url) URL.revokeObjectURL(f.url);
-  };
-
   // ---------------------------------------------------------------- loading
 
   /** Apply a page fetched under generation `g`, unless a jump (or the end of the scope) has made it stale. */
@@ -570,204 +530,29 @@ export function createRoomController(opts: {
     emit(follow ? { render: {}, scroll: "bottom" } : { render: { anchor: true } });
   }
 
-  // ---------------------------------------------------------------- sending
-
-  function send(text: string, files: LocalFile[] = [], replyTo?: Message): boolean {
-    const user = me();
-    const r = room();
-    if (!user || !r || !posting()) return false;
-    const quoted = replyTo ? quoteOf(replyTo) : undefined;
-    void (async () => {
-      if (win.hasNewer) await jump("latest");
-      const last = win.items.at(-1);
-      const created = toPb(Math.max(Date.now(), last ? parsePb(last.created) + 1 : 0));
-      const msg: Message = {
-        id: newId(),
-        room: roomId,
-        author: user.id,
-        text,
-        created,
-        updated: created,
-        edited_at: "",
-        deleted: false,
-        expand: { author: { id: user.id, name: user.name, avatar: user.avatar ?? "" }, ...(quoted ? { reply_to: quoted } : {}) },
-        ...(quoted ? { reply_to: quoted.id } : {}),
-        status: "pending",
-        ...(files.length ? { localFiles: files } : {}),
-      };
-      win = trim(merge(win, [msg]), "top").win;
+  const writes = createWrites({
+    api,
+    roomId,
+    scope,
+    me,
+    posting,
+    editable,
+    deletable,
+    win: () => win,
+    put: (next) => {
+      win = next;
+    },
+    find,
+    patchLocal,
+    emit,
+    inPlace,
+    toLatest: () => jump("latest"),
+    clearPill: () => {
       pill = null;
-      emit({ render: {}, scroll: "bottom" });
-      await inTurn("", () => deliver(msg));
-    })();
-    return true;
-  }
-
-  async function deliver(msg: Message) {
-    // A reply whose original has been deleted meanwhile can only go without its quote (§19): Retry sends it so.
-    const quoted = msg.expand?.reply_to;
-    const replyTo = msg.reply_to && !(find(msg.reply_to) ?? quoted)?.deleted ? msg.reply_to : undefined;
-    let saved: Message | null = null;
-    let failed: Message | null = null;
-    try {
-      const files = msg.localFiles?.filter((f) => !f.item).map((f) => f.file);
-      const items = msg.localFiles?.flatMap((f) => (f.item ? [f.item.id] : []));
-      saved = await api.send(
-        {
-          id: msg.id,
-          room: msg.room,
-          text: msg.text,
-          ...(files?.length ? { files } : {}),
-          ...(items?.length ? { items } : {}),
-          ...(replyTo ? { replyTo } : {}),
-        },
-        (fraction) => opts.onUpload?.(msg.id, fraction),
-      );
-    } catch (e) {
-      // A retry of a send that already reached the server fails with a duplicate id: it was sent after all.
-      const recovered = e instanceof ApiError && e.status === 400 ? await api.getMessage(msg.id).catch(() => null) : null;
-      if (recovered && recovered.author === me()?.id) saved = recovered;
-      else {
-        const replyGone = e instanceof ApiError && "reply_to" in e.fields && quoted;
-        failed = {
-          ...msg,
-          status: "failed",
-          ...(replyGone ? { expand: { ...msg.expand, reply_to: { ...quoted, text: "", deleted: true } } } : {}),
-        };
-        // The server says the original is deleted, though the window may not have heard yet.
-        if (replyGone && find(quoted.id)) patchLocal(quoted.id, { text: "", deleted: true });
-      }
-    }
-    // The server has the files now: the previews can go, even if the room was left meanwhile (its echo may already have
-    // replaced the pending copy, whose previews nothing else would release; QA BUG-70).
-    if (saved) revokeLocal(msg);
-    if (!scope.active) {
-      if (failed) stray(failed);
-      return;
-    }
-    // The window may have moved back in history meanwhile (a quote, a jump): then the message isn't in it, and
-    // must not be put after older messages. Sent, it shows once the window is back at the live edge.
-    if (saved) {
-      unsent.delete(msg.id);
-      if (find(msg.id)) win = merge(win, [saved]);
-    } else if (failed && find(msg.id)?.status) win = merge(win, [failed]);
-    else if (failed && unsent.has(msg.id)) unsent.set(msg.id, failed);
-    emit({ render: {} });
-  }
-
-  async function retrySend(id: string) {
-    const m = find(id);
-    if (m?.status !== "failed") return;
-    patchLocal(id, { status: "pending" });
-    emit({ render: {} });
-    await inTurn("", () => deliver({ ...m, status: "pending" }));
-  }
-
-  function discard(id: string) {
-    revokeLocal(find(id));
-    win = remove(win, id);
-    emit({ render: {} });
-  }
-
-  // ---------------------------------------------------------------- edit / delete
-
-  /** Show `patch` right away; keep the server's copy, or put `before` back if the request fails. */
-  async function optimistic(id: string, patch: Partial<Message>, before: Partial<Message>, request: () => Promise<Message>) {
-    patchLocal(id, patch);
-    emit(inPlace());
-    let ok = true;
-    try {
-      const saved = await inTurn(id, request);
-      if (scope.active) win = merge(win, [saved]);
-    } catch {
-      if (!scope.active) return false;
-      patchLocal(id, before);
-      ok = false;
-    }
-    emit(inPlace());
-    return ok;
-  }
-
-  function edit(id: string, text: string) {
-    const m = find(id);
-    // Deleted elsewhere or the room was archived while the edit box was open: nothing left to save.
-    if (!m || !editable(m) || text === m.text) return null;
-    return optimistic(id, { text, previews: [] }, { text: m.text, edited_at: m.edited_at, previews: m.previews ?? [] }, () =>
-      api.edit(id, text),
-    );
-  }
-
-  function removeMessage(id: string) {
-    const m = find(id);
-    if (!m) return null;
-    return optimistic(id, { text: "", deleted: true }, { text: m.text, deleted: false }, () => api.softDelete(id));
-  }
-
-  function removeMany(ids: readonly string[]) {
-    const ms = ids.flatMap((id) => {
-      const m = find(id);
-      return m && deletable(m) ? [m] : [];
-    });
-    return ms.length ? deleteAll(ms) : null;
-  }
-
-  async function deleteAll(ms: Message[]): Promise<unknown> {
-    for (const m of ms) patchLocal(m.id, { text: "", deleted: true });
-    emit(inPlace());
-    let failure: unknown = null;
-    try {
-      const saved = await api.deleteMany(ms.map((m) => m.id));
-      if (scope.active)
-        win = merge(
-          win,
-          saved.filter((m) => find(m.id)),
-        );
-    } catch (e) {
-      if (!scope.active) return e;
-      for (const m of ms) patchLocal(m.id, { text: m.text, deleted: false });
-      failure = e;
-    }
-    emit(inPlace());
-    return failure;
-  }
-
-  // ---------------------------------------------------------------- reactions
-
-  function reactionsOf(m: Message): readonly Reaction[] {
-    let list: readonly Reaction[] = m.reactions ?? [];
-    const mine = reacting.get(m.id);
-    const user = me()?.id;
-    if (mine && user) for (const [emoji, p] of mine) list = setReaction(list, emoji, user, p.on);
-    return list;
-  }
-
-  async function react(id: string, emoji: string, on: boolean): Promise<boolean> {
-    const seq = ++reactSeq;
-    const mine = reacting.get(id) ?? new Map();
-    const latest = () => mine.get(emoji)?.seq === seq;
-    const request = async () => {
-      if (!latest()) return true; // changed again before it went out: the later change says what to send
-      try {
-        const saved = await api.react(id, emoji, on);
-        // The whole message comes back: kept like any other copy (the newest wins).
-        if (scope.active && find(id)) win = merge(win, [saved]);
-        return true;
-      } catch {
-        return false;
-      }
-    };
-    const queue = inTurn(id, request);
-    reacting.set(id, mine.set(emoji, { on, seq }));
-    emit(inPlace());
-    const ok = await queue;
-    // Changed again meanwhile: the later change shows, and says whether it worked.
-    if (!latest()) return true;
-    if (!scope.active) return ok;
-    mine.delete(emoji);
-    if (!mine.size && reacting.get(id) === mine) reacting.delete(id);
-    emit(inPlace());
-    return ok;
-  }
+    },
+    unsent,
+    onUpload: opts.onUpload,
+  });
 
   // ---------------------------------------------------------------- lifecycle
 
@@ -790,8 +575,7 @@ export function createRoomController(opts: {
       // Back online: a first load that failed tries again, even if realtime never noticed (QA BUG-123).
       addEventListener("online", retry, { signal });
       scope.defer(() => clearTimeout(targetTimer));
-      for (const m of strays.get(roomId) ?? []) if (m.author === me()?.id) unsent.set(m.id, m); // not from before a logout
-      strays.delete(roomId);
+      for (const m of takeStrays(roomId)) if (m.author === me()?.id) unsent.set(m.id, m); // not from before a logout
       // Room record changes (archive etc.) arrive through the store, kept live by sync.ts.
       const sub = api.subscribeMessages(roomId, onMessage);
       scope.sub(sub);
@@ -819,18 +603,18 @@ export function createRoomController(opts: {
       const mine = lastOwnEditable(win, me()?.id ?? "");
       return mine && editable(mine) ? mine : undefined;
     },
-    send,
-    retrySend,
-    discard,
-    edit,
-    remove: removeMessage,
+    send: writes.send,
+    retrySend: writes.retrySend,
+    discard: writes.discard,
+    edit: writes.edit,
+    remove: writes.remove,
     selectable: (m) => !!me() && !m.deleted && !m.status,
-    removeMany,
+    removeMany: writes.removeMany,
     reactable,
-    reactions: reactionsOf,
+    reactions: writes.reactions,
     react(id, emoji, on) {
       const m = find(id);
-      return m && reactable(m) ? react(id, emoji, on) : null;
+      return m && reactable(m) ? writes.react(id, emoji, on) : null;
     },
   };
 }

@@ -449,9 +449,21 @@ and so do the Chromium e2e suite and the app's tests.
       `tests/unit/views/room/scenarios.test.ts` and `RoomScenariosTest.kt`. The app passed all of them as they were.
 - [x] The app's test tasks take `shared/` as an input, so a change to the vectors runs them again.
 
+### 41. The web's unread and collections gaps (QA BUG-162, BUG-170), and the room controllers split ✅
+- [x] `unread.ts`: a failed read is sent again after 2 s, doubling up to a minute, until it is in or refused (a 4xx
+      other than 429), as the app's `Unread` does. Before, it waited for the next `seen()`, which nothing brought when
+      the room on screen didn't change.
+- [x] `collections.ts`: once subscribed, the list is read once more (a follow made between the read and the
+      subscription was missed until a reconnect); a failed subscription is made again by the next load.
+      `tests/unit/collections.test.ts` is new.
+- [x] The room controllers' writes moved out: `views/room/writes.ts` (836 → 620 + 288 lines) and Android's
+      `RoomWrites.kt` (748 → 657 + 195), each behind a narrow host interface. The shared room scenarios (item 40) and
+      the controller tests pass unchanged on both.
+
 ### Left open from the review
 - Scale (§26 above): `UNREAD_SQL`, realtime fan-out, queue polling. Not needed at the measured sizes.
-- Splitting the other large files (`views/room.ts`, `room/controller.ts`, `federation/rooms.js`, `previews.js`, Android's
-  `ChirkleApi.kt` and `RoomController.kt`).
+- Splitting the other large files (`views/room.ts`, `federation/rooms.js`, `previews.js`, Android's `ChirkleApi.kt`).
+- `cache.spec.ts` QA BUG-104 (the room kept when leaving right after a message) fails about 1 run in 10 with 4 workers,
+  before and after item 41 alike: the kept room comes back empty. Not looked into.
 - `keepToRoom` (enrich hook) looks up the room per message with reactions or a reply.
 - "Unit" tests that start PocketBase: worth splitting into true unit tests and component tests.

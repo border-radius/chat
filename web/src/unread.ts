@@ -2,7 +2,7 @@
 // is logged in. The room view only reports what it shows (`open(roomId).seen(created, caughtUp)`); this module owns the
 // counting, the batching of reads, retries, and whose session a read belongs to.
 
-import type { Api } from "./api.ts";
+import { type Api, ApiError } from "./api.ts";
 import { createScope, type Scope } from "./scope.ts";
 import { type AppState, bumpUnread, clearUnread, type Store } from "./store.ts";
 
@@ -37,9 +37,12 @@ export interface UnreadTiming {
   refreshMs: number;
   /** How long reads are batched before the server is told. */
   readMs: number;
+  /** The first wait before a failed read is sent again; it doubles each time, up to MAX_RETRY_MS. */
+  retryMs: number;
 }
 
-const TIMING: UnreadTiming = { refreshMs: 250, readMs: 1000 };
+const TIMING: UnreadTiming = { refreshMs: 250, readMs: 1000, retryMs: 2000 };
+const MAX_RETRY_MS = 60_000;
 
 export function createUnread({ api, store, timing = TIMING }: { api: Api; store: Store<AppState>; timing?: UnreadTiming }): Unread {
   /** The current run; callbacks hold on to theirs, so a restart can't revive them. */
@@ -95,6 +98,8 @@ export function createUnread({ api, store, timing = TIMING }: { api: Api; store:
     let readAt = "";
     let timer: ReturnType<typeof setTimeout> | undefined;
     let closed = false;
+    /** Failed sends in a row: the next retry waits longer. */
+    let failures = 0;
     const live = () => !closed && !!s?.active && s === scope;
 
     const self = {
@@ -104,10 +109,19 @@ export function createUnread({ api, store, timing = TIMING }: { api: Api; store:
         pending.delete(self);
         if (!s?.active || api.currentUser()?.id !== reader) return; // never as someone else
         const at = readAt;
-        return api.markRead(roomId, at).catch(() => {
-          // Try again with the next seen() (the room view renders after a reconnect's gap fill).
-          if (readAt === at && live()) readAt = "";
-        });
+        return api.markRead(roomId, at).then(
+          () => {
+            failures = 0;
+          },
+          (e: unknown) => {
+            // Offline, or the server in trouble: sent again a little later. Nothing else may ask (the room on screen
+            // doesn't change), and the room would stay unread everywhere (QA BUG-162). A refusal is final.
+            const status = e instanceof ApiError ? e.status : 0;
+            if ((status >= 400 && status < 500 && status !== 429) || !live() || timer) return;
+            pending.add(self);
+            timer = setTimeout(self.send, Math.min(timing.retryMs * 2 ** Math.min(failures++, 5), MAX_RETRY_MS));
+          },
+        );
       },
     };
 

@@ -41,8 +41,18 @@ export function createCollections({ api, store }: { api: Api; store: Store<AppSt
     const old = live?.off;
     if (old) void old.then((off) => off()).catch(() => {});
     const off = api.subscribeCollections(ids, refresh);
-    live = { key, off };
+    const mine = { key, off };
+    live = mine;
     s.sub(off);
+    void off.then(
+      // A change after the list was read but before the server had the subscription reaches neither (a follow from
+      // another device just then, QA BUG-170): read it once more. The same subscription isn't made again, so this ends.
+      () => s.active && live === mine && refresh(),
+      // Not subscribed: the next load tries again.
+      () => {
+        if (live === mine) live = null;
+      },
+    );
   }
 
   function refresh() {

@@ -176,7 +176,8 @@ chat/
 │       └── views/
 │           ├── login.ts, rooms.ts, home.ts, profile.ts
 │           ├── room.ts         # puts the controller's changes on screen, wires the parts
-│           └── room/           # controller.ts (message window, loading, realtime, sending; no DOM),
+│           └── room/           # controller.ts (message window, loading, realtime; no DOM), writes.ts (its sends,
+│                               # edits, deletes, reactions),
 │                               # header.ts, messages.ts (the list), composer.ts, forward.ts (§21.3),
 │                               # viewer.ts (image viewer, a lazy chunk: §17.7), search.ts (message search, a lazy chunk: §29),
 │                               # media.ts (media grid, a lazy chunk: §30)
@@ -447,7 +448,7 @@ interface MessageWindow {
 
 Each message the user sees is loaded once per visit. Moving the window costs one indexed query of 50 rows, and the DOM never holds more than about 300 messages.
 
-The window state machine above lives in `views/room/controller.ts`, which has no DOM. It reports each change with a hint (render, keep the anchor, scroll to the bottom/top/target), and `views/room.ts` applies that hint to the list.
+The window state machine above lives in `views/room/controller.ts`, which has no DOM; what it writes (sends, edits, deletes, reactions) is `writes.ts`, which reaches the window only through the controller's `WriteCtx`. It reports each change with a hint (render, keep the anchor, scroll to the bottom/top/target), and `views/room.ts` applies that hint to the list.
 
 **DOM rendering (`views/room.ts`, `views/room/messages.ts`):**
 
@@ -1580,8 +1581,9 @@ No row means "read up to your signup" (`users.created`): history from before you
   message, `caughtUp`; otherwise the newest confirmed message shown whole (the rows are bisected by their rects), so
   scrolling down through unread messages reads them as they come into view (2026-10-24: opening a room used to be
   all or nothing). Caught up, the reader clears the room's count in the store at once. At most once a second it sends
-  the position to `POST /api/chat/reads`. A failed send is retried with the next `seen()` (a reconnect's gap fill
-  renders). On unmount the view calls `reader.close(caughtUp)`: a pending read goes out immediately, and when not
+  the position to `POST /api/chat/reads`. A failed send is sent again by itself after 2 s, doubling up to a minute,
+  until it is in or refused (a 4xx other than 429): nothing else may ask, since the room on screen needn't change (QA
+  BUG-162). On unmount the view calls `reader.close(caughtUp)`: a pending read goes out immediately, and when not
   caught up the counts are refetched once it is in (fetched before it, the messages just read would count again),
   because what is below the screen is still unread and messages that arrived meanwhile weren't counted (it was the
   active room).

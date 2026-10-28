@@ -1772,7 +1772,8 @@ as `ImageDecoder` does on 9+ (`ImagePrepTest`, all on the old path).
 - **BUG-169:** the line now fades in its own place in its last 0.7 s, then goes.
 - **BUG-170:** found by `CollectionsTest` failing in full runs (the follow came while the subscription was on its
   way). Once subscribed, the list is read once more, as the room catches up after its subscription (QA BUG-61). A new
-  `CollectionsTest` holds the subscription back 1.5 s. The web's `collections.ts` has the same gap.
+  `CollectionsTest` holds the subscription back 1.5 s. The web's `collections.ts` had the same gap: fixed the same way
+  on 2026-10-28 (`tests/unit/collections.test.ts`).
 
 ## Checked and fine
 
@@ -1787,7 +1788,8 @@ as `ImageDecoder` does on 9+ (`ImagePrepTest`, all on the old path).
 Not changed, by design or for a decision:
 - Images uploaded straight into a collection keep their EXIF (GPS location included), on the web and on Android:
   neither re-encodes them as attachments are (§15.3). Re-encoding would also scale them down to 2048 px.
-- The web has BUG-162's and BUG-170's weaknesses too (`unread.ts`, `collections.ts`): not changed in this pass, which
-  was the app's.
+- The web had BUG-162's and BUG-170's weaknesses too (`unread.ts`, `collections.ts`): not changed in this pass, which
+  was the app's. Ported on 2026-10-28: a failed read is sent again after 2 s, doubling up to a minute, until it is in
+  or refused; the collections list is read once more once subscribed (`tests/unit/unread.test.ts`, `collections.test.ts`).
 - On the emulator (software CPU) Android's 10 s stop timeout passes before the activity has saved its state, so after
   the process is killed it starts at the room list. Settings saves its state there; a phone is fast enough.

@@ -945,7 +945,7 @@ not the room. That is the emulator's speed (Settings saves its state there), not
 
 - Images uploaded straight into a collection (§19) keep their EXIF, GPS included, on the web as on Android: neither
   re-encodes them as attachments are (§15.3). Re-encoding would also scale them to 2048 px.
-- The web's `unread.ts` and `collections.ts` have BUG-162's and BUG-170's weaknesses too.
+- The web's `unread.ts` and `collections.ts` had BUG-162's and BUG-170's weaknesses too; both fixed there on 2026-10-28.
 
 ### 26.4 Tests
 
@@ -1044,6 +1044,9 @@ This section covers the app's side of the architecture review (docs/REFACTOR.md 
 - **Shared vectors:** `VectorsTest` runs `shared/vectors/` (folding, search queries, highlighting, lengths, blank text,
   Jump to). The web and the server's `lib/text.js` run the same cases. Tests find the files through the build's
   `chirkle.repoRoot`, and the test tasks take `shared/` as an input (a change to it runs them again).
+- **Writes split out:** `RoomController`'s sends, edits, deletes and reactions are `RoomWrites.kt` (as the web's
+  `room/writes.ts`), reaching the window through a `RoomWrites.Host` the controller passes in. Its public methods are
+  unchanged.
 - **Window and room vectors:** `WindowVectorsTest` runs `shared/vectors/window.json` against `Window.kt` and
   `Cursors.kt`; `RoomScenariosTest` replays `room.json`, recorded from the web's room controller, against
   `RoomController` and a real server. A change to the web's controller is recorded again (docs/API.md), and the app
