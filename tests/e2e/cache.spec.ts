@@ -157,6 +157,8 @@ test("QA BUG-102: a reload into a prefetched room with many unread messages leav
   await page.locator(`a[href="/r/${lobby.id}"]`).click();
   await expect(page.locator("header.room-header h1")).toHaveText(`#${lobby.name}`);
   for (let i = 1; i <= 60; i++) await apiSend(ada, room, `unread ${i}`);
+  // A burst is fetched once, and again only 30 s later (QA BUG-108); the counts loaded at start fetch it at once.
+  await page.reload();
   await expect.poll(() => kept(page, room.id), { timeout: 10_000 }).toContain("unread 60");
 
   // Where the unread messages start comes late: the kept window shows at the bottom meanwhile.

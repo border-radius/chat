@@ -1019,7 +1019,7 @@ from BUG-104. Each fix lands with a test that fails without it.
 |---|---|---|---|---|
 | BUG-106 | Low | Unread | Under load, a room's badge (and the tab's total) could show one unread message more than there was, until the room was opened | Fixed |
 | BUG-107 | Low | Room list | A room you had just created, or a DM just opened, vanished from the list for a moment when a room list reload (a page load, a reconnect) answered before its live event came; a room just hidden showed again | Fixed |
-| BUG-108 | Medium (performance) | Prefetching | While a public room is busy, every online user who has it unread refetches its latest page about once a second: 20 idle tabs made each fetch take ~2 s | Open: needs a decision |
+| BUG-108 | Medium (performance) | Prefetching | While a public room is busy, every online user who has it unread refetches its latest page about once a second: 20 idle tabs made each fetch take ~2 s | Fixed (2026-10-29) |
 | BUG-105 | Low | Messages | Control characters (NUL, bell, terminal escape codes from pasted output) were kept in message text: shown as nothing or boxes, and refused by Telegram | Fixed |
 
 ## BUG-106 — One unread message too many (Low)
@@ -1046,7 +1046,7 @@ that changes in the store, whatever changed it; the answer takes those from the 
 out if gone from it (the list of events is gone). Comparing only the store before and after wasn't enough: a room
 added and then taken away meanwhile (§23.4) came back with the answer, which `access.test.ts` caught.
 
-## BUG-108 — Busy rooms are prefetched by everyone, every second (Medium, performance; open)
+## BUG-108 — Busy rooms are prefetched by everyone, every second (Medium, performance; fixed 2026-10-29)
 
 **Steps:** ~20 users online with a public room unread but not open; someone writes in it every second or so.
 **Actual:** each of their tabs fetches the room's latest page (50 messages, authors expanded) once per message
@@ -1055,6 +1055,10 @@ e2e trace, where tabs leaked by earlier tests did exactly this). It grows with u
 can see a public room is a candidate. **Not changed yet:** the fix trades the room cache's freshness for load, so it
 needs a decision. Options: refetch a room at most every 30–60 s while it stays unread (the first unread message is
 still fetched at once); or only at its first unread message, and again when the pointer rests on it in the list.
+**Fix (2026-10-29, the owner chose the first):** a room fetched less than `REFETCH_MS` (30 s) ago waits until then,
+and is fetched then if still unread; the count going up from none, and a deleted message (BUG-95), still fetch it at
+once. A room opened before its kept page caught up opens from the network (its kept count no longer holds, §18.5).
+Tests: `prefetch.test.ts` "QA BUG-108" (the first fails without the fix). `app.js` budget 47.35 → 47.40 KB.
 
 ## BUG-105 — Control characters in messages (Low)
 

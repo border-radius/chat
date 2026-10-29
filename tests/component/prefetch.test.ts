@@ -95,6 +95,38 @@ describe("prefetching rooms with unread messages (§7.5)", () => {
     expect(net.calls("page")).toBeLessThan(10);
   });
 
+  it("QA BUG-108: a room fetched less than REFETCH_MS ago is fetched again only then, while still unread", async () => {
+    prefetch.stop();
+    prefetch = createPrefetch({ api: me.api, store, cache, delayMs: 20, gapMs: 0, refetchMs: 400 });
+    prefetch.start();
+    const read = await me.api.createRoom(`room-${uniq()}`);
+    for (const id of [room.id, read.id]) store.set(bumpUnread(id));
+    await vi.waitFor(() => expect(net.calls("page")).toBe(2));
+    // More messages in both, one at a time: none of them fetches a room at once...
+    for (let i = 0; i < 5; i++) {
+      for (const id of [room.id, read.id]) store.set(bumpUnread(id));
+      await sleep(40);
+    }
+    expect(net.calls("page")).toBe(2);
+    // ...and one of them is read meanwhile: only the other is fetched, once, REFETCH_MS after the first fetch.
+    store.set(clearUnread(read.id));
+    await vi.waitFor(() => expect(net.calls("page")).toBe(3));
+    expect(cache.rooms.get(room.id)?.unread).toBe(6);
+    await sleep(600);
+    expect(net.calls("page")).toBe(3);
+  });
+
+  it("QA BUG-108: a room's first unread message is fetched at once, even if the room just was", async () => {
+    prefetch.stop();
+    prefetch = createPrefetch({ api: me.api, store, cache, delayMs: 20, gapMs: 0, refetchMs: 60_000 });
+    prefetch.start();
+    store.set(bumpUnread(room.id));
+    await vi.waitFor(() => expect(net.calls("page")).toBe(1));
+    store.set(clearUnread(room.id));
+    store.set(bumpUnread(room.id));
+    await vi.waitFor(() => expect(net.calls("page")).toBe(2));
+  });
+
   it("QA BUG-94: rooms are fetched GAP_MS apart, and a refused fetch leaves the rest", async () => {
     prefetch.stop();
     prefetch = createPrefetch({ api: me.api, store, cache, delayMs: 20, gapMs: 200 });

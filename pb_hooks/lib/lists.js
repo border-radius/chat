@@ -61,7 +61,7 @@ function messages(e) {
   const q = e.requestInfo().query;
   // Own keys only: "toString" and the like are the object's too (QA BUG-171).
   const name = q.kind || "latest";
-  const kind = Object.hasOwn(KINDS, name) ? KINDS[name] : null;
+  const kind = Object.keys(KINDS).includes(name) ? KINDS[name] : null;
   if (!kind) throw new BadRequestError("Unknown page kind.");
   const me = e.auth && !e.auth.isSuperuser() ? e.auth.id : "";
   if (!e.hasSuperuserAuth() && !visibleRoom(e.app, roomId, me)) return e.json(200, []);

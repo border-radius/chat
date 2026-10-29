@@ -192,8 +192,8 @@ row never changes key and the list never jumps. A trim job drops what falls outs
 ### 6.3 Sync
 
 1. **Launch:** show the kept room list; fetch rooms, hidden rooms and `/api/chat/unread` in parallel; prefetch the
-   latest page of rooms with unread messages, as `prefetch.ts` does. To stay out of the prefetch herd (QA BUG-108,
-   open on the web), a message in a room that isn't open only bumps its count; its page is fetched at launch, on a
+   latest page of rooms with unread messages, as `prefetch.ts` does. To stay out of the prefetch herd (QA BUG-108;
+   the web now fetches such a room at most every 30 s), a message in a room that isn't open only bumps its count; its page is fetched at launch, on a
    push, or when the room opens, never once per message.
 2. **Open a room:** show the kept window at once, positioned by §18.5's rule; fetch the first unread anchor and the
    latest page in one round trip; subscribe the room's messages.

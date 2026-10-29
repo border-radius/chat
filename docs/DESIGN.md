@@ -516,7 +516,11 @@ while its first page loads.
   opening it shows the new messages at once. A message deleted in another room refetches it too, so the cache doesn't
   show the deleted text when the room is next opened (QA BUG-95; a delete made while the app was closed still shows
   until the first page is in). The fetches start a second after the first count goes up, and messages meanwhile join
-  them: a busy room is fetched about once a second and never puts the others off (QA BUG-92). Rooms are fetched one
+  them: a busy room never puts the others off (QA BUG-92). A room fetched less than 30 s ago waits until then, and is
+  fetched then if it is still unread: a busy room that stays unread is fetched every 30 s by each user who has it
+  unread, not every second (QA BUG-108). Its first unread message (the count going up from none) and a deleted message
+  are fetched at once all the same. A room opened before its kept page caught up opens from the network, as when the
+  count it was fetched for no longer holds (§18.5). Rooms are fetched one
   at a time, 250 ms apart, and a refused fetch (the rate limit, offline) ends the run: hundreds of rooms with unread
   messages at login must not use up the per-IP request limit (QA BUG-94). The open room is left alone (it gets every
   message live and keeps its own page). Once the room list is in, the rooms not kept yet (the first 30 it lists: DMs,
@@ -573,7 +577,7 @@ while its first page loads.
 
 | Asset | Budget (gzipped) |
 |---|---|
-| `app.js` (including the PocketBase client) | **≤ 47.35 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, the room cache without waiting for the network, the QA pass 12 fixes, prefetching rooms not yet kept, the QA pass 13 fixes, thumbnail caching, the QA pass 14 fixes, Ctrl+Up/Down to pick the reply, link previews, the room access dialog fix, who can post, message search, message permalinks, the media grid, the QA pass 16 fixes, video posters in the room, the QA pass 17 fixes, media collections, Jump to, Appearance, the room in the tab title, the QA pass 19 fixes, live collection badges, the security audit fixes, the room kept as the page goes, see §13) |
+| `app.js` (including the PocketBase client) | **≤ 47.40 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, the room cache without waiting for the network, the QA pass 12 fixes, prefetching rooms not yet kept, the QA pass 13 fixes, thumbnail caching, the QA pass 14 fixes, Ctrl+Up/Down to pick the reply, link previews, the room access dialog fix, who can post, message search, message permalinks, the media grid, the QA pass 16 fixes, video posters in the room, the QA pass 17 fixes, media collections, Jump to, Appearance, the room in the tab title, the QA pass 19 fixes, live collection badges, the security audit fixes, the room kept as the page goes, the prefetch herd fix, see §13) |
 | `app.css` | **≤ 7.10 KB** (5 KB until §21, 5.5 KB until §23, 6 KB until audio attachments, 6.05 KB until §18.5, 6.10 KB until §28, 6.15 KB until the room access dialog fix, 6.20 KB until §29, 6.35 KB until message permalinks, 6.40 KB until §31, 6.85 KB until Jump to and Appearance, see §13) |
 | `index.html` | ≤ 1.5 KB |
 | Image viewer (§17.7), loaded on first use | ≤ 4 KB script, ≤ 1.5 KB stylesheet |
@@ -1047,6 +1051,7 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 | Bundle budget (live collection badges) | `app.js` raised from 47.10 KB to 47.15 KB (§7.7), the user's call (2026-10-23): badges following a collection made public or private, renamed or deleted (`chat/badges`) took it to 47.14 KB. |
 | Bundle budget (security audit fixes) | `app.js` raised from 47.15 KB to 47.25 KB (§7.7), the user's call (2026-10-24): the tree was already at about 47.17 KB, and clearing an expired session's leftovers at start (QA BUG-145) and the router's slash fix (QA BUG-146) took it to 47.22 KB. |
 | Bundle budget (room kept as the page goes) | `app.js` raised from 47.25 KB to 47.35 KB (§7.7), the user's call (2026-10-28): the `localStorage` fallback for the room kept on `pagehide` (QA BUG-104, which still failed about 1 in 10 under load) took it from 47.18 KB to 47.30 KB. |
+| Bundle budget (prefetch herd) | `app.js` raised from 47.35 KB to 47.40 KB (§7.7), the user's call (2026-10-29): fetching a busy unread room at most every 30 s (QA BUG-108) took it from 47.27 KB to 47.38 KB. Without the fetch once the 30 s are up it was still 47.36 KB; a lazy `prefetch.ts` was the other option. |
 
 ### Decided (2026-10-24, linked instances)
 
