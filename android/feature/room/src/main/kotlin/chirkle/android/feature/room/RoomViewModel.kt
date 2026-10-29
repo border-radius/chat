@@ -400,7 +400,7 @@ class RoomViewModel(
         if (!next) words = w
         searchStatus = "Searching…"
         val before = if (next) results.lastOrNull()?.let { Cursor(it.created, it.id) } else null
-        val page = runCatching { services.api.search(searchQuery(roomId, w, before)) }.getOrNull()
+        val page = runCatching { services.api.page(searchQuery(roomId, w, before)) }.getOrNull()
         if (page == null) {
             searchStatus = "Couldn't search. Check your connection."
             return

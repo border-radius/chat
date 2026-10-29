@@ -27,6 +27,7 @@ routerAdd("GET", "/api/{path...}", () => {
 routerAdd("POST", "/api/previews/tick", (e) => require(`${__hooks}/lib/previews.js`).tick(e), $apis.requireSuperuserAuth());
 routerAdd("GET", "/api/chat/rooms", (e) => require(`${__hooks}/lib/lists.js`).rooms(e));
 routerAdd("GET", "/api/chat/rooms/{room}/messages", (e) => require(`${__hooks}/lib/lists.js`).messages(e));
+routerAdd("GET", "/api/chat/notifiable", (e) => require(`${__hooks}/lib/lists.js`).notifiable(e), $apis.requireAuth("users"));
 routerAdd("POST", "/api/chat/dms", (e) => require(`${__hooks}/lib/dms.js`).openDm(e), $apis.requireAuth("users"));
 routerAdd("GET", "/api/chat/unread", (e) => require(`${__hooks}/lib/reads.js`).unread(e), $apis.requireAuth("users"));
 routerAdd("GET", "/api/chat/unread/{room}", (e) => require(`${__hooks}/lib/reads.js`).firstUnread(e), $apis.requireAuth("users"));

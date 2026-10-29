@@ -771,10 +771,10 @@ works the same on de-Googled phones and on any server, with no push credentials 
 - `CheckWorker` (`app/…/notify/`): a unique periodic WorkManager job, every 15 minutes (Android's shortest period;
   Doze and app standby can stretch it), only with a network (`NetworkType.CONNECTED`). Scheduled at sign-in (KEEP:
   one job for all accounts), cancelled by itself when no account is signed in. Offline: `Result.retry()`.
-- For each signed-in account, `NotifyCheck` (`core/data/…/repo/`, no new server route) makes:
+- For each signed-in account, `NotifyCheck` (`core/data/…/repo/`) makes:
   1. `GET /api/chat/unread`: which rooms have unread messages, and the server's time.
-  2. Only if some do: `ChirkleApi.notifiable`, one messages list over those rooms (40 per request: each a range scan
-     on `idx_messages_room_created`): `created > since && author != me && deleted = false && (room.kind = "dm" ||
+  2. Only if some do: `ChirkleApi.notifiable` (`GET /api/chat/notifiable` since §31; a records list before), one
+     messages list over those rooms (40 per request: each a range scan on `idx_messages_room_created`): `created > since && author != me && deleted = false && (room.kind = "dm" ||
      reply_to.author = me)`, newest first, at most 100.
   3. Only if something is new: `room_reads` for those rooms (what is past your read position is unread),
      `hidden_rooms`, and each room (title, archived).
@@ -1067,4 +1067,11 @@ names the page and the server writes the filter.
   has no such route: a room you can't see answers no messages, as before), that `ChirkleApi` (one per account) lists
   through the records API from then on, with `PageQuery.legacy()`: the filters the app sent before
   (`LegacyPagesTest`).
-- Search (`searchQuery`, now a `FilterQuery`, and `api.search`) and the notification check still send filters.
+- Later the same day, search and the notification check too: `searchQuery` is a `PageQuery` with `q` (the words),
+  asked of `page`; `ChirkleApi.notifiable` asks `GET /api/chat/notifiable`. Both fall back as the pages do; the old
+  search filter is `legacy()`'s too (`shared/vectors/text.json` has both forms).
+- **Tested against an old server:** `LegacyServerTest` runs one session (the room list, every kind of page, the
+  changes, search, the notification check) against the test server and against `TestServer.legacyUrl`: these hooks
+  without the routes of `lib/lists.js`, or an old release's with `-Pchirkle.legacyHooks=<its pb_hooks>`. Both see
+  the same; the old one answers one 404 and nothing more is asked of the routes. Run 2026-10-29 with the hooks of the
+  commit before the routes ("Tech debt, part 4"): passed.

@@ -31,7 +31,7 @@ describe("shared vectors: text (§22.1, §29)", () => {
   });
 
   it("searchQuery", () => {
-    for (const c of text.searchQuery) expect(searchQuery(c.room, c.words, c.before ?? undefined)).toEqual(c.output);
+    for (const c of text.searchQuery) expect(searchQuery(c.room, c.words, c.before ?? undefined)).toEqual(c.output.route);
   });
 
   it("highlight", () => {

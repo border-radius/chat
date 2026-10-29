@@ -12,23 +12,10 @@ private const val LEAD = 40
 fun searchWords(q: String): List<String> =
     foldKey(q).split(Regex("[\\s\\u00A0\\u2000-\\u200A\\u3000]+")).filter { it.isNotEmpty() }.distinct().take(MAX_WORDS)
 
-/**
- * The newest messages of [room] with every word, before [before] when given (newest first). `~` treats `%` as a
- * wildcard, so it is escaped (QA BUG-34), and so is the escape character itself (QA BUG-112).
- */
-fun searchQuery(room: String, words: List<String>, before: Cursor? = null): FilterQuery {
-    val params = linkedMapOf("room" to room)
-    val parts = mutableListOf("room = {:room}")
-    words.forEachIndexed { i, w ->
-        params["w$i"] = w.replace(Regex("[\\\\%]")) { "\\" + it.value }
-        parts += "text_key ~ {:w$i}"
-    }
-    if (before != null) {
-        params["created"] = before.created
-        params["id"] = before.id
-        parts += "(created < {:created} || (created = {:created} && id < {:id}))"
-    }
-    return FilterQuery(parts.joinToString(" && "), params, "-created,-id")
+/** The newest messages of [room] with every word, before [before] when given (newest first): a page with `q`. */
+fun searchQuery(room: String, words: List<String>, before: Cursor? = null): PageQuery {
+    val q = words.joinToString(" ")
+    return if (before != null) Pages.older(room, before).copy(q = q) else Pages.latest(room).copy(q = q)
 }
 
 /**

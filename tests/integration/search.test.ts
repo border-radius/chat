@@ -1,18 +1,47 @@
-// Message search (§29): messages.text_key follows the text on every save, and the search filter (search.ts) finds a
-// room's messages by it, case-insensitively beyond ASCII, through the list rules like any page.
+// Message search (§29): messages.text_key follows the text on every save, and a room's page with `q`
+// (pb_hooks/lib/lists.js) finds its messages by it, case-insensitively beyond ASCII, as the filter apps from before the
+// route send (shared/vectors/text.json's `legacy`) finds them through the list rules.
 
 import { readFileSync } from "node:fs";
 import type PocketBase from "pocketbase";
+import type { RecordModel } from "pocketbase";
 import { describe, expect, inject, it } from "vitest";
-import { listOptions } from "../../web/src/api.ts";
+import { pageOptions } from "../../web/src/api.ts";
 import { searchQuery, searchWords } from "../../web/src/views/room/search.ts";
 import { runSql } from "../support/sql.ts";
 import { adminClient, client, newRoom, newUser, openDm, post, uniq } from "./helpers.ts";
 
-/** The texts of the messages `pb` finds in `room` for `q`, newest first. */
-async function search(pb: PocketBase, room: string, q: string, before?: { created: string; id: string }) {
-  const { items } = await pb.collection("messages").getList(1, 50, listOptions(searchQuery(room, searchWords(q), before), pb.filter));
-  return items.map((m) => m.text as string);
+type Before = { created: string; id: string };
+
+/** A page of search results through the route. */
+const page = (pb: PocketBase, room: string, words: string[], before?: Before, limit?: number) =>
+  pb.send<RecordModel[]>(`/api/chat/rooms/${room}/messages`, { query: pageOptions(searchQuery(room, words, before), limit) });
+
+/** The filter apps from before the route send for a search (Android's PageQuery.legacy()). */
+function legacy(room: string, words: string[], before?: Before) {
+  const params: Record<string, string> = { room };
+  const parts = ["room = {:room}"];
+  words.forEach((w, i) => {
+    params[`w${i}`] = w.replace(/[\\%]/g, "\\$&");
+    parts.push(`text_key ~ {:w${i}}`);
+  });
+  if (before) {
+    Object.assign(params, before);
+    parts.push("(created < {:created} || (created = {:created} && id < {:id}))");
+  }
+  return { filter: parts.join(" && "), params };
+}
+
+/** The texts of the messages `pb` finds in `room` for `q`, newest first; the old filter finds the same. */
+async function search(pb: PocketBase, room: string, q: string, before?: Before) {
+  const words = searchWords(q);
+  const found = await page(pb, room, words, before);
+  const old = legacy(room, words, before);
+  const { items } = await pb
+    .collection("messages")
+    .getList(1, 50, { filter: pb.filter(old.filter, old.params), sort: "-created,-id", skipTotal: true });
+  expect(found.map((m) => m.id)).toEqual(items.map((m) => m.id));
+  return found.map((m) => m.text as string);
 }
 
 const keyOf = async (id: string) => (await (await adminClient()).collection("messages").getOne(id)).text_key;
@@ -44,13 +73,18 @@ describe("message search (§29)", () => {
     expect(await search(a.pb, room.id, "STRASSE")).toEqual([`${tag} the Straße is wide`]);
     expect(await search(a.pb, room.id, `  мир   ${tag} `)).toEqual([`${tag} мир only`, `${tag} Привет, мир`]);
     expect(await search(a.pb, room.id, "nothing-like-this")).toEqual([]);
+    // The server folds and splits the words itself.
+    const raw = await a.pb.send<RecordModel[]>(`/api/chat/rooms/${room.id}/messages`, {
+      query: { q: `  ПРИВЕТ ${tag}  мир мир `, fields: "text" },
+    });
+    expect(raw.map((m) => m.text)).toEqual([`${tag} Привет, мир`]);
   });
 
   it("pages back from the last result", async () => {
     const a = await newUser();
     const room = await newRoom(a);
     for (const n of [1, 2, 3]) await post(a, room.id, `needle ${n}`);
-    const { items } = await a.pb.collection("messages").getList(1, 2, listOptions(searchQuery(room.id, ["needle"]), a.pb.filter));
+    const items = await page(a.pb, room.id, ["needle"], undefined, 2);
     expect(items.map((m) => m.text)).toEqual(["needle 3", "needle 2"]);
     const last = items[1]!;
     expect(await search(a.pb, room.id, "needle", { created: last.created, id: last.id })).toEqual(["needle 1"]);

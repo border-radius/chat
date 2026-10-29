@@ -6,10 +6,15 @@
 // API, which stays as it was.
 
 const { SEES_SQL, visibleRoom } = require(`${__hooks}/lib/access.js`);
+const { searchKey } = require(`${__hooks}/lib/text.js`);
 
 /** Messages in a page unless `limit` says otherwise (web/src/lib/cursor.ts PAGE_SIZE). */
 const PAGE_SIZE = 50;
 const MAX_LIMIT = 200;
+/** Words of a search that count (web/src/views/room/search.ts MAX_WORDS). */
+const MAX_WORDS = 5;
+/** Rooms in one notification check, at most (ANDROID.md §21.2 asks for 40). */
+const MAX_ROOMS = 50;
 
 /**
  * A room's pages (DESIGN.md §7.5), keyset by (created, id), and the edits and deletes missed while offline (`changed`).
@@ -46,14 +51,17 @@ function rooms(e) {
 /**
  * GET /api/chat/rooms/{room}/messages?kind=latest|first|older|newer|changed → the messages. `older` and `newer` take the
  * cursor (`created`, `id`); `changed` takes `since` (an `updated` value) and `from`, `to` (`created` values). `files=1`:
- * only messages that may have attachments (theirs, or a forward's original's, §17.7). `limit` (at most 200) and `page`
- * (from 1) as the records API has them. A room the caller can't see has no messages, as the records API says.
+ * only messages that may have attachments (theirs, or a forward's original's, §17.7). `q`: only messages with every
+ * word of it (search, §29; with `latest` and `older`). `limit` (at most 200) and `page` (from 1) as the records API has
+ * them. A room the caller can't see has no messages, as the records API says.
  * @param {core.RequestEvent} e
  */
 function messages(e) {
   const roomId = e.request?.pathValue("room") ?? "";
   const q = e.requestInfo().query;
-  const kind = KINDS[q.kind || "latest"];
+  // Own keys only: "toString" and the like are the object's too (QA BUG-171).
+  const name = q.kind || "latest";
+  const kind = Object.hasOwn(KINDS, name) ? KINDS[name] : null;
   if (!kind) throw new BadRequestError("Unknown page kind.");
   const me = e.auth && !e.auth.isSuperuser() ? e.auth.id : "";
   if (!e.hasSuperuserAuth() && !visibleRoom(e.app, roomId, me)) return e.json(200, []);
@@ -64,12 +72,77 @@ function messages(e) {
     if (typeof q[p] !== "string" || (p !== "id" && !q[p])) throw new BadRequestError(`Missing ${p}.`);
     params[p] = q[p];
   }
-  const where = ["room = {:room}", kind.where, q.files === "1" ? `(files:length > 0 || forward_of != "")` : ""].filter(Boolean);
-  const limit = Math.min(Math.max(Number.parseInt(q.limit, 10) || PAGE_SIZE, 1), MAX_LIMIT);
-  const page = Math.max(Number.parseInt(q.page, 10) || 1, 1);
-  const items = e.app.findRecordsByFilter("messages", where.join(" && "), kind.sort, limit, (page - 1) * limit, params);
-  $apis.enrichRecords(e, items);
-  return e.json(200, items);
+  const where = [
+    "room = {:room}",
+    ...searchWhere(q.q ?? "", params),
+    kind.where,
+    q.files === "1" ? `(files:length > 0 || forward_of != "")` : "",
+  ];
+  return e.json(200, list(e, where, kind.sort, q, params));
 }
 
-module.exports = { rooms, messages };
+/**
+ * The conditions for a search's words (§29), matched on `text_key`, folded as the server stores it: each word once, the
+ * first MAX_WORDS. `~` treats a % in the value as a wildcard (and then stops adding its own), so it is escaped (QA
+ * BUG-34); `_` already is. So is the escape character itself (QA BUG-112).
+ * @param {string} text
+ * @param {Record<string, string>} params the words' values go in here
+ */
+function searchWhere(text, params) {
+  const words = [...new Set(searchKey(text).split(/\s+/).filter(Boolean))].slice(0, MAX_WORDS);
+  return words.map((w, i) => {
+    params[`w${i}`] = w.replace(/[\\%]/g, "\\$&");
+    return `text_key ~ {:w${i}}`;
+  });
+}
+
+/**
+ * GET /api/chat/notifiable?rooms=a,b&since=…[&every=a] → other people's messages in `rooms` since `since` that are
+ * DMs or replies to you, or any message in an `every` room (ANDROID.md §21.2, §24): newest first, `limit` of them. The
+ * rooms you can't see are left out.
+ * @param {core.RequestEvent} e
+ */
+function notifiable(e) {
+  const q = e.requestInfo().query;
+  if (!q.since) throw new BadRequestError("Missing since.");
+  const me = e.auth?.id ?? "";
+  const ids = (/** @type {string} */ s) => (s ?? "").split(",").filter(Boolean);
+  const rooms = ids(q.rooms)
+    .slice(0, MAX_ROOMS)
+    .filter((r) => visibleRoom(e.app, r, me));
+  if (!rooms.length) return e.json(200, []);
+  const every = new Set(ids(q.every));
+  /** @type {Record<string, string>} */
+  const params = { me, since: q.since };
+  rooms.forEach((r, i) => {
+    params[`r${i}`] = r;
+  });
+  const inRooms = rooms.map((_, i) => `room = {:r${i}}`).join(" || ");
+  const all = rooms.map((r, i) => (every.has(r) ? ` || room = {:r${i}}` : "")).join("");
+  const where = [
+    `(${inRooms})`,
+    "created > {:since}",
+    "author != {:me}",
+    "deleted = false",
+    `(room.kind = "dm" || reply_to.author = {:me}${all})`,
+  ];
+  return e.json(200, list(e, where, "-created,-id", q, params));
+}
+
+/**
+ * The messages matching every condition in `where`, a page of them as `q`'s `limit` and `page` say, enriched.
+ * @param {core.RequestEvent} e
+ * @param {string[]} where
+ * @param {string} sort
+ * @param {Record<string, any>} q
+ * @param {Record<string, string>} params
+ */
+function list(e, where, sort, q, params) {
+  const limit = Math.min(Math.max(Number.parseInt(q.limit, 10) || PAGE_SIZE, 1), MAX_LIMIT);
+  const page = Math.max(Number.parseInt(q.page, 10) || 1, 1);
+  const items = e.app.findRecordsByFilter("messages", where.filter(Boolean).join(" && "), sort, limit, (page - 1) * limit, params);
+  $apis.enrichRecords(e, items);
+  return items;
+}
+
+module.exports = { rooms, messages, notifiable };

@@ -678,7 +678,7 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
       search = createSearch({
         room: roomId,
         label: r ? roomTitle(r, me()) : "this room",
-        page: (q, sig) => api.search(q, sig),
+        page: (q, sig) => api.page(q, sig),
         pageSize: PAGE_SIZE,
         h,
         when: (m) => formatTime(parsePb(m.created)),

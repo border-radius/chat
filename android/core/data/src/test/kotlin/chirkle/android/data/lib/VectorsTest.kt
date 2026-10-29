@@ -26,10 +26,17 @@ class VectorsTest {
         for (c in text.cases("searchQuery")) {
             val before = c.getValue("before").takeIf { it != JsonNull }?.jsonObject?.let { Cursor(it.str("created"), it.str("id")) }
             val q = searchQuery(c.str("room"), c.strings("words"), before)
-            val out = c.getValue("output").jsonObject
-            assertEquals(out.str("filter"), q.filter)
-            assertEquals(out.getValue("params").jsonObject.mapValues { it.value.jsonPrimitive.content }, q.params)
-            assertEquals(out.str("sort"), q.sort)
+            val route = c.getValue("output").jsonObject.getValue("route").jsonObject
+            assertEquals(route.str("room"), q.room)
+            assertEquals(route.str("kind"), q.kind)
+            assertEquals(route.getValue("args").jsonObject.mapValues { it.value.jsonPrimitive.content }, q.args)
+            assertEquals(route.str("q"), q.q)
+            // The filter sent to a server from before the route.
+            val out = c.getValue("output").jsonObject.getValue("legacy").jsonObject
+            val old = q.legacy()
+            assertEquals(out.str("filter"), old.filter)
+            assertEquals(out.getValue("params").jsonObject.mapValues { it.value.jsonPrimitive.content }, old.params)
+            assertEquals(out.str("sort"), old.sort)
         }
     }
 

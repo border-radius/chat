@@ -133,7 +133,7 @@ chat/
 │       ├── text.js             # pure string cleaning: invisible characters, name keys, file names (§5.2, QA BUG-38)
 │       ├── http.js             # security + cache headers, /assets/ (§5.6, §8.2)
 │       ├── dms.js              # POST /api/chat/dms (§16.2)
-│       ├── lists.js            # GET /api/chat/rooms, GET /api/chat/rooms/{room}/messages (§6)
+│       ├── lists.js            # GET /api/chat/rooms, rooms/{room}/messages (pages, search), notifiable (§6)
 │       ├── reads.js            # GET /api/chat/unread, POST /api/chat/reads (§18.2)
 │       ├── reactions.js        # POST /api/chat/reactions (§20.2)
 │       ├── bulk.js             # POST /api/chat/delete, POST /api/chat/forward (§21)
@@ -359,8 +359,9 @@ The frontend talks to PocketBase through `pb.ts`, a minimal client (about 2 KB g
 Pagination always uses **keyset cursors** on `(created, id)`, never page numbers, and passes `skipTotal: true`. Every page is a single index range scan, so it costs the same whether the room has 100 messages or 10 million. New inserts never shift page boundaries.
 
 Filters are always built with `pb.filter()` and never by string concatenation, which prevents filter injection. Since
-2026-10-29 the clients write only search's filter (§29) and the notification check's (ANDROID.md §21): the pages and the
-room list are routes, so the server can change its schema under them (docs/API.md).
+2026-10-29 the pages, search (§29), the room list and the app's notification check (ANDROID.md §21) are routes, so the
+server can change its schema under them (docs/API.md). The clients still write a few filters on fields that won't move:
+`id` (users by id), `room` (read positions, the live room), `collection` and `owner` (collections).
 
 ## 7. Frontend design
 
@@ -2505,9 +2506,12 @@ the button. Guests can search the Open Air rooms they read.
   whatever a client sent: empty once deleted. Not hidden, so the list API can filter on it with its
   rules applied (nobody can search a room they can't read); `MSG_FIELDS` never asks for it. Max 40,000 characters (NFKC
   can make a 2,000-character text longer). Migration `1760000024_message_search.js` backfills it with raw SQL.
-- **Query** (`searchQuery` in `views/room/search.ts`): `room = {:room} && text_key ~ {:w0} && …`, newest first, from a
-  `(created, id)` cursor for the next page, as history pages are (§7.5). Up to 5 distinct words, folded the same way on
-  the client (`foldKey`). `%` and `\` (the escape character) are escaped (QA BUG-34, BUG-112; `_` already is).
+- **Query** (`searchQuery` in `views/room/search.ts`): a page of the room (§6) with `q`, the words: `kind=latest`, then
+  `kind=older` from the last result's `(created, id)` for the next page, as history pages are (§7.5). The server
+  (`lib/lists.js`) writes `room = {:room} && text_key ~ {:w0} && …`: up to 5 distinct words, folded as `text_key` is
+  (`searchKey`; the client folds them too, `foldKey`, to mark the matches), with `%` and `\` (the escape character)
+  escaped (QA BUG-34, BUG-112; `_` already is). Until 2026-10-29 the clients wrote that filter; apps then still do with
+  a server from before the route.
 - **Not found:** forwards (their text is their original's, shown in the answer only, §21.3), attachment names and
   link titles.
 - **Cost:** `LIKE '%…%'` can't use an index, so a search reads the room's messages through
@@ -2530,7 +2534,8 @@ changes; searching again does.
 ### 29.3 Tests
 
 - **Integration** (`search.test.ts`): `text_key` follows create, edits and deletes and ignores what a client sends;
-  every word in any case, Unicode included, newest first, one room only; paging from a cursor; `%` and `_` literal;
+  every word in any case, Unicode included, newest first, one room only (each search also through the old filter, which
+  must find the same); the server folds and splits what it is sent; paging from a cursor; `%` and `_` literal;
   deleted messages not found; nothing found in a DM or private room you aren't in, guests only in Open Air rooms.
 - **Unit** (`views/room/search.test.ts`): folding, words, the query, snippets; in the room view, results, going to
   one far back in history, the empty state, "Show older results", Escape.

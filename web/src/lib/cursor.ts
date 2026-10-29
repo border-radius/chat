@@ -16,6 +16,8 @@ export interface PageQuery {
   args: Record<string, string>;
   /** Only messages that may have attachments (`withFiles`). */
   files?: true;
+  /** Only messages with every word of it (search, §29; with `latest` and `older`). The server folds and escapes them. */
+  q?: string;
 }
 
 /** The newest page of a room (newest-first). */

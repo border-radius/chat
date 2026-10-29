@@ -384,9 +384,10 @@ class ChirkleApi(val pb: PbClient) {
 
     private fun pagePath(q: PageQuery) = "/api/chat/rooms/${java.net.URLEncoder.encode(q.room, "UTF-8")}/messages"
     private fun pageQuery(q: PageQuery, size: Int, page: Int = 1): Map<String, Any?> =
-        mapOf("kind" to q.kind) + q.args + (if (q.files) mapOf("files" to "1") else emptyMap()) + mapOf("limit" to size, "page" to page) + MSG_OPTS
+        mapOf("kind" to q.kind) + q.args + (if (q.files) mapOf("files" to "1") else emptyMap()) + (if (q.q.isNotEmpty()) mapOf("q" to q.q) else emptyMap()) +
+            mapOf("limit" to size, "page" to page) + MSG_OPTS
 
-    /** A page of a room (GET /api/chat/rooms/{room}/messages). */
+    /** A page of a room (GET /api/chat/rooms/{room}/messages); with `q`, search results (§29). */
     suspend fun page(q: PageQuery, size: Int = PAGE_SIZE): List<Message> {
         if (!legacyLists) {
             try {
@@ -399,9 +400,6 @@ class ChirkleApi(val pb: PbClient) {
         return filtered(q.legacy(), size)
     }
 
-    /** A page of a room's messages that match [q] (§29): the records API, with its filter. */
-    suspend fun search(q: FilterQuery, size: Int = PAGE_SIZE): List<Message> = filtered(q, size)
-
     private suspend fun filtered(q: FilterQuery, size: Int): List<Message> =
         items(call(records("messages"), query = listQuery(q) + mapOf("page" to 1, "perPage" to size)), Message.serializer())
 
@@ -410,10 +408,19 @@ class ChirkleApi(val pb: PbClient) {
     /**
      * Other people's messages in [rooms] since [since] that are DMs or replies to you, newest first: what the
      * background check notifies of (ANDROID.md §8). [rooms] are the ones with unread messages, so each is a range scan
-     * on idx_messages_room_created.
+     * on idx_messages_room_created. GET /api/chat/notifiable; the records API on a server from before it.
      */
     suspend fun notifiable(rooms: List<String>, since: String, every: Set<String> = emptySet(), size: Int = 100): List<Message> {
         val me = me()
+        if (!legacyLists) {
+            try {
+                val wanted = rooms.filter { it in every }.joinToString(",")
+                return get("/api/chat/notifiable", mapOf("rooms" to rooms.joinToString(","), "since" to since, "every" to wanted, "limit" to size) + MSG_OPTS)
+            } catch (e: ApiError) {
+                if (e.status != 404) throw e
+                legacyLists = true
+            }
+        }
         val inRooms = rooms.indices.joinToString(" || ") { "room = {:r$it}" }
         // The rooms whose every message notifies (ANDROID.md §24).
         val all = rooms.indices.filter { rooms[it] in every }.joinToString("") { " || room = {:r$it}" }

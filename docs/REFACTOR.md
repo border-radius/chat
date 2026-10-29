@@ -414,9 +414,8 @@ and so do the Chromium e2e suite and the app's tests.
 - [x] `shared/vectors/`: text folding, search queries, highlighting, lengths, blank text, Jump to's fold and score.
       They are run by the web (`tests/unit/vectors.test.ts`), the server's `lib/text.js` (same test) and the app
       (`VectorsTest.kt`).
-- [ ] **Not done:** moving message pages and the room list behind `/api/chat/*` routes, so that the clients stop
-      writing filters. Both clients would change, and installed apps need the old way kept (API.md). Worth doing
-      when the schema next has to change in a way that would break them.
+- [x] Moving message pages and the room list behind `/api/chat/*` routes, so that the clients stop writing
+      filters: done in item 45 (search and the app's notification check still send filters).
 
 ### 36. Push removed ✅ (owner's decision)
 - [x] Since ANDROID.md §21 nothing registered push tokens. Removed `lib/push.js`, `lib/google.js`, the push cron and
@@ -488,10 +487,26 @@ and so do the Chromium e2e suite and the app's tests.
       records API; the access matrix checks both routes for every room × viewer.
 - [x] Web: `lib/cursor.ts` builds `{ room, kind, args, files }`; `api.page`, `api.changes` and `api.listRooms` use
       the routes. Search keeps its filter (`api.search`, `SearchQuery`).
-- [x] App: `Cursors.kt` the same, plus `PageQuery.legacy()`, the old filter, for servers without the routes (the room
-      list's 404 says so). `api.search` for search.
+- [x] App: `Cursors.kt` the same, plus `PageQuery.legacy()`, the old filter, for servers without the routes (any route's
+      404 says so). `api.search` for search.
 - [x] `shared/vectors/window.json`'s page queries are now the routes' form.
 - The old record-API filters keep working, for installed apps (docs/API.md).
+
+### 46. Search and the notification check as routes; the app tested against an old server ✅
+- [x] Search is a page with `q` (the words): `lib/lists.js` folds, splits and escapes them as the clients did (QA
+      BUG-34, BUG-112). The web's `searchQuery` builds a `PageQuery`; `api.search` and `listOptions` are gone (`app.js`
+      47.31 → 47.27 KB). `shared/vectors/text.json`'s `searchQuery` cases have the route's form and the old filter.
+      `search.test.ts` runs each search through both and expects the same messages.
+- [x] `GET /api/chat/notifiable`: the app's notification check (ANDROID.md §21, §24), the rooms it can't see left out.
+      `lists.test.ts` compares it with the old filter; the access matrix checks it for every room × viewer.
+- [x] App: `searchQuery` is a `PageQuery` (its `legacy()` is the old filter); `notifiable` asks the route. Both fall back
+      on a 404 as the pages do.
+- [x] `LegacyServerTest` (item 45 left this open): one session through `ChirkleApi` against the test server and
+      `TestServer.legacyUrl`, a second PocketBase with these hooks minus `lib/lists.js`'s routes, or an old release's
+      (`-Pchirkle.legacyHooks=…`). Both give the same; the old one answers a single 404. Passed with the hooks of the
+      commit before the routes, read out of `.git` (no git binary here).
+- Filters the clients still write: `id` (users), `room` (read positions, the live room), `collection`/`owner`
+  (collections). Fields that won't move; not worth routes.
 
 ### Left open from the review
 - Scale (§26 above): `UNREAD_SQL`, realtime fan-out, queue polling. Not needed at the measured sizes.

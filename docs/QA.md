@@ -1796,3 +1796,56 @@ Not changed, by design or for a decision:
   or refused; the collections list is read once more once subscribed (`tests/component/unread.test.ts`, `collections.test.ts`).
 - On the emulator (software CPU) Android's 10 s stop timeout passes before the activity has saved its state, so after
   the process is killed it starts at the room list. Settings saves its state there; a phone is fast enough.
+
+---
+
+# QA pass 22 — after refactor round 4
+
+Exploratory testing of both clients on 2026-10-29, after REFACTOR items 33–46: the pages, search, the room list and
+the app's notification check as routes (`pb_hooks/lib/lists.js`), the room writes split out of both controllers
+(`writes.ts`, `RoomWrites.kt`), `app.ts` and the collection page split, the cache's `localStorage` fallback (BUG-104),
+the shared worker lock and the hooks gathered in `main.pb.js`. Against the seeded server: a fuzz of the new routes (odd
+kinds, cursors, limits, `q`, room ids, 2,000 rooms, `expand`/`fields` reaching for other people's emails), the room
+list and every room's pages compared with the records API for a member, a non-member and a guest; the web in
+Chromium (1100 and 390 px); the Android app on the emulator (Android 9). The code that moved in round 4 was compared
+line by line with the commit before it ("Store aspect ratio of the media", read out of `.git`). Numbering continues
+from BUG-170.
+
+| # | Severity | Area | Summary | Status |
+|---|---|---|---|---|
+| BUG-171 | Low | Server API | A page asked for with a `kind` every JavaScript object has (`toString`, `constructor`, `__proto__`) failed with "Something went wrong while processing your request." instead of "Unknown page kind." (still a 400) | Fixed |
+
+## BUG-171 — Page kinds from the object's prototype (Low)
+
+**Steps:** `GET /api/chat/rooms/{room}/messages?kind=toString`. **Expected:** 400 "Unknown page kind.". **Actual:**
+400 "Something went wrong while processing your request.": `KINDS["toString"]` is the object's own method, so the
+handler went on and failed on its missing `params`. Nothing was read or leaked. **Fix:** only `KINDS`' own keys count
+(`lists.test.ts`).
+
+## Checked and fine
+
+- **The new routes:** no 5xx for any odd value; a page past the end, `limit` 0 or 10^18, `page` 2^53; 5,000 words or
+  30,000 characters of `q`; 2,000 room ids to `notifiable` (the first 50 count). No email but the caller's own through
+  any `expand`/`fields` of `rooms`, `messages` or `notifiable`. The room list and each room's newest 200 messages are
+  the records API's, for Alice, Bob and a guest.
+- **Web:** search with `%` (literal), "ISTANBUL" finding "İstanbul" and going to it 117 messages back (on screen at
+  both widths); "Show older results" through 50+, 100+ to all 120; the viewer's three images, a forward's among them,
+  oldest first; a message sent just before a reload is there after it; a guest searching an Open Air room on a phone,
+  and refused a public one.
+- **Android on the emulator:** the room list, pages and gap fill through the routes; search "istanbul" (`q`, typed a
+  letter at a time) and going to the result at the beginning of the room; a DM and a reply to Alice sent while the app
+  was in the background notified by the periodic check through `GET /api/chat/notifiable`.
+- **An app from before the routes:** the app as it was before the rename (`org.chat.android`, still installed on the
+  emulator from an earlier pass, signed in as Alice) went on checking for notifications every 15 minutes with the old
+  records filter, and was answered (200): an installed app keeps working, as docs/API.md promises.
+- **Moved code:** `writes.ts` and `RoomWrites.kt` are the old controllers' writes, line for line, apart from reaching
+  the window through the controller (`put`, the `Host` object): the same window assignments, the same per-message
+  queues (the app's on the main thread), `posting()` still false while the room isn't loaded.
+- After the fix: `lists.test.ts` 8/8; the suites as at the end of REFACTOR item 46 (web unit 314, component 423 of 425
+  with the two unread-count load flakes passing alone, integration 444, e2e 76; Android 150).
+
+Not changed, by design:
+- With the network gone, a room kept on the device isn't shown: the room cache only fills the screen while a room
+  loads (DESIGN.md §27), so it says "Couldn't load this room." with Retry.
+- A room with unread messages opens at the first of them (§18.5), also after going far back through search and
+  reloading: an edit to the newest message, not loaded then, shows once the window reaches it.

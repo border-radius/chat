@@ -1,9 +1,10 @@
-// GET /api/chat/rooms and GET /api/chat/rooms/{room}/messages (pb_hooks/lib/lists.js, docs/API.md): the same answers
-// the records API gives for the filters the clients used to write. Who sees what is checked by access.matrix.test.ts.
+// GET /api/chat/rooms, GET /api/chat/rooms/{room}/messages and GET /api/chat/notifiable (pb_hooks/lib/lists.js,
+// docs/API.md): the same answers the records API gives for the filters the clients used to write. Search (`q`) is in
+// search.test.ts. Who sees what is checked by access.matrix.test.ts.
 
 import type { RecordModel } from "pocketbase";
 import { beforeAll, describe, expect, it } from "vitest";
-import { client, newRoom, newUser, pngFile, post, status, type TestUser } from "./helpers.ts";
+import { client, newRoom, newUser, openDm, pngFile, post, status, type TestUser } from "./helpers.ts";
 
 type Items = RecordModel[];
 
@@ -82,6 +83,11 @@ describe("the room list and message pages as routes", () => {
     expect(await route({}, me.pb, priv.id)).toEqual([]);
     expect(await route({}, me.pb, "nosuchroom0000")).toEqual([]);
     expect(await status(route({ kind: "sideways" }))).toBe(400);
+    // A name every object has is no kind either, and says so (QA BUG-171).
+    for (const kind of ["toString", "constructor", "__proto__"]) {
+      const e = await route({ kind }).catch((err: { status: number; message: string }) => err);
+      expect([kind, "status" in e && e.status, "message" in e && e.message]).toEqual([kind, 400, "Unknown page kind."]);
+    }
     expect(await status(route({ kind: "older" }))).toBe(400);
   });
 
@@ -91,5 +97,47 @@ describe("the room list and message pages as routes", () => {
       await Promise.all(Array.from({ length: Math.min(20, 201 - i) }, (_, j) => post(me, r.id, `n${i + j}`)));
     }
     expect(await route({ limit: "500" }, me.pb, r.id)).toHaveLength(200);
+  });
+});
+
+describe("the notification check as a route", () => {
+  it("other people's DMs and replies to you since a time, and every message of the rooms asked for, as the old filter", async () => {
+    const me = await newUser();
+    const bob = await newUser();
+    const room = await newRoom(me);
+    const loud = await newRoom(me);
+    const dm = await openDm(me, bob);
+    const priv = await bob.pb.collection("rooms").update((await newRoom(bob)).id, { visibility: "private" });
+    const mine = await post(me, room.id, "mine");
+    const before = await post(bob, dm.id, "before");
+    await new Promise((r) => setTimeout(r, 5));
+    const since = before.created;
+    const want = [
+      await post(bob, dm.id, "dm"),
+      await post(bob, room.id, "reply", { reply_to: mine.id }),
+      await post(bob, loud.id, "anything, in an every room"),
+    ].map((m) => m.id);
+    await post(bob, room.id, "not to me");
+    await post(me, dm.id, "my own");
+    await post(bob, priv.id, "a room I can't see");
+    const gone = await post(bob, dm.id, "deleted");
+    await bob.pb.collection("messages").update(gone.id, { deleted: true });
+
+    const rooms = [room.id, loud.id, dm.id, priv.id];
+    const found = await me.pb.send<Items>("/api/chat/notifiable", {
+      query: { rooms: rooms.join(","), since, every: loud.id, fields: "id" },
+    });
+    expect(found.map((m) => m.id)).toEqual(want.reverse());
+    // The filter the app sent before the route (ChirkleApi.notifiable on an old server).
+    const params = Object.fromEntries([...rooms.map((r, i) => [`r${i}`, r]), ["me", me.user.id], ["since", since]]);
+    const filter = `(${rooms.map((_, i) => `room = {:r${i}}`).join(" || ")}) && created > {:since} && author != {:me} && deleted = false && (room.kind = "dm" || reply_to.author = {:me} || room = {:r1})`;
+    const old = await me.pb
+      .collection("messages")
+      .getList(1, 100, { filter: me.pb.filter(filter, params), sort: "-created,-id", skipTotal: true });
+    expect(old.items.map((m) => m.id)).toEqual(found.map((m) => m.id));
+
+    expect(await me.pb.send("/api/chat/notifiable", { query: { rooms: priv.id, since } })).toEqual([]);
+    expect(await status(me.pb.send("/api/chat/notifiable", { query: { rooms: room.id } }))).toBe(400);
+    expect(await status(client().send("/api/chat/notifiable", { query: { rooms: room.id, since } }))).toBe(401);
   });
 });

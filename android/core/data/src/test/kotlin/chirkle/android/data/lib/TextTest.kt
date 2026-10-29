@@ -19,15 +19,15 @@ class TextTest {
         assertEquals(emptyList<String>(), searchWords(" ​ "))
     }
 
-    @Test fun `builds a newest-first filter with every word bound and escaped`() {
-        val q = searchQuery("r1", listOf("100%", "x"))
-        assertEquals("room = {:room} && text_key ~ {:w0} && text_key ~ {:w1}", q.filter)
-        assertEquals(mapOf("room" to "r1", "w0" to "100\\%", "w1" to "x"), q.params)
-        assertEquals("-created,-id", q.sort)
-        assertEquals("a\\\\\\%b", searchQuery("r1", listOf("a\\%b")).params["w0"]) // QA BUG-112
-        val c = searchQuery("r1", listOf("x"), Cursor("2026-10-18 10:00:00.000Z", "abc"))
-        assertEquals("room = {:room} && text_key ~ {:w0} && (created < {:created} || (created = {:created} && id < {:id}))", c.filter)
-        assertEquals("abc", c.params["id"])
+    @Test fun `asks for the newest page with the words, then the page older than the last result`() {
+        assertEquals(PageQuery("r1", "latest", q = "100% x"), searchQuery("r1", listOf("100%", "x")))
+        val c = Cursor("2026-10-18 10:00:00.000Z", "abc")
+        assertEquals(PageQuery("r1", "older", mapOf("created" to c.created, "id" to "abc"), q = "x"), searchQuery("r1", listOf("x"), c))
+        // On a server from before the route, the old filter (QA BUG-34, BUG-112).
+        val old = searchQuery("r1", listOf("100%", "x")).legacy()
+        assertEquals("room = {:room} && text_key ~ {:w0} && text_key ~ {:w1}", old.filter)
+        assertEquals(mapOf("room" to "r1", "w0" to "100\\%", "w1" to "x"), old.params)
+        assertEquals("a\\\\\\%b", searchQuery("r1", listOf("a\\%b")).legacy().params["w0"])
     }
 
     @Test fun `marks the matches, starting shortly before the first`() {

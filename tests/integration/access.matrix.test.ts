@@ -104,6 +104,12 @@ describe("room access matrix (§23.1)", () => {
             check(f, v, "GET /api/chat/rooms", can, listedHere.includes(roomId));
             const page = await v.pb.send<unknown[]>(`/api/chat/rooms/${roomId}/messages`, {}).catch(() => null);
             check(f, v, "GET /api/chat/rooms/{room}/messages", can, !!page && page.length > 0);
+            if (v.user && v.name !== "creator") {
+              // The creator wrote the probe; a check notifies of other people's messages only.
+              const query = { rooms: roomId, every: roomId, since: "2000-01-01 00:00:00.000Z" };
+              const notifiable = await v.pb.send<unknown[]>("/api/chat/notifiable", { query });
+              check(f, v, "GET /api/chat/notifiable", can, notifiable.length > 0);
+            }
             const url = creator.pb.files.getURL(f.probe, f.probe.files[0], token ? { token } : {});
             const file = (await fetch(url)).status;
             check(f, v, "attachment", can, ok(file), ` (got ${file})`);

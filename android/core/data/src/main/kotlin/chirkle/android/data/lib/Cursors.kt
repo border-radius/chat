@@ -8,9 +8,10 @@ const val PAGE_SIZE = 50
 
 /**
  * A page of [room]: [kind] is latest, first, older, newer or changed; [args] its cursor (`created`, `id`; for changed,
- * `since`, `from`, `to`). [files]: only messages that may have attachments.
+ * `since`, `from`, `to`). [files]: only messages that may have attachments. [q]: only messages with every word of it
+ * (search, §29; with latest and older), folded words separated by spaces; the server escapes them.
  */
-data class PageQuery(val room: String, val kind: String, val args: Map<String, String> = emptyMap(), val files: Boolean = false) {
+data class PageQuery(val room: String, val kind: String, val args: Map<String, String> = emptyMap(), val files: Boolean = false, val q: String = "") {
     /** latest and older pages come back newest first; the others oldest first. */
     val descending: Boolean get() = kind == "latest" || kind == "older"
 
@@ -24,7 +25,11 @@ data class PageQuery(val room: String, val kind: String, val args: Map<String, S
         }
         val sort = if (kind == "changed") "updated,id" else if (descending) DESC else ASC
         val withFiles = if (files) " && (files:length > 0 || forward_of != \"\")" else ""
-        return FilterQuery("room = {:room}$where$withFiles", mapOf("room" to room) + args, sort)
+        // `~` treats `%` as a wildcard, so it is escaped (QA BUG-34), and so is the escape character itself (QA BUG-112).
+        val words = q.split(' ').filter { it.isNotEmpty() }
+        val search = words.indices.joinToString("") { " && text_key ~ {:w$it}" }
+        val params = words.withIndex().associate { "w${it.index}" to it.value.replace(Regex("[\\\\%]")) { m -> "\\" + m.value } }
+        return FilterQuery("room = {:room}$search$where$withFiles", mapOf("room" to room) + params + args, sort)
     }
 }
 

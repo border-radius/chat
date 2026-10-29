@@ -1,5 +1,6 @@
 // A throwaway PocketBase for the data integration tests (ANDROID.md §13): the repository's bin/pocketbase, migrations
-// and hooks, on a free port with a temp data dir, started once per test JVM, like tests/support/pocketbase.ts.
+// and hooks, on a free port with a temp data dir, started once per test JVM, like tests/support/pocketbase.ts. And, when
+// a test asks for it, a server from before the list routes (legacyUrl).
 package chirkle.android.data.testing
 
 import chirkle.android.data.api.ChirkleApi
@@ -25,17 +26,41 @@ object TestServer {
     val http: OkHttpClient = OkHttpClient.Builder().readTimeout(30, TimeUnit.SECONDS).build()
     private val counter = AtomicInteger()
 
-    val url: String by lazy { start() }
+    private val root: File by lazy {
+        File(System.getProperty("chirkle.repoRoot") ?: error("chirkle.repoRoot is not set (run the tests from Gradle)"))
+    }
 
-    private fun start(): String {
-        val root = File(System.getProperty("chirkle.repoRoot") ?: error("chirkle.repoRoot is not set (run the tests from Gradle)"))
+    val url: String by lazy { start(File(root, "pb_hooks")) }
+
+    /**
+     * A server from before the list routes (docs/API.md, pb_hooks/lib/lists.js), which the app falls back from: an old
+     * release's hooks when `chirkle.legacyHooks` names them (-Pchirkle.legacyHooks=…), else these hooks without the
+     * routes. The same migrations.
+     */
+    val legacyUrl: String by lazy {
+        start(System.getProperty("chirkle.legacyHooks")?.let(::File) ?: withoutListRoutes())
+    }
+
+    private fun withoutListRoutes(): File {
+        val dir = Files.createTempDirectory("chirkle-hooks-legacy").toFile()
+        File(root, "pb_hooks").copyRecursively(dir)
+        Runtime.getRuntime().addShutdownHook(Thread { dir.deleteRecursively() })
+        val main = File(dir, "main.pb.js")
+        val lines = main.readLines()
+        val kept = lines.filterNot { "lib/lists.js" in it && it.startsWith("routerAdd(") }
+        check(kept.size < lines.size) { "No list routes in main.pb.js" }
+        main.writeText(kept.joinToString("\n"))
+        return dir
+    }
+
+    private fun start(hooks: File): String {
         val bin = File(root, "bin/pocketbase")
         check(bin.canExecute()) { "No PocketBase at $bin: run `npm run setup` in the repository first" }
         val tmp = Files.createTempDirectory("chirkle-pb-android").toFile()
         val dirs = listOf(
             "--dir=${File(tmp, "pb_data")}",
             "--migrationsDir=${File(root, "pb_migrations")}",
-            "--hooksDir=${File(root, "pb_hooks")}",
+            "--hooksDir=$hooks",
             "--automigrate=false",
         )
         ProcessBuilder(listOf(bin.path, "superuser", "upsert", ADMIN_EMAIL, ADMIN_PASSWORD) + dirs).redirectErrorStream(true).start().run {
@@ -118,14 +143,14 @@ object TestServer {
 
     fun uniq(): String = "${System.nanoTime().toString(36).takeLast(6)}${counter.incrementAndGet()}"
 
-    /** A client of its own (an in-memory session). */
-    fun client(): ChirkleApi = ChirkleApi(PbClient(url, http, MemoryAuthStore()))
+    /** A client of its own (an in-memory session), of the server at [at]. */
+    fun client(at: String = url): ChirkleApi = ChirkleApi(PbClient(at, http, MemoryAuthStore()))
 
     class TestUser(val api: ChirkleApi, val user: User, val email: String)
 
-    /** A new user, signed in on a client of its own. */
-    fun newUser(name: String = "user-${uniq()}"): TestUser = runBlocking {
-        val api = client()
+    /** A new user, signed in on a client of its own (of the server at [at]). */
+    fun newUser(name: String = "user-${uniq()}", at: String = url): TestUser = runBlocking {
+        val api = client(at)
         val email = "$name@test.local"
         val user = api.signUp(email, PASSWORD, name)
         TestUser(api, user, email)

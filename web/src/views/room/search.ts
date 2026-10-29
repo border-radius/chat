@@ -6,14 +6,15 @@
 // only; what it needs from app.js comes in its options.
 
 import type { h } from "../../dom.ts";
+import type { PageQuery } from "../../lib/cursor.ts";
 import type { Message } from "../../lib/types.ts";
 
 export interface SearchOptions {
   room: string;
   /** What is searched, for the field's placeholder: "#general", "Bob". */
   label: string;
-  /** A page of results (`api.search`): PAGE_SIZE of them, or fewer when there are no more. */
-  page: (q: SearchQuery, signal: AbortSignal) => Promise<Message[]>;
+  /** A page of results (`api.page`): PAGE_SIZE of them, or fewer when there are no more. */
+  page: (q: PageQuery, signal: AbortSignal) => Promise<Message[]>;
   pageSize: number;
   h: typeof h;
   /** When a message was sent, short. */
@@ -56,30 +57,13 @@ export function searchWords(q: string): string[] {
   return [...new Set(foldKey(q).split(/\s+/).filter(Boolean))].slice(0, MAX_WORDS);
 }
 
-/** A records API query: the filter, its values (bound by `pb.filter`, never concatenated) and the order. */
-export interface SearchQuery {
-  filter: string;
-  params: Record<string, string>;
-  sort: string;
-}
-
 /**
- * The newest messages of `room` with every word in `words`, before `before` when given (newest-first). `~` treats a %
- * in the value as a wildcard (and then stops adding its own), so it is escaped (QA BUG-34); `_` already is. So is the
- * escape character itself: `\%` typed found the messages starting with `\`, and `\_` "a_b" (QA BUG-112).
+ * The newest messages of `room` with every word in `words`, before `before` when given (newest-first): a page of the
+ * room with `q` (pb_hooks/lib/lists.js matches the words, escaping `%` and `\` as QA BUG-34 and BUG-112 found).
  */
-export function searchQuery(room: string, words: readonly string[], before?: { created: string; id: string }): SearchQuery {
-  const params: Record<string, string> = { room };
-  const parts = ["room = {:room}"];
-  words.forEach((w, i) => {
-    params[`w${i}`] = w.replace(/[\\%]/g, "\\$&");
-    parts.push(`text_key ~ {:w${i}}`);
-  });
-  if (before) {
-    Object.assign(params, { created: before.created, id: before.id });
-    parts.push("(created < {:created} || (created = {:created} && id < {:id}))");
-  }
-  return { filter: parts.join(" && "), params, sort: "-created,-id" };
+export function searchQuery(room: string, words: readonly string[], before?: { created: string; id: string }): PageQuery {
+  const q = words.join(" ");
+  return before ? { room, kind: "older", args: { created: before.created, id: before.id }, q } : { room, kind: "latest", args: {}, q };
 }
 
 /**

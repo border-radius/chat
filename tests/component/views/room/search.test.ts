@@ -18,16 +18,10 @@ describe("search helpers", () => {
     expect(searchWords(" ​ ")).toEqual([]);
   });
 
-  it("build a newest-first filter with every word bound, % escaped, from a cursor", () => {
-    expect(searchQuery("r1", ["100%", "x"])).toEqual({
-      filter: "room = {:room} && text_key ~ {:w0} && text_key ~ {:w1}",
-      params: { room: "r1", w0: "100\\%", w1: "x" },
-      sort: "-created,-id",
-    });
-    expect(searchQuery("r1", ["a\\%b"]).params.w0).toBe("a\\\\\\%b"); // the escape character too (QA BUG-112)
+  it("ask for the room's newest page with the words, then the page older than the last result", () => {
+    expect(searchQuery("r1", ["100%", "x"])).toEqual({ room: "r1", kind: "latest", args: {}, q: "100% x" });
     const q = searchQuery("r1", ["x"], { created: "2026-10-18 10:00:00.000Z", id: "abc" });
-    expect(q.filter).toBe("room = {:room} && text_key ~ {:w0} && (created < {:created} || (created = {:created} && id < {:id}))");
-    expect(q.params).toMatchObject({ created: "2026-10-18 10:00:00.000Z", id: "abc" });
+    expect(q).toEqual({ room: "r1", kind: "older", args: { created: "2026-10-18 10:00:00.000Z", id: "abc" }, q: "x" });
   });
 
   it("mark the matches, case-insensitively, starting shortly before the first", () => {

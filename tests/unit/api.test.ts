@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createApi, listOptions, MSG_FIELDS, pageOptions } from "../../web/src/api.ts";
+import { createApi, MSG_FIELDS, pageOptions } from "../../web/src/api.ts";
 import { latest, older, withFiles } from "../../web/src/lib/cursor.ts";
 import { createClient } from "../../web/src/pb.ts";
 import { searchQuery } from "../../web/src/views/room/search.ts";
@@ -14,28 +14,12 @@ describe("pageOptions", () => {
       fields: MSG_FIELDS,
     });
     expect(pageOptions(withFiles(older("r1", c)), 200, 2)).toMatchObject({ kind: "older", ...c, files: "1", limit: 200, page: 2 });
+    // Search (§29): the words, which the server matches.
+    expect(pageOptions(searchQuery("r1", ["a%", "b"], c))).toMatchObject({ kind: "older", ...c, q: "a% b" });
   });
 });
 
-describe("listOptions", () => {
-  const pb = createClient("http://localhost");
-
-  it("binds params via the given filter function and requests a lean, totals-free page", () => {
-    const opts = listOptions(searchQuery("r1", []), pb.filter);
-    expect(opts).toEqual({
-      filter: `room = "r1"`,
-      sort: "-created,-id",
-      skipTotal: true,
-      expand: "author,reply_to.author,forwarded_from",
-      fields: MSG_FIELDS,
-    });
-  });
-
-  it("escapes hostile values through pb.filter", () => {
-    const opts = listOptions(searchQuery(`x" || id != "`, []), pb.filter);
-    expect(opts.filter).toBe(`room = "x\\" || id != \\""`);
-  });
-
+describe("MSG_FIELDS", () => {
   it("fetches only the fields the UI renders, never email", () => {
     expect(MSG_FIELDS.split(",")).toEqual([
       "id",
