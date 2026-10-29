@@ -195,7 +195,8 @@ function applyRoom(app, sender, ev) {
     room.set("archived", !!ev.archived);
     room.set("writers", writers);
   }
-  room.set("members", members);
+  // A DM's two members are set once, when it is made: a home naming others later would let them read it (QA BUG-172).
+  if (!dm || room.isNew()) room.set("members", members);
   const down = jsonOf(room, "shared", {}).down;
   room.set("shared", down ? { ...shared, down: true } : shared);
   app.save(room);

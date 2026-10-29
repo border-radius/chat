@@ -354,6 +354,66 @@ describe("signed requests (§33.6)", () => {
   });
 });
 
+describe("a home speaking for our people (QA BUG-172..174)", () => {
+  it("can't add anyone to a DM, write as one of ours, or edit what they wrote", async () => {
+    const fake = await fakePeer(B, "http://fake2.test", "G");
+    const inbox = async (ev: Record<string, unknown>) => {
+      const res = await fake.signed("POST", "/api/fed/inbox", { events: [{ id: `e${uniq()}`, ...ev }] });
+      return ((await res.json()) as { results: { status: number; error?: string }[] }).results[0];
+    };
+    const xav = await signUp(B);
+    const yve = await signUp(B);
+    const mal = `x${uniq()}@fake2.test`;
+    const people = { [mal]: { name: "Mallory", no_dms: false, avatar: "", path: "" } };
+
+    // BUG-172: a DM keeps its two members, whatever later room events say.
+    const dmG = `r${uniq()}@fake2.test`;
+    const ours = (u: User) => `${u.user.id}@${B.host}`;
+    const dmEvent = (members: string[]) => ({ type: "room", room: dmG, kind: "dm", created_by: mal, members, people });
+    expect((await inbox(dmEvent([mal, ours(xav)])))?.status).toBe(200);
+    const [dm] = await xav.pb.collection("rooms").getFullList({ filter: "kind = 'dm'" });
+    await xav.pb.collection("messages").create({ room: dm?.id, author: xav.user.id, text: "just for Mallory" });
+    await inbox(dmEvent([mal, ours(xav), ours(yve)]));
+    await inbox(dmEvent([mal, ours(yve)]));
+    expect((await yve.pb.collection("rooms").getFullList({ filter: "kind = 'dm'" })).length).toBe(0);
+    expect((await yve.pb.collection("messages").getFullList({ filter: `room = '${dm?.id}'` })).length).toBe(0);
+    expect((await xav.pb.collection("rooms").getOne(dm?.id ?? "")).members).toHaveLength(2);
+
+    // A shared public room's mirror.
+    const roomG = `r${uniq()}@fake2.test`;
+    await inbox({ type: "share", room: roomG, name: `lobby${uniq()}`, kind: "public", visibility: "public" });
+    const offer = await B.admin.collection("fed_shares").getFirstListItem(B.admin.filter("remote_id = {:g}", { g: roomG }));
+    await B.admin.collection("fed_shares").update(offer.id, { accepted: true });
+    const roomEv = { type: "room", room: roomG, name: "lobby", kind: "public", visibility: "public", posting: "everyone" };
+    expect((await inbox({ ...roomEv, archived: false, created_by: mal, members: [], writers: [], people }))?.status).toBe(200);
+    const mirror = await B.admin.collection("rooms").getFirstListItem(B.admin.filter("remote_id = {:g}", { g: roomG }));
+
+    // BUG-173: a message by one of ours, sent by the home.
+    const forged = await inbox({
+      type: "message",
+      room: roomG,
+      message: { id: `m${uniq()}@fake2.test`, author: ours(xav), text: "it's me" },
+    });
+    expect(forged?.status).toBe(403);
+    // BUG-174: an edit of what one of ours wrote; a delete still goes through (the home's superusers).
+    const own = await xav.pb.collection("messages").create({ room: mirror.id, author: xav.user.id, text: "my words" });
+    expect((await inbox({ type: "edit", room: roomG, message: `${own.id}@${B.host}`, text: "not my words" }))?.status).toBe(403);
+    expect((await messagesIn(B, mirror.id)).map((m) => m.text)).toContain("my words");
+    expect((await inbox({ type: "delete", room: roomG, message: `${own.id}@${B.host}` }))?.status).toBe(200);
+    expect((await B.admin.collection("messages").getOne(own.id)).deleted).toBe(true);
+    // The home's own people still write and edit.
+    const theirs = `m${uniq()}@fake2.test`;
+    expect((await inbox({ type: "message", room: roomG, message: { id: theirs, author: mal, text: "hello" }, people }))?.status).toBe(200);
+    expect((await inbox({ type: "edit", room: roomG, message: theirs, text: "hello again" }))?.status).toBe(200);
+    expect((await messagesIn(B, mirror.id)).map((m) => m.text)).toContain("hello again");
+    // What B queued for it (the accepted offer) goes too: a row whose peer is gone would wait forever, and settle() with it.
+    await runSql(B.url, [
+      { sql: "DELETE FROM fed_queue WHERE peer = {:id}", params: { id: fake.id } },
+      { sql: "DELETE FROM fed_peers WHERE id = {:id}", params: { id: fake.id } },
+    ]);
+  }, 60_000);
+});
+
 describe("a shared public room (§33.5)", () => {
   it("shows messages, edits, deletes, replies and reactions both ways", async () => {
     const ann = await signUp(A);

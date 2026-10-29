@@ -31,6 +31,15 @@ fun displayName(stored: String): String = stored.replace(STORED_SUFFIX) { it.gro
 /** What to call a message's attachment: its original upload name when the server recorded it (QA BUG-28). */
 fun Message.attachmentName(stored: String): String = fileNames[stored]?.takeIf { it.isNotEmpty() } ?: displayName(stored)
 
+/**
+ * May a picked or shared file be read into a message? Only another app's content (`content://`, an authority not of
+ * [ownPackage]): a `file://` URI, or one of this app's own providers, is opened with the app's own rights, so another
+ * app could share the app's database and have it sent to a room (QA BUG-175).
+ */
+fun isForeignContent(scheme: String?, authority: String?, ownPackage: String): Boolean =
+    scheme.equals("content", ignoreCase = true) && !authority.isNullOrEmpty() &&
+        authority != ownPackage && !authority.startsWith("$ownPackage.")
+
 fun formatBytes(n: Long): String = when {
     n < 1024 -> "$n B"
     n < 1024 * 1024 -> "${Math.round(n / 1024.0)} KB"

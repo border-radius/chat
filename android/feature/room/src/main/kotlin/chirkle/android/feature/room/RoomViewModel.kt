@@ -19,6 +19,7 @@ import chirkle.android.data.lib.PAGE_SIZE
 import chirkle.android.data.lib.Pages
 import chirkle.android.data.lib.checkFiles
 import chirkle.android.data.lib.isBlank
+import chirkle.android.data.lib.isForeignContent
 import chirkle.android.data.lib.otherMember
 import chirkle.android.data.lib.searchQuery
 import chirkle.android.data.lib.searchWords
@@ -247,6 +248,7 @@ class RoomViewModel(
     }
 
     private fun copy(uri: Uri, dir: File): LocalFile? = runCatching {
+        if (!isForeignContent(uri.scheme, uri.authority, app.packageName)) return null
         val cr = app.contentResolver
         var name = "file"
         var size = -1L

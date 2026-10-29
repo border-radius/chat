@@ -8,7 +8,7 @@
 const { reactionsOf, setReaction } = require(`${__hooks}/lib/reactions.js`);
 /** @typedef {{ emoji: string, users: string[] }} Reaction */
 const { isReactionEmoji } = require(`${__hooks}/lib/emoji.js`);
-const { enqueue, enqueueWork, fromPeer, gid, jsonOf, newId, originOf, peerById, peerHost, splitGid } = require(
+const { enqueue, enqueueWork, fromPeer, gid, isMine, jsonOf, newId, originOf, peerById, peerHost, splitGid } = require(
   `${__hooks}/federation/config.js`,
 );
 const { gidOf, peopleFor, standInRow, userOf } = require(`${__hooks}/federation/people.js`);
@@ -262,6 +262,9 @@ function applyMessage(app, sender, ev, files) {
   if (!splitGid(g)) throw refusal(400, "No message id.");
   if (messageIn(app, room.id, g)) return; // had it
   const people = ev.people && typeof ev.people === "object" ? ev.people : {};
+  // Our own people write here, never through a peer: a home naming one of them as the author would speak for them
+  // (QA BUG-173). What they wrote in its room it already has from us, and doesn't send back.
+  if (isMine(String(m.author || ""))) throw refusal(403, "People of this instance write here themselves.");
   const author = userOf(app, sender, m.author, people, home);
   if (!author) throw refusal(403, home ? "Only your own people write here." : "The author is unknown.");
   const listed = (Array.isArray(m.files) ? m.files : []).slice(0, MAX_FILES);
@@ -339,6 +342,9 @@ function target(app, sender, ev, ownOnly) {
 function applyEdit(app, sender, ev) {
   const rec = target(app, sender, ev, true);
   if (!rec || rec.getBool("deleted")) return;
+  // On a mirror the home names any message, but our own people's words are edited only here (QA BUG-174). A delete
+  // still comes through: the home's superusers may take a message out of their room.
+  if (isMine(gidOf(app, rec.getString("author")))) throw refusal(403, "People of this instance edit their messages here.");
   const text = String(ev.text || "").slice(0, 2000);
   if (text === rec.getString("text")) return;
   rec.set("text", text);

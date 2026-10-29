@@ -80,6 +80,19 @@ class HelpersTest {
         assertFalse(isGif("a.gif.exe"))
     }
 
+    @Test fun `only other apps' content is read into a message (QA BUG-175)`() {
+        val me = "com.chirkle.android"
+        assertTrue(isForeignContent("content", "com.android.providers.media.documents", me))
+        assertTrue(isForeignContent("CONTENT", "com.chirkle.androidx.other", me))
+        assertFalse(isForeignContent("file", "", me))
+        assertFalse(isForeignContent("file", null, me))
+        assertFalse(isForeignContent(null, null, me))
+        assertFalse(isForeignContent("content", null, me))
+        assertFalse(isForeignContent("content", me, me))
+        assertFalse(isForeignContent("content", "$me.androidx-startup", me))
+        assertFalse(isForeignContent("content", "com.chirkle.android.debug.files", "com.chirkle.android.debug"))
+    }
+
     @Test fun `formatBytes and checkFiles`() {
         assertEquals("512 B", formatBytes(512))
         assertEquals("2 KB", formatBytes(2048))

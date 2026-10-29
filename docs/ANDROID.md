@@ -313,7 +313,9 @@ notification; the row shows the progress bar. A failed send shows "Couldn't send
 ### 9.3 Sharing into the app
 
 A share target (`ACTION_SEND`, `ACTION_SEND_MULTIPLE`) for text and files opens a room picker, then the composer with
-them attached: the Android form of dropping files on the web composer.
+them attached: the Android form of dropping files on the web composer. Only other apps' `content://` files are taken:
+a `file://` URI or one of the app's own providers would be read with the app's rights, so another app could have its
+database sent to a room (QA BUG-175).
 
 ### 9.4 App Links (server addition)
 

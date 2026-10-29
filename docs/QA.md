@@ -1853,3 +1853,62 @@ Not changed, by design:
   loads (DESIGN.md §27), so it says "Couldn't load this room." with Retry.
 - A room with unread messages opens at the first of them (§18.5), also after going far back through search and
   reloading: an edit to the newest message, not loaded then, shows once the window reaches it.
+
+# Security audit — internal, 2026-10-29
+
+A deep review of the server (rules, hooks, routes, federation, the Telegram bridge, the outbound fetchers), the web
+client and the Android app, with each suspicion tried against throwaway PocketBase 0.40.4 servers; for linked
+instances, a fake paired peer sending signed inbox events. Numbering continues from BUG-171. The three federation
+findings need a paired instance acting in bad faith (or taken over): pairing needs both admins, but a peer was meant
+to speak only for its own people (DESIGN.md §33.6), and these let it speak for ours.
+
+| # | Severity | Area | Summary | Status |
+|---|---|---|---|---|
+| BUG-172 | Medium-High | Federation | A home's later `room` event re-set a DM mirror's members: naming a third person of ours let them read the DM's history | Fixed |
+| BUG-173 | Medium | Federation | A home could send a message authored by one of the mirror's own people, shown under their name | Fixed |
+| BUG-174 | Medium | Federation | A home could edit what the mirror's own people wrote in its room | Fixed |
+| BUG-175 | Low-Medium | Android | A share (`EXTRA_STREAM`) of a `file://` URI was read with the app's own rights: another app could share the app's database for the user to send | Fixed |
+
+## BUG-172 — DM members re-set by the home (Medium-High)
+
+**Steps:** a peer opens a DM with Xavier (B), who replies; it sends the DM's `room` event again with members
+`[its person, Xavier, Yvonne]`. **Expected:** the DM stays between the two. **Actual:** Yvonne saw it, with Xavier's
+reply. **Cause:** `applyRoom` (federation/mirror.js) checked "one of yours, one of ours" only when it made the mirror,
+then set `members` from every event. **Fix:** a DM's members are set only when its mirror is made.
+
+## BUG-173 — Writing as one of ours (Medium)
+
+**Steps:** a `message` event in a shared room with author `<Xavier's id>@<B's host>`. **Actual:** shown on B as
+Xavier's. **Cause:** on a mirror `userOf` takes any global id, and one with this instance's host is that local user.
+**Fix:** `applyMessage` refuses (403) an author of this instance; the home never sends our people's messages back.
+
+## BUG-174 — Editing what one of ours wrote (Medium)
+
+**Steps:** an `edit` event naming a message Xavier wrote in the mirror. **Actual:** his text changed, marked edited.
+**Cause:** the own-people check in `target()` ran on the home only. **Fix:** `applyEdit` refuses (403) an edit of a
+message by one of this instance's people. A `delete` still applies: the home's superusers may moderate their room.
+Test for 172–174: `federation.test.ts` "a home speaking for our people".
+
+## BUG-175 — Sharing the app's own files into a room (Low-Medium, Android)
+
+**Steps:** another app sends `ACTION_SEND` with `EXTRA_STREAM` = `file:///data/data/com.chirkle.android/databases/…`.
+**Actual:** the composer attached the app's cached rooms and messages, ready to send. **Cause:**
+`RoomViewModel.copy()` opened any URI. **Fix:** only `content://` URIs of other apps' authorities
+(`isForeignContent`, Files.kt); others are skipped as an unreadable file is. Test: `HelpersTest`.
+
+## Checked and fine
+
+- Filters on hidden fields (`tokenKey`, `name_key`, `dm_key`, `remote_id`, `invite_code`, `origin`) are refused;
+  `email` filters are masked by `emailVisibility`; `verified` and `email` can't be set by their user; batch is off.
+- HTML and SVG attachments are served as attachments with PocketBase's sandbox CSP; SVG avatars are refused.
+- Every custom route checks the room (or the list rule) before it reads; collections check their view rules.
+- Link previews and federation connect only to the checked public IPv4 address, no redirects by curl, no globbing or
+  proxy, bodies capped. Pairing asks back; codes are single-use and compared in constant time; requests are HMAC-signed
+  over method, path, date and body.
+- Web: no HTML sinks, strict CSP, only http(s) links (`noopener`), preview icons only as `data:image/`.
+- Android: https only in release, the session sealed with a Keystore key, backups exclude everything, immutable
+  PendingIntents, no WebView.
+
+Not changed (hardening, noted): logins are limited per IP only (`*:auth`, 2 per 3 s); `TRUSTED_PROXY` defaults to
+X-Forwarded-For, which without a proxy lets clients choose their IP; `/_/` is public; ffmpeg runs as the server's
+user; any app may send the exported activity `Notifications.OPEN` (it only opens a room).

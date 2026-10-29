@@ -2996,6 +2996,11 @@ sender's own people, in a private room shared with it. A message must be in a ro
 shared with the sender, by someone the home's rules let post there (the same `canWrite()`). An event that breaks this
 is refused with a 403, which is logged on both sides.
 
+**Our own people speak only here** (QA BUG-172…174): a home relaying a room never writes as one of the receiver's own
+people (a `message` whose author is the receiver's is refused), nor edits what they wrote there (a `delete` still
+comes through: the home's superusers moderate their room). A DM's two members are set when its mirror is made; later
+`room` events don't change them.
+
 **The inbox's answer** gives each event a status of its own: `{ results: [{ id, status, error? }] }`. Each event is
 applied in a transaction of its own, so one refused event doesn't undo the others. 200: applied, or a repeat (the ids
 taken are kept 3 days in `fed_seen`). 4xx: refused, and the sender drops it and notes why in `fed_peers.last_error`.
