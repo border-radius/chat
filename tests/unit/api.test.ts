@@ -1,13 +1,27 @@
 import { describe, expect, it, vi } from "vitest";
-import { createApi, listOptions, MSG_FIELDS } from "../../web/src/api.ts";
-import { latest } from "../../web/src/lib/cursor.ts";
+import { createApi, listOptions, MSG_FIELDS, pageOptions } from "../../web/src/api.ts";
+import { latest, older, withFiles } from "../../web/src/lib/cursor.ts";
 import { createClient } from "../../web/src/pb.ts";
+import { searchQuery } from "../../web/src/views/room/search.ts";
+
+describe("pageOptions", () => {
+  it("names the page and its cursor; the server writes the filter", () => {
+    const c = { created: "2026-10-10 12:00:00.000Z", id: "m1" };
+    expect(pageOptions(latest("r1"))).toEqual({
+      kind: "latest",
+      limit: 50,
+      expand: "author,reply_to.author,forwarded_from",
+      fields: MSG_FIELDS,
+    });
+    expect(pageOptions(withFiles(older("r1", c)), 200, 2)).toMatchObject({ kind: "older", ...c, files: "1", limit: 200, page: 2 });
+  });
+});
 
 describe("listOptions", () => {
   const pb = createClient("http://localhost");
 
   it("binds params via the given filter function and requests a lean, totals-free page", () => {
-    const opts = listOptions(latest("r1"), pb.filter);
+    const opts = listOptions(searchQuery("r1", []), pb.filter);
     expect(opts).toEqual({
       filter: `room = "r1"`,
       sort: "-created,-id",
@@ -18,7 +32,7 @@ describe("listOptions", () => {
   });
 
   it("escapes hostile values through pb.filter", () => {
-    const opts = listOptions(latest(`x" || id != "`), pb.filter);
+    const opts = listOptions(searchQuery(`x" || id != "`, []), pb.filter);
     expect(opts.filter).toBe(`room = "x\\" || id != \\""`);
   });
 

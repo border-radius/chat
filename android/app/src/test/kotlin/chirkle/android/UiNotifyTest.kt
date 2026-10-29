@@ -72,7 +72,7 @@ class UiNotifyTest {
 
         // Read on another device: the next check takes its notification away.
         runBlocking {
-            val last = bob.api.page(chirkle.android.data.lib.PageQuery("room = {:r}", mapOf("r" to dm.id), "-created,-id"), 1).single()
+            val last = bob.api.page(chirkle.android.data.lib.Pages.latest(dm.id), 1).single()
             bob.api.markRead(dm.id, last.created)
         }
         check()

@@ -1034,22 +1034,18 @@
       "room": "r",
       "fn": "latest",
       "output": {
-        "filter": "room = {:room}",
-        "params": {
-          "room": "r"
-        },
-        "sort": "-created,-id"
+        "room": "r",
+        "kind": "latest",
+        "args": {}
       }
     },
     {
       "room": "r",
       "fn": "first",
       "output": {
-        "filter": "room = {:room}",
-        "params": {
-          "room": "r"
-        },
-        "sort": "created,id"
+        "room": "r",
+        "kind": "first",
+        "args": {}
       }
     },
     {
@@ -1060,13 +1056,12 @@
         "id": "m5"
       },
       "output": {
-        "filter": "room = {:room} && (created < {:created} || (created = {:created} && id < {:id}))",
-        "params": {
-          "room": "r",
+        "room": "r",
+        "kind": "older",
+        "args": {
           "created": "2026-10-01 10:00:05.000Z",
           "id": "m5"
-        },
-        "sort": "-created,-id"
+        }
       }
     },
     {
@@ -1077,13 +1072,12 @@
         "id": "m5"
       },
       "output": {
-        "filter": "room = {:room} && (created > {:created} || (created = {:created} && id > {:id}))",
-        "params": {
-          "room": "r",
+        "room": "r",
+        "kind": "newer",
+        "args": {
           "created": "2026-10-01 10:00:05.000Z",
           "id": "m5"
-        },
-        "sort": "created,id"
+        }
       }
     },
     {
@@ -1099,14 +1093,13 @@
         "id": "m9"
       },
       "output": {
-        "filter": "room = {:room} && updated > {:since} && created >= {:from} && created <= {:to}",
-        "params": {
-          "room": "r",
+        "room": "r",
+        "kind": "changed",
+        "args": {
           "since": "2026-10-01 10:00:07.000Z",
           "from": "2026-10-01 10:00:05.000Z",
           "to": "2026-10-01 10:00:09.000Z"
-        },
-        "sort": "updated,id"
+        }
       }
     },
     {
@@ -1118,13 +1111,13 @@
         "id": "m5"
       },
       "output": {
-        "filter": "room = {:room} && (created < {:created} || (created = {:created} && id < {:id})) && (files:length > 0 || forward_of != \"\")",
-        "params": {
-          "room": "r",
+        "room": "r",
+        "kind": "older",
+        "args": {
           "created": "2026-10-01 10:00:05.000Z",
           "id": "m5"
         },
-        "sort": "-created,-id"
+        "files": true
       }
     }
   ]

@@ -4,17 +4,15 @@
 // fetches the pages and saves `previews` on the message, which reaches everyone live as an update. Off with
 // LINK_PREVIEWS=off.
 //
-// The server fetches what anyone links to, so it only goes to public web addresses: http(s) on the default port, a
-// host name with a dot that isn't a local one, or a public IPv4 address; never userinfo or IPv6 literals. A name is
-// looked up first (getent) and all its addresses must be public; curl then connects to the one checked and no other,
-// so a name that answers differently the second time can't send it inward. Redirects are followed here, not by curl,
-// each checked the same way. Hosts in LINK_PREVIEWS_ALLOW_HOSTS (comma-separated, host or host:port; tests) are let
-// through without checks.
+// The server fetches what anyone links to, so it only goes to public web addresses (lib/outbound.js says which); curl
+// then connects to the address checked and no other, so a name that answers differently the second time can't send it
+// inward. Redirects are followed here, not by curl, each checked the same way. The pages are read by lib/pages.js.
 //
 // curl, not $http.send: that follows redirects anywhere and reads a whole response into memory, however big (a page
 // ignoring Range took 1.1 GB). Of a response only the start is read, from curl's output; then curl is stopped.
 
-const { tidy } = require(`${__hooks}/lib/text.js`);
+const { addressOf, allowedHosts, parse, publicHost, resolve } = require(`${__hooks}/lib/outbound.js`);
+const { attrs, base64, clean, decode, imageType, pageText, tags, titleOf } = require(`${__hooks}/lib/pages.js`);
 
 /** Links looked at in one message. */
 const MAX_LINKS = 5;
@@ -22,13 +20,9 @@ const MAX_LINKS = 5;
 const PAGE_BYTES = 256 * 1024;
 /** A bigger icon is left out: it is kept in the message, as a data: URL. */
 const MAX_ICON = 16 * 1024;
-const MAX_TITLE = 200;
-/** Of a title (or og:title) as written, only the start is cleaned: plenty for MAX_TITLE characters. */
-const MAX_RAW_TITLE = 4096;
 /** Seconds for a page, or an icon, redirects included. */
 const PAGE_TIMEOUT = 4;
 const ICON_TIMEOUT = 3;
-const LOOKUP_TIMEOUT = 3;
 const MAX_REDIRECTS = 3;
 /**
  * A message's links are looked at for this long (ms) at most: links after it get no line. A message linking to sites
@@ -76,114 +70,6 @@ function linksOf(text) {
     if (parse(href) && !out.includes(href)) out.push(href);
   }
   return out;
-}
-
-// ---------------------------------------------------------------- where the server may go
-
-/**
- * An http(s) URL split up, or null when it isn't one. Host lowercased, with its port unless it is the default one.
- * @param {string} url
- */
-function parse(url) {
-  const m = /^(https?):\/\/([^/?#]*)([^#]*)/i.exec(url);
-  if (!m) return null;
-  const scheme = m[1].toLowerCase();
-  let host = m[2].toLowerCase();
-  const port = /:(\d*)$/.exec(host);
-  if (port) {
-    if (!port[1] || port[1] === (scheme === "https" ? "443" : "80")) host = host.slice(0, -port[0].length);
-  }
-  if (!host || /[@[\]\\%\s]/.test(host)) return null;
-  return { scheme, host, origin: `${scheme}://${host}`, path: m[3] || "/" };
-}
-
-const LOCAL = /(^|\.)(localhost|local|localdomain|internal|intranet|lan|home\.arpa)$/;
-const IPV4 = /^\d+\.\d+\.\d+\.\d+$/;
-
-/** LINK_PREVIEWS_ALLOW_HOSTS: fetched without checks (tests). */
-const allowedHosts = () =>
-  $os
-    .getenv("LINK_PREVIEWS_ALLOW_HOSTS")
-    .split(",")
-    .map((h) => h.trim().toLowerCase())
-    .filter(Boolean);
-
-/**
- * May the server fetch from `host`? A public-looking name (its addresses are checked when it is fetched), or a
- * public IPv4 address.
- * @param {string} host
- */
-function publicHost(host) {
-  if (allowedHosts().includes(host)) return true;
-  if (/:\d+$/.test(host)) return false; // not the default port
-  const h = host.replace(/\.$/, "");
-  if (IPV4.test(h)) return publicIPv4(h);
-  // A name: ASCII labels that don't start with "-" (it goes to getent and curl as an argument), a dot, a last label of
-  // letters (not 0x7f.1 or 2130706433), and not a local one.
-  return (
-    h.length <= 253 &&
-    h.split(".").every((l) => /^[a-z0-9_][a-z0-9_-]*$/.test(l)) &&
-    /\.[a-z][a-z0-9-]*$|\.xn--[a-z0-9-]+$/.test(h) &&
-    !LOCAL.test(h)
-  );
-}
-
-/**
- * A public IPv4 address, in plain decimal: "0177.0.0.1" is 127.0.0.1 to curl, so a leading zero is refused.
- * @param {string} ip
- */
-function publicIPv4(ip) {
-  if (!IPV4.test(ip) || /(^|\.)0\d/.test(ip)) return false;
-  const [a, b, c, d] = ip.split(".").map(Number);
-  if ([a, b, c, d].some((n) => n > 255)) return false;
-  return !(
-    a === 0 ||
-    a === 10 ||
-    a === 127 ||
-    (a === 100 && b >= 64 && b < 128) ||
-    (a === 169 && b === 254) ||
-    (a === 172 && b >= 16 && b < 32) ||
-    (a === 192 && b === 168) ||
-    (a === 192 && b === 0 && (c === 0 || c === 2)) ||
-    (a === 198 && (b === 18 || b === 19)) ||
-    (a === 198 && b === 51 && c === 100) ||
-    (a === 203 && b === 0 && c === 113) ||
-    a >= 224
-  );
-}
-
-/**
- * The address to connect to for a public host: an IPv4 address as is; a name's first address, looked up as the
- * system does (getent), and "" when any of its addresses isn't public (a name may answer with an inward one among
- * others). Throws when the lookup fails.
- * @param {string} host
- */
-function addressOf(host) {
-  const h = host.replace(/\.$/, "");
-  if (IPV4.test(h)) return publicIPv4(h) ? h : "";
-  const out = toString($os.cmd("timeout", String(LOOKUP_TIMEOUT), "getent", "ahostsv4", h).output());
-  const ips = out
-    .split("\n")
-    .map((line) => line.split(/\s/)[0])
-    .filter((ip) => IPV4.test(ip));
-  return ips.length && ips.every(publicIPv4) ? ips[0] : "";
-}
-
-/**
- * `ref` (an href from a page, a redirect's Location) against the page's URL.
- * @param {string} ref
- * @param {string} base
- */
-function resolve(ref, base) {
-  const r = ref.trim();
-  const b = parse(base);
-  if (!b || !r || /^data:/i.test(r)) return "";
-  if (/^https?:\/\//i.test(r)) return r;
-  if (/^[a-z][a-z0-9+.-]*:/i.test(r)) return "";
-  if (r.startsWith("//")) return `${b.scheme}:${r}`;
-  if (r.startsWith("/")) return b.origin + r;
-  const dir = b.path.replace(/[?].*$/, "").replace(/[^/]*$/, "");
-  return b.origin + (dir || "/") + r;
 }
 
 // ---------------------------------------------------------------- fetching
@@ -311,166 +197,6 @@ function get(url, headers, timeout, max, dead) {
     at = resolve(res.headers.location, at);
   }
   return null;
-}
-
-// ---------------------------------------------------------------- pages and icons
-
-/** @type {Record<string, string>} */
-const ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", ndash: "–", mdash: "—", hellip: "…" };
-
-/** @param {string} s */
-function decode(s) {
-  return s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (all, e) => {
-    if (e[0] !== "#") return ENTITIES[e.toLowerCase()] ?? all;
-    const n = e[1] === "x" || e[1] === "X" ? Number.parseInt(e.slice(2), 16) : Number(e.slice(1));
-    return n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : all;
-  });
-}
-
-/**
- * A title as shown: entities decoded, no control or bidi characters (a page's title is anyone's text: "‮" would
- * turn the rest of the line around, QA BUG-110), whitespace collapsed, cut at MAX_TITLE.
- * @param {string} s
- */
-function clean(s) {
-  const t = tidy(decode(s.slice(0, MAX_RAW_TITLE)));
-  const chars = [...t];
-  return chars.length > MAX_TITLE
-    ? `${chars
-        .slice(0, MAX_TITLE - 1)
-        .join("")
-        .trimEnd()}…`
-    : t;
-}
-
-// A page is anyone's text, so it is read in one pass, never with a regex that can try again from every "<": a page of
-// "<meta <meta …" kept the worker busy for minutes.
-
-/**
- * The page's <meta> and <link> tags, "<" to ">". A tag that never ends ends the search: no tag after it could.
- * @param {string} html
- */
-function tags(html) {
-  /** @type {string[]} */
-  const out = [];
-  const start = /<(?:meta|link)\b/gi;
-  for (let m = start.exec(html); m; m = start.exec(html)) {
-    const end = html.indexOf(">", m.index);
-    if (end < 0) break;
-    out.push(html.slice(m.index, end + 1));
-    start.lastIndex = end + 1;
-  }
-  return out;
-}
-
-const SPACE = " \t\n\r\f";
-
-/**
- * A tag's attributes, names lowercased, the first of each.
- * @param {string} tag
- */
-function attrs(tag) {
-  /** @type {Record<string, string>} */
-  const out = Object.create(null);
-  const n = tag.length;
-  let i = 1;
-  while (i < n && !`${SPACE}/>`.includes(tag[i])) i++; // the tag's name
-  while (i < n) {
-    while (i < n && `${SPACE}/`.includes(tag[i])) i++;
-    if (i >= n || tag[i] === ">") break;
-    const from = i;
-    while (i < n && !`${SPACE}=/>`.includes(tag[i])) i++;
-    if (i === from) {
-      i++; // a stray "="
-      continue;
-    }
-    const name = tag.slice(from, i).toLowerCase();
-    while (i < n && SPACE.includes(tag[i])) i++;
-    let value = "";
-    if (tag[i] === "=") {
-      i++;
-      while (i < n && SPACE.includes(tag[i])) i++;
-      const q = tag[i];
-      if (q === '"' || q === "'") {
-        const end = tag.indexOf(q, i + 1);
-        value = tag.slice(i + 1, end < 0 ? n : end);
-        i = end < 0 ? n : end + 1;
-      } else {
-        const at = i;
-        while (i < n && !`${SPACE}>`.includes(tag[i])) i++;
-        value = tag.slice(at, i);
-      }
-    }
-    if (!(name in out)) out[name] = value;
-  }
-  return out;
-}
-
-/**
- * The text of the page's first <title>, "" when there is none.
- * @param {string} html
- */
-function titleOf(html) {
-  const open = /<title\b/i.exec(html);
-  const start = open ? html.indexOf(">", open.index) : -1;
-  if (start < 0) return "";
-  const close = /<\/title\s*>/gi;
-  close.lastIndex = start + 1;
-  const end = close.exec(html);
-  return end ? html.slice(start + 1, end.index) : "";
-}
-
-/**
- * A page's text: UTF-8, or Latin-1 (and Windows-1252, near enough) byte for byte. null for any other charset.
- * @param {Response} res
- */
-function pageText(res) {
-  const body = res.body || [];
-  const text = toString(body); // at most PAGE_BYTES: all that was read
-  let charset = /charset=["']?([\w-]+)/i.exec(res.headers["content-type"] || "")?.[1];
-  if (!charset) {
-    for (const tag of tags(text.slice(0, 4096))) {
-      const a = attrs(tag);
-      charset = a.charset || /charset=([\w-]+)/i.exec(a.content || "")?.[1];
-      if (charset) break;
-    }
-  }
-  charset = (charset || "utf-8").toLowerCase();
-  if (charset === "utf-8" || charset === "utf8" || charset === "us-ascii") return text;
-  if (!/^(iso-8859-1|latin1|windows-1252|cp1252)$/.test(charset)) return null;
-  let s = "";
-  for (let i = 0; i < body.length; i++) s += String.fromCharCode(body[i]);
-  return s;
-}
-
-const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-/** @param {ArrayLike<number>} bytes */
-function base64(bytes) {
-  let out = "";
-  for (let i = 0; i < bytes.length; i += 3) {
-    const n = (bytes[i] << 16) | ((bytes[i + 1] ?? 0) << 8) | (bytes[i + 2] ?? 0);
-    out += B64[(n >> 18) & 63] + B64[(n >> 12) & 63];
-    out += i + 1 < bytes.length ? B64[(n >> 6) & 63] : "=";
-    out += i + 2 < bytes.length ? B64[n & 63] : "=";
-  }
-  return out;
-}
-
-/**
- * An image's type: the one it is served as, else what its first bytes say.
- * @param {Response} res
- * @param {ArrayLike<number>} b
- */
-function imageType(res, b) {
-  const served = (res.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
-  if (/^image\/[a-z0-9.+-]+$/.test(served)) return served;
-  if (b[0] === 0x89 && b[1] === 0x50) return "image/png";
-  if (b[0] === 0 && b[1] === 0 && b[2] === 1 && b[3] === 0) return "image/x-icon";
-  if (b[0] === 0x47 && b[1] === 0x49) return "image/gif";
-  if (b[0] === 0xff && b[1] === 0xd8) return "image/jpeg";
-  if (/^\s*<(\?xml|svg)/.test(toString(b).slice(0, 64))) return "image/svg+xml";
-  return "";
 }
 
 /**
@@ -607,4 +333,4 @@ function tick(e) {
   return e.noContent(204);
 }
 
-module.exports = { enabled, linksOf, parse, publicHost, addressOf, resolve, queue, run, tick };
+module.exports = { enabled, linksOf, queue, run, tick };

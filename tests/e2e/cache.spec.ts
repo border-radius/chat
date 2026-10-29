@@ -7,7 +7,7 @@ async function holdMessages(page: Page): Promise<() => void> {
   const held = new Promise<void>((r) => {
     release = r;
   });
-  await page.route("**/api/collections/messages/records?**", async (route) => {
+  await page.route("**/api/chat/rooms/*/messages?**", async (route) => {
     await held;
     await route.continue().catch(() => {}); // the page may have gone on meanwhile
   });

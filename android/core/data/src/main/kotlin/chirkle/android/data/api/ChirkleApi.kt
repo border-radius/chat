@@ -3,6 +3,7 @@
 package chirkle.android.data.api
 
 import chirkle.android.data.lib.PAGE_SIZE
+import chirkle.android.data.lib.FilterQuery
 import chirkle.android.data.lib.PageQuery
 import chirkle.android.data.model.Badge
 import chirkle.android.data.model.CollectionItem
@@ -274,7 +275,17 @@ class ChirkleApi(val pb: PbClient) {
 
     // ---- rooms (§5, §23)
 
-    suspend fun listRooms(): List<Room> = fullList("rooms", mapOf("sort" to "name") + ROOM_OPTS, Room.serializer())
+    suspend fun listRooms(): List<Room> {
+        if (!legacyLists) {
+            try {
+                return get("/api/chat/rooms", ROOM_OPTS)
+            } catch (e: ApiError) {
+                if (e.status != 404) throw e
+                legacyLists = true
+            }
+        }
+        return fullList("rooms", mapOf("sort" to "name") + ROOM_OPTS, Room.serializer())
+    }
 
     suspend fun getRoom(id: String): Room = get(record("rooms", id), ROOM_OPTS)
 
@@ -363,9 +374,35 @@ class ChirkleApi(val pb: PbClient) {
 
     // ---- messages (§6, §7)
 
-    private fun listQuery(q: PageQuery) = mapOf("filter" to pb.filter(q.filter, q.params), "sort" to q.sort, "skipTotal" to true) + MSG_OPTS
+    /**
+     * The server is from before GET /api/chat/rooms and /api/chat/rooms/{room}/messages: list through the records API, with
+     * the filters the routes write (docs/API.md). Learnt from a 404: the routes answer one only when they aren't there.
+     */
+    @Volatile private var legacyLists = false
 
-    suspend fun page(q: PageQuery, size: Int = PAGE_SIZE): List<Message> =
+    private fun listQuery(q: FilterQuery) = mapOf("filter" to pb.filter(q.filter, q.params), "sort" to q.sort, "skipTotal" to true) + MSG_OPTS
+
+    private fun pagePath(q: PageQuery) = "/api/chat/rooms/${java.net.URLEncoder.encode(q.room, "UTF-8")}/messages"
+    private fun pageQuery(q: PageQuery, size: Int, page: Int = 1): Map<String, Any?> =
+        mapOf("kind" to q.kind) + q.args + (if (q.files) mapOf("files" to "1") else emptyMap()) + mapOf("limit" to size, "page" to page) + MSG_OPTS
+
+    /** A page of a room (GET /api/chat/rooms/{room}/messages). */
+    suspend fun page(q: PageQuery, size: Int = PAGE_SIZE): List<Message> {
+        if (!legacyLists) {
+            try {
+                return get(pagePath(q), pageQuery(q, size))
+            } catch (e: ApiError) {
+                if (e.status != 404) throw e
+                legacyLists = true
+            }
+        }
+        return filtered(q.legacy(), size)
+    }
+
+    /** A page of a room's messages that match [q] (§29): the records API, with its filter. */
+    suspend fun search(q: FilterQuery, size: Int = PAGE_SIZE): List<Message> = filtered(q, size)
+
+    private suspend fun filtered(q: FilterQuery, size: Int): List<Message> =
         items(call(records("messages"), query = listQuery(q) + mapOf("page" to 1, "perPage" to size)), Message.serializer())
 
     suspend fun getMessage(id: String): Message = get(record("messages", id), MSG_OPTS)
@@ -382,11 +419,27 @@ class ChirkleApi(val pb: PbClient) {
         val all = rooms.indices.filter { rooms[it] in every }.joinToString("") { " || room = {:r$it}" }
         val params = rooms.withIndex().associate { "r${it.index}" to it.value } + mapOf("me" to me, "since" to since)
         val filter = "($inRooms) && created > {:since} && author != {:me} && deleted = false && (room.kind = \"dm\" || reply_to.author = {:me}$all)"
-        return page(PageQuery(filter, params, "-created,-id"), size)
+        return filtered(FilterQuery(filter, params, "-created,-id"), size)
     }
 
-    /** Every message matching [q], not just one page: the edits and deletes missed during a disconnect. */
-    suspend fun changes(q: PageQuery): List<Message> = fullList("messages", listQuery(q), Message.serializer(), 200)
+    /** Every message of [q], not just one page: the edits and deletes missed during a disconnect. */
+    suspend fun changes(q: PageQuery): List<Message> {
+        if (!legacyLists) {
+            try {
+                val out = mutableListOf<Message>()
+                var page = 1
+                while (true) {
+                    val some: List<Message> = get(pagePath(q), pageQuery(q, 200, page++))
+                    out += some
+                    if (some.size < 200) return out
+                }
+            } catch (e: ApiError) {
+                if (e.status != 404) throw e
+                legacyLists = true
+            }
+        }
+        return fullList("messages", listQuery(q.legacy()), Message.serializer(), 200)
+    }
 
     suspend fun send(m: NewMessage, onUpload: ((Float) -> Unit)? = null): Message {
         val fields = buildMap {

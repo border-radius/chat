@@ -74,8 +74,8 @@ try {
   await time("latest page of a room (50 messages)", () => me.page(latest(rooms[0]!)));
   const perRoom = Math.round(MESSAGES / ROOMS);
   // §29: no match reads every message of the room; a common word stops at the first page.
-  await time(`search a room (${perRoom} messages), no match`, () => me.page(searchQuery(rooms[0]!, ["nothing-matches"])));
-  await time(`search a room (${perRoom} messages), 50 matches`, () => me.page(searchQuery(rooms[0]!, ["message"])));
+  await time(`search a room (${perRoom} messages), no match`, () => me.search(searchQuery(rooms[0]!, ["nothing-matches"])));
+  await time(`search a room (${perRoom} messages), 50 matches`, () => me.search(searchQuery(rooms[0]!, ["message"])));
   await time("send a message (no listeners)", () => me.send({ id: newId(), room: rooms[1]!, text: "hello" }));
 
   // ---- realtime fan-out: every listener gets every message event of every room it can see

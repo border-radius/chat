@@ -123,7 +123,8 @@ chat/
 │   ├── telegram.pb.js          # the Telegram bridge's routes, worker and tg_* hooks, only with TELEGRAM_BOT_TOKEN (§26)
 │   ├── telegram/               # the bridge: api, people, links, inbound, outbound, worker (§26)
 │   ├── federation.pb.js        # linked instances' routes, worker and fed_* hooks; on with site.federation (§33)
-│   ├── federation/             # config, net (signing, curl), people, rooms, messages, peers, inbox, worker (§33)
+│   ├── federation/             # config, net (signing, curl), people, rooms (the home's side), mirror (a mirror's side),
+│   │                           # messages, peers, inbox, worker (§33)
 │   └── lib/
 │       ├── messages.js         # messages hooks: text, attachments, replies, forwards, soft delete, edit stamps (§5.6, §17, §19, §21)
 │       ├── rooms.js            # rooms hooks: names, DM fields, members, archive stamps (§5.2, §16, §23)
@@ -132,6 +133,7 @@ chat/
 │       ├── text.js             # pure string cleaning: invisible characters, name keys, file names (§5.2, QA BUG-38)
 │       ├── http.js             # security + cache headers, /assets/ (§5.6, §8.2)
 │       ├── dms.js              # POST /api/chat/dms (§16.2)
+│       ├── lists.js            # GET /api/chat/rooms, GET /api/chat/rooms/{room}/messages (§6)
 │       ├── reads.js            # GET /api/chat/unread, POST /api/chat/reads (§18.2)
 │       ├── reactions.js        # POST /api/chat/reactions (§20.2)
 │       ├── bulk.js             # POST /api/chat/delete, POST /api/chat/forward (§21)
@@ -139,6 +141,9 @@ chat/
 │       ├── site.js             # invite-only signups (§24), GET /manifest.webmanifest (§27), App Links (ANDROID.md §9.4)
 │       ├── features.js         # the optional features' parts of the core hooks: federation, Telegram (§5.6)
 │       ├── worker.js           # the cron workers' loop and lock: previews, media, Telegram, federation (§28.1)
+│       ├── previews.js         # link previews: the queue, the worker, fetching with curl (§28)
+│       ├── outbound.js         # where the server may go: public hosts and addresses (previews, federation; §28, §33.6)
+│       ├── pages.js            # reading a fetched page: title, icon link, charset (§28)
 │       ├── users.js            # users hooks (§5.1, §22.1), login by email, GET /api/chat/users (§16.5)
 │       ├── emoji.js            # the emoji a reaction may be (§20.1)
 │       └── images.js           # upload image size limit (§15, QA BUG-24)
@@ -332,17 +337,17 @@ The frontend talks to PocketBase through `pb.ts`, a minimal client (about 2 KB g
 | Log in | `users.authWithPassword(email, password)` |
 | Restore session | `pb.authStore.isValid` → `users.authRefresh()` in the background |
 | Log out | `pb.authStore.clear()` + unsubscribe all |
-| List rooms | `rooms.getFullList({sort: "name", fields: "id,name,archived,created_by"})` |
+| List rooms | `GET /api/chat/rooms` with `expand` and `fields` (`pb_hooks/lib/lists.js`): the rooms you can see, by name |
 | List my hidden rooms | `hidden_rooms.getFullList({fields: "id,room"})` (fetched in parallel with rooms) |
 | Create room | `rooms.create({name, created_by: me})` |
 | Archive / unarchive room | `rooms.update(id, {archived: true \| false})` |
 | Hide room | `hidden_rooms.create({user: me, room})` |
 | Unhide room | `hidden_rooms.delete(hiddenRowId)` |
-| Latest page | `messages.getList(1, 50, {filter: pb.filter("room = {:r}", {r}), sort: "-created,-id", skipTotal: true, expand: "author", fields: MSG_FIELDS})` |
-| Older page (scroll up) | same, filter `room = {:r} && (created < {:c} \|\| (created = {:c} && id < {:i}))` using the oldest loaded message as the cursor |
-| Newer page (scroll down after jumping back) | filter `room = {:r} && (created > {:c} \|\| (created = {:c} && id > {:i}))`, sort `created,id` |
+| Latest page | `GET /api/chat/rooms/{r}/messages?kind=latest` with `expand` and `fields: MSG_FIELDS`. The server writes the filter (`lib/lists.js`), newest first |
+| Older page (scroll up) | `kind=older&created={c}&id={i}`, the oldest loaded message as the cursor: `room = {:r} && (created < {:c} \|\| (created = {:c} && id < {:i}))` |
+| Newer page (scroll down after jumping back) | `kind=newer&created={c}&id={i}`: `(created > {:c} \|\| (created = {:c} && id > {:i}))`, oldest first |
 | One message (open `/r/:id/m/:msgId`) | `messages.getOne(id, {expand: "author", fields: MSG_FIELDS})`, then an older and a newer page around it |
-| First page ("jump to beginning") | filter `room = {:r}`, sort `created,id` |
+| First page ("jump to beginning") | `kind=first`, oldest first. Also `kind=changed` (the edits and deletes missed offline) and `files=1` (the viewer's pages) |
 | Send | `messages.create({id, room, author: me, text}, {expand: "author"})` |
 | Edit | `messages.update(id, {text}, {expand: "author"})` |
 | Delete (soft) | `messages.update(id, {deleted: true})` → the response has `text: ""`, `deleted: true` |
@@ -353,7 +358,9 @@ The frontend talks to PocketBase through `pb.ts`, a minimal client (about 2 KB g
 
 Pagination always uses **keyset cursors** on `(created, id)`, never page numbers, and passes `skipTotal: true`. Every page is a single index range scan, so it costs the same whether the room has 100 messages or 10 million. New inserts never shift page boundaries.
 
-Filters are always built with `pb.filter()` and never by string concatenation, which prevents filter injection.
+Filters are always built with `pb.filter()` and never by string concatenation, which prevents filter injection. Since
+2026-10-29 the clients write only search's filter (§29) and the notification check's (ANDROID.md §21): the pages and the
+room list are routes, so the server can change its schema under them (docs/API.md).
 
 ## 7. Frontend design
 

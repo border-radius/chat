@@ -13,6 +13,7 @@ function federation(app) {
   if (!require(`${__hooks}/federation/config.js`).inUse(app)) return null;
   return {
     rooms: require(`${__hooks}/federation/rooms.js`),
+    mirror: require(`${__hooks}/federation/mirror.js`),
     people: require(`${__hooks}/federation/people.js`),
     messages: require(`${__hooks}/federation/messages.js`),
   };

@@ -2,6 +2,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../../../web/src/api.ts";
+import { first } from "../../../../web/src/lib/cursor.ts";
 import { newId } from "../../../../web/src/lib/id.ts";
 import { NOTICE_MS } from "../../../../web/src/views/room/notice.ts";
 import { instrument, seedMessages, signedUp, uniq } from "../../../support/api.ts";
@@ -204,7 +205,7 @@ describe("room view", () => {
       target(elsewhere.name).click();
       await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith(`/r/${elsewhere.id}`));
       expect(dialog().open).toBe(false);
-      const page = await me.api.page({ filter: "room = {:r}", params: { r: elsewhere.id }, sort: "created,id" });
+      const page = await me.api.page(first(elsewhere.id));
       expect(page.map((m) => [m.text, m.author, m.expand?.forwarded_from?.name])).toEqual([
         ["first", me.user.id, "Bob"],
         ["second", me.user.id, "Me"],
@@ -228,7 +229,7 @@ describe("room view", () => {
       await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith(expect.stringMatching(/^\/r\//)));
       const dmId = navigate.mock.calls.at(-1)![0].slice(3);
       expect(store.get().rooms.get(dmId)?.members).toContain(zed.user.id);
-      const [copy] = await zed.api.page({ filter: "room = {:r}", params: { r: dmId }, sort: "created,id" });
+      const [copy] = await zed.api.page(first(dmId));
       expect(copy).toMatchObject({ text: "psst", forwarded_from: me.user.id });
     });
 
@@ -283,7 +284,7 @@ describe("room view", () => {
       await vi.waitFor(() => expect(bodyOf(theirs.id)).toBe("Message deleted"));
       target(elsewhere.name).click();
       await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith(`/r/${elsewhere.id}`));
-      const page = await me.api.page({ filter: "room = {:r}", params: { r: elsewhere.id }, sort: "created,id" });
+      const page = await me.api.page(first(elsewhere.id));
       expect(page.map((m) => m.text)).toEqual(["stays"]);
 
       // What the server says is wrong is shown, not just "Failed to forward the messages.".

@@ -42,7 +42,7 @@ test("after a dropped connection, everything missed appears in order once it rec
     const missed = seed(room, ada, 80, { dataDir, startAt: Date.now(), stepMs: 10, text: (i) => `while down ${i + 1}` });
 
     const pageFetches: string[] = [];
-    b.on("request", (r) => r.url().includes("/api/collections/messages/records") && pageFetches.push(r.url()));
+    b.on("request", (r) => /\/api\/chat\/rooms\/[^/]+\/messages/.test(r.url()) && pageFetches.push(r.url()));
     server = await start();
 
     await expect(messages(b).last().locator(".body")).toHaveText("while down 80", { timeout: 30_000 });

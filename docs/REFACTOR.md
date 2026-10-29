@@ -472,9 +472,29 @@ and so do the Chromium e2e suite and the app's tests.
       is left in `tests/unit/` (39 files, 317 tests: pure logic, DOM helpers, shared vectors, the build) needs no
       server and runs in ~10 s (`npm run test:unit`). `npm test` runs both, as CI does.
 
+### 44. The large server files split ✅ (and two left whole, on purpose)
+- [x] `lib/previews.js` (610 → 336 lines): where the server may go is `lib/outbound.js` (which `federation/net.js` now
+      requires, rather than the previews module), and reading a page is `lib/pages.js` (pure).
+- [x] `federation/rooms.js` (783 → 551): a mirror's side (the share, unshare and room events from the home, and a
+      mirror's superusers' edits) is `federation/mirror.js` (263), which requires `rooms.js` (no cycle).
+      `features.federation()` gives it as `mirror`.
+- Not split: `views/room.ts` (892). Its collections part as a module cost app.js 0.10 KB gzipped (over the budget) for no
+  change in behaviour; the rest is wiring the room's parts together. `ChirkleApi.kt` (648): one call per endpoint, in
+  sections, like the web's `api.ts`; a split would make its request helpers internal and add imports to every caller.
+
+### 45. Pages and the room list as routes ✅
+- [x] `GET /api/chat/rooms` and `GET /api/chat/rooms/{room}/messages` (`pb_hooks/lib/lists.js`): the client names the
+      page (`kind`, its cursor, `files`), the server writes the filter. Same records, `expand` and `fields` as the
+      records API; the access matrix checks both routes for every room × viewer.
+- [x] Web: `lib/cursor.ts` builds `{ room, kind, args, files }`; `api.page`, `api.changes` and `api.listRooms` use
+      the routes. Search keeps its filter (`api.search`, `SearchQuery`).
+- [x] App: `Cursors.kt` the same, plus `PageQuery.legacy()`, the old filter, for servers without the routes (the room
+      list's 404 says so). `api.search` for search.
+- [x] `shared/vectors/window.json`'s page queries are now the routes' form.
+- The old record-API filters keep working, for installed apps (docs/API.md).
+
 ### Left open from the review
 - Scale (§26 above): `UNREAD_SQL`, realtime fan-out, queue polling. Not needed at the measured sizes.
-- Splitting the other large files (`views/room.ts`, `federation/rooms.js`, `previews.js`, Android's `ChirkleApi.kt`).
 - ~~`cache.spec.ts` QA BUG-104 flake~~: a real loss of the write made as the page goes; fixed (item 42).
 - `keepToRoom` (enrich hook) looks up the room per message with reactions or a reply. Measured 2026-10-28: a page of 50
   messages with reactions takes ~15 ms against ~7.5 ms without (the lookup is all of the difference, ~0.15 ms a message).

@@ -166,9 +166,10 @@ class WindowVectorsTest {
         for (c in v.cases("cursors")) {
             val q = if (c.str("fn") == "withFiles") Pages.withFiles(of(c.str("of"), c)) else of(c.str("fn"), c)
             val out = c.getValue("output").jsonObject
-            assertEquals(c.str("fn"), out.str("filter"), q.filter)
-            assertEquals(c.str("fn"), out.getValue("params").jsonObject.mapValues { it.value.jsonPrimitive.content }, q.params)
-            assertEquals(c.str("fn"), out.str("sort"), q.sort)
+            assertEquals(c.str("fn"), out.str("room"), q.room)
+            assertEquals(c.str("fn"), out.str("kind"), q.kind)
+            assertEquals(c.str("fn"), out.getValue("args").jsonObject.mapValues { it.value.jsonPrimitive.content }, q.args)
+            assertEquals(c.str("fn"), out["files"]?.jsonPrimitive?.boolean ?: false, q.files)
         }
     }
 }

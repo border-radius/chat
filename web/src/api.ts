@@ -16,6 +16,7 @@ import {
   type Visibility,
 } from "./lib/types.ts";
 import { type AuthRecord, type PbClient, PbError, type Query, type RequestOptions } from "./pb.ts";
+import type { SearchQuery } from "./views/room/search.ts";
 
 export type AvatarSize = 48 | 96;
 export type Unsubscribe = () => Promise<void>;
@@ -153,6 +154,8 @@ export interface Api {
 
   // messages
   page(q: PageQuery, signal?: AbortSignal): Promise<Message[]>;
+  /** A page of a room's messages that match `q` (§29): the records API, with its filter. */
+  search(q: SearchQuery, signal?: AbortSignal): Promise<Message[]>;
   getMessage(id: string, signal?: AbortSignal): Promise<Message>;
   /** Every message matching `q` (not just one page): used for the edits/deletes missed during a disconnect. */
   changes(q: PageQuery, signal?: AbortSignal): Promise<Message[]>;
@@ -310,9 +313,14 @@ const toUser = (r: AuthRecord): User => ({
 /** What the profile calls return: never the email, even for yourself. */
 export const USER_FIELDS = "id,name,avatar,instance";
 
-/** Query for a page of messages. `bind` is `pb.filter`: values are bound and escaped, never concatenated. */
-export function listOptions(q: PageQuery, bind: (expr: string, params: Record<string, string>) => string) {
+/** Query for a page of search results. `bind` is `pb.filter`: values are bound and escaped, never concatenated. */
+export function listOptions(q: SearchQuery, bind: (expr: string, params: Record<string, string>) => string) {
   return { filter: bind(q.filter, q.params), sort: q.sort, skipTotal: true, ...MSG_OPTS };
+}
+
+/** The query for GET /api/chat/rooms/{room}/messages (pb_hooks/lib/lists.js). */
+export function pageOptions(q: PageQuery, limit = PAGE_SIZE, page = 1) {
+  return { kind: q.kind, ...q.args, ...(q.files ? { files: "1" } : {}), limit, ...(page > 1 ? { page } : {}), ...MSG_OPTS };
 }
 
 /** Record endpoints of one collection: the part of the SDK's RecordService we use. */
@@ -481,7 +489,7 @@ export function createApi(client: PbClient): Api {
       return pb.fileUrl("users", user.id, user.avatar, { thumb: `${size}x${size}` });
     },
 
-    listRooms: (signal) => wrap(rooms.fullList<Room>({ sort: "name", ...ROOM_OPTS }, signal)),
+    listRooms: (signal) => wrap(pb.send<Room[]>("/api/chat/rooms", { query: ROOM_OPTS, signal })),
     getRoom: (id, signal) => wrap(rooms.get<Room>(id, ROOM_OPTS, signal)),
     createRoom: async (name, visibility) =>
       wrap(rooms.create<Room>({ name, created_by: me(), ...(visibility ? { visibility } : {}) }, ROOM_OPTS)),
@@ -529,11 +537,21 @@ export function createApi(client: PbClient): Api {
       await wrap(pb.send("/api/chat/reads", { method: "POST", body: { room, at } }));
     },
 
-    async page(q, signal) {
+    page: (q, signal) =>
+      wrap(pb.send<Message[]>(`/api/chat/rooms/${encodeURIComponent(q.room)}/messages`, { query: pageOptions(q), signal })),
+    async search(q, signal) {
       return (await wrap(messages.list<Message>(1, PAGE_SIZE, listOptions(q, pb.filter), signal))).items;
     },
     getMessage: (id, signal) => wrap(messages.get<Message>(id, MSG_OPTS, signal)),
-    changes: (q, signal) => wrap(messages.fullList<Message>(listOptions(q, pb.filter), signal, 200)),
+    async changes(q, signal) {
+      const out: Message[] = [];
+      for (let page = 1; ; page++) {
+        const path = `/api/chat/rooms/${encodeURIComponent(q.room)}/messages`;
+        const some = await wrap(pb.send<Message[]>(path, { query: pageOptions(q, 200, page), signal }));
+        out.push(...some);
+        if (some.length < 200) return out;
+      }
+    },
     send: async (m, onUpload) =>
       wrap(
         messages.create<Message>(

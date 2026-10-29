@@ -6,7 +6,7 @@ PocketBase). **Partial**: the behaviour is tested below the screens (API, servic
 the spec's cases are. **Not yet**: no Android test.
 
 Test classes: `UiFlowTest`, `UiFeaturesTest`, `UiPortsTest`, `UiCollectionsTest`, `UiNotifyTest`, `UiLinkedTest`, `RoutesTest` (`app/src/test`); `ServicesTest`, `ChirkleApiTest`, `CollectionsTest`, `NotifyCheckTest`, the
-`lib` tests (`core/data/src/test`), among them `ContractTest`, `VectorsTest` and `WindowVectorsTest`, which run the web's shared
+`lib` tests (`core/data/src/test`), among them `ContractTest`, `VectorsTest`, `WindowVectorsTest` and `LegacyPagesTest`, which run the web's shared
 contract and vectors (`shared/`, docs/API.md); and `RoomScenariosTest` (`core/data`, repo), which replays the web room
 controller's recorded scenarios (`shared/vectors/room.json`).
 
@@ -45,3 +45,4 @@ controller's recorded scenarios (`shared/vectors/room.json`).
 | — (Android only) | Servers and accounts (ANDROID.md §17): `AccountsTest`, `ServersTest` (add, switch, links and pushes find their account, refused sessions, addresses), `UiAccountsTest` (add an account on another server, switch from the account list opened by the brand, a bad address, log out to another account) | Covered |
 | `notify` (web: while a tab is open, DESIGN.md §34) | Notifications of DMs and replies by a periodic check, no Google (ANDROID.md §21): `NotifyCheckTest` (DMs and replies once; every message of a room chosen in its menu, ANDROID.md §24; not other plain messages, from before sign-in, read elsewhere, hidden, on screen, the open room; a check failing part way loses nothing, QA BUG-153), `UiNotifyTest` (the worker's check posts them on their channels at their messages' times, takes a read one away; Notify of every message from the room's menu) | Covered; tried on the emulator (ANDROID.md §22.1). The app checks every 15 minutes, the web alerts live but only with a tab open; the web's sound has no app equivalent (the channels' own sounds) |
 | — (Android only) | `android.test.ts` (server): App Links, minimum version (push was removed from the server on 2026-10-28) | Covered on the server |
+| — (server API, 2026-10-29) | Pages and the room list as routes (ANDROID.md §31): `WindowVectorsTest` (the page builders, the same vectors as the web), `LegacyPagesTest` (the records API filters for servers from before the routes), `ChirkleApiTest` and every screen test that pages. Server: `tests/integration/lists.test.ts` | Covered; the fallback to an old server is checked by its filters, not against an old server |

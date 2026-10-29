@@ -6,15 +6,14 @@
 // only; what it needs from app.js comes in its options.
 
 import type { h } from "../../dom.ts";
-import type { PageQuery } from "../../lib/cursor.ts";
 import type { Message } from "../../lib/types.ts";
 
 export interface SearchOptions {
   room: string;
   /** What is searched, for the field's placeholder: "#general", "Bob". */
   label: string;
-  /** A page of messages (`api.page`): PAGE_SIZE of them, or fewer when there are no more. */
-  page: (q: PageQuery, signal: AbortSignal) => Promise<Message[]>;
+  /** A page of results (`api.search`): PAGE_SIZE of them, or fewer when there are no more. */
+  page: (q: SearchQuery, signal: AbortSignal) => Promise<Message[]>;
   pageSize: number;
   h: typeof h;
   /** When a message was sent, short. */
@@ -57,12 +56,19 @@ export function searchWords(q: string): string[] {
   return [...new Set(foldKey(q).split(/\s+/).filter(Boolean))].slice(0, MAX_WORDS);
 }
 
+/** A records API query: the filter, its values (bound by `pb.filter`, never concatenated) and the order. */
+export interface SearchQuery {
+  filter: string;
+  params: Record<string, string>;
+  sort: string;
+}
+
 /**
  * The newest messages of `room` with every word in `words`, before `before` when given (newest-first). `~` treats a %
  * in the value as a wildcard (and then stops adding its own), so it is escaped (QA BUG-34); `_` already is. So is the
  * escape character itself: `\%` typed found the messages starting with `\`, and `\_` "a_b" (QA BUG-112).
  */
-export function searchQuery(room: string, words: readonly string[], before?: { created: string; id: string }): PageQuery {
+export function searchQuery(room: string, words: readonly string[], before?: { created: string; id: string }): SearchQuery {
   const params: Record<string, string> = { room };
   const parts = ["room = {:room}"];
   words.forEach((w, i) => {

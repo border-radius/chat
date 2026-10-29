@@ -4,6 +4,7 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
+import { first } from "../../../../web/src/lib/cursor.ts";
 import { newId } from "../../../../web/src/lib/id.ts";
 import type { Message } from "../../../../web/src/lib/types.ts";
 import { createScope, type Scope } from "../../../../web/src/scope.ts";
@@ -70,7 +71,7 @@ describe("shared scenarios: the room controller (§7.5)", () => {
       }
       const reader = sc.reader === "other" ? other : author;
       if (sc.readUpTo) {
-        const page = await reader.api.page({ filter: "room = {:room}", params: { room: room.id }, sort: "created,id" });
+        const page = await reader.api.page(first(room.id));
         await reader.api.markRead(room.id, page.find((m) => m.id === idOf(sc.readUpTo!))!.created);
       }
       const counts = await reader.api.unreadCounts();

@@ -1,11 +1,11 @@
 /// <reference path="../../types/pocketbase.d.ts" />
 // Between servers (DESIGN.md §33.6): signed requests both ways. Every request carries X-Fed-Origin (who calls),
 // X-Fed-Date (unix seconds, within 5 minutes of now) and X-Fed-Signature, an HMAC of the method, path, date and the
-// body's hash with the pair's secret. Outgoing requests go out with curl as link previews do (lib/previews.js): to the
-// peer's paired origin only, https on a public address (checked, then connected to), no redirects, bodies capped, with
-// timeouts. FEDERATION_ALLOW_PRIVATE=1 lets tests use http on 127.0.0.1.
+// body's hash with the pair's secret. Outgoing requests go out with curl as link previews do (lib/previews.js): to
+// the peer's paired origin only, https on a public address (lib/outbound.js checks it, then it is connected to), no
+// redirects, bodies capped, with timeouts. FEDERATION_ALLOW_PRIVATE=1 lets tests use http on 127.0.0.1.
 
-const { addressOf, parse, publicHost } = require(`${__hooks}/lib/previews.js`);
+const { addressOf, parse, publicHost } = require(`${__hooks}/lib/outbound.js`);
 const { allowPrivate, isActive, origin, peerByOrigin } = require(`${__hooks}/federation/config.js`);
 
 /** How far a request's date may be from now. */

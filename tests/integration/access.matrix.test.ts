@@ -1,6 +1,6 @@
 // Room access (§23) as one table: every kind of room × every kind of viewer × every way in. The rule is written in four
 // places (the API rules of 1760000014_room_access.js, canSee in pb_hooks/lib/access.js, the unread SQL in
-// pb_hooks/lib/reads.js, and the hooks that call canSee); this checks they all agree with `sees` below, and lists every
+// pb_hooks/lib/reads.js and the room list in lib/lists.js, and the hooks that call canSee); this checks they all agree with `sees` below, and lists every
 // disagreement at once.
 
 import type PocketBase from "pocketbase";
@@ -88,6 +88,7 @@ describe("room access matrix (§23.1)", () => {
       viewers.map(async (v) => {
         const unread = v.user ? (await v.pb.send<{ rooms: Record<string, number> }>("/api/chat/unread", {})).rooms : {};
         const token = v.user ? await v.pb.files.getToken() : "";
+        const listedHere = (await v.pb.send<{ id: string }[]>("/api/chat/rooms", {})).map((r) => r.id);
         await Promise.all(
           fixtures.map(async (f) => {
             const can = sees(f, v.name);
@@ -100,6 +101,9 @@ describe("room access matrix (§23.1)", () => {
             check(f, v, "messages view", can, ok(viewMsg), ` (got ${viewMsg})`);
             const msgs = await v.pb.collection("messages").getFullList({ filter: v.pb.filter("room = {:id}", { id: roomId }) });
             check(f, v, "messages list", can, msgs.length > 0);
+            check(f, v, "GET /api/chat/rooms", can, listedHere.includes(roomId));
+            const page = await v.pb.send<unknown[]>(`/api/chat/rooms/${roomId}/messages`, {}).catch(() => null);
+            check(f, v, "GET /api/chat/rooms/{room}/messages", can, !!page && page.length > 0);
             const url = creator.pb.files.getURL(f.probe, f.probe.files[0], token ? { token } : {});
             const file = (await fetch(url)).status;
             check(f, v, "attachment", can, ok(file), ` (got ${file})`);

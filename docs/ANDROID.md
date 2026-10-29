@@ -1055,3 +1055,16 @@ This section covers the app's side of the architecture review (docs/REFACTOR.md 
   `registerPush`, `unregisterPush`, `NotifyCheck.forgetPushToken` (with its calls in `CheckWorker` and at log out),
   `SessionHooks.beforeSignOut` (push was its only use) and `Keys.PUSH_ROW`. A value left under that key by a Firebase
   build is never read.
+
+## 31. Pages and the room list as routes (2026-10-29)
+
+The server now answers the room list and a room's message pages as routes (docs/API.md, DESIGN.md §6): the app
+names the page and the server writes the filter.
+- `Pages` (`Cursors.kt`) builds `PageQuery(room, kind, args, files)`, as the web's `lib/cursor.ts`;
+  `WindowVectorsTest` checks both against `shared/vectors/window.json`.
+- `ChirkleApi.listRooms` asks `GET /api/chat/rooms`; `page` and `changes` ask `GET /api/chat/rooms/{room}/messages`.
+- **Older servers:** an account may be on a server that isn't updated yet. When a route answers 404 (the server
+  has no such route: a room you can't see answers no messages, as before), that `ChirkleApi` (one per account) lists
+  through the records API from then on, with `PageQuery.legacy()`: the filters the app sent before
+  (`LegacyPagesTest`).
+- Search (`searchQuery`, now a `FilterQuery`, and `api.search`) and the notification check still send filters.

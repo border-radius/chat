@@ -16,7 +16,7 @@ fun searchWords(q: String): List<String> =
  * The newest messages of [room] with every word, before [before] when given (newest first). `~` treats `%` as a
  * wildcard, so it is escaped (QA BUG-34), and so is the escape character itself (QA BUG-112).
  */
-fun searchQuery(room: String, words: List<String>, before: Cursor? = null): PageQuery {
+fun searchQuery(room: String, words: List<String>, before: Cursor? = null): FilterQuery {
     val params = linkedMapOf("room" to room)
     val parts = mutableListOf("room = {:room}")
     words.forEachIndexed { i, w ->
@@ -28,7 +28,7 @@ fun searchQuery(room: String, words: List<String>, before: Cursor? = null): Page
         params["id"] = before.id
         parts += "(created < {:created} || (created = {:created} && id < {:id}))"
     }
-    return PageQuery(parts.joinToString(" && "), params, "-created,-id")
+    return FilterQuery(parts.joinToString(" && "), params, "-created,-id")
 }
 
 /**

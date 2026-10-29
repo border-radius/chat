@@ -16,6 +16,7 @@ const fedMessages = require(`${__hooks}/federation/messages.js`);
 const { applyUnpair } = require(`${__hooks}/federation/peers.js`);
 const { applyUser, peopleFor, profileOf, standInRow, userOf } = require(`${__hooks}/federation/people.js`);
 const fedRooms = require(`${__hooks}/federation/rooms.js`);
+const fedMirror = require(`${__hooks}/federation/mirror.js`);
 
 /** Events in one request, and from one peer in a minute (§33.6). */
 const MAX_EVENTS = 50;
@@ -42,11 +43,11 @@ function statusOf(err) {
 function apply(app, peer, ev) {
   switch (ev.type) {
     case "room":
-      return fedRooms.applyRoom(app, peer, ev);
+      return fedMirror.applyRoom(app, peer, ev);
     case "share":
-      return fedRooms.applyShare(app, peer, ev);
+      return fedMirror.applyShare(app, peer, ev);
     case "unshare":
-      return fedRooms.applyUnshare(app, peer, ev);
+      return fedMirror.applyUnshare(app, peer, ev);
     case "members":
       return fedRooms.applyMembers(app, peer, ev);
     case "message":

@@ -28,19 +28,28 @@ Rules that more than one implementation must follow have test vectors in [`share
 | Collection | Web | App | How |
 |---|---|---|---|
 | `users` | ✓ | ✓ | auth (password, refresh), sign-up, profile update (`fields.user`) |
-| `rooms` | ✓ | ✓ | list, get, create, update (`fields.room`) |
-| `messages` | ✓ | ✓ | pages by cursor filter (`lib/cursor.ts`, `Cursors.kt`), get, create (multipart), update, search (`text_key ~`) (`fields.message`) |
+| `rooms` | ✓ | ✓ | get, create, update (`fields.room`); list: apps before 2026-10-29, and the app with a server from before then |
+| `messages` | ✓ | ✓ | get, create (multipart), update, search (`text_key ~`), the app's notification check (`fields.message`); pages by cursor filter: apps before 2026-10-29, and the app with a server from before then |
 | `hidden_rooms` | ✓ | ✓ | list, create, delete (`fields.roomRow`) |
 | `site` | ✓ | ✓ | the site record; the app also reads `min_android_version` |
 | `collections`, `collection_items` | ✓ | ✓ | the collections pages (`fields.collectionItem`) |
 | `push_tokens` | | delete only | apps from before ANDROID.md §21 unregister their Firebase token |
 
 The clients send filters in PocketBase's filter syntax. The filters name the fields `room`, `created`, `id`,
-`updated`, `files`, `forward_of`, `text_key` and `collection`. Renaming a field, changing its type or tightening a
-rule breaks the apps already installed.
+`updated`, `files`, `forward_of`, `text_key` and `collection`; apps from 2026-10-29 on still name `room`, `created`,
+`id`, `text_key`, `author`, `deleted`, `room.kind`, `reply_to.author` (search, notifications) and `collection`.
+Renaming a field, changing its type or tightening a rule breaks the apps already installed.
+
+**Pages and the room list** are routes (`pb_hooks/lib/lists.js`), so a client names the page, not the filter:
+`GET /api/chat/rooms` and `GET /api/chat/rooms/{room}/messages?kind=latest|first|older|newer|changed` (cursor
+`created`, `id`; for `changed` `since`, `from`, `to`; `files=1`; `limit` ≤ 200; `page`). Both answer a plain array of
+records, with `expand` and `fields` as the records API takes them, and see what its rules let the caller see (a room you can't
+see has no messages). The app falls back to the records API when a route answers 404 (a server from before the
+routes; it can talk to servers it doesn't control). `tests/integration/lists.test.ts` checks each page against the
+records API's answer for the filter it replaces.
 
 **Custom routes** (`pb_hooks/main.pb.js`, `federation.pb.js`):
-`/api/chat/dms`, `unread`, `unread/{room}`, `reads`, `reactions`, `delete`, `forward`, `media/{room}`,
+`/api/chat/rooms`, `rooms/{room}/messages`, `dms`, `unread`, `unread/{room}`, `reads`, `reactions`, `delete`, `forward`, `media/{room}`,
 `posters/{message}/{file}`, `posters/items/{item}/{file}`, `collections`, `badges`, `items`, `items/{id}`, `saved`,
 `subs`, `subs/seen`, `users`, `password`, `remote-users`. Also `/api/files/*` (with a file token), `/api/health` and
 `/.well-known/assetlinks.json`.

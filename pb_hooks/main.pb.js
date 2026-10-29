@@ -25,6 +25,8 @@ routerAdd("GET", "/api/{path...}", () => {
   throw new NotFoundError();
 });
 routerAdd("POST", "/api/previews/tick", (e) => require(`${__hooks}/lib/previews.js`).tick(e), $apis.requireSuperuserAuth());
+routerAdd("GET", "/api/chat/rooms", (e) => require(`${__hooks}/lib/lists.js`).rooms(e));
+routerAdd("GET", "/api/chat/rooms/{room}/messages", (e) => require(`${__hooks}/lib/lists.js`).messages(e));
 routerAdd("POST", "/api/chat/dms", (e) => require(`${__hooks}/lib/dms.js`).openDm(e), $apis.requireAuth("users"));
 routerAdd("GET", "/api/chat/unread", (e) => require(`${__hooks}/lib/reads.js`).unread(e), $apis.requireAuth("users"));
 routerAdd("GET", "/api/chat/unread/{room}", (e) => require(`${__hooks}/lib/reads.js`).firstUnread(e), $apis.requireAuth("users"));
@@ -104,10 +106,10 @@ onRecordUpdateRequest((e) => {
   // A shared room's members (§33.5): checked against what each side may change, and sent once saved.
   const fed = require(`${__hooks}/lib/features.js`).federation(e.app);
   if (fed) fed.rooms.checkHomeMembers(e);
-  const members = fed ? fed.rooms.checkMirrorEdit(e) : null;
+  const members = fed ? fed.mirror.checkMirrorEdit(e) : null;
   require(`${__hooks}/lib/rooms.js`).beforeRoomUpdateRequest(e);
   e.next();
-  if (fed && members && e.record) fed.rooms.sendMembers(e.app, e.record, members);
+  if (fed && members && e.record) fed.mirror.sendMembers(e.app, e.record, members);
 }, "rooms");
 
 onRecordCreate((e) => {
