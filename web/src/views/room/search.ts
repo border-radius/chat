@@ -126,7 +126,8 @@ export function createSearch(o: SearchOptions): Search {
   }
 
   function keydown(e: KeyboardEvent) {
-    if (e.key !== "Enter") return;
+    // Not the Enter confirming an IME word (as composer.ts `composing`, QA BUG-179): what it confirms is searched as typed.
+    if (e.key !== "Enter" || e.isComposing || e.keyCode === 229) return;
     e.preventDefault();
     clearTimeout(timer);
     void run(false);

@@ -15,9 +15,18 @@ function firstGrapheme(word: string): string {
   return [...word][0] ?? "";
 }
 
-/** Up to two initials: the first letters of the first two words, upper-cased. "?" for a blank name. */
+/**
+ * Up to two initials: the first letters of the first two words, upper-cased. "?" for a blank name. A word in brackets
+ * (the label of a linked instance or Telegram, "Ann (B)", §33.4) and punctuation before a word ("“Bob”") don't count.
+ */
 export function initials(name: string): string {
-  const words = name.trim().split(/\s+/).filter(Boolean).slice(0, 2);
+  const words = name
+    .trim()
+    .split(/\s+/)
+    .filter((w) => !/^\(.*\)$/.test(w))
+    .map((w) => w.replace(/^\p{P}+/u, ""))
+    .filter(Boolean)
+    .slice(0, 2);
   const out = words.map((w) => firstGrapheme(w).toLocaleUpperCase()).join("");
   return out || "?";
 }

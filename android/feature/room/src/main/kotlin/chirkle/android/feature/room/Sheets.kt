@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.sp
 import chirkle.android.data.lib.EMOJI_CATEGORIES
 import chirkle.android.data.lib.QUICK_REACTIONS
 import chirkle.android.data.lib.canPost
+import chirkle.android.data.lib.dmClosed
 import chirkle.android.data.lib.line
 import chirkle.android.data.lib.quote
 import chirkle.android.data.lib.roomSections
@@ -167,7 +168,8 @@ private fun EmojiCell(e: String, onPick: (String) -> Unit) {
 fun forwardTargets(s: AppState): List<Room> {
     val me = s.user?.id
     val sections = roomSections(s.rooms.values, s.hidden.keys, me, s.activeRoomId)
-    return (sections.dms + sections.rooms + sections.hidden).filter { !it.archived && it.canPost(me) }
+    // Not into a DM that takes no messages (§16.7).
+    return (sections.dms + sections.rooms + sections.hidden).filter { !it.archived && it.canPost(me) && it.dmClosed(s.user).isEmpty() }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

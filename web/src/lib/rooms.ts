@@ -4,6 +4,17 @@ import type { Posting, Room, User, Visibility } from "./types.ts";
 
 export const isDm = (room: Room): boolean => room.kind === "dm";
 
+/**
+ * Why a DM takes no new messages: one of the two takes no direct messages (§16.7), as a linked instance's people do once
+ * it is unpaired (§33.7). "" while it takes them.
+ */
+export function dmClosed(room: Room, me: User | null): string {
+  if (!me || !isDm(room)) return "";
+  if (me.no_dms) return "You've turned off direct messages.";
+  const other = otherMember(room, me);
+  return other?.no_dms ? `${other.name} doesn't take direct messages.` : "";
+}
+
 /** Who can see the room (§23.1); rooms from before visibility existed are public. */
 export const visibilityOf = (room: Room): Visibility => room.visibility ?? "public";
 

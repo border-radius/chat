@@ -13,7 +13,7 @@ import { newer, older, PAGE_SIZE, withFiles } from "../lib/cursor.ts";
 import { attachmentName, isMedia, isVideo } from "../lib/files.ts";
 import { LIMITS } from "../lib/limits.ts";
 import { emptyForward, lastSaved } from "../lib/messages.ts";
-import { canPost, isAddress, isDm, otherMember, postingOf, roomTitle, VISIBILITY, visibilityOf } from "../lib/rooms.ts";
+import { canPost, dmClosed, isAddress, isDm, otherMember, postingOf, roomTitle, VISIBILITY, visibilityOf } from "../lib/rooms.ts";
 import { isNearBottom } from "../lib/scroll.ts";
 import { formatFull, formatTime, parsePb } from "../lib/time.ts";
 import type { Badge, Message } from "../lib/types.ts";
@@ -294,8 +294,8 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
   const forwardDialog = createForwardDialog({
     rooms: () => {
       const s = roomSections(store.get());
-      // Only where you may post (§23.6).
-      return [...s.dms, ...s.rooms, ...s.hidden].filter((r) => canPost(r, me()));
+      // Only where you may post (§23.6), and not into a DM that takes no messages (§16.7).
+      return [...s.dms, ...s.rooms, ...s.hidden].filter((r) => canPost(r, me()) && !dmClosed(r, me()));
     },
     me,
     searchUsers: (q, sig) => api.searchUsers(q, sig),
@@ -337,6 +337,7 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
     { class: "guest-banner reader-banner" },
     "Only some people can post in this room. You can read along and react.",
   );
+  const closedBanner = h("p", { class: "guest-banner reader-banner" });
   const shell = h("section", { class: "room", "aria-labelledby": `${vid}-title` }, [
     header.el,
     notice.el,
@@ -607,6 +608,10 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
     } else if (!canPost(r, me())) {
       // A reader (§23.6). What they had typed stays in the composer, for if they may post again.
       if (footer.firstChild !== readerBanner) footer.replaceChildren(readerBanner);
+    } else if (dmClosed(r, me())) {
+      // Readable, but the server refuses what is sent (QA BUG-178). What was typed stays, as for a reader.
+      closedBanner.textContent = dmClosed(r, me());
+      if (footer.firstChild !== closedBanner) footer.replaceChildren(closedBanner);
     } else if (footer.firstChild !== composer.el) footer.replaceChildren(composer.el);
     composer.setPlaceholder(`Message ${roomTitle(r, me())}`);
     // Entering a room (or switching to another one), you can just type. Not on touch screens: it would pop up the

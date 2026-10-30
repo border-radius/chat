@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isDm, otherMember, roomTitle } from "../../../web/src/lib/rooms.ts";
+import { dmClosed, isDm, otherMember, roomTitle } from "../../../web/src/lib/rooms.ts";
 import type { Room } from "../../../web/src/lib/types.ts";
 
 const me = { id: "me", name: "Me" };
@@ -32,5 +32,16 @@ describe("room helpers (§16.5)", () => {
     expect(isDm(dm)).toBe(true);
     expect(isDm(pub)).toBe(false);
     expect(isDm({ ...pub, kind: "public" })).toBe(false);
+  });
+});
+
+describe("dmClosed (§16.7, QA BUG-178)", () => {
+  it("says why a DM takes no messages: the other person, or you, take none", () => {
+    expect(dmClosed(dm, me)).toBe("");
+    expect(dmClosed(pub, me)).toBe("");
+    expect(dmClosed(dm, null)).toBe("");
+    const closed: Room = { ...dm, expand: { members: [me, { id: "bob", name: "Bob (B)", no_dms: true }] } };
+    expect(dmClosed(closed, me)).toBe("Bob (B) doesn't take direct messages.");
+    expect(dmClosed(dm, { ...me, no_dms: true })).toBe("You've turned off direct messages.");
   });
 });

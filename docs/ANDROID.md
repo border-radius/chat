@@ -1077,3 +1077,12 @@ names the page and the server writes the filter.
   without the routes of `lib/lists.js`, or an old release's with `-Pchirkle.legacyHooks=<its pb_hooks>`. Both see
   the same; the old one answers one 404 and nothing more is asked of the routes. Run 2026-10-29 with the hooks of the
   commit before the routes ("Tech debt, part 4"): passed.
+
+## 32. QA pass 23 ports (2026-10-30)
+
+Two fixes of docs/QA.md "QA pass 23" are the app's too:
+- **Initials** leave out a word in brackets, as the web's (`initials()` in `Avatars.kt`): a stand-in "Ann (B)" is "A",
+  not "A(" (QA BUG-176).
+- **A DM that takes no messages** (one of the two has `no_dms`, as a linked instance's people do once it is unpaired)
+  shows why instead of the composer, has no swipe to reply, and isn't a forward target (`Room.dmClosed()` in
+  `Rooms.kt`, QA BUG-178). Tests: `HelpersTest`, `LinkedTest`.

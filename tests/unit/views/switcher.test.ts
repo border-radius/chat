@@ -142,6 +142,15 @@ describe("jump to: the dialog", () => {
     expect(d.s.el.hasAttribute("open")).toBe(false);
   });
 
+  it("doesn't go on the Enter that confirms an IME word, Safari's (keyCode 229) included (QA BUG-179)", () => {
+    const d = open();
+    d.input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true, cancelable: true }));
+    d.input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", keyCode: 229, bubbles: true, cancelable: true }));
+    expect(d.navigate).not.toHaveBeenCalled();
+    d.press("Enter");
+    expect(d.navigate).toHaveBeenCalledTimes(1);
+  });
+
   it("narrows as you type, says when nothing matches, and goes where clicked", () => {
     const d = open();
     d.type("ca");

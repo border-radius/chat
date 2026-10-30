@@ -1912,3 +1912,80 @@ Test for 172–174: `federation.test.ts` "a home speaking for our people".
 Not changed (hardening, noted): logins are limited per IP only (`*:auth`, 2 per 3 s); `TRUSTED_PROXY` defaults to
 X-Forwarded-For, which without a proxy lets clients choose their IP; `/_/` is public; ffmpeg runs as the server's
 user; any app may send the exported activity `Notifications.OPEN` (it only opens a room).
+
+# QA pass 23 — the whole product, linked instances most
+
+Exploratory testing on 2026-10-30 against the seeded server (Chromium at 1100, 390 and 320 px) and two linked
+instances made for it (A and B, paired, with a ticker in place of their cron jobs): a room shared from A, messages,
+replies, reactions, edits, deletes and images both ways, a DM opened by address, the home renaming the room, A
+suspending B and resuming, the share ended, the pair unpaired. Also: messaging edge cases (multiline, RTL, 300-letter
+words, 2,001 characters, a blank edit, a reply whose original goes, reactions toggled seven times and by two people at
+once), forwarding several, hiding and archiving from the room list, failed edits, deletes and reactions, collections
+(the same item twice, a collection turned private, odd `items`), link previews, a fuzz of every custom route (1,422
+requests), and a layout sweep of every screen and dialog at 320 px. Numbering continues from BUG-175. The Android
+changes were checked with unit and screen tests only: the app wasn't installed on the emulator this time.
+
+| # | Severity | Area | Summary | Status |
+|---|---|---|---|---|
+| BUG-176 | Low | Avatars (web, Android) | A stand-in "Ann (B)" had the initials "A(": the label's bracket counted as a word | Fixed |
+| BUG-177 | Low | Replies (web) | The italic "Message deleted" in a reply's quote lost the end of its last letter | Fixed |
+| BUG-178 | Medium | DMs (web, Android) | A DM closed because one of the two takes no DMs (turned on later, or a linked instance unpaired) still showed the composer; every message ended "Not sent." with a Retry that could never work, and the DM was offered to forward to | Fixed |
+| BUG-179 | Low | Jump to, search (web) | In Safari, the Enter that confirms a Japanese or Chinese word (keyCode 229) went to the room chosen in Jump to, and ran the message search on the unfinished word | Fixed |
+
+## BUG-176 — Initials of a label (Low)
+
+**Steps:** a person of a linked instance writes in a shared room: "Ann (A)". **Expected:** "A". **Actual:** "A(",
+in the messages, the DM list and the room header; Telegram's "Ann (TG)" too. **Fix:** `initials()` (web
+`lib/avatar.ts`, Android `Avatars.kt`) leaves out a word in brackets and punctuation before a word (`avatar.test.ts`,
+`HelpersTest`).
+
+## BUG-177 — The clipped italic (Low)
+
+**Steps:** reply to a message, then its author deletes it. **Actual:** the quote read "Message deletea": the slanted
+"d" leans past the end of the box, which clips (it cuts long quotes with an ellipsis). **Fix:** a little padding at the
+end of the italic text (`replies.css`).
+
+## BUG-178 — A closed DM looked open (Medium)
+
+**Steps:** Bea (B) and Ann (A) have a DM; A's admin unpairs B (or, on one instance, Ann sets `no_dms`). Bea writes in
+the DM. **Expected:** the DM says it takes no messages, as a room you may not post in says so (§23.6). **Actual:** the
+composer, and "Not sent." under every message, Retry failing each time; the server's reason ("Ann (A) doesn't take
+direct messages.") was never shown, and the forward dialog still offered the DM. **Fix:** `dmClosed()` (web
+`lib/rooms.ts`, Android `Rooms.kt`): such a DM shows the reason where the composer was, and isn't a forward target
+(web: `rooms.test.ts`, `access.test.ts` "a DM that takes no messages"; Android: `LinkedTest`).
+
+## BUG-179 — Enter confirming an IME word (Low)
+
+**Steps:** Safari, Jump to (Ctrl+K), type Japanese with an input method, press Enter to pick the word. **Actual:** it
+went to the first room listed. Safari ends the composition before that keydown, so only `keyCode` 229 tells it apart;
+the composer already checks it (QA BUG-77), the switcher checked `isComposing` only, and message search nothing.
+**Fix:** both skip that Enter (`switcher.test.ts`).
+
+## Checked and fine
+
+- **Linked instances:** a shared room backfilled; text, a reply (quoted on the other side), reactions (counted once
+  when both sides add the same emoji, "Bea (B) reacted" on A), an edit, a delete and an image each way, in 3–4 s with
+  the image's shape kept; `bea@host` found in New message whatever its case or a space after it, "There's nobody
+  called nobody on …", "This instance isn't linked to …"; a DM both ways; the home's rename reaching the mirror ("lobby
+  renamed (A)"), a mirror's user refused a rename; suspended, "… can't be reached right now" on the mirror and a
+  message written meanwhile delivered on resuming; the share ended (archived mirror, service messages on both sides,
+  the home's remote members gone).
+- **Messages:** shift+Enter line breaks, RTL with a link, a 300-letter word wrapped at 320 px, 2,001 characters
+  refused before sending, a blank edit refused with its reason, a reply to a deleted message; reactions toggled
+  quickly ending as the server has them, on both screens; failed edits, deletes and reactions say so with Retry, and
+  nothing changed on the server.
+- **Collections:** the same item twice in one message is one file; an item of a collection turned private is
+  refused ("no longer available"); `items` not a list of ids refused; images' shapes kept in `file_dims`.
+- **Routes:** no 5xx in 1,422 requests with odd bodies and ids (the only "Something went wrong" answers are to bodies
+  that aren't JSON, PocketBase's own 400).
+- **Layout:** no horizontal overflow at 320 px on any screen, menu or dialog.
+
+Not changed:
+- **Someone's new name or picture shows to others only after a reload** (messages, the DM list): users can read only
+  their own record, so no realtime event reaches anyone else. Live profile changes would need a topic of their own
+  (as `chat/badges`); it is a feature to decide on.
+- The same page linked as `https://x.com`, `https://x.com/` and `https://X.com/#a` gets a preview line each: links
+  count once by their text (§28.1), not by where they lead.
+- A room hidden from the list has no unread badge in Hidden (§18.4), and unarchived it is hidden again, as designed.
+
+`app.js` budget 47.40 → 47.55 KB and `app.css` 7.10 → 7.15 KB (the user: "raise budget if needed").

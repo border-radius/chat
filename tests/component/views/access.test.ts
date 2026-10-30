@@ -282,6 +282,22 @@ describe("room access UI (§23)", () => {
     });
   });
 
+  describe("a DM that takes no messages (§16.7)", () => {
+    it("says why instead of a composer that could only fail (QA BUG-178)", async () => {
+      const bob = await signedUp(`Bob ${uniq()}`);
+      const dm = await me.api.openDm(bob.user.id);
+      await me.api.send({ id: newId(), room: dm.id, text: "still there?" });
+      const pb = new PocketBase(inject("pbUrl"));
+      await pb.collection("users").authWithPassword(bob.email, bob.password);
+      await pb.collection("users").update(bob.user.id, { no_dms: true });
+      const el = await mountRoom(dm);
+      await vi.waitFor(() => expect(el.querySelector("li.msg .body")?.textContent).toBe("still there?"));
+      expect(el.querySelector("form.composer")).toBeNull();
+      expect(el.querySelector("footer .reader-banner")!.textContent).toBe(`${bob.user.name} doesn't take direct messages.`);
+      await bob.api.unsubscribeAll();
+    });
+  });
+
   describe("losing and regaining access (§23.4)", () => {
     it("taken out of a private room while in it: the room and its messages go; added back, it shows again", async () => {
       const bob = await signedUp(`Bob ${uniq()}`);

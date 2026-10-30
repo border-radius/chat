@@ -59,6 +59,17 @@ fun Room.otherMember(me: String?): User? {
     return expand?.members?.find { it.id == otherId } ?: User(otherId, "Unknown")
 }
 
+/**
+ * Why a DM takes no new messages: one of the two takes no direct messages (§16.7), as a linked instance's people do once
+ * it is unpaired (§33.7). "" while it takes them. Web: dmClosed.
+ */
+fun Room.dmClosed(me: User?): String {
+    if (me == null || !isDm) return ""
+    if (me.noDms) return "You've turned off direct messages."
+    val other = otherMember(me.id)
+    return if (other?.noDms == true) "${other.name} doesn't take direct messages." else ""
+}
+
 /** What to call a room: "#name", or the other member's name for a DM. */
 fun Room.title(me: String?): String = if (isDm) otherMember(me)?.name ?: "Unknown" else "#$name"
 

@@ -210,7 +210,8 @@ export function createSwitcher(o: SwitcherOptions): Switcher {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       if (n) choose((at + (e.key === "ArrowDown" ? 1 : n - 1)) % n);
-    } else if (e.key === "Enter" && !e.isComposing) {
+    } else if (e.key === "Enter" && !e.isComposing && e.keyCode !== 229) {
+      // 229: Safari's Enter confirming an IME word, after the composition ended (as composer.ts `composing`, QA BUG-179).
       e.preventDefault();
       go(shown[at]);
     }

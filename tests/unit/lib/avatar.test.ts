@@ -13,6 +13,14 @@ describe("initials (§15.4)", () => {
     expect(initials("émile zola")).toBe("ÉZ");
   });
 
+  it("leaves out a label in brackets and punctuation before a word (QA BUG-176)", () => {
+    expect(initials("Ann (B)")).toBe("A");
+    expect(initials("Ann Lee (TG)")).toBe("AL");
+    expect(initials("Ann 2 (c.example)")).toBe("A2");
+    expect(initials("“Bob” (B)")).toBe("B");
+    expect(initials("(B)")).toBe("?");
+  });
+
   it("is ? for a blank name", () => {
     expect(initials("")).toBe("?");
     expect(initials("   ")).toBe("?");

@@ -1,7 +1,9 @@
 package chirkle.android.data.lib
 
 import chirkle.android.data.model.Room
+import chirkle.android.data.model.RoomExpand
 import chirkle.android.data.model.Shared
+import chirkle.android.data.model.User
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -16,6 +18,17 @@ class LinkedTest {
         assertFalse(isAddress("ann@b"))
         assertFalse(isAddress("ann"))
         assertFalse(isAddress("@b.example"))
+    }
+
+    @Test fun `says why a DM takes no messages, as the web's dmClosed (QA BUG-178)`() {
+        val me = User("me", "Me")
+        val dm = Room("d", kind = "dm", members = listOf("bob", "me"), expand = RoomExpand(listOf(me, User("bob", "Bob"))))
+        assertEquals("", dm.dmClosed(me))
+        assertEquals("", Room("r").dmClosed(me))
+        assertEquals("", dm.dmClosed(null))
+        val closed = dm.copy(expand = RoomExpand(listOf(me, User("bob", "Bob (B)", noDms = true))))
+        assertEquals("Bob (B) doesn't take direct messages.", closed.dmClosed(me))
+        assertEquals("You've turned off direct messages.", dm.dmClosed(me.copy(noDms = true)))
     }
 
     @Test fun `says where else a shared room is held, and when its home is down`() {

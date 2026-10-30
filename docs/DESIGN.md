@@ -577,8 +577,8 @@ while its first page loads.
 
 | Asset | Budget (gzipped) |
 |---|---|
-| `app.js` (including the PocketBase client) | **≤ 47.40 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, the room cache without waiting for the network, the QA pass 12 fixes, prefetching rooms not yet kept, the QA pass 13 fixes, thumbnail caching, the QA pass 14 fixes, Ctrl+Up/Down to pick the reply, link previews, the room access dialog fix, who can post, message search, message permalinks, the media grid, the QA pass 16 fixes, video posters in the room, the QA pass 17 fixes, media collections, Jump to, Appearance, the room in the tab title, the QA pass 19 fixes, live collection badges, the security audit fixes, the room kept as the page goes, the prefetch herd fix, see §13) |
-| `app.css` | **≤ 7.10 KB** (5 KB until §21, 5.5 KB until §23, 6 KB until audio attachments, 6.05 KB until §18.5, 6.10 KB until §28, 6.15 KB until the room access dialog fix, 6.20 KB until §29, 6.35 KB until message permalinks, 6.40 KB until §31, 6.85 KB until Jump to and Appearance, see §13) |
+| `app.js` (including the PocketBase client) | **≤ 47.55 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, the room cache without waiting for the network, the QA pass 12 fixes, prefetching rooms not yet kept, the QA pass 13 fixes, thumbnail caching, the QA pass 14 fixes, Ctrl+Up/Down to pick the reply, link previews, the room access dialog fix, who can post, message search, message permalinks, the media grid, the QA pass 16 fixes, video posters in the room, the QA pass 17 fixes, media collections, Jump to, Appearance, the room in the tab title, the QA pass 19 fixes, live collection badges, the security audit fixes, the room kept as the page goes, the prefetch herd fix, the QA pass 23 fixes, see §13) |
+| `app.css` | **≤ 7.15 KB** (5 KB until §21, 5.5 KB until §23, 6 KB until audio attachments, 6.05 KB until §18.5, 6.10 KB until §28, 6.15 KB until the room access dialog fix, 6.20 KB until §29, 6.35 KB until message permalinks, 6.40 KB until §31, 6.85 KB until Jump to and Appearance, 7.10 KB until the QA pass 23 fixes, see §13) |
 | `index.html` | ≤ 1.5 KB |
 | Image viewer (§17.7), loaded on first use | ≤ 4 KB script, ≤ 1.5 KB stylesheet |
 | Message search (§29), loaded on first use | ≤ 2 KB script (its styles are in `app.css`) |
@@ -1052,6 +1052,7 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 | Bundle budget (security audit fixes) | `app.js` raised from 47.15 KB to 47.25 KB (§7.7), the user's call (2026-10-24): the tree was already at about 47.17 KB, and clearing an expired session's leftovers at start (QA BUG-145) and the router's slash fix (QA BUG-146) took it to 47.22 KB. |
 | Bundle budget (room kept as the page goes) | `app.js` raised from 47.25 KB to 47.35 KB (§7.7), the user's call (2026-10-28): the `localStorage` fallback for the room kept on `pagehide` (QA BUG-104, which still failed about 1 in 10 under load) took it from 47.18 KB to 47.30 KB. |
 | Bundle budget (prefetch herd) | `app.js` raised from 47.35 KB to 47.40 KB (§7.7), the user's call (2026-10-29): fetching a busy unread room at most every 30 s (QA BUG-108) took it from 47.27 KB to 47.38 KB. Without the fetch once the 30 s are up it was still 47.36 KB; a lazy `prefetch.ts` was the other option. |
+| Bundle budget (QA pass 23) | `app.js` raised from 47.40 KB to 47.55 KB and `app.css` from 7.10 KB to 7.15 KB (§7.7), the user's call (2026-10-30: "raise budget if needed"): the pass's fixes (initials without a label, a closed DM's banner, the clipped italic quote) took them to 47.52 KB and just over 7.10 KB. |
 
 ### Decided (2026-10-24, linked instances)
 
@@ -1150,7 +1151,9 @@ transparency) and everything else as JPEG, through `OffscreenCanvas.convertToBlo
 ### 15.4 Rendering
 
 - **Fallback:** a user without an avatar gets a circle with their initials. The initials are the first letters of
-  the first two words of the name, by grapheme (`Intl.Segmenter`, so emoji and combining marks don't break). The
+  the first two words of the name, by grapheme (`Intl.Segmenter`, so emoji and combining marks don't break), leaving
+  out a word in brackets (a linked instance's or Telegram's label: "Ann (B)" is "A", QA BUG-176) and punctuation
+  before a word. The
   background color is one of 8 palette colors picked by a hash of the user **id**, not the name, so it survives
   renames. Both live in `lib/avatar.ts` and are pure. Every palette color passes 4.5:1 contrast with white text in both themes.
 - **Message list:** the avatar (32 px, `48x48` thumb, or `96x96` on high-DPI screens via `srcset`) sits next to
@@ -1312,7 +1315,8 @@ users (§26) have it, and a user may set it on their own record (the profile doe
 - `POST /api/chat/dms` refuses when either person has it ("Ann doesn't take direct messages." / "You've turned off
   direct messages.").
 - The messages create hook refuses a message in a DM where a member has it, so turning it on also closes DMs that
-  already exist (they stay readable).
+  already exist (they stay readable). Such a DM shows "Ann doesn't take direct messages." (or "You've turned off
+  direct messages.") where the composer was, and isn't offered to forward to (`dmClosed`, QA BUG-178).
 - `GET /api/chat/users` returns `no_dms`, and messages expand `author.no_dms`: the "New message" search and the
   forward dialog leave such users out, and their author name has no **Message** menu. Adding them to a private room
   (§23) still finds them.

@@ -50,6 +50,14 @@ class HelpersTest {
         assertEquals("?", initials("   "))
     }
 
+    @Test fun `initials leave out a label in brackets and punctuation before a word (QA BUG-176)`() {
+        assertEquals("A", initials("Ann (B)"))
+        assertEquals("AL", initials("Ann Lee (TG)"))
+        assertEquals("A2", initials("Ann 2 (c.example)"))
+        assertEquals("B", initials("“Bob” (B)"))
+        assertEquals("?", initials("(B)"))
+    }
+
     @Test fun `avatar colours spread over the palette and match the web's`() {
         val used = (0 until 200).map { avatarColor("user" + it.toString(36).padStart(10, '0')) }.toSet()
         assertEquals(AVATAR_COLORS, used.size)

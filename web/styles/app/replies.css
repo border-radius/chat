@@ -44,7 +44,9 @@
   white-space: nowrap;
 }
 
+/* Room for the slant: the box clips what leans past its end (QA BUG-177). */
 .reply-quote.deleted .reply-text {
+  padding-right: 0.15em;
   font-style: italic;
 }
 

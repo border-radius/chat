@@ -78,6 +78,7 @@ import chirkle.android.data.lib.PageKind
 import chirkle.android.data.lib.Side
 import chirkle.android.data.lib.attachmentName
 import chirkle.android.data.lib.canPost
+import chirkle.android.data.lib.dmClosed
 import chirkle.android.data.lib.highlight
 import chirkle.android.data.lib.label
 import chirkle.android.data.lib.otherMember
@@ -246,7 +247,7 @@ fun RoomScreen(roomId: String, msgId: String?, nav: RoomNav, incoming: Pair<Stri
         reactions = { c.reactions(it) },
         name = { names[it] },
         progress = { progress[it] },
-        onSwipeReply = if (me == null || room == null || room.archived || !room.canPost(me.id)) null else ({ m ->
+        onSwipeReply = if (me == null || room == null || room.archived || !room.canPost(me.id) || room.dmClosed(me).isNotEmpty()) null else ({ m ->
             if (c.repliable(m)) {
                 vm.reply(m)
                 focus.requestFocusSafely()
@@ -333,6 +334,7 @@ fun RoomScreen(roomId: String, msgId: String?, nav: RoomNav, incoming: Pair<Stri
                     me == null -> ReadOnly("You're reading as a guest. ", "Log in", nav.logIn)
                     room.archived -> ReadOnly("This room is archived. History is read-only.")
                     !room.canPost(me.id) -> ReadOnly("Only some people can post in this room. You can read along and react.")
+                    room.dmClosed(me).isNotEmpty() -> ReadOnly(room.dmClosed(me))
                     vm.selecting -> {}
                     else -> Composer(vm, "Message ${room.title(me.id)}", focus, onCollections = { pickingItems = true }) { composerEmoji = true }
                 }
