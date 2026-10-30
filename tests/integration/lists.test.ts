@@ -4,7 +4,7 @@
 
 import type { RecordModel } from "pocketbase";
 import { beforeAll, describe, expect, it } from "vitest";
-import { client, newRoom, newUser, openDm, pngFile, post, status, type TestUser } from "./helpers.ts";
+import { client, newRoom, newUser, openDm, pngFile, post, status, type TestUser, uniq } from "./helpers.ts";
 
 type Items = RecordModel[];
 
@@ -97,6 +97,65 @@ describe("the room list and message pages as routes", () => {
       await Promise.all(Array.from({ length: Math.min(20, 201 - i) }, (_, j) => post(me, r.id, `n${i + j}`)));
     }
     expect(await route({ limit: "500" }, me.pb, r.id)).toHaveLength(200);
+  });
+
+  // The route shows forwards' originals itself, all in one query (lib/messages.js enrichInRooms, docs/PERF.md).
+  const fwd = (u: TestUser, messages: string[], to: string) =>
+    u.pb.send<Items>("/api/chat/forward", { method: "POST", body: { messages, room: to } });
+  const privateRoom = async (owner: TestUser, members: TestUser[] = []) => {
+    const r = await owner.pb.collection("rooms").create({ name: `private-${uniq()}`, created_by: owner.user.id, visibility: "private" });
+    return owner.pb.collection("rooms").update(r.id, { members: [owner.user.id, ...members.map((m) => m.user.id)] });
+  };
+
+  it("shows each forward's original as it is now, in the page and in an expanded reply", async () => {
+    const a = await newUser();
+    const b = await newUser();
+    const from = await privateRoom(a);
+    const to = await newRoom(b);
+    const one = await post(a, from.id, "one");
+    const two = await post(a, from.id, "two");
+    const [f1, f2] = await fwd(a, [one.id, two.id], to.id);
+    const reply = await post(b, to.id, "about that", { reply_to: f1!.id });
+    await a.pb.collection("messages").update(one.id, { text: "one, edited" });
+    await a.pb.send("/api/chat/delete", { method: "POST", body: { messages: [two.id] } });
+
+    const page = await route({ kind: "first", expand: "reply_to" }, b.pb, to.id);
+    const byId = new Map(page.map((m) => [m.id, m]));
+    expect(byId.get(f1!.id)).toMatchObject({ text: "one, edited", forward_of: one.id });
+    expect(byId.get(f1!.id)!.edited_at).not.toBe("");
+    expect(byId.get(f2!.id)).toMatchObject({ text: "", files: [], forward_of: two.id });
+    expect(byId.get(reply.id)!.expand?.reply_to).toMatchObject({ id: f1!.id, text: "one, edited" });
+    // As the records API shows them.
+    for (const m of page) expect(m.text, m.id).toBe((await b.pb.collection("messages").getOne(m.id)).text);
+  });
+
+  it("an original expanded from a forward still keeps its room to itself", async () => {
+    const a = await newUser();
+    const c = await newUser();
+    const b = await newUser();
+    const secret = await privateRoom(a, [c]);
+    const parent = await post(c, secret.id, "earlier");
+    const msg = await post(a, secret.id, "shared", { reply_to: parent.id });
+    await c.pb.send("/api/chat/reactions", { method: "POST", body: { message: msg.id, emoji: "👍", on: true } });
+    const to = await newRoom(b);
+    await post(b, to.id, "mine", { reply_to: (await post(b, to.id, "first")).id });
+    await b.pb.send("/api/chat/reactions", {
+      method: "POST",
+      body: { message: (await fwd(a, [msg.id], to.id))[0]!.id, emoji: "🎉", on: true },
+    });
+
+    const page = await route({ expand: "forward_of,reply_to" }, b.pb, to.id);
+    const forward = page.find((m) => m.forward_of === msg.id)!;
+    expect(forward.reactions).toEqual([{ emoji: "🎉", users: [b.user.id] }]);
+    expect(forward.expand?.forward_of).toMatchObject({ text: "shared", reactions: [], reply_to: "" });
+    // The room's own replies and reactions are left as they are.
+    expect(page.find((m) => m.text === "mine")!.expand?.reply_to).toMatchObject({ text: "first" });
+    // Saying the room was checked, a client is told nothing more.
+    const forged = { __chirkle_checked: ` ${secret.id}`, expand: "reply_to" };
+    expect(await b.pb.collection("messages").getOne(msg.id, { query: forged })).toMatchObject({ reactions: [], reply_to: "" });
+    expect(await route({ ...forged, expand: "forward_of" }, b.pb, to.id)).toContainEqual(
+      expect.objectContaining({ expand: { forward_of: expect.objectContaining({ reactions: [], reply_to: "" }) } }),
+    );
   });
 });
 

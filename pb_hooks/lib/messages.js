@@ -4,6 +4,7 @@
 
 const { assertImagesFit } = require(`${__hooks}/lib/images.js`);
 const { accessOf, canSee, canWrite, visibleRoom } = require(`${__hooks}/lib/access.js`);
+const { inCheckedRoom, markChecked } = require(`${__hooks}/lib/enrich.js`);
 const { fieldError, originalNames, recordOf } = require(`${__hooks}/lib/records.js`);
 const { dmRefusal } = require(`${__hooks}/lib/dms.js`);
 const { isDm } = require(`${__hooks}/lib/rooms.js`);
@@ -362,13 +363,22 @@ function touchForwards(app, rec) {
 function showOriginal(e) {
   const rec = e.record;
   const id = rec ? rec.getString("forward_of") : "";
-  if (!rec || !id || rec.getBool("deleted")) return;
+  if (!rec || !id || rec.getBool("deleted") || inCheckedRoom(e)) return;
   let original = null;
   try {
     original = e.app.findRecordById("messages", id);
   } catch {
     return; // being removed for good: PocketBase is about to clear forward_of
   }
+  setOriginal(rec, original);
+}
+
+/**
+ * The forward `rec` shows `original` (showOriginal).
+ * @param {core.Record} rec
+ * @param {core.Record} original
+ */
+function setOriginal(rec, original) {
   const gone = original.getBool("deleted");
   rec.set("text", gone ? "" : original.getString("text"));
   rec.set("files", gone ? [] : original.getStringSlice("files"));
@@ -388,7 +398,7 @@ function showOriginal(e) {
 function keepToRoom(e) {
   const rec = e.record;
   const info = e.requestInfo;
-  if (!rec || !info || info.auth?.isSuperuser()) return;
+  if (!rec || !info || info.auth?.isSuperuser() || inCheckedRoom(e)) return;
   const reactions = rec.getString("reactions");
   if (!rec.getString("reply_to") && (reactions === "" || reactions === "[]" || reactions === "null")) return;
   if (visibleRoom(e.app, rec.getString("room"), info.auth?.id ?? "")) return;
@@ -408,7 +418,47 @@ function beforeUserDelete(e) {
   }
 }
 
+/**
+ * Enrich the messages of rooms `rooms` (which the caller can see) in `enrich`, a call of $apis.enrichRecords, as the
+ * hooks would, with one query for every forward's original instead of one each (lib/enrich.js).
+ * @param {core.RequestEvent} e
+ * @param {string[]} rooms
+ * @param {() => core.Record[]} enrich
+ */
+function enrichInRooms(e, rooms, enrich) {
+  showOriginals(e.app, markChecked(e, rooms, enrich), new Set(rooms));
+}
+
+/**
+ * showOriginal for every message in `rooms` among `records` and what they expand (an expanded reply, to any depth).
+ * @param {core.App} app
+ * @param {core.Record[]} records
+ * @param {Set<string>} rooms
+ */
+function showOriginals(app, records, rooms) {
+  /** @type {core.Record[]} */
+  const forwards = [];
+  const seen = new Set();
+  const visit = (/** @type {any} */ rec) => {
+    if (!rec || seen.has(rec)) return;
+    seen.add(rec);
+    for (const v of Object.values(rec.expand() ?? {})) for (const r of Array.isArray(v) ? v : [v]) visit(r);
+    if (rec.collection().name !== "messages" || !rooms.has(rec.getString("room"))) return;
+    if (rec.getString("forward_of") && !rec.getBool("deleted")) forwards.push(rec);
+  };
+  for (const rec of records) visit(rec);
+  if (!forwards.length) return;
+  const originals = new Map(
+    app.findRecordsByIds("messages", [...new Set(forwards.map((f) => f.getString("forward_of")))]).map((o) => [o?.id, o]),
+  );
+  for (const fwd of forwards) {
+    const original = originals.get(fwd.getString("forward_of"));
+    if (original) setOriginal(fwd, original);
+  }
+}
+
 module.exports = {
+  enrichInRooms,
   isService,
   setTextKey,
   beforeUserDelete,

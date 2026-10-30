@@ -18,11 +18,14 @@ import chirkle.android.data.lib.canPost
 import chirkle.android.data.lib.lastOwnEditable
 import chirkle.android.data.lib.lastSaved
 import chirkle.android.data.lib.merge
+import chirkle.android.data.lib.quote
 import chirkle.android.data.lib.remove
 import chirkle.android.data.lib.trim
 import chirkle.android.data.model.Cursor
 import chirkle.android.data.model.LocalFile
 import chirkle.android.data.model.Message
+import chirkle.android.data.model.MessageExpand
+import chirkle.android.data.model.Quoted
 import chirkle.android.data.model.Reaction
 import chirkle.android.data.model.Room
 import kotlinx.coroutines.CancellationException
@@ -541,10 +544,46 @@ class RoomController(
 
     // ---------------------------------------------------------------- realtime
 
-    private fun onMessage(action: Action, m: Message) {
-        if (!run.active || m.room != roomId) return
-        if (!ready || stale) buffer += action to m // the first page may be older than this event
+    /** Quotes being fetched, by the id of the message quoted. */
+    private val quoting = mutableSetOf<String>()
+
+    /**
+     * Live events come without the message a reply answers (ChirkleApi LIVE_OPTS): the quote is the copy in the window,
+     * or the one the message had there; failing both (a reply to a message far back), it is fetched.
+     */
+    private fun quoted(m: Message): Message {
+        if (m.replyTo.isEmpty() || m.expand?.replyTo != null) return m
+        val q = find(m.replyTo)?.quote() ?: find(m.id)?.expand?.replyTo
+        if (q != null) return m.withQuote(q)
+        fetchQuote(m.replyTo)
+        return m
+    }
+
+    private fun Message.withQuote(q: Quoted) = copy(expand = (expand ?: MessageExpand()).copy(replyTo = q))
+
+    private fun fetchQuote(id: String) {
+        if (!quoting.add(id)) return
+        scope.launch {
+            val q = try {
+                api.getMessage(id).quote()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null
+            } finally {
+                quoting.remove(id)
+            }
+            if (q == null || !run.active) return@launch
+            win = win.copy(items = win.items.map { if (it.replyTo == id && it.expand?.replyTo == null) it.withQuote(q) else it })
+            publish(inPlace())
+        }
+    }
+
+    private fun onMessage(action: Action, event: Message) {
+        if (!run.active || event.room != roomId) return
+        if (!ready || stale) buffer += action to event // the first page may be older than this event
         if (!ready) return
+        val m = if (action == Action.Delete) event else quoted(event)
         when (action) {
             Action.Delete -> {
                 win = win.remove(m.id)

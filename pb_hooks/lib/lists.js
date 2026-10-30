@@ -6,6 +6,7 @@
 // API, which stays as it was.
 
 const { SEES_SQL, visibleRoom } = require(`${__hooks}/lib/access.js`);
+const { enrichInRooms } = require(`${__hooks}/lib/messages.js`);
 const { searchKey } = require(`${__hooks}/lib/text.js`);
 
 /** Messages in a page unless `limit` says otherwise (web/src/lib/cursor.ts PAGE_SIZE). */
@@ -78,7 +79,7 @@ function messages(e) {
     kind.where,
     q.files === "1" ? `(files:length > 0 || forward_of != "")` : "",
   ];
-  return e.json(200, list(e, where, kind.sort, q, params));
+  return e.json(200, list(e, where, kind.sort, q, params, [roomId]));
 }
 
 /**
@@ -126,22 +127,27 @@ function notifiable(e) {
     "deleted = false",
     `(room.kind = "dm" || reply_to.author = {:me}${all})`,
   ];
-  return e.json(200, list(e, where, "-created,-id", q, params));
+  return e.json(200, list(e, where, "-created,-id", q, params, rooms));
 }
 
 /**
- * The messages matching every condition in `where`, a page of them as `q`'s `limit` and `page` say, enriched.
+ * The messages matching every condition in `where`, a page of them as `q`'s `limit` and `page` say, enriched. They
+ * are all in `rooms`, which the caller can see.
  * @param {core.RequestEvent} e
  * @param {string[]} where
  * @param {string} sort
  * @param {Record<string, any>} q
  * @param {Record<string, string>} params
+ * @param {string[]} rooms
  */
-function list(e, where, sort, q, params) {
+function list(e, where, sort, q, params, rooms) {
   const limit = Math.min(Math.max(Number.parseInt(q.limit, 10) || PAGE_SIZE, 1), MAX_LIMIT);
   const page = Math.max(Number.parseInt(q.page, 10) || 1, 1);
   const items = e.app.findRecordsByFilter("messages", where.filter(Boolean).join(" && "), sort, limit, (page - 1) * limit, params);
-  $apis.enrichRecords(e, items);
+  enrichInRooms(e, rooms, () => {
+    $apis.enrichRecords(e, items);
+    return items;
+  });
   return items;
 }
 

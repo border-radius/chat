@@ -23,7 +23,7 @@ controller's recorded scenarios (`shared/vectors/room.json`).
 | `unread` | `ServicesTest`: live counts, read on the server; `UiPortsTest`: unread rooms listed first, a folded section lists only them; `UiFeaturesTest`: what came while the app was in the background is read on coming back (QA BUG-157); `UiPortsTest`: opening a room reads only what is on screen, scrolling down the rest (ANDROID.md §25); `ServicesTest`: a read that fails is sent again by itself (QA BUG-162); `RoomSectionsTest` | Partial: the badge and the "New" line on screen |
 | `edit` | `UiFeaturesTest`: edit, delete, a message's menu closing when it is deleted meanwhile (QA BUG-156); `ServicesTest`: edit, delete | Covered |
 | `reactions` | `UiFeaturesTest`: quick reactions; `ServicesTest`; `HelpersTest`: the web's reaction cases | Covered |
-| `replies` | `UiFeaturesTest`: reply and its quote; `ChirkleApiTest` | Partial: going to the original |
+| `replies` | `UiFeaturesTest`: reply and its quote; `ServicesTest`: a live reply's quote from the window, kept through an edit, or fetched (ANDROID.md §34); `ChirkleApiTest` | Partial: going to the original |
 | `forward` | `UiFeaturesTest`: forwarding one message; `ChirkleApiTest` | Partial: several at once, delete together |
 | `dm` | `UiFeaturesTest`: a new DM from the people search; `ChirkleApiTest` | Partial: close and reopen |
 | `hide` | `UiFeaturesTest`: hiding a room | Partial: unhide |

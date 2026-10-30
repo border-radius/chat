@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { barrier, client, collect, eventually, newRoom, newUser, post, sleep } from "./helpers.ts";
+import { adminClient, barrier, client, collect, eventually, newRoom, newUser, post, sleep } from "./helpers.ts";
 
 const MSG_OPTS = (room: string) => ({
   filter: `room = "${room}"`,
@@ -94,6 +94,26 @@ describe("realtime (§5.5, §6)", () => {
     } finally {
       await subA.stop();
       await subB.stop();
+    }
+  });
+
+  it("a keepalive reaches every connected client, subscribed to it or not, and changes nothing else (docs/PERF.md §2.4)", async () => {
+    const a = await newUser();
+    const b = await newUser();
+    const room = await newRoom(a);
+    const sub = await collect(b.pb, "messages", MSG_OPTS(room.id));
+    const raw: string[] = [];
+    // The SDK binds a listener for each topic: this one only sees whether the event arrives.
+    await b.pb.realtime.subscribe("chat/keepalive", (e) => raw.push(JSON.stringify(e)));
+    try {
+      const admin = await adminClient();
+      await admin.send("/api/keepalive/tick", { method: "POST" });
+      await eventually(() => expect(raw).toEqual(["{}"]));
+      const m = await post(a, room.id, "after the keepalive");
+      await eventually(() => expect(sub.events.map((e) => e.record.id)).toEqual([m.id]));
+      await expect(client().send("/api/keepalive/tick", { method: "POST" })).rejects.toMatchObject({ status: 401 });
+    } finally {
+      await sub.stop();
     }
   });
 });

@@ -551,7 +551,8 @@ function setDims(app, id, file, size) {
 }
 
 /**
- * The cron job: passes until the minute is nearly over, once a second when there is nothing to do. One run at a time.
+ * The cron job: passes until the minute is nearly over; with nothing to do, when a save wakes it (wake). One run at a
+ * time.
  * @param {core.App} app
  */
 function run(app) {
@@ -559,8 +560,17 @@ function run(app) {
     name: LOCK,
     label: "media",
     staleMs: STALE_MS,
+    wakes: true,
     pass: (/** @type {() => void} */ renew) => pass(app, renew),
   });
+}
+
+/**
+ * A message with files, or a collection item, was saved (committed): the worker looks at it now.
+ * @param {core.App} app
+ */
+function wake(app) {
+  require(`${__hooks}/lib/worker.js`).wake(app, LOCK);
 }
 
 /**
@@ -572,4 +582,4 @@ function tick(e) {
   return e.noContent(204);
 }
 
-module.exports = { add, drop, list, poster, itemPoster, run, tick, isMedia, isVideo, tempCopy, posterKey };
+module.exports = { add, drop, list, poster, itemPoster, run, wake, tick, isMedia, isVideo, tempCopy, posterKey };

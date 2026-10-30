@@ -18,7 +18,7 @@ import {
   trim,
 } from "../../lib/messages.ts";
 import { canPost } from "../../lib/rooms.ts";
-import type { LocalFile, Message, Reaction, Room } from "../../lib/types.ts";
+import type { LocalFile, Message, Quoted, Reaction, Room } from "../../lib/types.ts";
 import type { Scope } from "../../scope.ts";
 import { type AppState, type Store, UNCOUNTED, upsertRoom } from "../../store.ts";
 import { createWrites, revokeLocal, stray, takeStrays } from "./writes.ts";
@@ -501,11 +501,43 @@ export function createRoomController(opts: {
 
   // ---------------------------------------------------------------- realtime
 
-  function onMessage(action: Action, m: Message) {
-    if (!scope.active || m.room !== roomId) return;
-    if (action !== "create") opts.onEvent?.(m, action === "delete");
-    if (!ready() || stale) buffer.push([action, m]); // the first page may be older than this event
+  /** What a reply shows of `q` (§19). */
+  const quoteOf = ({ id, author, text, deleted, files = [], expand }: Quoted): Quoted => ({
+    id,
+    author,
+    text,
+    deleted,
+    files,
+    ...(expand?.author && { expand: { author: expand.author } }),
+  });
+  const withQuote = (m: Message, q: Quoted): Message => ({ ...m, expand: { ...m.expand, reply_to: quoteOf(q) } });
+
+  /**
+   * Live events come without the message a reply answers (api.ts LIVE_OPTS): the quote is the copy in the window, or
+   * the one the message had there; failing both (a reply to a message far back), it is fetched.
+   */
+  function quoted(m: Message): Message {
+    const id = m.reply_to;
+    if (!id || m.expand?.reply_to) return m;
+    const q = find(id) ?? find(m.id)?.expand?.reply_to;
+    if (q) return withQuote(m, q);
+    api.getMessage(id).then(
+      (q) => {
+        if (!scope.active) return;
+        win = { ...win, items: win.items.map((x) => (x.reply_to === id && !x.expand?.reply_to ? withQuote(x, q) : x)) };
+        emit(inPlace());
+      },
+      () => {},
+    );
+    return m;
+  }
+
+  function onMessage(action: Action, event: Message) {
+    if (!scope.active || event.room !== roomId) return;
+    if (action !== "create") opts.onEvent?.(event, action === "delete");
+    if (!ready() || stale) buffer.push([action, event]); // the first page may be older than this event
     if (!ready()) return;
+    const m = action === "delete" ? event : quoted(event);
     if (action === "delete") {
       win = remove(win, m.id);
       return emit(inPlace());

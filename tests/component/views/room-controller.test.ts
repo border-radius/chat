@@ -400,6 +400,46 @@ describe("room controller (§7.5, no DOM)", () => {
       expect(ctl.find(typo.id)?.text).toBe("typo");
       expect(changes.at(-1)).toEqual({ render: { anchor: true } });
     });
+
+    it("a live reply quotes the message in the window, and keeps the quote through an edit", async () => {
+      const other = await signedUp("Other");
+      const room = await newRoom();
+      const original = await say(other, room, "the original");
+      const events: Message[] = [];
+      intercept(
+        me.api,
+        "subscribeMessages",
+        (subscribe) => (roomId, fn) =>
+          subscribe(roomId, (a, m) => {
+            events.push(m);
+            fn(a, m);
+          }),
+      );
+      await open(room);
+      const fetched = vi.spyOn(me.api, "getMessage");
+      const reply = await other.api.send({ id: newId(), room: room.id, text: "a reply", replyTo: original.id });
+      await vi.waitFor(() => expect(ctl.find(reply.id)?.expand?.reply_to?.text).toBe("the original"));
+      // The server no longer sends it with live events (docs/PERF.md §2.3).
+      expect(events.find((m) => m.id === reply.id)?.expand?.reply_to).toBeUndefined();
+      expect(ctl.find(reply.id)?.expand?.reply_to?.expand?.author?.name).toBe("Other");
+      await other.api.edit(reply.id, "a reply, edited");
+      await vi.waitFor(() => expect(ctl.find(reply.id)?.text).toBe("a reply, edited"));
+      expect(ctl.find(reply.id)?.expand?.reply_to?.text).toBe("the original");
+      expect(fetched).not.toHaveBeenCalled();
+    });
+
+    it("a live reply to a message beyond the window fetches its quote, once", async () => {
+      const other = await signedUp("Other");
+      const room = await newRoom();
+      const all = await seedMessages(room.id, me.user.id, 120);
+      await open(room);
+      expect(ids()).not.toContain(all[0]!.id);
+      const fetched = vi.spyOn(me.api, "getMessage");
+      const reply = await other.api.send({ id: newId(), room: room.id, text: "way back", replyTo: all[0]!.id });
+      await vi.waitFor(() => expect(ctl.find(reply.id)?.expand?.reply_to?.text).toBe(all[0]!.text));
+      expect(fetched).toHaveBeenCalledTimes(1);
+      expect(changes.at(-1)).toEqual({ render: {}, scroll: "bottom" });
+    });
   });
 
   // ---- reconnects ----

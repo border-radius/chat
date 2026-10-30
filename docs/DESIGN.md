@@ -577,7 +577,7 @@ while its first page loads.
 
 | Asset | Budget (gzipped) |
 |---|---|
-| `app.js` (including the PocketBase client) | **≤ 47.55 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, the room cache without waiting for the network, the QA pass 12 fixes, prefetching rooms not yet kept, the QA pass 13 fixes, thumbnail caching, the QA pass 14 fixes, Ctrl+Up/Down to pick the reply, link previews, the room access dialog fix, who can post, message search, message permalinks, the media grid, the QA pass 16 fixes, video posters in the room, the QA pass 17 fixes, media collections, Jump to, Appearance, the room in the tab title, the QA pass 19 fixes, live collection badges, the security audit fixes, the room kept as the page goes, the prefetch herd fix, the QA pass 23 fixes, see §13) |
+| `app.js` (including the PocketBase client) | **≤ 47.70 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, the room cache without waiting for the network, the QA pass 12 fixes, prefetching rooms not yet kept, the QA pass 13 fixes, thumbnail caching, the QA pass 14 fixes, Ctrl+Up/Down to pick the reply, link previews, the room access dialog fix, who can post, message search, message permalinks, the media grid, the QA pass 16 fixes, video posters in the room, the QA pass 17 fixes, media collections, Jump to, Appearance, the room in the tab title, the QA pass 19 fixes, live collection badges, the security audit fixes, the room kept as the page goes, the prefetch herd fix, the QA pass 23 fixes, live replies quoted by the room, see §13) |
 | `app.css` | **≤ 7.15 KB** (5 KB until §21, 5.5 KB until §23, 6 KB until audio attachments, 6.05 KB until §18.5, 6.10 KB until §28, 6.15 KB until the room access dialog fix, 6.20 KB until §29, 6.35 KB until message permalinks, 6.40 KB until §31, 6.85 KB until Jump to and Appearance, 7.10 KB until the QA pass 23 fixes, see §13) |
 | `index.html` | ≤ 1.5 KB |
 | Image viewer (§17.7), loaded on first use | ≤ 4 KB script, ≤ 1.5 KB stylesheet |
@@ -1053,6 +1053,7 @@ Deployment artifacts are `bin/pocketbase`, `pb_public/`, `pb_migrations/` and `p
 | Bundle budget (room kept as the page goes) | `app.js` raised from 47.25 KB to 47.35 KB (§7.7), the user's call (2026-10-28): the `localStorage` fallback for the room kept on `pagehide` (QA BUG-104, which still failed about 1 in 10 under load) took it from 47.18 KB to 47.30 KB. |
 | Bundle budget (prefetch herd) | `app.js` raised from 47.35 KB to 47.40 KB (§7.7), the user's call (2026-10-29): fetching a busy unread room at most every 30 s (QA BUG-108) took it from 47.27 KB to 47.38 KB. Without the fetch once the 30 s are up it was still 47.36 KB; a lazy `prefetch.ts` was the other option. |
 | Bundle budget (QA pass 23) | `app.js` raised from 47.40 KB to 47.55 KB and `app.css` from 7.10 KB to 7.15 KB (§7.7), the user's call (2026-10-30: "raise budget if needed"): the pass's fixes (initials without a label, a closed DM's banner, the clipped italic quote) took them to 47.52 KB and just over 7.10 KB. |
+| Bundle budget (live replies) | `app.js` raised from 47.55 KB to 47.70 KB (§7.7), the user's call (2026-10-30: "raise the budget to 47.70"): live events no longer carry a reply's quote, which the room fills in itself (§19.2, docs/PERF.md §2.3), 47.52 → 47.67 KB. |
 
 ### Decided (2026-10-24, linked instances)
 
@@ -1679,10 +1680,13 @@ soft-deleted, so the relation never dangles: a reply to a deleted message quotes
 
 ### 19.2 API
 
-Every message read (`page`, `getMessage`, `changes`, `send`, realtime) expands `author,reply_to.author` and asks for
+Every message read (`page`, `getMessage`, `changes`, `send`) expands `author,reply_to.author` and asks for
 only what the quote shows: `reply_to`, and the original's `id, author, text, deleted, files` and author's
 `id, name` (`MSG_FIELDS` in `api.ts`). The expand follows the messages view rule, which the same-room check makes
-always true for someone who can see the reply. `NewMessage.replyTo` sends `reply_to`.
+always true for someone who can see the reply. `NewMessage.replyTo` sends `reply_to`. Live events don't expand it
+(`LIVE_OPTS`, docs/PERF.md §2.3): it costs the server ~5 ms a client for every reply. The room controller fills the
+quote in from the original in its window, or from its own copy of the reply, and fetches the original only when it has
+neither.
 
 ### 19.3 Frontend
 

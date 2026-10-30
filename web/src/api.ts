@@ -259,6 +259,11 @@ export const MSG_FIELDS =
   "expand.reply_to.expand.author.id,expand.reply_to.expand.author.name," +
   "forwarded_from,forward_of,expand.forwarded_from.id,expand.forwarded_from.name";
 const MSG_OPTS = { expand: "author,reply_to.author,forwarded_from", fields: MSG_FIELDS } as const;
+/**
+ * Live events: without the message a reply answers, which costs the server ~5 ms a client for every reply (docs/PERF.md
+ * §2.3). The room fills the quote in (views/room/controller.ts).
+ */
+const LIVE_OPTS = { expand: "author,forwarded_from", fields: MSG_FIELDS } as const;
 /** Rooms with their members' public profile (DMs, §16.5); never emails. */
 export const ROOM_FIELDS =
   "id,name,archived,created_by,kind,visibility,members,posting,writers,last_message_at,created,shared," +
@@ -610,7 +615,7 @@ export function createApi(client: PbClient): Api {
     request: (path, r) => wrap(pb.send(path, r)),
     media: (room, after, signal) => wrap(pb.send<MediaPage>(`/api/chat/media/${room}`, { query: after, signal })),
 
-    subscribeMessages: (room, fn) => subscribe("messages", fn, { ...MSG_OPTS, filter: pb.filter("room = {:room}", { room }) }),
+    subscribeMessages: (room, fn) => subscribe("messages", fn, { ...LIVE_OPTS, filter: pb.filter("room = {:room}", { room }) }),
     subscribeRooms: (fn) => subscribe("rooms", fn, ROOM_OPTS),
     subscribeHidden: (fn) => subscribe("hidden_rooms", fn, { fields: HIDDEN_FIELDS }),
     subscribeAllMessages: (fn) => subscribe("messages", fn, { fields: ACTIVITY_FIELDS }),

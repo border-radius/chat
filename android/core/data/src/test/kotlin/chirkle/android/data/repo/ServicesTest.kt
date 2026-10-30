@@ -100,6 +100,42 @@ class ServicesTest {
         c.close()
     }
 
+    @Test fun `a live reply quotes the message in the window, and keeps the quote through an edit`() = runBlocking {
+        val a = newUser()
+        val b = newUser()
+        val room = a.api.createRoom("r-${uniq()}")
+        val q = b.api.send(NewMessage(newId(), room.id, "the original"))
+        // The server sends live events without the quote (docs/PERF.md §2.3).
+        val events = kotlinx.coroutines.channels.Channel<chirkle.android.data.model.Message>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+        val off = b.api.subscribeMessages(room.id) { events.trySend(it.record) }
+        val s = services(a)
+        val c = s.openRoom(room.id)
+        eventually(what = "ready") { c.find(q.id) != null }
+        val reply = b.api.send(NewMessage(newId(), room.id, "a reply", replyTo = q.id))
+        assertNull(kotlinx.coroutines.withTimeout(10_000) { events.receive() }.expand?.replyTo)
+        eventually(what = "quoted") { c.find(reply.id)?.expand?.replyTo?.text == "the original" }
+        assertEquals(b.user.name, c.find(reply.id)!!.expand?.replyTo?.expand?.author?.name)
+        b.api.edit(reply.id, "a reply, edited")
+        eventually(what = "edited") { c.find(reply.id)?.text == "a reply, edited" }
+        assertEquals("the original", c.find(reply.id)!!.expand?.replyTo?.text)
+        off()
+        c.close()
+    }
+
+    @Test fun `a live reply to a message beyond the window fetches its quote`() = runBlocking {
+        val a = newUser()
+        val b = newUser()
+        val room = a.api.createRoom("r-${uniq()}")
+        val sent = (1..60).map { a.api.send(NewMessage(newId(), room.id, "m$it")) }
+        val s = services(a)
+        val c = s.openRoom(room.id)
+        eventually(what = "ready") { c.find(sent.last().id) != null }
+        assertNull(c.find(sent[0].id))
+        val reply = b.api.send(NewMessage(newId(), room.id, "way back", replyTo = sent[0].id))
+        eventually(what = "quoted") { c.find(reply.id)?.expand?.replyTo?.text == "m1" }
+        c.close()
+    }
+
     @Test fun `opens around a message far back, and jumps to the latest`() = runBlocking {
         val a = newUser()
         val room = a.api.createRoom("r-${uniq()}")

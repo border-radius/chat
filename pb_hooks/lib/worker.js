@@ -5,9 +5,15 @@
 // that died (or is stuck) and is taken over; the old run then stops at its next renew, and its unlock leaves the new
 // run's lock alone (QA BUG-147). Passes renew after every item they handle (`renew`), so a slow item can't make the
 // lock look stale while it is still being worked on (QA BUG-111).
+//
+// A worker whose work is queued by this server's own saves can say so (`wakes`): with nothing to do, its run then
+// looks for work only when a save wakes it (`wake`, after the save is committed) and every IDLE_MS, not every
+// second (docs/PERF.md). The pass every IDLE_MS finds what was queued some other way (a migration, raw SQL).
 
 /** How long one run goes on: the next one starts on the next minute. */
 const RUN_MS = 57_000;
+/** With nothing to do, how often a worker that `wakes` looks for work unwoken. */
+const IDLE_MS = 30_000;
 /** Thrown by `renew` once the lock is another run's: the pass stops there. */
 const LOST = "worker: lock lost";
 
@@ -59,7 +65,35 @@ function unlock(app, name, me) {
  * @property {number} staleMs
  * @property {(renew: () => void) => unknown} pass one pass; call `renew` after each item. Truthy: there may be more
  *   to do now, so the next pass goes at once; otherwise the run waits a second first.
+ * @property {boolean} [wakes] its work is queued by saves that call `wake`: idle, it passes only when woken
  */
+
+/** The app store's key of worker `name`'s wake-up. @param {string} name */
+const wakeKey = (name) => `${name}.wake`;
+
+/**
+ * Something was queued for worker `name` (its lock's key): its run passes within a second. Call it once the work is
+ * committed: a pass that starts before that wouldn't see it.
+ * @param {core.App} app
+ * @param {string} name
+ */
+function wake(app, name) {
+  app.store().set(wakeKey(name), true);
+}
+
+/**
+ * Was worker `name` woken? Then it isn't any more.
+ * @param {core.App} app
+ * @param {string} name
+ */
+function woken(app, name) {
+  let was = false;
+  app.store().setFunc(wakeKey(name), (old) => {
+    was = !!old;
+    return undefined;
+  });
+  return was;
+}
 
 /**
  * The cron job: passes until the minute is nearly over.
@@ -74,8 +108,18 @@ function run(app, w) {
   };
   try {
     const until = Date.now() + RUN_MS;
+    let passed = 0;
+    let busy = true;
     while (Date.now() < until) {
-      let busy = false;
+      // Idle: a wakes worker passes when woken, or once IDLE_MS have gone by.
+      if (w.wakes && !busy && !woken(app, w.name) && Date.now() - passed < IDLE_MS) {
+        sleep(1000);
+        if (!beat(app, w.name, me)) return;
+        continue;
+      }
+      if (w.wakes) woken(app, w.name); // what was queued before this pass, it sees
+      passed = Date.now();
+      busy = false;
       try {
         busy = !!w.pass(renew);
       } catch (err) {
@@ -98,7 +142,10 @@ function run(app, w) {
  */
 function once(app, w) {
   const me = lock(app, w.name, w.staleMs);
-  if (!me) return false;
+  if (!me) {
+    if (w.wakes) wake(app, w.name);
+    return false;
+  }
   try {
     w.pass(() => {
       if (!beat(app, w.name, me)) throw new Error(LOST);
@@ -109,4 +156,4 @@ function once(app, w) {
   return true;
 }
 
-module.exports = { run, once, isLost, lock, beat, unlock };
+module.exports = { run, once, wake, isLost, lock, beat, unlock };

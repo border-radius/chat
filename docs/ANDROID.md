@@ -510,7 +510,7 @@ below no longer exist.
 |---|---|
 | Done | A1–A4 in code: every screen of §7, the parity features of §3, guests, deep links, the share target, push (server and app), FLAG_SECURE, the size gate. Release APK 3.1 MB (universal) |
 | Tested | 58 JVM tests in `:core:data` (the web's unit cases for links, folding, search, reactions, files, avatars and emoji; the API, realtime and reconnects, the services and the room controller against PocketBase); 22 in `:app`, 19 of them the screens on Robolectric against PocketBase (log in, sign up, send, reply, edit, delete, react, search, forward, DMs, hide, archive, room access, profile, guests, and §17's accounts: adding one on another server, switching, a bad address, logging out to another account); 12 push integration tests on the server. `android/PARITY.md` maps the web's e2e specs to them. Robolectric's main looper is paused: the UI tests move its clock on as they wait (`UiHarness.pump`), or no delay in the app would ever end |
-| Not yet | Managed-device E2E and Macrobenchmarks (§11, §12.2: they need a device or emulator, which the development machine lacks); Baseline Profiles; Roborazzi screenshots; ktlint and detekt; UnifiedPush on the device (the server side is done); a TalkBack pass. §11's budgets other than size are therefore unmeasured |
+| Not yet | Managed-device E2E (§12.2: it needs a device or emulator, which the development machine lacked); Macrobenchmarks and Baseline Profiles came later (§33); Roborazzi screenshots; ktlint and detekt; UnifiedPush on the device (the server side is done); a TalkBack pass. §11's budgets other than size are therefore unmeasured |
 
 ## 17. Servers and accounts (2026-10-19)
 
@@ -1086,3 +1086,70 @@ Two fixes of docs/QA.md "QA pass 23" are the app's too:
 - **A DM that takes no messages** (one of the two has `no_dms`, as a linked instance's people do once it is unpaired)
   shows why instead of the composer, has no swipe to reply, and isn't a forward target (`Room.dmClosed()` in
   `Rooms.kt`, QA BUG-178). Tests: `HelpersTest`, `LinkedTest`.
+
+## 33. Baseline Profile and Macrobenchmarks (2026-10-30)
+
+docs/PERF.md has the whole product's performance work; this is the app's part.
+
+- **`:baselineprofile`** (`android/baselineprofile`, a `com.android.test` module, minSdk 28) runs against the app's
+  new **`benchmark`** build type: the release build (minified, not debuggable), signed with the debug key, talking to
+  the dev server (`chirkle.devServer`), profileable from the shell, with http allowed to 10.0.2.2 only
+  (`app/src/benchmark`). Release builds are unchanged.
+- The journeys (`Journeys.kt`, UiAutomator): start, sign in when asked (alice of `emu-pb.sh`'s seed by default;
+  `-Pchirkle.benchUser`, `chirkle.benchPassword`, `chirkle.benchRoom`), the room list, open the busy room (`random`),
+  scroll back and down, back to the list.
+- `BaselineProfileGenerator` writes the profile on the device; it is kept as `app/src/main/baseline-prof.txt`, which
+  AGP compiles into the APK and `profileinstaller` (already a dependency) installs. No Baseline Profile Gradle plugin:
+  regenerate by hand after big changes to those screens.
+- `StartupBenchmark` (cold start to the room list, `StartupTimingMetric`) and `RoomBenchmark` (opening the room and
+  scrolling, `FrameTimingMetric`), each without anything compiled and with the profile.
+- New dependency: `androidx.benchmark:benchmark-macro-junit4` 1.5.0 (already in the catalog), in the test module only:
+  nothing in the APK.
+- The emulator here has no KVM, so its numbers only compare runs with each other, not with §11's budgets (a Pixel
+  6a-class phone).
+
+Run (emulator booted, `emu-pb.sh` serving):
+
+```sh
+./gradlew --max-workers=1 :baselineprofile:connectedBenchmarkAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=chirkle.android.baselineprofile.BaselineProfileGenerator
+```
+
+On the KVM-less emulator Gradle skips the device ("Unknown API Level": it can't read its properties in time), so
+build with `:app:assembleBenchmark :baselineprofile:assembleBenchmark`, `adb install -r` both APKs and run
+`adb shell am instrument -w -e class chirkle.android.baselineprofile.BaselineProfileGenerator -e user … -e password …
+-e room random -e androidx.benchmark.suppressErrors EMULATOR
+chirkle.android.baselineprofile/androidx.test.runner.AndroidJUnitRunner`; the profile is
+`/storage/emulated/0/Android/data/chirkle.android.baselineprofile/cache/BaselineProfileGenerator_generate-startup-prof.txt`
+(this version writes the startup profile only; it serves as `baseline-prof.txt`). The journeys tap "Wait" on the
+emulator's "System UI isn't responding" dialogs. The benchmark build keeps its names (`app/benchmark-rules.pro`,
+`-dontobfuscate`): a profile from an obfuscated build names classes like `f8`, which the next build renames.
+
+2026-10-30: `app/src/main/baseline-prof.txt` generated (15.5 min on the emulator; 1,072 of the app's own entries
+among Compose's, coroutines', OkHttp's…). It ships in the release APK (2.98 MB). Gradle and the emulator don't fit in
+the machine's memory together: stop the emulator while Gradle builds.
+
+| On the emulator here (TCG, no KVM) | Nothing compiled | With the profile |
+|---|---|---|
+| Cold start, first frame (median of 5) | 11.7 s | 11.8 s |
+| Cold start, room list shown (`reportFullyDrawn`) | 47.2 s | 37.8 s (−20%) |
+| Opening the busy room and scrolling: CPU per frame p50 / p90 | 402 / 1,253 ms | 264 / 771 ms (−34% / −38%) |
+| The same, p95 / p99 | 1,792 / 5,347 ms | 1,069 / 3,047 ms (−40% / −43%) |
+
+The emulator is many times slower than a phone, so only the differences mean anything: the profile takes about a
+fifth off showing the room list and over a third off the room's frames. The first frame doesn't move (on this
+emulator it is mostly the process starting).
+
+## 34. Live replies without their quote (2026-10-30)
+
+The room's live subscription no longer asks the server for the message a reply answers (`LIVE_OPTS` in
+`ChirkleApi.kt`, as the web's `api.ts`): that expand cost the server ~5 ms a client for every reply (docs/PERF.md
+§2.3). `RoomController.quoted` fills it in from the original in the window, or from the reply's own copy there (an
+edit); a reply to a message beyond the window fetches the original (`getMessage`) and the rows that quote it are
+patched. Pages, `getMessage` and sends still come with the quote. Tests: `ServicesTest` (a live reply quoted from the
+window and kept through an edit; one beyond the window fetched).
+
+Also 2026-10-30, server only: PocketBase closed a realtime connection after 5 quiet minutes, and the app took the
+reconnect for a lost one (rooms, unread counts and the open room loaded again). The server now sends every client a
+`chat/keepalive` event every 3 minutes (docs/PERF.md §2.4); `Realtime.dispatch` finds no listener for it and drops it,
+in every released version.

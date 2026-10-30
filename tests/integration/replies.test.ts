@@ -113,7 +113,7 @@ describe("replies through the client API (§19)", () => {
     return { a, b, room: await a.createRoom(`room-${uniq()}`) };
   }
 
-  it("send, page, getMessage and realtime all carry the quoted message, without private fields", async () => {
+  it("send, page and getMessage carry the quoted message, without private fields; realtime only its id", async () => {
     const { a, b, room } = await setup();
     const parent = await a.send({ id: newId(), room: room.id, text: "question" });
     const events: [Action, Message][] = [];
@@ -134,7 +134,9 @@ describe("replies through the client API (§19)", () => {
       expect(page.find((m) => m.id === sent.id)?.expand?.reply_to).toMatchObject(quoted);
       expect(page.find((m) => m.id === parent.id)?.reply_to).toBe("");
       await eventually(() => expect(events).toHaveLength(1));
-      expect(events[0]![1].expand?.reply_to).toMatchObject(quoted);
+      // Live events leave the quote to the room (docs/PERF.md §2.3): it costs the server ~5 ms a client.
+      expect(events[0]![1].reply_to).toBe(parent.id);
+      expect(events[0]![1].expand?.reply_to).toBeUndefined();
       // only the fields the quote needs
       expect(Object.keys(sent.expand!.reply_to!).sort()).toEqual(["author", "deleted", "expand", "files", "id", "text"]);
       expect(Object.keys(sent.expand!.reply_to!.expand!.author!).sort()).toEqual(["id", "name"]);

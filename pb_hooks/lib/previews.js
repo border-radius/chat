@@ -312,7 +312,8 @@ function pass(app, beat) {
 }
 
 /**
- * The cron job: passes, once a second, until the minute is nearly over. One run at a time.
+ * The cron job: passes until the minute is nearly over; with nothing to do, when a queued message wakes it (wake). One
+ * run at a time.
  * @param {core.App} app
  */
 function run(app) {
@@ -320,8 +321,17 @@ function run(app) {
     name: LOCK,
     label: "previews",
     staleMs: STALE_MS,
+    wakes: true,
     pass: (/** @type {() => void} */ renew) => pass(app, renew),
   });
+}
+
+/**
+ * A message was queued (committed): the worker looks at it now.
+ * @param {core.App} app
+ */
+function wake(app) {
+  require(`${__hooks}/lib/worker.js`).wake(app, LOCK);
 }
 
 /**
@@ -333,4 +343,4 @@ function tick(e) {
   return e.noContent(204);
 }
 
-module.exports = { enabled, linksOf, queue, run, tick };
+module.exports = { enabled, linksOf, queue, run, wake, tick };

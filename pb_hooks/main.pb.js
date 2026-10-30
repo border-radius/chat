@@ -45,6 +45,7 @@ routerAdd("GET", "/api/chat/saved", (e) => require(`${__hooks}/lib/collections.j
 routerAdd("DELETE", "/api/chat/items/{id}", (e) => require(`${__hooks}/lib/collections.js`).removeItem(e), $apis.requireAuth("users"));
 routerAdd("POST", "/api/chat/subs", (e) => require(`${__hooks}/lib/collections.js`).subscribe(e), $apis.requireAuth("users"));
 routerAdd("POST", "/api/chat/subs/seen", (e) => require(`${__hooks}/lib/collections.js`).markSeen(e), $apis.requireAuth("users"));
+routerAdd("POST", "/api/keepalive/tick", (e) => require(`${__hooks}/lib/keepalive.js`).tick(e), $apis.requireSuperuserAuth());
 routerAdd("POST", "/api/media/tick", (e) => require(`${__hooks}/lib/media.js`).tick(e), $apis.requireSuperuserAuth());
 routerAdd("GET", "/api/chat/users", (e) => require(`${__hooks}/lib/users.js`).searchUsers(e), $apis.requireAuth("users"));
 routerAdd("POST", "/api/chat/password", (e) => require(`${__hooks}/lib/account.js`).changePassword(e), $apis.requireAuth("users"));
@@ -209,7 +210,20 @@ onRecordCreate((e) => {
 onRecordAfterCreateSuccess((e) => {
   require(`${__hooks}/lib/messages.js`).afterMessageCreate(e);
   e.next();
+  // Committed: the media worker looks at its files now (lib/worker.js wake).
+  if (e.record?.getStringSlice("files").length) require(`${__hooks}/lib/media.js`).wake(e.app);
 }, "messages");
+
+// Committed (with the message that queued it): the workers look at it now, not on their next look round.
+onRecordAfterCreateSuccess((e) => {
+  e.next();
+  require(`${__hooks}/lib/previews.js`).wake(e.app);
+}, "link_queue");
+
+onRecordAfterCreateSuccess((e) => {
+  e.next();
+  require(`${__hooks}/lib/media.js`).wake(e.app);
+}, "collection_items");
 
 onRecordUpdate((e) => {
   const rec = e.record;
@@ -238,9 +252,12 @@ onRecordUpdate((e) => {
 }, "messages");
 
 onRecordEnrich((e) => {
-  const messages = require(`${__hooks}/lib/messages.js`);
-  messages.keepToRoom(e);
-  messages.showOriginal(e);
+  // lib/messages.js only for the messages that need it: loading it costs more than the rest (lib/enrich.js).
+  if (require(`${__hooks}/lib/enrich.js`).needsWork(e)) {
+    const messages = require(`${__hooks}/lib/messages.js`);
+    messages.keepToRoom(e);
+    messages.showOriginal(e);
+  }
   e.next();
 }, "messages");
 
@@ -257,6 +274,10 @@ onRecordUpdateRequest((e) => {
 if (require(`${__hooks}/lib/previews.js`).enabled()) {
   cronAdd("previews", "* * * * *", () => require(`${__hooks}/lib/previews.js`).run($app));
 }
+
+// Quiet realtime connections kept open: PocketBase closes them after 5 minutes, and clients then load everything again
+// (lib/keepalive.js).
+cronAdd("keepalive", "*/3 * * * *", () => require(`${__hooks}/lib/keepalive.js`).run($app));
 
 // The media grid's thumbnails and video posters (§30.1): made by a worker, a minute's run at a time. MEDIA_CRON=off
 // leaves them to POST /api/media/tick (tests).

@@ -59,10 +59,13 @@ against a current server and one without the routes (or an old release's hooks, 
 `subs`, `subs/seen`, `users`, `password`, `remote-users`. Also `/api/files/*` (with a file token), `/api/health` and
 `/.well-known/assetlinks.json`.
 
-**Realtime** (`/api/realtime`): `rooms`, `messages` (one room's, or every room's with `fields.activity`),
-`hidden_rooms`, `room_reads`, `collections`, `collection_subs`, `chat/badges` and `PB_CONNECT`.
+**Realtime** (`/api/realtime`): `rooms`, `messages` (one room's, expanding `author,forwarded_from` but not
+`reply_to` since 2026-10-30; or every room's with `fields.activity`),
+`hidden_rooms`, `room_reads`, `collections`, `collection_subs`, `chat/badges` and `PB_CONNECT`. Every connected client
+also gets `chat/keepalive` (`{}`) every 3 minutes, so that PocketBase doesn't close a quiet connection; clients ignore
+it.
 
-Routes only the server or tests call: the `*/tick` routes (superusers), `/api/fed/*` (other instances, §33) and
+Routes only the server or tests call: the `*/tick` routes (superusers, `keepalive/tick` among them), `/api/fed/*` (other instances, §33) and
 `/api/telegram/webhook`.
 
 ## Changing it

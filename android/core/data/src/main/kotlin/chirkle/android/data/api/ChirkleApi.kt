@@ -52,6 +52,12 @@ const val MSG_FIELDS =
         "forwarded_from,forward_of,expand.forwarded_from.id,expand.forwarded_from.name"
 private val MSG_OPTS = mapOf("expand" to "author,reply_to.author,forwarded_from", "fields" to MSG_FIELDS)
 
+/**
+ * Live events: without the message a reply answers, which costs the server ~5 ms a client for every reply (docs/PERF.md
+ * §2.3). The room fills the quote in (RoomController). The web's LIVE_OPTS.
+ */
+private val LIVE_OPTS = mapOf("expand" to "author,forwarded_from", "fields" to MSG_FIELDS)
+
 const val ROOM_FIELDS =
     "id,name,archived,created_by,kind,visibility,members,posting,writers,last_message_at,created,shared," +
         "expand.members.id,expand.members.name,expand.members.avatar,expand.members.no_dms,expand.members.instance," +
@@ -674,7 +680,7 @@ class ChirkleApi(val pb: PbClient) {
         }
 
     suspend fun subscribeMessages(room: String, fn: (Change<Message>) -> Unit) =
-        subscribe("messages", MSG_OPTS + ("filter" to pb.filter("room = {:room}", mapOf("room" to room))), Message.serializer(), fn)
+        subscribe("messages", LIVE_OPTS + ("filter" to pb.filter("room = {:room}", mapOf("room" to room))), Message.serializer(), fn)
 
     suspend fun subscribeRooms(fn: (Change<Room>) -> Unit) = subscribe("rooms", ROOM_OPTS, Room.serializer(), fn)
 

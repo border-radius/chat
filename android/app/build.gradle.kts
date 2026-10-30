@@ -67,6 +67,17 @@ android {
                 else -> signingConfigs.getByName("debug")
             }
         }
+        // The release build as :baselineprofile measures it (ANDROID.md §33): minified but not obfuscated (the profile
+        // must name the real classes), not debuggable, profileable from the shell, signed with the debug key, and
+        // talking to the dev server over http (src/benchmark).
+        create("benchmark") {
+            initWith(getByName("release"))
+            proguardFile("benchmark-rules.pro")
+            matchingFallbacks += "release"
+            signingConfig = signingConfigs.getByName("debug")
+            buildConfigField("String", "SERVER", "\"${devServer.get()}\"")
+            manifestPlaceholders["appLinksHost"] = appLinksHost(devServer.get())
+        }
     }
 
     // AGP's encrypted list of dependencies in the APK signing block: only Google Play can read it, and F-Droid

@@ -27,4 +27,5 @@ include(
     ":feature:room",
     ":feature:profile",
     ":feature:viewer",
+    ":baselineprofile",
 )
