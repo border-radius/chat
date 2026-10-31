@@ -1,5 +1,5 @@
-// A room's mark (DESIGN.md §23): # for a public room, a lock for a private one, a globe for an Open Air one, on a
-// soft tile of the accent colour.
+// A room's mark (DESIGN.md §23): # for a public room, a lock for a private one, a globe for an Open Air one, quiet on a
+// raised rounded tile (the 2026-10-31 redesign; the room list shows "#" there and the lock or globe after the name).
 package chirkle.android.ui
 
 import androidx.compose.foundation.background
@@ -28,10 +28,10 @@ fun Visibility.icon(): ImageVector = when (this) {
 @Composable
 fun RoomIcon(visibility: Visibility, size: Dp = 40.dp, modifier: Modifier = Modifier) {
     Box(
-        modifier.size(size).background(Chirkle.colors.tint, RoundedCornerShape(size * 0.32f)),
+        modifier.size(size).background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(size * 0.3f)),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(visibility.icon(), contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(size * 0.5f))
+        Icon(visibility.icon(), contentDescription = null, tint = Chirkle.colors.dim, modifier = Modifier.size(size * 0.45f))
     }
 }
 

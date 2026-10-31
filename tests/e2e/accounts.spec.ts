@@ -21,7 +21,7 @@ import {
 test("change your password on the profile page, then log in with the new one", async ({ page }) => {
   const ada = await apiUser(`Ada ${uniq()}`);
   await login(page, ada);
-  await page.locator("header.app-bar a.me-link").click();
+  await page.locator("a.me-link:visible").click();
   const form = page.locator("form.profile-password");
   await form.getByLabel("Current password").fill("not-it-at-all");
   await form.getByLabel("New password", { exact: true }).fill("brand-new-pass");
@@ -34,7 +34,7 @@ test("change your password on the profile page, then log in with the new one", a
   await expect(form).toContainText("Password changed.");
   // Still logged in here, with a session that works.
   await page.reload();
-  await expect(page.getByRole("heading", { name: "Your profile" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
 
   await logOut(page);
   await expect(page).toHaveURL(atPath("/"));

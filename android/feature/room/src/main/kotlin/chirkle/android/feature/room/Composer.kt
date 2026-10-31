@@ -74,7 +74,7 @@ fun Composer(vm: RoomViewModel, placeholder: String, focus: FocusRequester, onCo
     val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(Limits.ATTACHMENTS)) { vm.attach(it) }
     val pickFiles = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { vm.attach(it) }
     var attachMenu by remember { mutableStateOf(false) }
-    Surface(tonalElevation = 2.dp) {
+    Surface(color = MaterialTheme.colorScheme.surface) {
         Column(Modifier.fillMaxWidth()) {
             vm.editing?.let {
                 Bar("Edit message", "Enter to save · Esc to cancel", "Cancel edit", vm::cancelEdit)
@@ -141,13 +141,14 @@ fun Composer(vm: RoomViewModel, placeholder: String, focus: FocusRequester, onCo
             }
             // One rounded field with emoji at its start and attach at its end, both kept at the bottom as the text
             // grows, then Send: the text gets the width, as in the messengers people know.
-            Row(Modifier.padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.Bottom) {
+            Row(Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 12.dp), verticalAlignment = Alignment.Bottom) {
                 Row(
                     Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                        .heightIn(min = 48.dp),
+                        .clip(RoundedCornerShape(26.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainer)
+                        .heightIn(min = 52.dp)
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
                     verticalAlignment = Alignment.Bottom,
                 ) {
                     IconButton(onClick = onEmoji) { Icon(ChirkleIcons.Emoji, contentDescription = "Insert emoji", tint = Chirkle.colors.muted) }
@@ -209,13 +210,15 @@ fun Composer(vm: RoomViewModel, placeholder: String, focus: FocusRequester, onCo
                 }
                 val canSend = (!isBlank(vm.text.text) || ((vm.attachments.isNotEmpty() || vm.items.isNotEmpty()) && vm.editing == null)) && n <= Limits.MESSAGE_TEXT
                 Spacer(Modifier.width(8.dp))
-                val bg by androidx.compose.animation.animateColorAsState(if (canSend) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh, label = "send")
-                val fg by androidx.compose.animation.animateColorAsState(if (canSend) MaterialTheme.colorScheme.onPrimary else Chirkle.colors.muted, label = "sendIcon")
+                // A rounded square in the accent fill; dimmed while there is nothing to send.
+                val bg by androidx.compose.animation.animateColorAsState(if (canSend) Chirkle.colors.fill else Chirkle.colors.fill.copy(alpha = 0.25f), label = "send")
+                val fg by androidx.compose.animation.animateColorAsState(if (canSend) Color.White else Color.White.copy(alpha = 0.55f), label = "sendIcon")
                 androidx.compose.material3.FilledIconButton(
                     onClick = vm::submit,
                     enabled = canSend,
+                    shape = RoundedCornerShape(18.dp),
                     colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = bg, contentColor = fg, disabledContainerColor = bg, disabledContentColor = fg),
-                    modifier = Modifier.size(48.dp),
+                    modifier = Modifier.size(52.dp),
                 ) {
                     Icon(if (vm.editing != null) ChirkleIcons.Check else ChirkleIcons.Send, contentDescription = if (vm.editing != null) "Save" else "Send", modifier = Modifier.size(20.dp))
                 }

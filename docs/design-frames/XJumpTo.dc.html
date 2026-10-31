@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Jump to dialog</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0F0D16}
+button{font:inherit}
+</style>
+</helmet>
+<div style="position: relative; width: 1440px; height: 900px; overflow: hidden; font-family: 'Inter', system-ui, sans-serif; color: #ECEAF4; font-size: 14px">
+  <dc-import name="XEdit" hint-size="1440px,900px"></dc-import>
+  <div aria-hidden="true" style="position: absolute; inset: 0; background: rgba(8,6,14,0.6)"></div>
+  <div role="dialog" aria-label="Jump to" style="position: absolute; left: 50%; top: 140px; transform: translateX(-50%); width: 560px; display: flex; flex-direction: column; border-radius: 16px; background: #1D1929; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 24px 64px rgba(0,0,0,0.6); overflow: hidden">
+    <label style="display: flex; align-items: center; gap: 12px; height: 60px; padding: 0 20px; border-bottom: 1px solid rgba(255,255,255,0.07)">
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#A6A1B8" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+      <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Jump to</span>
+      <input type="text" role="combobox" aria-expanded="true" aria-controls="jump-list" value="re" style="flex: 1 1 auto; min-width: 0; border: 0; background: transparent; color: #ECEAF4; font: inherit; font-size: 17px; outline: none">
+      <span style="font-size: 11px; font-weight: 600; color: #A6A1B8; border: 1px solid rgba(255,255,255,0.12); border-radius: 5px; padding: 2px 6px">Esc</span>
+    </label>
+    <div id="jump-list" role="listbox" aria-label="Rooms, people and collections" style="display: flex; flex-direction: column; padding: 8px">
+      <sc-for list="{{items}}" as="it" hint-placeholder-count="4">
+        <div role="option" aria-selected="{{it.sel}}" style="{{it.row}}">
+          <span style="{{it.icon}}">{{it.glyph}}</span>
+          <span style="flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; gap: 8px"><span style="{{it.nameStyle}}">{{it.name}}</span><sc-if value="{{it.sub}}" hint-placeholder-val="{{false}}"><span style="font-size: 12px; color: #8F8AA5">{{it.sub}}</span></sc-if></span>
+          <sc-if value="{{it.tag}}" hint-placeholder-val="{{false}}"><span style="height: 20px; padding: 0 7px; border-radius: 5px; background: rgba(255,255,255,0.07); color: #A6A1B8; font-size: 11px; font-weight: 600; display: flex; align-items: center">{{it.tag}}</span></sc-if>
+          <sc-if value="{{it.badge}}" hint-placeholder-val="{{false}}"><span style="min-width: 20px; height: 20px; box-sizing: border-box; padding: 0 6px; border-radius: 10px; background: #6D4AFF; color: #FFFFFF; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center">{{it.badge}}</span></sc-if>
+        </div>
+      </sc-for>
+    </div>
+    <div style="display: flex; gap: 16px; padding: 10px 20px; border-top: 1px solid rgba(255,255,255,0.07); font-size: 12px; color: #A6A1B8">
+      <span>↑ ↓ to choose</span><span>Enter to go</span><span>⌘K again to close</span>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var data = [
+      { kind: 'room', name: 'release-2.4', badge: 7, sel: true },
+      { kind: 'coll', name: 'Screenshots', sub: 'Collection' },
+      { kind: 'dm', name: 'Sam Rivera', ini: 'SR', bg: '#F5C04E', fg: '#2B1D00' },
+      { kind: 'room', name: 'release-2.3', tag: 'Archived', dim: true }
+    ];
+    return {
+      items: data.map(function (d) {
+        var icon, glyph;
+        if (d.kind === 'dm') { icon = 'width:28px;height:28px;flex:0 0 auto;border-radius:50%;background:' + d.bg + ';color:' + d.fg + ';font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;'; glyph = d.ini; }
+        else if (d.kind === 'coll') { icon = 'width:28px;height:28px;flex:0 0 auto;border-radius:8px;background:#1F2E3A;color:#7DD3FC;font-size:13px;display:flex;align-items:center;justify-content:center;'; glyph = '▣'; }
+        else { icon = 'width:28px;height:28px;flex:0 0 auto;border-radius:8px;background:#2A2540;color:#8F8AA5;font-weight:700;display:flex;align-items:center;justify-content:center;'; glyph = '#'; }
+        return {
+          name: d.name, sub: d.sub || '', tag: d.tag || '', badge: d.badge || 0, sel: !!d.sel, icon: icon, glyph: glyph,
+          nameStyle: 'font-weight:' + (d.badge ? 700 : 500) + ';color:' + (d.dim ? '#A6A1B8' : '#ECEAF4') + ';',
+          row: 'display:flex;align-items:center;gap:12px;height:46px;padding:0 12px;border-radius:10px;' + (d.sel ? 'background:rgba(139,108,255,0.2);box-shadow:inset 0 0 0 1px rgba(185,166,255,0.35);' : '')
+        };
+      })
+    };
+  }
+}
+</script>
+</body>
+</html>

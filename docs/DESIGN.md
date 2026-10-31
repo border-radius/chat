@@ -374,20 +374,29 @@ server can change its schema under them (docs/API.md). The clients still write a
 | `/r/:roomId` | room: message list + composer | on wide screens the room list stays visible as a sidebar |
 | `/r/:roomId/m/:msgId` | room, opened at a specific message (window centered on it) | used by "jump to beginning" and shareable later |
 
-**The room list has three sections:**
+**The room list** (the sidebar, 2026-10-31 redesign) has the brand and a Jump to field (§32) at the top, then Rooms,
+Direct messages and Collections, then one folded **Hidden & archived** section, and at the foot the user (avatar and
+name, linking to the profile) with a Settings button (a guest gets Log in and Sign up there instead):
 
 1. **Rooms:** active rooms that aren't hidden, sorted by name, those with unread messages first.
-2. **Hidden rooms:** collapsed by default and shown with a count. Each row has an "Unhide" action.
-3. **Archived:** collapsed by default. Rooms here are read-only and still browsable.
+2. **Hidden & archived:** collapsed by default and shown with how many rooms it holds (or "Nothing hidden or
+   archived"). Inside, a **Hidden** part, each row with an "Unhide" button, and an **Archived** part (read-only rooms,
+   still browsable; the creator gets "Unarchive"). Until 2026-10-31 these were two sections.
 
-A room hidden by the user that is also archived appears only under Archived.
+A room hidden by the user that is also archived appears only under Archived. A row's ⋯ menu (or its only action, as a
+button) shows while pointing at the row or focusing it. The new-room form opens in place under Rooms: a "#" name field,
+a segmented Public / Private / Open air choice with a hint, Cancel and Create room.
 
 The Rooms, Direct messages and Collections headings are buttons (`aria-expanded`) that fold their section. A folded section still lists its unread rooms (collections with new items) and the open one, so nothing new is missed. Unfolded, the rooms and DMs with unread messages are listed first (each group in its usual order), so they are at the top either way (2026-10-23). Which sections are folded is kept in this browser (`localStorage`, `chat.folded`).
 
-**The room header menu (⋯) has three actions:**
+**The room header** has a back arrow (phones), "#" and the name, a Private or Open Air badge, a private room's members
+(up to three faces and how many, opening the access dialog), and icon buttons for search (§29), media (§30) and the
+menu (⋯). **The menu** has icons, in groups split by lines:
 
+- **Room access…** (the creator) or **Members (n)** (a member of a private room).
 - **Hide room** (or **Unhide**), for everyone.
 - **Archive room** (or **Unarchive**), for the creator only, behind an inline confirm.
+- **Notify of every message** (§34.5), a switch (`menuitemcheckbox`) rather than two labels.
 - **Jump to beginning**.
 
 An archived room shows a banner, "This room is archived. History is read-only.", and replaces the composer with that banner.
@@ -577,8 +586,8 @@ while its first page loads.
 
 | Asset | Budget (gzipped) |
 |---|---|
-| `app.js` (including the PocketBase client) | **≤ 47.70 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, the room cache without waiting for the network, the QA pass 12 fixes, prefetching rooms not yet kept, the QA pass 13 fixes, thumbnail caching, the QA pass 14 fixes, Ctrl+Up/Down to pick the reply, link previews, the room access dialog fix, who can post, message search, message permalinks, the media grid, the QA pass 16 fixes, video posters in the room, the QA pass 17 fixes, media collections, Jump to, Appearance, the room in the tab title, the QA pass 19 fixes, live collection badges, the security audit fixes, the room kept as the page goes, the prefetch herd fix, the QA pass 23 fixes, live replies quoted by the room, see §13) |
-| `app.css` | **≤ 7.15 KB** (5 KB until §21, 5.5 KB until §23, 6 KB until audio attachments, 6.05 KB until §18.5, 6.10 KB until §28, 6.15 KB until the room access dialog fix, 6.20 KB until §29, 6.35 KB until message permalinks, 6.40 KB until §31, 6.85 KB until Jump to and Appearance, 7.10 KB until the QA pass 23 fixes, see §13) |
+| `app.js` (including the PocketBase client) | **≤ 49.10 KB** (25 KB for the MVP; raised for §15–§17, §19, §22, §23, §24, video attachments, the QA pass 8 and 9 fixes, bigger attachments, audio attachments, §27, the room cache and its prefetching, opening at the first unread message, the QA pass 11 fixes, service messages, the room cache without waiting for the network, the QA pass 12 fixes, prefetching rooms not yet kept, the QA pass 13 fixes, thumbnail caching, the QA pass 14 fixes, Ctrl+Up/Down to pick the reply, link previews, the room access dialog fix, who can post, message search, message permalinks, the media grid, the QA pass 16 fixes, video posters in the room, the QA pass 17 fixes, media collections, Jump to, Appearance, the room in the tab title, the QA pass 19 fixes, live collection badges, the security audit fixes, the room kept as the page goes, the prefetch herd fix, the QA pass 23 fixes, live replies quoted by the room, the 2026-10-31 redesign, see §13) |
+| `app.css` | **≤ 10.60 KB** (5 KB until §21, 5.5 KB until §23, 6 KB until audio attachments, 6.05 KB until §18.5, 6.10 KB until §28, 6.15 KB until the room access dialog fix, 6.20 KB until §29, 6.35 KB until message permalinks, 6.40 KB until §31, 6.85 KB until Jump to and Appearance, 7.10 KB until the QA pass 23 fixes, 7.15 KB until the 2026-10-31 redesign and Inter's `@font-face` rules, see §13) |
 | `index.html` | ≤ 1.5 KB |
 | Image viewer (§17.7), loaded on first use | ≤ 4 KB script, ≤ 1.5 KB stylesheet |
 | Message search (§29), loaded on first use | ≤ 2 KB script (its styles are in `app.css`) |
@@ -586,8 +595,8 @@ while its first page loads.
 | Media grid (§30), loaded on first use | ≤ 3 KB script, ≤ 1 KB stylesheet |
 | Media collections (§31), loaded on first use | ≤ 6.65 KB script, ≤ 1.5 KB stylesheet |
 | Notifications (§34), loaded once turned on, or with the profile page | ≤ 3 KB script (its styles are in `app.css`) |
-| Web fonts | **none** (system font stack) |
-| Requests on first load | 3 (html, js, css) + API; the manifest, its icons and `sw.js` (§27) come after, off the critical path |
+| Web fonts | **Inter**, self-hosted (`web/fonts/`, OFL): one variable woff2 per script (latin 47 KB, latin-ext, cyrillic, cyrillic-ext, greek), each fetched only when a page uses its characters (`unicode-range`), `font-display: swap`, cached for a year under a hashed name. Until 2026-10-31: none |
+| Requests on first load | 3 (html, js, css) + API, then Inter's latin file (a second only for other scripts), off the critical path (text shows in the system font until it arrives); the manifest, its icons and `sw.js` (§27) come after, off the critical path |
 
 Other rules:
 
@@ -602,7 +611,15 @@ Other rules:
 
 ### 7.8 Styling
 
-- One plain CSS file with custom properties for theming.
+- One plain CSS file with custom properties for theming (`web/styles/app/tokens.css`). The look (2026-10-31, from
+  the "Chirkle Sidebar Redesign" design, its boards in `docs/design-frames/`): a dark grape surface by default (pane `#1a1724`, sidebar `#15121e`, raised
+  `#221e2f`), accent text `#b9a6ff` on a `#6d4aff` fill, pink `#f9a8d4` for the NEW line; 10 px radius for controls,
+  16 px for dialogs over a dimmed page; Inter, self-hosted (§7.7), with the system font stack behind it.
+- Icons are one-color SVGs used as CSS masks (`web/styles/app/icons.css`): an element with `ic i-<name>` draws the
+  icon as its `::before` in `currentColor`. Icon-only buttons carry an `aria-label`. No emoji in the chrome.
+- The room is flat: messages without bubbles (36 px avatar, name and time on one line), a message to me as a tinted
+  card with an accent edge, the message tools as a small icon toolbar on hover, the composer as a 68 px strip
+  (attach menu, field, emoji, send) that a reply strip, the selection bar or a "why you can't post" notice replaces.
 - `prefers-color-scheme` light and dark themes. The profile page's Appearance switch (Auto, Light, Dark) overrides it on
   this device: kept in localStorage (`chat.theme`), not the account, and set as `<html data-theme>` by an inline script
   in `index.html` before the first paint (allowed by its CSP hash, §5.6), so a reload never flashes the other theme.

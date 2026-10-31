@@ -25,7 +25,7 @@ describe("room view", () => {
       const room = await newRoom();
       const m = await me.api.send({ id: newId(), room: room.id, text: "ship it" });
       await mount(room);
-      const react = button(msgEl(m.id), "☺+")!;
+      const react = button(msgEl(m.id), "Add reaction")!;
       expect(react.getAttribute("aria-label")).toBe("Add reaction");
       expect(pickerOpen()).toBe(false);
       react.click();
@@ -50,7 +50,7 @@ describe("room view", () => {
       chip(m.id, "🎉").click();
       expect(chips(m.id)).toEqual(["🎉2 (mine)"]);
       for (const e of ["👍", "❤️", "😂"]) {
-        button(msgEl(m.id), "☺+")!.click();
+        button(msgEl(m.id), "Add reaction")!.click();
         pick(e);
       }
       expect(chips(m.id)).toEqual(["🎉2 (mine)", "👍1 (mine)", "❤️1 (mine)", "😂1 (mine)"]);
@@ -103,7 +103,7 @@ describe("room view", () => {
       const m = await me.api.send({ id: newId(), room: room.id, text: "hi" });
       await me.api.react(m.id, "👍", true);
       await mount(room);
-      button(msgEl(m.id), "☺+")!.click();
+      button(msgEl(m.id), "Add reaction")!.click();
       expect(picker().querySelector(`button.emoji[data-emoji="👍"]`)!.getAttribute("aria-pressed")).toBe("true");
       pick("👍");
       expect(chips(m.id)).toEqual([]);
@@ -116,7 +116,7 @@ describe("room view", () => {
       const ctl = instrument(me.api);
       ctl.failNext("react", new ApiError("Failed to fetch", 0));
       await mount(room);
-      button(msgEl(m.id), "☺+")!.click();
+      button(msgEl(m.id), "Add reaction")!.click();
       pick("🔥");
       expect(chips(m.id)).toEqual(["🔥1 (mine)"]);
       await vi.waitFor(() => expect(msgEl(m.id)!.textContent).toContain("Couldn't add your 🔥 reaction."));
@@ -136,12 +136,12 @@ describe("room view", () => {
       const ctl = instrument(me.api);
       await mount(room);
       const release = ctl.hold("react");
-      button(msgEl(m.id), "☺+")!.click();
+      button(msgEl(m.id), "Add reaction")!.click();
       pick("👍");
       await vi.waitFor(() => expect(ctl.calls("react")).toBe(1)); // on its way, unanswered
       chip(m.id, "👍").click(); // off
       expect(chips(m.id)).toEqual([]);
-      button(msgEl(m.id), "☺+")!.click();
+      button(msgEl(m.id), "Add reaction")!.click();
       pick("👍"); // on again
       chip(m.id, "👍").click(); // and off
       expect(chips(m.id)).toEqual([]);
@@ -156,15 +156,15 @@ describe("room view", () => {
       const room = await newRoom();
       const m = await me.api.send({ id: newId(), room: room.id, text: "hi" });
       await mount(room);
-      button(msgEl(m.id), "☺+")!.click();
+      button(msgEl(m.id), "Add reaction")!.click();
       key(document.activeElement!, "Escape");
       expect(pickerOpen()).toBe(false);
-      expect(document.activeElement).toBe(button(msgEl(m.id), "☺+"));
-      button(msgEl(m.id), "☺+")!.click();
+      expect(document.activeElement).toBe(button(msgEl(m.id), "Add reaction"));
+      button(msgEl(m.id), "Add reaction")!.click();
       pick("👀");
       expect(document.activeElement).toBe(chip(m.id, "👀"));
       chip(m.id, "👀").click();
-      expect(document.activeElement).toBe(button(msgEl(m.id), "☺+"));
+      expect(document.activeElement).toBe(button(msgEl(m.id), "Add reaction"));
     });
 
     it("no React on a message still sending, deleted, or in an archived room, where reactions only show", async () => {
@@ -178,18 +178,18 @@ describe("room view", () => {
       expect(chips(gone.id)).toEqual(["👍1 (mine)"]);
       await me.api.softDelete(gone.id);
       await vi.waitFor(() => expect(msgEl(gone.id)!.querySelector(".reactions")).toBeNull());
-      expect(button(msgEl(gone.id), "☺+")).toBeNull();
+      expect(button(msgEl(gone.id), "Add reaction")).toBeNull();
 
       const release = ctl.hold("send");
       send("on its way");
-      expect(button(msgEls().at(-1)!, "☺+")).toBeNull();
+      expect(button(msgEls().at(-1)!, "Add reaction")).toBeNull();
       release();
 
       await me.api.setArchived(room.id, true);
-      await vi.waitFor(() => expect(button(msgEl(m.id), "☺+")).toBeNull());
+      await vi.waitFor(() => expect(button(msgEl(m.id), "Add reaction")).toBeNull());
       expect(chip(m.id, "👍").tagName).toBe("SPAN");
       expect(chips(m.id)).toEqual(["👍1"]);
-      expect(button(msgEl(m.id), "☺+")).toBeNull();
+      expect(button(msgEl(m.id), "Add reaction")).toBeNull();
     });
 
     it("the picker closes when its message is deleted meanwhile; the composer's stays open (QA BUG-121)", async () => {
@@ -198,7 +198,7 @@ describe("room view", () => {
       const theirs = await other.api.send({ id: newId(), room: room.id, text: "soon gone" });
       const also = await other.api.send({ id: newId(), room: room.id, text: "also gone" });
       await mount(room);
-      button(msgEl(theirs.id), "☺+")!.click();
+      button(msgEl(theirs.id), "Add reaction")!.click();
       expect(pickerOpen()).toBe(true);
       await other.api.softDelete(theirs.id);
       await vi.waitFor(() => expect(msgEl(theirs.id)!.textContent).toContain("Message deleted"));

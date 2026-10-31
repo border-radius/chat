@@ -46,6 +46,7 @@ class UiNotifyTest {
         val dm = runBlocking { alice.api.openDm(bob.user.id) }
         ui.signedIn(bob)
         val accounts = ui.accounts!!
+        accounts.setVisible(false) // in the background: notifications are for then
         fun check() {
             var done: CheckWorker.Outcome? = null
             accounts.scope.launch { done = CheckWorker.checkAll(app, accounts) }
@@ -103,7 +104,7 @@ class UiNotifyTest {
         compose.waitUntil(5_000) { ui.pump(); room.id in services.notifyRooms.set.value }
         compose.onNodeWithContentDescription("Room actions").performClick()
         ui.waitFor("Stop notifying of every message")
-        // (In tests the app is away: the room open here isn't "on screen".)
+        ui.accounts!!.setVisible(false) // away: the room open here isn't "on screen"
         check()
         runBlocking { alice.api.send(NewMessage(newId(), room.id, "for everyone")) }
         Thread.sleep(1_100)

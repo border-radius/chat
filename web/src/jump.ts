@@ -1,4 +1,5 @@
-// Jump to (§32): Ctrl+K or Ctrl+P (⌘ too) anywhere opens the switcher, a lazy chunk loaded on the first press. Also
+// Jump to (§32): Ctrl+K or Ctrl+P (⌘ too) anywhere, or the sidebar's "Jump to…" button (a JUMP event), opens the
+// switcher, a lazy chunk loaded on the first press. Also
 // keeps when each room and collection was last opened, for its "most recent first" (QA BUG-134).
 
 import type { Api } from "./api.ts";
@@ -8,6 +9,9 @@ import { toPb } from "./lib/time.ts";
 import { type AppState, roomSections, type Store, unreadCount } from "./store.ts";
 import { avatar } from "./ui/avatar.ts";
 import type { Switcher } from "./views/switcher.ts";
+
+/** Sent on document by the sidebar's "Jump to…" button. */
+export const JUMP = "chirkle-jump";
 
 export function startJumpTo(o: { api: Api; store: Store<AppState>; root: HTMLElement; navigate: (path: string) => void }): () => void {
   const { api, store, root } = o;
@@ -19,7 +23,10 @@ export function startJumpTo(o: { api: Api; store: Store<AppState>; root: HTMLEle
     const k = /^[a-z]$/i.test(e.key) ? e.key.toLowerCase() : e.code;
     if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || !/^(k|p|KeyK|KeyP)$/.test(k)) return;
     e.preventDefault(); // not the browser's search bar or printing
-    if (e.repeat) return; // held down: not open, closed, open… (QA BUG-137)
+    if (!e.repeat) toggle(); // held down: not open, closed, open… (QA BUG-137)
+  };
+
+  const toggle = () => {
     switcher ??= import("./views/switcher.ts").then(
       (m) => {
         const s = m.createSwitcher({
@@ -62,8 +69,10 @@ export function startJumpTo(o: { api: Api; store: Store<AppState>; root: HTMLEle
     }
   });
   document.addEventListener("keydown", onKey);
+  document.addEventListener(JUMP, toggle);
   return () => {
     document.removeEventListener("keydown", onKey);
+    document.removeEventListener(JUMP, toggle);
     offStore();
   };
 }

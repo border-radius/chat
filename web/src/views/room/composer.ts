@@ -8,6 +8,7 @@ import { prepareImage } from "../../lib/image.ts";
 import { LIMITS, textLength } from "../../lib/limits.ts";
 import type { LocalFile } from "../../lib/types.ts";
 import { collectionIcon } from "../../ui/icon.ts";
+import { createActionMenu } from "../../ui/menu.ts";
 
 const MAX_LEN = LIMITS.messageText;
 const COUNTER_FROM = 1800;
@@ -109,7 +110,7 @@ export function createComposer(opts: {
   const { signal } = opts;
   const textarea = h("textarea", { name: "text", rows: 1, id: opts.id, autocomplete: "off" });
   const counter = h("span", { class: "counter", "aria-live": "polite" });
-  const sendBtn = h("button", { type: "submit", disabled: true }, "Send");
+  const sendBtn = h("button", { type: "submit", class: "send ic i-send", "aria-label": "Send", title: "Send", disabled: true });
   const fileInput = h("input", {
     id: `${opts.id}-files`,
     type: "file",
@@ -118,47 +119,43 @@ export function createComposer(opts: {
     tabindex: -1,
     "aria-label": "Attach files",
   });
-  const attach = h("button", { type: "button", class: "attach", title: "Attach files", "aria-label": "Attach files" }, "+");
   const { onCollections } = opts;
-  const fromCollections =
-    onCollections &&
-    h(
-      "button",
-      {
-        type: "button",
-        class: "icon-button attach-coll",
-        title: "Attach from collections",
-        "aria-label": "Attach from collections",
-        "aria-haspopup": "dialog",
-        on: { click: () => onCollections(fromCollections!, Math.max(0, LIMITS.attachments - files.length)) },
-        signal,
-      },
-      collectionIcon(),
-    );
-  const emojiBtn = h(
-    "button",
+  // With collections (§31) the paperclip offers both; without, it opens the file chooser.
+  const attachMenu = onCollections && createActionMenu({ label: "Attach", icon: "i-clip", className: "attach", signal });
+  attachMenu?.update([
+    { label: "Upload file", icon: "i-upload", run: () => fileInput.click() },
     {
-      type: "button",
-      class: "emoji-button",
-      title: "Emoji",
-      "aria-label": "Emoji",
-      "aria-haspopup": "dialog",
-      "aria-expanded": "false",
-      on: { click: () => opts.onEmoji(emojiBtn, insertEmoji) },
-      signal,
+      label: "From collection",
+      icon: "i-media",
+      run: () => onCollections!(attachMenu.el.firstElementChild as HTMLElement, Math.max(0, LIMITS.attachments - files.length)),
     },
-    "☺",
-  );
+  ]);
+  const attach =
+    attachMenu?.el ??
+    h("button", { type: "button", class: "icon-button attach ic i-clip", title: "Attach files", "aria-label": "Attach files" });
+  const emojiBtn = h("button", {
+    type: "button",
+    class: "icon-button emoji-button ic i-smile",
+    title: "Emoji",
+    "aria-label": "Emoji",
+    "aria-haspopup": "dialog",
+    "aria-expanded": "false",
+    on: { click: () => opts.onEmoji(emojiBtn, insertEmoji) },
+    signal,
+  });
   const tray = h("ul", { class: "tray", "aria-label": "Attachments" });
   const trayError = h("p", { class: "tray-error", role: "alert" });
   const replyLabel = h("span", { class: "replying-label" });
-  const replyBar = h("div", { class: "replying", hidden: true }, [
+  const replyBar = h("div", { class: "replying ic i-reply", hidden: true }, [
     replyLabel,
-    h(
-      "button",
-      { type: "button", class: "remove", "aria-label": "Cancel reply", title: "Cancel reply", on: { click: () => cancelReply() }, signal },
-      "×",
-    ),
+    h("button", {
+      type: "button",
+      class: "icon-button remove ic i-x",
+      "aria-label": "Cancel reply",
+      title: "Cancel reply",
+      on: { click: () => cancelReply() },
+      signal,
+    }),
   ]);
 
   /** Put `emoji` where the caret is (replacing any selection), and the caret after it. */
@@ -268,7 +265,7 @@ export function createComposer(opts: {
     renderTray();
   }
 
-  attach.addEventListener("click", () => fileInput.click(), { signal });
+  if (!attachMenu) attach.addEventListener("click", () => fileInput.click(), { signal });
   fileInput.addEventListener(
     "change",
     () => {
@@ -339,7 +336,6 @@ export function createComposer(opts: {
       h("div", { class: "composer-row" }, [
         fileInput,
         attach,
-        fromCollections,
         h("label", { for: opts.id, class: "visually-hidden" }, "Message"),
         textarea,
         counter,

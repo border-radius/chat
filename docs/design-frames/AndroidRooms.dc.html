@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Android rooms</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#C4B5FD}a:hover{color:#DDD6FE}
+button{font:inherit}
+</style>
+</helmet>
+<div style="width: 412px; height: 915px; overflow: hidden; display: flex; flex-direction: column; background: #15121E; font-family: 'Inter', system-ui, sans-serif; color: #ECEAF4; font-size: 16px">
+  <!-- search app bar -->
+  <div style="flex: 0 0 auto; padding: 16px 16px 8px">
+    <div style="height: 56px; display: flex; align-items: center; gap: 12px; padding: 0 6px 0 16px; border-radius: 28px; background: #221E2F">
+      <span aria-hidden="true" style="width: 26px; height: 26px; flex: 0 0 auto; border-radius: 50%; border-bottom-left-radius: 28% 30%; background: linear-gradient(135deg, #7A5AF8 0%, #A43FD0 55%, #D2389E 100%)"></span>
+      <label style="flex: 1 1 auto; min-width: 0; display: flex">
+        <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Search</span>
+        <input type="search" placeholder="Search Chirkle" style="flex: 1 1 auto; min-width: 0; height: 48px; border: 0; background: transparent; color: #ECEAF4; font: inherit; font-size: 16px; outline: none">
+      </label>
+      <button type="button" aria-label="Alex Morgan, profile and settings" style="width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; border: 0; background: transparent; padding: 0; cursor: pointer"><span style="width: 34px; height: 34px; border-radius: 50%; background: #B794F6; color: #22113F; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center">AM</span></button>
+    </div>
+  </div>
+
+  <div style="flex: 1 1 auto; overflow-y: auto; padding: 0 12px 96px; display: flex; flex-direction: column">
+    <div style="display: flex; align-items: center; justify-content: space-between; padding: 0">
+      <button type="button" aria-expanded="true" style="display: flex; align-items: center; gap: 8px; height: 48px; padding: 0 12px; border: 0; background: transparent; color: #A6A1B8; font-size: 14px; font-weight: 600; cursor: pointer"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg>Rooms</button>
+      <button type="button" aria-label="New room" style="width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 24px; background: transparent; color: #A6A1B8; cursor: pointer"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg></button>
+    </div>
+    <sc-for list="{{rooms}}" as="r" hint-placeholder-count="6">
+      <a href="AndroidChat.dc.html" style="{{r.style}}">
+        <span style="width: 40px; height: 40px; flex: 0 0 auto; border-radius: 12px; background: #221E2F; color: #8F8AA5; font-weight: 700; font-size: 17px; display: flex; align-items: center; justify-content: center">#</span>
+        <span style="flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{r.name}}</span>
+        <sc-if value="{{r.isPrivate}}" hint-placeholder-val="{{false}}"><svg aria-label="Private" role="img" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8F8AA5" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg></sc-if>
+        <sc-if value="{{r.isOpenAir}}" hint-placeholder-val="{{false}}"><svg aria-label="Open air" role="img" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8F8AA5" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"></path></svg></sc-if>
+        <sc-if value="{{r.hasBadge}}" hint-placeholder-val="{{false}}"><span style="min-width: 24px; height: 24px; box-sizing: border-box; padding: 0 8px; border-radius: 12px; background: #6D4AFF; color: #FFFFFF; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center">{{r.unread}}</span></sc-if>
+      </a>
+    </sc-for>
+
+    <div style="display: flex; align-items: center; justify-content: space-between; padding: 2px 0 0">
+      <button type="button" aria-expanded="true" style="display: flex; align-items: center; gap: 8px; height: 48px; padding: 0 12px; border: 0; background: transparent; color: #A6A1B8; font-size: 14px; font-weight: 600; cursor: pointer"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg>Direct messages</button>
+      <button type="button" aria-label="New direct message" style="width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 24px; background: transparent; color: #A6A1B8; cursor: pointer"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg></button>
+    </div>
+    <a href="AndroidChat.dc.html" style="display: flex; align-items: center; gap: 14px; height: 56px; padding: 0 12px; border-radius: 16px; text-decoration: none; color: #ECEAF4; font-weight: 600">
+      <span style="width: 40px; height: 40px; border-radius: 50%; background: #F08A5D; color: #2A1206; font-size: 14px; font-weight: 700; display: flex; align-items: center; justify-content: center">MC</span>
+      <span style="flex: 1 1 auto">Maya Chen</span>
+      <span style="min-width: 24px; height: 24px; box-sizing: border-box; padding: 0 8px; border-radius: 12px; background: #6D4AFF; color: #FFFFFF; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center">1</span>
+    </a>
+    <a href="AndroidChat.dc.html" style="display: flex; align-items: center; gap: 14px; height: 56px; padding: 0 12px; border-radius: 16px; text-decoration: none; color: #C9C5D8; font-weight: 500">
+      <span style="width: 40px; height: 40px; border-radius: 50%; background: #F5C04E; color: #2B1D00; font-size: 14px; font-weight: 700; display: flex; align-items: center; justify-content: center">SR</span>
+      <span style="flex: 1 1 auto">Sam Rivera</span>
+    </a>
+
+    <div style="display: flex; align-items: center; justify-content: space-between; padding: 2px 0 0">
+      <button type="button" aria-expanded="true" style="display: flex; align-items: center; gap: 8px; height: 48px; padding: 0 12px; border: 0; background: transparent; color: #A6A1B8; font-size: 14px; font-weight: 600; cursor: pointer"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg>Collections</button>
+      <button type="button" aria-label="New collection" style="width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 24px; background: transparent; color: #A6A1B8; cursor: pointer"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg></button>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 4px 4px 0">
+      <a href="#" style="display: flex; flex-direction: column; gap: 6px; text-decoration: none; color: #ECEAF4">
+        <span style="aspect-ratio: 1; border-radius: 16px; background: #2A2340; display: flex; align-items: flex-end; justify-content: flex-end; padding: 8px; box-sizing: border-box"><svg aria-label="Private" role="img" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#C4B5FD" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg></span>
+        <span style="display: flex; flex-direction: column; padding: 0 2px"><span style="font-size: 14px; font-weight: 600">Moodboard</span><span style="font-size: 12px; color: #A6A1B8">48 items</span></span>
+      </a>
+      <a href="#" style="display: flex; flex-direction: column; gap: 6px; text-decoration: none; color: #ECEAF4">
+        <span style="aspect-ratio: 1; border-radius: 16px; background: #1F2E3A"></span>
+        <span style="display: flex; flex-direction: column; padding: 0 2px"><span style="font-size: 14px; font-weight: 600">Screenshots</span><span style="font-size: 12px; color: #A6A1B8">126 items</span></span>
+      </a>
+      <a href="#" style="display: flex; flex-direction: column; gap: 6px; text-decoration: none; color: #ECEAF4">
+        <span style="aspect-ratio: 1; border-radius: 16px; background: #3A2620"></span>
+        <span style="display: flex; flex-direction: column; padding: 0 2px"><span style="font-size: 14px; font-weight: 600">Brand assets</span><span style="font-size: 12px; color: #A6A1B8">12 items</span></span>
+      </a>
+    </div>
+
+    <div style="display: flex; align-items: center; justify-content: space-between; padding: 2px 0 0">
+      <button type="button" aria-expanded="false" style="display: flex; align-items: center; gap: 8px; height: 48px; padding: 0 12px; border: 0; background: transparent; color: #A6A1B8; font-size: 14px; font-weight: 600; cursor: pointer"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="transform: rotate(-90deg)"><path d="m6 9 6 6 6-6"></path></svg>Hidden &amp; archived</button>
+      <span style="font-size: 14px; font-weight: 600; color: #A6A1B8; padding-right: 16px">6</span>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":412,"height":915}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var data = [
+      { name: 'general', unread: 3, vis: 'public' },
+      { name: 'release-2.4', unread: 7, vis: 'private' },
+      { name: 'support', unread: 1, vis: 'public' },
+      { name: 'announcements', unread: 0, vis: 'openair' },
+      { name: 'design', unread: 0, vis: 'private' },
+      { name: 'random', unread: 0, vis: 'openair' }
+    ];
+    return {
+      rooms: data.map(function (r) {
+        var u = r.unread > 0;
+        return {
+          name: r.name, unread: r.unread, hasBadge: u,
+          isPrivate: r.vis === 'private', isOpenAir: r.vis === 'openair',
+          style: 'display:flex;align-items:center;gap:14px;height:56px;padding:0 12px;border-radius:16px;text-decoration:none;color:' + (u ? '#ECEAF4;font-weight:600;' : '#C9C5D8;font-weight:500;')
+        };
+      })
+    };
+  }
+}
+</script>
+</body>
+</html>

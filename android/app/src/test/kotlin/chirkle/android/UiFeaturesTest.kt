@@ -234,8 +234,8 @@ class UiFeaturesTest {
         val b = newUser("bo-${uniq()}")
         ui.signedIn(a)
         ui.waitFor("Rooms")
-        compose.onNodeWithContentDescription("New").performClick()
-        compose.onNodeWithText("New message").performClick()
+        ui.reveal(hasContentDescription("New direct message"))
+        compose.onNodeWithContentDescription("New direct message").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
         compose.onNode(hasSetTextAction()).performTextInput(b.user.name.take(6))
         ui.waitFor(b.user.name)
         compose.onAllNodes(hasText(b.user.name))[0].performClick()
@@ -250,11 +250,11 @@ class UiFeaturesTest {
         val room = runBlocking { a.api.createRoom("hi-${uniq()}") }
         ui.signedIn(a)
         ui.showRoom(room.name)
-        // Its click action, not a tap: scrolled to the bottom edge, the row can be under the New button.
+        // Its click action, not a tap: scrolled to the bottom edge, the row can be cut off.
         compose.onNodeWithContentDescription("Actions for #${room.name}").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
         ui.waitFor("Hide")
         compose.onNodeWithText("Hide").performClick()
-        ui.reveal(hasText("Hidden (1)"))
+        ui.reveal(hasContentDescription("Hidden & archived (1)"))
         ui.until { a.api.listHidden().any { it.room == room.id } }
     }
 

@@ -118,7 +118,7 @@ export async function login(page: Page, user: User, base = ""): Promise<void> {
 
 /** Log out the way a user does: Log out is on the profile page (§22.2). */
 export async function logOut(page: Page): Promise<void> {
-  await page.locator("header.app-bar a.me-link").click();
+  await page.locator("a.me-link:visible").click();
   await page.getByRole("button", { name: "Log out" }).click();
 }
 

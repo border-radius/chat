@@ -27,7 +27,7 @@ function headers(e) {
   if (!path.startsWith("/_/") && !path.startsWith("/api/")) {
     h.set("Content-Security-Policy", CSP);
     // Only content-hashed names (esbuild "[name]-[hash]", 8 chars) are immutable; dev builds are unhashed.
-    if (/^\/assets\/.+-[A-Z0-9]{8}\.(js|css)(\.map)?$/.test(path)) h.set("Cache-Control", "public, max-age=31536000, immutable");
+    if (/^\/assets\/.+-[A-Z0-9]{8}\.(js|css|woff2)(\.map)?$/.test(path)) h.set("Cache-Control", "public, max-age=31536000, immutable");
     else h.set("Cache-Control", "no-cache");
   }
 }

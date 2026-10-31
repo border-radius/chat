@@ -1,7 +1,9 @@
 // The room list (DESIGN.md §5, §16.5, §18.4; web/src/views/rooms.ts): DMs, rooms, your media collections and those you
 // follow (§31.3), and the hidden and archived rooms folded away; unread badges, unread rows first; a row's menu (hide,
 // close, archive). A section's heading folds it, as on the web: then only its unread rows stay listed. A guest sees the
-// Open Air rooms (§23.3). The brand at the top opens your accounts (ANDROID.md §17.2).
+// Open Air rooms (§23.3). The brand at the top opens your accounts (ANDROID.md §17.2). The look (2026-10-31 redesign): a
+// search pill on top (brand, Jump to, your avatar), Rooms, Direct messages and Collections each with its "+", then one
+// folded Hidden & archived section, on the sidebar's darker surface.
 package chirkle.android.feature.rooms
 
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -25,12 +27,15 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.ui.draw.clip
+import chirkle.android.ui.icon
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -168,45 +173,46 @@ fun RoomsScreen(onOpenRoom: (String) -> Unit, onProfile: () -> Unit, onLogIn: ()
                 )
                 return@Scaffold
             }
-            TopAppBar(
-                title = {
-                    Row(
-                        Modifier.clickable(onClickLabel = "Accounts", onClick = onAccounts).semantics(mergeDescendants = true) {},
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        chirkle.android.ui.BrandMark(s.site.logo, 32.dp)
-                        Column {
-                            Text(s.site.title, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            // Which account this is, once there are several (ANDROID.md §17.2).
-                            val many = (chirkle.android.ui.LocalAccounts.current?.list?.collectAsStateWithLifecycle()?.value?.count { it.user != null } ?: 0) > 1
-                            if (many) Text(chirkle.android.data.lib.serverLabel(services.server), style = androidx.compose.material3.MaterialTheme.typography.bodySmall, color = chirkle.android.ui.Chirkle.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { jumping = true }) { Icon(ChirkleIcons.Search, contentDescription = "Jump to a room or person") }
-                    if (me != null) {
-                        IconButton(onClick = onProfile, modifier = Modifier.semantics { contentDescription = "Profile" }) { Avatar(me, 32.dp) }
-                    } else {
-                        TextButton(onClick = onLogIn) { Text("Log in") }
-                    }
-                },
-            )
-        },
-        floatingActionButton = {
-            if (me != null && !jumping) {
-                var menu by remember { mutableStateOf(false) }
-                Box {
-                    FloatingActionButton(onClick = { menu = true }) { Icon(ChirkleIcons.Add, contentDescription = "New") }
-                    DropdownMenu(menu, onDismissRequest = { menu = false }) {
-                        DropdownMenuItem(text = { Text("New room") }, leadingIcon = { Icon(ChirkleIcons.Tag, contentDescription = null) }, onClick = { menu = false; newRoom = true })
-                        DropdownMenuItem(text = { Text("New message") }, leadingIcon = { Icon(ChirkleIcons.Chat, contentDescription = null) }, onClick = { menu = false; newDm = true })
-                        DropdownMenuItem(text = { Text("New collection") }, leadingIcon = { Icon(ChirkleIcons.Collection, contentDescription = null) }, onClick = { menu = false; newCollection = true })
-                    }
+            // A search pill: the brand (your accounts), Jump to, and you (or Log in).
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp)
+                    .heightIn(min = 56.dp)
+                    .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(28.dp))
+                    .padding(start = 4.dp, end = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    Modifier.size(48.dp).clip(CircleShape).clickable(onClickLabel = "Accounts", onClick = onAccounts).semantics(mergeDescendants = true) {
+                        contentDescription = s.site.title
+                    },
+                    contentAlignment = Alignment.Center,
+                ) { chirkle.android.ui.BrandMark(s.site.logo, 26.dp) }
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .heightIn(min = 48.dp)
+                        .clip(RoundedCornerShape(24.dp))
+                        .clickable { jumping = true }
+                        .semantics(mergeDescendants = true) { contentDescription = "Jump to a room or person" }
+                        .padding(horizontal = 6.dp),
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Text("Jump to…", color = Chirkle.colors.muted, maxLines = 1)
+                    // Which account this is, once there are several (ANDROID.md §17.2).
+                    val many = (chirkle.android.ui.LocalAccounts.current?.list?.collectAsStateWithLifecycle()?.value?.count { it.user != null } ?: 0) > 1
+                    if (many) Text(chirkle.android.data.lib.serverLabel(services.server), style = MaterialTheme.typography.bodySmall, color = Chirkle.colors.dim, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                if (me != null) {
+                    IconButton(onClick = onProfile, modifier = Modifier.size(48.dp).semantics { contentDescription = "Profile" }) { Avatar(me, 32.dp) }
+                } else {
+                    TextButton(onClick = onLogIn) { Text("Log in") }
                 }
             }
         },
+        containerColor = if (jumping) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant,
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         if (jumping) {
@@ -219,9 +225,11 @@ fun RoomsScreen(onOpenRoom: (String) -> Unit, onProfile: () -> Unit, onLogIn: ()
             }
             return@Scaffold
         }
-        var showHidden by rememberSaveable { mutableStateOf(false) }
-        var showArchived by rememberSaveable { mutableStateOf(false) }
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = padding.calculateTopPadding(), bottom = padding.calculateBottomPadding() + 88.dp)) {
+        var showMore by rememberSaveable { mutableStateOf(false) }
+        LazyColumn(
+            Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = padding.calculateTopPadding(), bottom = padding.calculateBottomPadding() + 24.dp),
+        ) {
             // The first load: a spinner, not an empty list that fills in.
             if (s.rooms.isEmpty() && (s.roomsStatus == LoadStatus.Loading || s.roomsStatus == LoadStatus.Idle)) {
                 item(key = "loading") {
@@ -249,25 +257,26 @@ fun RoomsScreen(onOpenRoom: (String) -> Unit, onProfile: () -> Unit, onLogIn: ()
             fun shown(section: String, list: List<Room>) =
                 if (section in folded) list.filter { unreadBadge(it, s.unread, s.hidden.keys, s.activeRoomId) > 0 } else list
             val toggle = services.settings::toggleFolded
-            if (sections.dms.isNotEmpty()) {
-                foldHeader("dms", "Direct messages", "dms" in folded, toggle)
-                items(shown("dms", sections.dms), key = { it.id }) { r ->
-                    RoomRow(r, s, me.id, onOpenRoom, listOf("Close conversation" to { act("close", r) { services.actions.hide(r.id) } }))
-                }
-            }
-            foldHeader("rooms", "Rooms", "rooms" in folded, toggle)
+            foldHeader("rooms", "Rooms", "rooms" in folded, toggle, "New room") { newRoom = true }
             if (sections.rooms.isEmpty() && s.roomsStatus == LoadStatus.Ready) {
                 empty(if (sections.hidden.isNotEmpty() || sections.archived.isNotEmpty()) "No other rooms. Hidden and archived ones are listed below." else "No rooms yet. Create the first one.")
             }
             items(shown("rooms", sections.rooms), key = { it.id }) { r -> RoomRow(r, s, me.id, onOpenRoom, menuItems(r, Section.Rooms, s, me.id, ::act, { archiving = it }, services)) }
-            collections(s.collections, "collections" in folded, { toggle("collections") }, onOpenCollection) { newCollection = true }
-            if (sections.hidden.isNotEmpty()) {
-                fold("Hidden", sections.hidden.size, showHidden) { showHidden = !showHidden }
-                if (showHidden) items(sections.hidden, key = { "h" + it.id }) { r -> RoomRow(r, s, me.id, onOpenRoom, menuItems(r, Section.Hidden, s, me.id, ::act, { archiving = it }, services)) }
+            foldHeader("dms", "Direct messages", "dms" in folded, toggle, "New direct message") { newDm = true }
+            items(shown("dms", sections.dms), key = { it.id }) { r ->
+                RoomRow(r, s, me.id, onOpenRoom, listOf("Close conversation" to { act("close", r) { services.actions.hide(r.id) } }))
             }
-            if (sections.archived.isNotEmpty()) {
-                fold("Archived", sections.archived.size, showArchived) { showArchived = !showArchived }
-                if (showArchived) items(sections.archived, key = { "a" + it.id }) { r -> RoomRow(r, s, me.id, onOpenRoom, menuItems(r, Section.Archived, s, me.id, ::act, { archiving = it }, services)) }
+            collections(s.collections, "collections" in folded, { toggle("collections") }, onOpenCollection) { newCollection = true }
+            // Hidden & archived (§7.1): one fold with how many; inside, a part for each.
+            val moreCount = sections.hidden.size + sections.archived.size
+            if (moreCount > 0) {
+                fold("Hidden & archived", moreCount, showMore) { showMore = !showMore }
+                if (showMore) {
+                    if (sections.hidden.isNotEmpty()) part("Hidden", ChirkleIcons.Hide)
+                    items(sections.hidden, key = { "h" + it.id }) { r -> RoomRow(r, s, me.id, onOpenRoom, menuItems(r, Section.Hidden, s, me.id, ::act, { archiving = it }, services)) }
+                    if (sections.archived.isNotEmpty()) part("Archived", ChirkleIcons.Archive)
+                    items(sections.archived, key = { "a" + it.id }) { r -> RoomRow(r, s, me.id, onOpenRoom, menuItems(r, Section.Archived, s, me.id, ::act, { archiving = it }, services)) }
+                }
             }
         }
     }
@@ -337,7 +346,7 @@ private fun JumpRow(t: chirkle.android.data.lib.JumpTarget, s: AppState, me: Str
 @Composable
 private fun UnreadBadge(badge: Int) {
     Box(
-        Modifier.heightIn(min = 22.dp).widthIn(min = 22.dp).background(Chirkle.colors.gradient, CircleShape).padding(horizontal = 7.dp, vertical = 2.dp),
+        Modifier.heightIn(min = 24.dp).widthIn(min = 24.dp).background(Chirkle.colors.fill, CircleShape).padding(horizontal = 8.dp, vertical = 2.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
@@ -364,9 +373,9 @@ private fun LazyListScope.header(text: String) = item(key = "header-$text") {
  */
 private fun LazyListScope.collections(c: chirkle.android.data.model.Collections?, folded: Boolean, toggle: () -> Unit, onOpen: (String) -> Unit, onNew: () -> Unit) {
     item(key = "header-collections") {
-        Row(Modifier.fillMaxWidth().padding(end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             FoldTitle("Collections", folded, toggle, Modifier.weight(1f))
-            IconButton(onClick = onNew) { Icon(ChirkleIcons.Add, contentDescription = "New collection", tint = Chirkle.colors.muted) }
+            IconButton(onClick = onNew, modifier = Modifier.size(48.dp)) { Icon(ChirkleIcons.Add, contentDescription = "New collection", tint = Chirkle.colors.muted) }
         }
     }
     if (c == null) return
@@ -375,9 +384,24 @@ private fun LazyListScope.collections(c: chirkle.android.data.model.Collections?
     items(if (folded) c.subs.filter { it.new > 0 } else c.subs, key = { "s" + it.id }) { CollectionRow(it, onOpen) }
 }
 
-/** A section's heading that folds it (the web's fold buttons). */
-private fun LazyListScope.foldHeader(section: String, text: String, folded: Boolean, toggle: (String) -> Unit) = item(key = "header-$section") {
-    FoldTitle(text, folded, { toggle(section) }, Modifier.fillMaxWidth())
+/** A section's heading that folds it (the web's fold buttons), and its "+". */
+private fun LazyListScope.foldHeader(section: String, text: String, folded: Boolean, toggle: (String) -> Unit, add: String, onAdd: () -> Unit) = item(key = "header-$section") {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        FoldTitle(text, folded, { toggle(section) }, Modifier.weight(1f))
+        IconButton(onClick = onAdd, modifier = Modifier.size(48.dp)) { Icon(ChirkleIcons.Add, contentDescription = add, tint = Chirkle.colors.muted) }
+    }
+}
+
+/** A part of Hidden & archived: its icon and name, small. */
+private fun LazyListScope.part(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector) = item(key = "part-$text") {
+    Row(
+        Modifier.padding(start = 12.dp, top = 8.dp, bottom = 4.dp).semantics(mergeDescendants = true) { heading() },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(icon, contentDescription = null, tint = Chirkle.colors.dim, modifier = Modifier.size(16.dp))
+        Text(text, style = MaterialTheme.typography.labelMedium, color = Chirkle.colors.dim)
+    }
 }
 
 @Composable
@@ -385,19 +409,20 @@ private fun FoldTitle(text: String, folded: Boolean, toggle: () -> Unit, modifie
     Row(
         modifier
             .heightIn(min = 48.dp)
+            .clip(RoundedCornerShape(24.dp))
             .clickable(onClickLabel = if (folded) "Expand" else "Collapse", onClick = toggle)
-            .padding(start = 16.dp, end = 12.dp)
+            .padding(start = 12.dp, end = 12.dp)
             .semantics(mergeDescendants = true) { heading() },
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(text, style = MaterialTheme.typography.titleSmall, color = Chirkle.colors.muted)
         Icon(
             ChirkleIcons.Down,
             contentDescription = if (folded) "folded" else null,
             tint = Chirkle.colors.muted,
             modifier = Modifier.size(18.dp).rotate(if (folded) -90f else 0f),
         )
+        Text(text, style = MaterialTheme.typography.titleSmall, color = Chirkle.colors.muted)
     }
 }
 
@@ -407,14 +432,15 @@ private fun CollectionRow(c: chirkle.android.data.model.MediaCollection, onOpen:
         Modifier
             .fillMaxWidth()
             .heightIn(min = 56.dp)
+            .clip(RoundedCornerShape(16.dp))
             .clickable { onOpen(c.id) }
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .padding(horizontal = 12.dp, vertical = 8.dp)
             .semantics(mergeDescendants = true) {},
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Box(Modifier.size(40.dp).background(MaterialTheme.colorScheme.surfaceContainerHigh, CircleShape), contentAlignment = Alignment.Center) {
-            Icon(ChirkleIcons.Collection, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+        Box(Modifier.size(40.dp).background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+            Icon(ChirkleIcons.Collection, contentDescription = null, tint = Chirkle.colors.dim, modifier = Modifier.size(20.dp))
         }
         Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(c.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = if (c.new > 0) FontWeight.Bold else FontWeight.Normal, modifier = Modifier.weight(1f, fill = false))
@@ -423,7 +449,7 @@ private fun CollectionRow(c: chirkle.android.data.model.MediaCollection, onOpen:
         }
         if (c.new > 0) {
             Box(
-                Modifier.heightIn(min = 22.dp).widthIn(min = 22.dp).background(Chirkle.colors.gradient, CircleShape).padding(horizontal = 7.dp, vertical = 2.dp),
+                Modifier.heightIn(min = 24.dp).widthIn(min = 24.dp).background(Chirkle.colors.fill, CircleShape).padding(horizontal = 8.dp, vertical = 2.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
@@ -438,16 +464,25 @@ private fun CollectionRow(c: chirkle.android.data.model.MediaCollection, onOpen:
 }
 
 private fun LazyListScope.empty(text: String) = item(key = "empty-$text") {
-    Text(text, color = Chirkle.colors.muted, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+    Text(text, color = Chirkle.colors.muted, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
 }
 
+/** Hidden & archived's heading: a chevron, the name, and how many on the right. */
 private fun LazyListScope.fold(text: String, count: Int, open: Boolean, toggle: () -> Unit) = item(key = "fold-$text") {
     Row(
-        Modifier.fillMaxWidth().clickable(onClickLabel = if (open) "Collapse" else "Expand", onClick = toggle).padding(horizontal = 16.dp, vertical = 12.dp),
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .clickable(onClickLabel = if (open) "Collapse" else "Expand", onClick = toggle)
+            .padding(horizontal = 12.dp)
+            .semantics(mergeDescendants = true) { heading(); contentDescription = "$text ($count)" },
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text("$text ($count)", style = MaterialTheme.typography.titleSmall, color = Chirkle.colors.muted, modifier = Modifier.weight(1f).semantics { heading() })
-        Icon(ChirkleIcons.Down, contentDescription = null, tint = Chirkle.colors.muted, modifier = Modifier.rotate(if (open) 180f else 0f))
+        Icon(ChirkleIcons.Down, contentDescription = null, tint = Chirkle.colors.muted, modifier = Modifier.size(18.dp).rotate(if (open) 0f else -90f))
+        Text(text, style = MaterialTheme.typography.titleSmall, color = Chirkle.colors.muted, modifier = Modifier.weight(1f))
+        Text(count.toString(), style = MaterialTheme.typography.titleSmall, color = Chirkle.colors.muted, modifier = Modifier.padding(end = 4.dp))
     }
 }
 
@@ -457,30 +492,40 @@ private fun RoomRow(r: Room, s: AppState, me: String?, onOpen: (String) -> Unit,
     var open by remember { mutableStateOf(false) }
     val badge = unreadBadge(r, s.unread, s.hidden.keys, s.activeRoomId)
     val title = r.title(me)
+    val current = s.activeRoomId == r.id
     Box {
         Row(
             Modifier
                 .fillMaxWidth()
                 .heightIn(min = 56.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(if (current) Chirkle.colors.tint else androidx.compose.ui.graphics.Color.Transparent)
                 .combinedClickable(onClick = { onOpen(r.id) }, onLongClick = if (menu.isNotEmpty()) ({ open = true }) else null, onLongClickLabel = "Actions for $title")
-                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .padding(start = 12.dp, end = if (menu.isNotEmpty()) 0.dp else 12.dp, top = 8.dp, bottom = 8.dp)
                 .semantics(mergeDescendants = true) {},
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             if (r.isDm) {
                 r.otherMember(me)?.let { Avatar(it, 40.dp) }
             } else {
-                chirkle.android.ui.RoomIcon(r.visibilityOrDefault, 40.dp)
+                chirkle.android.ui.RoomIcon(Visibility.Public, 40.dp)
             }
-            Text(
-                if (r.isDm) title else r.name,
-                modifier = Modifier.weight(1f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                fontWeight = if (badge > 0) FontWeight.Bold else FontWeight.Normal,
-                color = if (r.archived) Chirkle.colors.muted else MaterialTheme.colorScheme.onSurface,
-            )
+            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    if (r.isDm) title else r.name,
+                    modifier = Modifier.weight(1f, fill = false),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    fontWeight = if (badge > 0 || current) FontWeight.SemiBold else FontWeight.Medium,
+                    color = if (r.archived) Chirkle.colors.dim else if (badge > 0 || current) MaterialTheme.colorScheme.onSurface else Chirkle.colors.muted,
+                )
+                // Private and Open Air (§23.1), after the name.
+                val v = r.visibilityOrDefault
+                if (!r.isDm && v != Visibility.Public) {
+                    Icon(v.icon(), contentDescription = v.label, tint = Chirkle.colors.dim, modifier = Modifier.size(16.dp))
+                }
+            }
             if (badge > 0) UnreadBadge(badge)
             if (menu.isNotEmpty()) {
                 // The menu opens at the button (a long press on the row opens it there too).

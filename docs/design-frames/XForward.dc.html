@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Forward dialog</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0F0D16}
+button{font:inherit}
+</style>
+</helmet>
+<div style="position: relative; width: 1440px; height: 900px; overflow: hidden; font-family: 'Inter', system-ui, sans-serif; color: #ECEAF4; font-size: 14px">
+  <dc-import name="XSelect" hint-size="1440px,900px"></dc-import>
+  <div aria-hidden="true" style="position: absolute; inset: 0; background: rgba(8,6,14,0.62)"></div>
+  <div role="dialog" aria-label="Forward 3 messages" style="position: absolute; left: 50%; top: 120px; transform: translateX(-50%); width: 460px; display: flex; flex-direction: column; border-radius: 16px; background: #1D1929; border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 24px 64px rgba(0,0,0,0.55); overflow: hidden">
+    <div style="display: flex; align-items: center; padding: 18px 16px 12px 20px">
+      <span style="flex: 1 1 auto; font-size: 17px; font-weight: 700">Forward 3 messages</span>
+      <button type="button" aria-label="Close" style="width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 8px; background: transparent; color: #A6A1B8"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+    </div>
+    <div style="padding: 0 20px 12px">
+      <label style="display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px; border-radius: 10px; background: #15121E; border: 1px solid rgba(185,166,255,0.6)">
+        <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#8F8AA5" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+        <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Forward to</span>
+        <input type="search" value="e" style="flex: 1 1 auto; min-width: 0; border: 0; background: transparent; color: #ECEAF4; font: inherit; outline: none">
+      </label>
+    </div>
+    <div role="listbox" aria-label="Forward to" style="display: flex; flex-direction: column; padding: 0 10px 10px">
+      <span style="padding: 6px 10px; font-size: 11px; font-weight: 600; color: #A6A1B8; letter-spacing: 0.02em">Direct messages</span>
+      <sc-for list="{{dms}}" as="d" hint-placeholder-count="1">
+        <button type="button" role="option" aria-selected="{{d.sel}}" style="{{d.row}}"><span style="{{d.av}}">{{d.ini}}</span><span style="flex: 1 1 auto">{{d.name}}</span></button>
+      </sc-for>
+      <span style="padding: 10px 10px 6px; font-size: 11px; font-weight: 600; color: #A6A1B8; letter-spacing: 0.02em">Rooms</span>
+      <sc-for list="{{rooms}}" as="r" hint-placeholder-count="3">
+        <button type="button" role="option" aria-selected="false" style="display: flex; align-items: center; gap: 12px; height: 44px; padding: 0 10px; border: 0; border-radius: 10px; background: transparent; color: #ECEAF4; text-align: left">
+          <span style="width: 30px; height: 30px; border-radius: 8px; background: #2A2540; color: #8F8AA5; font-weight: 700; display: flex; align-items: center; justify-content: center">#</span>
+          <span style="flex: 1 1 auto">{{r.name}}</span>
+          <sc-if value="{{r.note}}" hint-placeholder-val="{{false}}"><span style="font-size: 12px; color: #8F8AA5">{{r.note}}</span></sc-if>
+        </button>
+      </sc-for>
+      <span style="padding: 10px 10px 6px; font-size: 11px; font-weight: 600; color: #A6A1B8; letter-spacing: 0.02em">People</span>
+      <button type="button" role="option" aria-selected="false" style="display: flex; align-items: center; gap: 12px; height: 44px; padding: 0 10px; border: 0; border-radius: 10px; background: transparent; color: #ECEAF4; text-align: left">
+        <span style="width: 30px; height: 30px; border-radius: 50%; background: #F472B6; color: #3B0A24; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center">RE</span>
+        <span style="flex: 1 1 auto">Rena Ellis</span>
+        <span style="font-size: 12px; color: #8F8AA5">New conversation</span>
+      </button>
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px; padding: 12px 20px 16px; border-top: 1px solid rgba(255,255,255,0.06)">
+      <span style="flex: 1 1 auto"></span>
+      <button type="button" style="height: 36px; padding: 0 14px; border: 0; border-radius: 10px; background: transparent; color: #DCD8E8; font-weight: 600">Cancel</button>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      dms: [{ name: 'Maya Chen', ini: 'MC', bg: '#F08A5D', fg: '#2A1206', sel: true }, { name: 'Sam Rivera', ini: 'SR', bg: '#F5C04E', fg: '#2B1D00', sel: false }].map(function (d) {
+        return {
+          name: d.name, ini: d.ini, sel: d.sel,
+          row: 'display:flex;align-items:center;gap:12px;height:44px;padding:0 10px;border:0;border-radius:10px;text-align:left;color:#ECEAF4;background:' + (d.sel ? 'rgba(139,108,255,0.18)' : 'transparent') + ';',
+          av: 'width:30px;height:30px;border-radius:50%;background:' + d.bg + ';color:' + d.fg + ';font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;'
+        };
+      }),
+      rooms: [
+        { name: 'release-2.4', note: '' },
+        { name: 'general', note: '' },
+        { name: 'design', note: 'This room' },
+        { name: 'standup-notes', note: 'Hidden' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

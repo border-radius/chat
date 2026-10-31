@@ -5,9 +5,9 @@
   flex-wrap: wrap;
   gap: 0.4rem;
   /* Up to 10 files: about three rows, then it scrolls, so the composer stays on screen on a phone. */
-  max-height: 8.5rem;
-  margin: 0 0 0.5rem;
-  padding: 0;
+  max-height: 9.5rem;
+  margin: 0;
+  padding: 12px 14px 0 22px;
   overflow-y: auto;
   list-style: none;
 }

@@ -2,24 +2,27 @@
 /* Its status and results go by the people search's class names (room-list.css): only those in .room-search here
    (QA BUG-115: the forward dialog's list and the new-DM search got a 45vh scroll box of their own). */
 
-.search-toggle {
-  border: 0;
-  background: none;
+/* While it is open, the header's search button is lit (its aria-expanded). */
+.search-toggle[aria-expanded="true"] {
+  background: var(--tint);
+  color: var(--fg);
 }
 
 .room-search {
-  padding: 0.5rem 1rem;
-  border-bottom: 1px solid var(--border);
+  padding: 10px 20px 10px 28px;
+  border-bottom: 1px solid var(--line);
+  background: var(--raised);
+  box-shadow: 0 12px 24px rgb(0 0 0 / 20%);
 }
 
 .search-bar {
   display: flex;
-  gap: 0.5rem;
+  gap: 10px;
+  align-items: center;
 }
 
-.search-bar .link {
-  font-size: 1.4rem;
-  line-height: 1;
+.search-bar input {
+  height: 40px;
 }
 
 .room-search .search-status:not(:empty) {
@@ -39,6 +42,7 @@
 .search-result {
   display: block;
   width: 100%;
+  padding: 8px 10px;
   border: 0;
   border-radius: 8px;
   background: none;

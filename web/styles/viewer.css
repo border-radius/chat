@@ -10,8 +10,8 @@ dialog.viewer {
   margin: 0;
   padding: 0;
   border: 0;
-  background: #0d0b14;
-  color: #f4f2fa;
+  background: #0b0a10;
+  color: #eceaf4;
   overscroll-behavior: contain;
 }
 
@@ -63,12 +63,12 @@ dialog.viewer::backdrop {
   display: inline-grid;
   place-items: center;
   flex: none;
-  width: 2.75rem;
-  height: 2.75rem;
+  width: 2.5rem;
+  height: 2.5rem;
   padding: 0;
   border: 0;
-  border-radius: var(--pill);
-  background: rgb(255 255 255 / 12%);
+  border-radius: 10px;
+  background: rgb(255 255 255 / 7%);
   color: inherit;
   font-size: 1.5rem;
   line-height: 1;

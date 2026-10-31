@@ -11,9 +11,23 @@ test("app boots to the guest home (Open Air rooms) without console errors; Log i
   await expect(page).toHaveTitle("Chirkle");
   await expect(page.getByRole("heading", { name: "Welcome!" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Rooms" })).toContainText("Open Air rooms");
-  await page.locator("header.app-bar").getByRole("link", { name: "Log in" }).click();
+  await page.locator(".app-bar:visible, .side-foot").getByRole("link", { name: "Log in" }).click();
   await expect(page).toHaveURL(atPath("/login"));
   await expect(page.getByRole("tab", { name: "Log in" })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByLabel("Email")).toBeVisible();
   expect(errors).toEqual([]);
+});
+
+test("text is set in the app's own Inter, fetched from the app (§7.7), only the scripts a page shows", async ({ page }) => {
+  const fonts: string[] = [];
+  page.on("response", (r) => r.url().endsWith(".woff2") && fonts.push(new URL(r.url()).pathname));
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Welcome!" })).toBeVisible();
+  const loaded = await page.evaluate(async () => {
+    await document.fonts.ready;
+    return [...document.fonts].filter((f) => f.family.replace(/"/g, "") === "Inter" && f.status === "loaded").length;
+  });
+  expect(loaded).toBeGreaterThan(0);
+  expect(fonts.some((p) => /^\/assets\/inter-latin-[A-Z0-9]{8}\.woff2$/.test(p))).toBe(true);
+  expect(fonts.some((p) => p.includes("cyrillic"))).toBe(false);
 });

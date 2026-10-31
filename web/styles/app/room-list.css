@@ -6,71 +6,70 @@
   padding: 1rem;
 }
 
-.sidebar .rooms {
-  padding: 0.75rem;
-}
-
-.new-room {
+/* A section's heading: a chevron that folds it, and its "+" on the right. */
+.section-head {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  margin: 0 0 0.5rem;
-  padding: 0.5rem;
-  border-radius: var(--radius);
-  background: var(--raised);
-  box-shadow: var(--shadow);
-  animation: pop 0.25s var(--ease);
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 2px 4px 0;
 }
 
-.new-room-toggle {
-  margin-top: 0.8rem;
-  font-size: 0.8rem;
-  text-decoration: none;
+.room-section:first-child .section-head {
+  padding-top: 10px;
 }
 
-@media (hover: hover) {
-  button.new-room-toggle:hover:not(:disabled) {
-    background: var(--tint);
-  }
+.room-section h2 {
+  font-size: inherit;
 }
 
-.new-room input {
-  flex: 1;
-  width: auto;
-  min-width: 0;
-}
-
-.new-room .field-error {
-  flex-basis: 100%;
-}
-
-.room-section h2,
+.fold,
 .room-section > summary {
-  margin: 1.1rem 0 0.3rem 0.5rem;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  height: 28px;
+  padding: 0 8px 0 4px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--dim);
   font-size: 0.75rem;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--muted);
+  font-weight: 600;
+  letter-spacing: 0;
+  list-style: none;
   cursor: pointer;
 }
 
-/* A heading that folds its section, marked like the Hidden and Archived summaries. */
-.fold {
-  padding: 0;
-  border: 0;
-  background: none;
-  font-weight: inherit;
-  letter-spacing: inherit;
-  text-transform: inherit;
+.room-section > summary::-webkit-details-marker {
+  display: none;
 }
 
-.fold::before {
-  content: "▾ ";
+.fold::before,
+.room-section > summary::before {
+  width: 12px;
+  height: 12px;
+  transition: transform 0.15s;
 }
 
-.fold[aria-expanded="false"]::before {
-  content: "▸ ";
+.fold[aria-expanded="false"]::before,
+.room-section:not([open]) > summary::before {
+  transform: rotate(-90deg);
+}
+
+.section-head .icon-button {
+  width: 26px;
+  height: 26px;
+  color: var(--dim);
+}
+
+.section-head .icon-button::before {
+  width: 15px;
+  height: 15px;
+}
+
+.section-head .icon-button[aria-expanded="true"] {
+  background: var(--tint);
+  color: var(--accent);
 }
 
 .room-section ul {
@@ -84,8 +83,7 @@
   display: flex;
   align-items: center;
   margin: 2px 0;
-  border-radius: var(--radius);
-  transition: background-color 0.15s;
+  border-radius: 8px;
 }
 
 @media (hover: hover) {
@@ -97,68 +95,262 @@
 .room-section li a {
   display: flex;
   flex: 1;
-  gap: 0.3rem;
+  gap: 10px;
   align-items: center;
   min-width: 0;
-  padding: 0.45rem 0.6rem;
-  overflow: hidden;
-  color: inherit;
+  height: 34px;
+  padding: 0 10px;
+  color: var(--muted);
   font-weight: 500;
   text-decoration: none;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .room-section li a::before {
   content: "#";
-  color: var(--muted);
-  font-weight: 800;
+  width: 16px;
+  color: var(--dim);
+  font-weight: 600;
+  text-align: center;
 }
 
-/* DM rows (§16.5): avatar + name, no "#". */
-.room-section li.dm a {
-  gap: 0.5rem;
+.more-body li a {
+  height: 32px;
+  color: var(--dim);
+}
+
+/* DM and collection rows: an avatar or icon instead of "#", a little taller. */
+.room-section li.dm a,
+.room-section[data-section="collections"] li a {
+  height: 36px;
 }
 
 .room-section li.dm a::before {
   content: none;
 }
 
-/* The name; the "#" and the badge stay visible however long it is. */
-.room-section li a > span:not(.avatar, .badge) {
+/* The name; the icons and the badge stay visible however long it is. */
+.room-section li a > span:not(.avatar, .badge, .vis, .owner, .ci) {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-/* Unread (§18.4): bold name plus a count. */
+/* Unread (§18.4): the name in full color and bold, plus a count. */
 .room-section li a.unread {
-  font-weight: 700;
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.room-section li a[aria-current="page"] {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.room-section li a[aria-current="page"]::before {
+  color: var(--accent);
+}
+
+.room-section li:has(a[aria-current="page"]) {
+  background: var(--tint);
+}
+
+/* Private and Open Air (§23.1). */
+.room-section li a > .vis {
+  color: var(--dim);
+}
+
+.room-section li a > .vis::before {
+  width: 14px;
+  height: 14px;
 }
 
 .badge {
   flex: none;
-  min-width: 1.4rem;
+  min-width: 20px;
   margin-left: auto;
-  padding: 0 0.4rem;
-  border-radius: var(--pill);
-  background: var(--grad);
+  padding: 0 6px;
+  border-radius: 10px;
+  background: var(--fill);
   color: #fff;
-  font-size: 0.75rem;
-  font-weight: 800;
-  line-height: 1.4rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 20px;
   text-align: center;
 }
 
-.section-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+/* A row's ⋯ (and Unhide, Unarchive) shows while pointing at the row or using it from the keyboard. */
+.room-section li > .menu > summary,
+.row-action {
+  margin-right: 4px;
 }
 
-.new-dm {
-  margin-top: 0.75rem;
-  padding: 0 0.5rem;
-  line-height: 1.4;
+@media (hover: hover) {
+  .room-section li > .menu:not([open]) > summary,
+  .room-section li > .row-action {
+    position: absolute;
+    right: 0;
+    opacity: 0;
+  }
+
+  .room-section li:hover > .menu > summary,
+  .room-section li:focus-within > .menu > summary,
+  .room-section li:hover > .row-action,
+  .room-section li:focus-within > .row-action {
+    position: static;
+    opacity: 1;
+  }
+}
+
+.row-action {
+  flex: none;
+  height: 26px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--hover);
+  font-size: 0.75rem;
+}
+
+/* Hidden & archived: the count on the right; inside, a part for each, quieter than the rooms. */
+.room-section[data-section="more"] > summary {
+  justify-content: flex-start;
+  margin-top: 14px;
+  padding-right: 10px;
+}
+
+.room-section[data-section="more"] .count {
+  margin-left: auto;
+}
+
+.more-body {
+  margin: 2px 0 4px;
+  padding: 2px 0 6px;
+  border-radius: 10px;
+  background: var(--hover);
+}
+
+.more-part h3 {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 0;
+  padding: 8px 10px 4px;
+  color: var(--dim);
+  font-size: 0.6875rem;
+  font-weight: 600;
+}
+
+.more-part h3::before {
+  width: 13px;
+  height: 13px;
+}
+
+.empty {
+  color: var(--muted);
+}
+
+.more-body .empty {
+  margin: 0;
+  padding: 8px 10px;
+}
+
+/* The new-room form, in place under Rooms. */
+.new-room {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 2px 2px 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--raised);
+  animation: pop 0.25s var(--ease);
+}
+
+.name-field {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--dim);
+  font-weight: 600;
+}
+
+.name-field input {
+  padding: 0;
+  border: 0;
+  background: none;
+  outline: none;
+  color: var(--fg);
+  font-weight: 400;
+}
+
+/* A segmented choice (who can see a new room). */
+.seg {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2px;
+  margin: 0;
+  padding: 2px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.seg label {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.seg label::before {
+  width: 12px;
+  height: 12px;
+}
+
+.seg label:has(:checked) {
+  background: var(--hover);
+  color: var(--fg);
+}
+
+.seg label:has(:focus-visible) {
+  outline: 2px solid var(--accent);
+}
+
+.new-room .hint {
+  margin: 0 2px;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.form-buttons {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.form-buttons button {
+  height: 32px;
+  padding: 0 12px;
+  font-size: 0.8125rem;
+}
+
+.form-buttons .cancel {
+  border-color: transparent;
+  background: none;
 }
 
 .user-search {
@@ -195,32 +387,4 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.room-section li a[aria-current="page"] {
-  font-weight: 700;
-}
-
-.room-section li a[aria-current="page"]::before {
-  color: var(--accent);
-}
-
-/* The current room: tinted row plus a gradient pip on the left. */
-.room-section li:has(a[aria-current="page"]) {
-  background: var(--tint);
-}
-
-.room-section li:has(a[aria-current="page"])::after {
-  content: "";
-  position: absolute;
-  top: 25%;
-  left: -0.75rem;
-  width: 4px;
-  height: 50%;
-  border-radius: 0 4px 4px 0;
-  background: var(--grad);
-}
-
-.empty {
-  color: var(--muted);
 }

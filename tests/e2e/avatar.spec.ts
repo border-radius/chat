@@ -8,12 +8,12 @@ test("an avatar set on the profile page shows next to your messages for others (
   const room = await apiRoom(ada);
 
   await login(page, ada);
-  await page.locator("header.app-bar a.me-link").click();
-  await expect(page.getByRole("heading", { name: "Your profile" })).toBeVisible();
+  await page.locator("a.me-link:visible").click();
+  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
   await expect(page.locator(".profile-picture .avatar")).toHaveText("AL");
   await page.locator(".profile input[type=file]").setInputFiles({ name: "me.png", mimeType: "image/png", buffer: Buffer.from(PNG) });
   await expect(page.locator(".profile-picture img.avatar")).toHaveAttribute("src", /thumb=96x96/);
-  await expect(page.locator("header.app-bar img.avatar")).toBeVisible();
+  await expect(page.locator("a.me-link:visible img.avatar")).toBeVisible();
   await expect(page.getByRole("button", { name: "Remove" })).toBeVisible();
 
   const b = await openRoom(browser, bob, room);

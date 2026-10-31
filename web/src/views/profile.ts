@@ -271,31 +271,36 @@ export function createProfileView({ api, store, logOut, notify }: Pick<Ctx, "api
 
       const shell = h("section", { class: "profile", "aria-labelledby": `${vid}-title` }, [
         h("header", { class: "room-header" }, [
-          h("a", { href: "/", class: "back", "aria-label": "Back to rooms" }, "← Rooms"),
-          h("h1", { id: `${vid}-title` }, "Your profile"),
+          h("a", { href: "/", class: "back ic i-back", "aria-label": "Back to rooms" }),
+          h("h1", { id: `${vid}-title` }, "Settings"),
         ]),
+        // A card for each: the picture and name, Appearance, Notifications, Password, Session.
         h("div", { class: "profile-body" }, [
-          h("h2", {}, "Picture"),
-          h("div", { class: "profile-avatar" }, [
-            picture,
-            h("div", { class: "profile-avatar-actions" }, [fileInput, changeLabel, removeBtn]),
+          h("section", { class: "card", "aria-label": "Profile" }, [
+            h("div", { class: "profile-avatar" }, [
+              picture,
+              h("div", {}, [
+                h("h2", {}, "Profile picture"),
+                h("div", { class: "profile-avatar-actions" }, [fileInput, changeLabel, removeBtn]),
+              ]),
+            ]),
+            avatarError,
+            h("form", { class: "profile-name", on: { submit: (e) => void rename(e) }, signal }, [
+              h("label", { for: `${vid}-name` }, "Display name"),
+              h("div", { class: "row" }, [nameInput, saveBtn]),
+              nameStatus,
+            ]),
           ]),
-          avatarError,
-          h("form", { class: "profile-name", on: { submit: (e) => void rename(e) }, signal }, [
-            h("label", { for: `${vid}-name` }, "Display name"),
-            h("div", { class: "row" }, [nameInput, saveBtn]),
-            nameStatus,
-          ]),
-          h("fieldset", { class: "profile-theme", "aria-describedby": `${vid}-theme-hint` }, [
+          h("fieldset", { class: "card profile-theme", "aria-describedby": `${vid}-theme-hint` }, [
             h("legend", {}, "Appearance"),
-            themeChoices,
             h("p", { id: `${vid}-theme-hint`, class: "field-status" }, "Auto follows your system. Saved on this device."),
+            themeChoices,
           ]),
           notifyBox,
           h(
             "form",
             {
-              class: "profile-password",
+              class: "card profile-password",
               "aria-labelledby": `${vid}-pw-title`,
               novalidate: true, // the errors are ours, next to each field
               on: { submit: (e) => void changePassword(e) },
@@ -303,8 +308,11 @@ export function createProfileView({ api, store, logOut, notify }: Pick<Ctx, "api
             },
             [h("h2", { id: `${vid}-pw-title` }, "Password"), pw.current.el, pw.next.el, pw.confirm.el, pwBtn, pwStatus],
           ),
-          h("section", { class: "profile-session", "aria-labelledby": `${vid}-session-title` }, [
-            h("h2", { id: `${vid}-session-title` }, "Session"),
+          h("section", { class: "card profile-session", "aria-labelledby": `${vid}-session-title` }, [
+            h("div", {}, [
+              h("h2", { id: `${vid}-session-title` }, "Session"),
+              h("p", { class: "field-status" }, `Signed in as ${me()?.name ?? ""} on this device.`),
+            ]),
             h("button", { type: "button", class: "danger", on: { click: () => logOut() }, signal }, "Log out"),
           ]),
         ]),

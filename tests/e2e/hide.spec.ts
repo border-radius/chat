@@ -13,7 +13,7 @@ test("hiding a room is personal; a hidden room still opens by URL; unhide restor
   await headerAction(a, "Hide room");
   await expect(inSection(a, "rooms")).toHaveCount(0);
   await expect(inSection(a, "hidden")).toHaveCount(1);
-  await expect(a.locator('aside.sidebar [data-section="hidden"] > summary')).toContainText("Hidden (1)");
+  await expect(a.locator('aside.sidebar [data-section="more"] > summary')).toHaveText(/^Hidden & archived[1-9]/);
 
   // Bob is unaffected
   await expect(inSection(b, "rooms")).toBeVisible();

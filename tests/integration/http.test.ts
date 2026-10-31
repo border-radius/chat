@@ -11,6 +11,7 @@ describe("security and cache headers (§5.6)", () => {
     await mkdir(join(pub, "assets"), { recursive: true });
     await writeFile(join(pub, "index.html"), "<!doctype html><title>Chirkle</title>");
     await writeFile(join(pub, "assets/app-TEST1234.js"), "console.log(1)");
+    await writeFile(join(pub, "assets/inter-TEST1234.woff2"), "wOF2");
     await writeFile(join(pub, "assets/app.js"), "console.log(2)"); // unhashed, as written by npm run dev
     await writeFile(join(pub, "sw.js"), "console.log(3)");
   });
@@ -45,10 +46,12 @@ describe("security and cache headers (§5.6)", () => {
     expect(admin).not.toBe(app);
   });
 
-  it("hashed assets are cached immutably", async () => {
-    const res = await fetch(url("/assets/app-TEST1234.js"));
-    expect(res.status).toBe(200);
-    expect(res.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+  it("hashed assets (the fonts too) are cached immutably", async () => {
+    for (const path of ["/assets/app-TEST1234.js", "/assets/inter-TEST1234.woff2"]) {
+      const res = await fetch(url(path));
+      expect(res.status, path).toBe(200);
+      expect(res.headers.get("cache-control"), path).toBe("public, max-age=31536000, immutable");
+    }
   });
 
   it("unhashed assets (dev build) are not cached, so rebuilds show up on reload", async () => {

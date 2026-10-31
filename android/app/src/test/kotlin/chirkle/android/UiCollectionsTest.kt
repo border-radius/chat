@@ -1,5 +1,6 @@
 package chirkle.android
 
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasSetTextAction
@@ -58,8 +59,8 @@ class UiCollectionsTest {
         val name = "Keep ${uniq()}"
         ui.signedIn(a)
         ui.showRoom(room.name)
-        compose.onNodeWithContentDescription("New").performClick()
-        compose.onNodeWithText("New collection").performClick()
+        ui.reveal(hasContentDescription("New collection"))
+        compose.onNodeWithContentDescription("New collection").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
         compose.onNode(hasSetTextAction()).performTextInput(name)
         compose.onNodeWithText("Create").performClick()
         ui.waitFor("Nothing here yet. Upload images and videos")

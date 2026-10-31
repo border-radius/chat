@@ -96,7 +96,7 @@ describe("room access UI (§23)", () => {
       await me.api.setAccess(room.id, "private", [bob.user.id]);
       const mine = await mountRoom(room);
       expect(menuItems(mine)).toContain("Room access…");
-      expect(mine.querySelector("header.room-header h1")!.textContent).toBe(`#${room.name}🔒 Private`);
+      expect(mine.querySelector("header.room-header h1")!.textContent).toBe(`#${room.name}Private`);
 
       const bobStore = createStore<AppState>({ ...initialState(), user: bob.user });
       const theirs = await mountRoom(room, bob.api, bobStore);
@@ -343,15 +343,16 @@ describe("room access UI (§23)", () => {
       view.mount(root, {});
       await vi.waitFor(() => expect(root.querySelector(`[data-room-id="${pub.id}"]`)).not.toBeNull());
       const mark = (r: Room) => root.querySelector(`[data-room-id="${r.id}"] .vis`)?.textContent ?? null;
-      expect(mark(priv)).toBe("🔒 (Private)");
-      expect(mark(open)).toBe("🌐 (Open Air)");
+      // An icon, named for screen readers.
+      expect(mark(priv)).toBe(" (Private)");
+      expect(mark(open)).toBe(" (Open Air)");
       expect(mark(pub)).toBeNull();
 
       root.querySelector<HTMLButtonElement>("button.new-room-toggle")!.click();
       const form = root.querySelector<HTMLFormElement>("form.new-room")!;
       const name = `made-${uniq()}`;
       form.querySelector<HTMLInputElement>("input[name=name]")!.value = name;
-      form.querySelector<HTMLSelectElement>("select[name=visibility]")!.value = "private";
+      form.querySelector<HTMLInputElement>("input[name=visibility][value=private]")!.click();
       form.requestSubmit();
       await vi.waitFor(() => expect([...store.get().rooms.values()].find((r) => r.name === name)?.visibility).toBe("private"));
     });

@@ -9,25 +9,101 @@
 .room-header {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: 4px;
   align-items: center;
-  padding: 0.75rem 1rem;
-  border-bottom: 1px solid var(--border);
+  min-height: 64px;
+  padding: 0 20px 0 28px;
+  border-bottom: 1px solid var(--line);
 }
 
 .room-header h1 {
+  display: flex;
   flex: 1;
+  gap: 10px;
+  align-items: center;
   min-width: 0;
+  font-size: 1.125rem;
+}
+
+.day span {
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.previews span {
   overflow: hidden;
-  font-size: 1.15rem;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.room-header h1 .name,
+.room-header h1.dm-title span {
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.room-header h1.dm-title {
-  display: flex;
-  gap: 0.5rem;
+.room-header .hash {
+  width: auto;
+  margin-right: 2px;
+  color: var(--dim);
+  font-weight: 600;
+}
+
+/* Private or Open Air, next to the name. */
+.vis-badge {
+  display: inline-flex;
+  flex: none;
+  gap: 5px;
   align-items: center;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 12px;
+  background: var(--hover);
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.vis-badge::before {
+  width: 12px;
+  height: 12px;
+}
+
+/* A private room's members: overlapping faces and a count. */
+.room-members {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  height: 36px;
+  margin-right: 8px;
+  padding: 0 10px 0 6px;
+  border: 0;
+  border-radius: 18px;
+  background: none;
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+.faces {
+  display: flex;
+}
+
+.faces .avatar {
+  border: 2px solid var(--bg);
+  box-sizing: content-box;
+}
+
+.msg > .avatar {
+  position: absolute;
+  top: 8px;
+  left: 28px;
+}
+
+.faces .avatar + .avatar {
+  margin-left: -8px;
 }
 
 .room-header .room-error {
@@ -43,11 +119,19 @@
 }
 
 .back {
-  padding: 0.2rem 0.6rem;
-  border-radius: var(--pill);
-  background: var(--tint);
-  font-weight: 700;
-  text-decoration: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin-left: -16px;
+  border-radius: 12px;
+  color: var(--muted);
+}
+
+.back::before {
+  width: 22px;
+  height: 22px;
 }
 
 .room-body {
@@ -64,7 +148,7 @@
   overflow-y: auto;
   overflow-anchor: auto;
   margin: 0;
-  padding: 0.5rem 1rem 1rem;
+  padding: 12px 0 8px;
   list-style: none;
 }
 
@@ -90,19 +174,19 @@
 /* The date sits in a chip on the line. */
 .day {
   display: flex;
-  gap: 0.75rem;
+  gap: 12px;
   align-items: center;
-  margin: 1rem 0 0.25rem;
-  font-size: 0.75rem;
-  font-weight: 700;
+  margin: 8px 28px 4px;
   color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 600;
 }
 
 .day::before,
 .day::after {
   content: "";
   flex: 1;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--line);
 }
 
 /* A service message (§5.3): the app's own line. */
@@ -114,39 +198,42 @@
 /* Room on the left for the author's avatar, which only group starts show (§15.4). */
 .msg {
   position: relative;
-  padding: 0.15rem 0.5rem 0.15rem calc(0.5rem + 40px + 0.75rem);
-  border-radius: var(--radius);
+  padding: 2px 28px 2px calc(28px + 36px + 14px);
+  color: var(--text);
+  line-height: 1.55;
   transition: background-color 0.1s;
 }
 
-.msg > .avatar {
-  position: absolute;
-  top: 0.25rem;
-  left: 0.5rem;
+/* A reply's quote is above the name: the avatar goes down with the name. */
+.msg.group-start > .reply-quote ~ .avatar {
+  top: 30px;
 }
 
 .msg.group-start {
-  min-height: calc(40px + 0.4rem);
-  margin-top: 0.75rem;
+  min-height: 50px;
+  padding-top: 6px;
+  margin-top: 6px;
 }
 
 @media (hover: hover) {
   .msg:hover {
-    background: var(--hover);
+    background: color-mix(in srgb, var(--fill) 7%, transparent);
   }
 }
 
 .meta {
   display: flex;
-  gap: 0.5rem;
+  gap: 8px;
   align-items: baseline;
   min-width: 0;
+  line-height: 1.5;
 }
 
 .author {
   min-width: 0;
   overflow: hidden;
-  font-weight: 700;
+  color: var(--fg);
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -192,7 +279,7 @@
 .hint,
 .counter {
   font-size: 0.75rem;
-  color: var(--muted);
+  color: var(--dim);
 }
 
 .body {
@@ -214,22 +301,31 @@
   color: var(--muted);
 }
 
-/* Link previews (§28): a line per link under the message, its favicon and title. */
+/* Link previews (§28): a chip per link under the message, its favicon and title. */
 .previews {
-  margin: 0.25rem 0 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 6px 0 2px;
   padding: 0;
   list-style: none;
-  font-size: 0.85rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.previews li {
+  max-width: 100%;
 }
 
 .previews a {
   display: flex;
-  gap: 0.4rem;
+  gap: 8px;
   align-items: center;
-}
-
-.previews span {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  height: 32px;
+  padding: 0 12px 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+  text-decoration: none;
 }

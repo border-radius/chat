@@ -6,45 +6,69 @@
   font-style: italic;
 }
 
+/* Selecting: a checkbox in front of each message, the avatar after it. */
 .messages.selecting .msg {
-  padding-right: 2.5rem;
+  padding-left: calc(28px + 32px + 36px + 14px);
   cursor: pointer;
   user-select: none;
 }
 
+.messages.selecting .msg > .avatar {
+  left: 60px;
+}
+
 .msg > .select {
   position: absolute;
-  top: 0.4rem;
-  right: 0.75rem;
-  width: 1.15rem;
-  height: 1.15rem;
+  top: 17px;
+  left: 28px;
+  width: 18px;
+  height: 18px;
   padding: 0;
-  accent-color: var(--accent);
+  accent-color: var(--fill);
+}
+
+.msg:not(.group-start) > .select {
+  top: 6px;
 }
 
 .msg.selected {
   background: var(--tint);
 }
 
+/* In place of the composer. */
 .selection-bar {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: 8px;
   align-items: center;
-  padding: 0.6rem 1rem calc(0.9rem + env(safe-area-inset-bottom));
+  min-height: 68px;
+  padding: 8px 16px calc(8px + env(safe-area-inset-bottom)) 24px;
+  border-top: 1px solid var(--line);
+  background: var(--raised);
 }
 
 .selection-bar > span {
   flex: 1;
-  font-weight: 700;
+  font-weight: 600;
 }
 
-dialog.forward {
-  width: min(26rem, calc(100% - 2rem));
-  max-height: min(32rem, 85vh);
-  padding: 1rem;
+.selection-bar button {
+  height: 38px;
+}
+
+.selection-bar button:not(.primary, .danger) {
+  border-color: transparent;
+  background: none;
+}
+
+/* Dialogs: a raised card over a dimmed page. */
+dialog.forward,
+dialog.access {
+  width: min(30rem, calc(100% - 2rem));
+  max-height: min(36rem, 85vh);
+  padding: 20px 24px;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: 16px;
   background: var(--raised);
   color: var(--fg);
   box-shadow: var(--shadow);
@@ -53,11 +77,12 @@ dialog.forward {
 dialog.forward[open] {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 10px;
 }
 
-dialog.forward::backdrop {
-  background: rgb(0 0 0 / 45%);
+dialog.forward::backdrop,
+dialog.access::backdrop {
+  background: rgb(8 6 14 / 66%);
 }
 
 .forward-list {
@@ -65,14 +90,42 @@ dialog.forward::backdrop {
   overflow-y: auto;
 }
 
+.switcher > .search-status,
+.switcher .forward-list {
+  margin: 0 8px;
+}
+
 dialog.forward.busy .forward-list {
   opacity: 0.6;
   pointer-events: none;
 }
 
-/* Jump to (§32): the forward dialog's look, an option chosen with the arrow keys shown as hovered. */
+/* Jump to (§32): high on the page, a big field over the list; an option chosen with the arrow keys shown as hovered. */
+dialog.switcher {
+  width: min(35rem, calc(100% - 2rem));
+  margin-top: 140px;
+  padding: 0 0 8px;
+}
+
+.switcher > input {
+  height: 60px;
+  padding: 0 20px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: none;
+  outline: none;
+  font-size: 1.0625rem;
+}
+
+.switcher > .search-status:empty {
+  display: none;
+}
+
 .switcher .person {
-  padding: 0.4rem 0.9rem;
+  height: 44px;
+  padding: 0 10px;
+  border-radius: 8px;
   cursor: pointer;
 }
 
@@ -96,15 +149,8 @@ dialog.forward .cancel {
 .hash {
   flex: none;
   width: 24px;
-  color: var(--muted);
-  font-weight: 800;
-  text-align: center;
-}
-
-.archived-banner {
-  margin: 0;
-  padding: 0.9rem 1rem;
-  color: var(--muted);
+  color: var(--dim);
+  font-weight: 600;
   text-align: center;
 }
 

@@ -72,7 +72,7 @@ describe("room view", () => {
       const parent = await me.api.send({ id: newId(), room: room.id, text: "first" });
       await mount(room);
       button(msgEl(parent.id), "Reply")!.click();
-      button(replyBar(), "×")!.click();
+      button(replyBar(), "Cancel reply")!.click();
       expect(replyBar().hidden).toBe(true);
       button(msgEl(parent.id), "Reply")!.click();
       key(composer()!, "Escape");

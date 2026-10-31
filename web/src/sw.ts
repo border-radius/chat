@@ -3,7 +3,7 @@
 //
 // - Pages: network first, so a deploy shows on the next load; offline, the last page loaded (index.html: every page
 //   of the app is the same shell, §7.1).
-// - Content-hashed assets (/assets/*-HASH.js|css): cache first; they never change under one name.
+// - Content-hashed assets (/assets/*-HASH.js|css|woff2): cache first; they never change under one name.
 // - Attachment thumbnails and video posters (§30.1): cache first, kept under their URL without the file token (§17.3). The token changes every
 //   few minutes, so the browser's own cache, keyed by the whole URL, misses on every room switch.
 // - Everything else, the API and realtime included, is left to the browser: no stale data, no other cached files.
@@ -48,7 +48,7 @@ const CACHE = "chat-shell";
 /** The key the last page is kept under. */
 const SHELL = "/";
 /** esbuild's "[name]-[hash]" names; the server caches these for a year too (§5.6). Dev builds are unhashed. */
-const HASHED = /^\/assets\/.+-[A-Z0-9]{8}\.(js|css)$/;
+const HASHED = /^\/assets\/.+-[A-Z0-9]{8}\.(js|css|woff2)$/;
 
 /** Thumbnails; app.ts deletes this cache when a session ends. */
 const FILES = "chat-files";

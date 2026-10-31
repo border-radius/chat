@@ -20,7 +20,7 @@ test("pages are paths: opened directly, followed in the app without reloading, B
   await page.locator(`aside.sidebar a[href="/r/${two.id}"]`).click();
   await expect(title(page)).toHaveText(`#${two.name}`);
   await expect(page).toHaveURL(atPath(`/r/${two.id}`));
-  await page.locator("header.app-bar a.me-link").click();
+  await page.locator("a.me-link:visible").click();
   await expect(page).toHaveURL(atPath("/me"));
 
   await page.goBack();

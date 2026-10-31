@@ -1,67 +1,88 @@
-/* ---- Login: a card floating on colorful blobs ---- */
+/* ---- Login: the logo and the site's name over a card with the Log in / Sign up tabs and the form ---- */
 
 .app-main:has(> .auth) {
-  background:
-    radial-gradient(circle at 15% 20%, rgb(106 75 255 / 35%), transparent 40%),
-    radial-gradient(circle at 85% 75%, rgb(196 42 124 / 30%), transparent 45%),
-    radial-gradient(circle at 70% 10%, rgb(20 184 166 / 22%), transparent 35%), var(--bg);
+  display: flex;
+  background: var(--page, var(--bg));
 }
 
 .auth {
-  max-width: 24rem;
-  margin: 10vh auto 2rem;
-  padding: 2rem 1.5rem;
-  border-radius: 1.5rem;
-  background: var(--raised);
-  box-shadow: var(--shadow);
-  animation: pop 0.4s var(--ease);
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  width: 100%;
+  max-width: 420px;
+  margin: auto;
+  padding: 2rem 1rem;
+}
+
+.auth h1 {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  align-items: center;
+  font-size: 1.625rem;
+  text-align: center;
+}
+
+/* The logo: the brand's bubble (the site's own image when it has one, §24). */
+.auth h1:not(.has-logo)::before {
+  content: "";
+  width: 56px;
+  height: 56px;
+  border-radius: 50% 50% 50% 28%;
+  background: linear-gradient(135deg, #7a5af8, #a43fd0 55%, #d2389e);
 }
 
 .auth h1 .brand-logo {
   display: block;
   height: 4rem;
   max-width: 12rem;
-  margin: 0 auto 0.5rem;
 }
 
-.auth h1 {
-  margin-bottom: 1.25rem;
-  background: var(--grad);
-  background-clip: text;
-  color: transparent;
-  font-size: 2.25rem;
-  letter-spacing: -0.03em;
-  text-align: center;
+.auth-card {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--raised);
+  animation: pop 0.4s var(--ease);
 }
 
 .tabs {
-  display: flex;
-  gap: 0.25rem;
-  margin-bottom: 1.25rem;
-  padding: 0.25rem;
-  border-radius: var(--pill);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
   background: var(--surface);
 }
 
 [role="tab"] {
-  flex: 1;
+  height: 36px;
   border: 0;
+  border-radius: 8px;
   background: none;
   color: var(--muted);
 }
 
 [role="tab"][aria-selected="true"] {
-  background: var(--raised);
+  background: var(--hover);
   color: var(--fg);
-  box-shadow: 0 1px 4px rgb(0 0 0 / 12%);
 }
 
 .field {
-  margin-bottom: 0.9rem;
+  margin-bottom: 14px;
+}
+
+.field input {
+  height: 42px;
 }
 
 .auth-form button[type="submit"] {
   width: 100%;
-  margin-top: 0.5rem;
-  padding: 0.65rem;
+  height: 44px;
+  margin-top: 4px;
+  font-size: 0.9375rem;
 }

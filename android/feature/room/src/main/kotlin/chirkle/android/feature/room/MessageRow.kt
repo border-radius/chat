@@ -118,6 +118,8 @@ fun MessageRow(
     val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     val threshold = with(androidx.compose.ui.platform.LocalDensity.current) { SWIPE_REPLY.toPx() }
     val canSwipe = actions.onSwipeReply != null && !selecting && m.status == null && !m.deleted
+    // A reply to one of my messages, by someone else: a tinted card (the web's .to-me).
+    val toMe = me != null && m.author != me && m.replyTo.isNotEmpty() && m.expand?.replyTo?.author == me
     Box {
         if (canSwipe && swipe.value > 0f) {
             Icon(
@@ -140,6 +142,7 @@ fun MessageRow(
             Modifier
                 .fillMaxWidth()
                 .offset { androidx.compose.ui.unit.IntOffset(swipe.value.toInt(), 0) }
+                .then(if (toMe) Modifier.padding(start = 8.dp, end = 8.dp, top = 4.dp).clip(RoundedCornerShape(16.dp)).background(Chirkle.colors.own) else Modifier)
                 .then(
                     if (!canSwipe) Modifier else Modifier.pointerInput(m.id) {
                         var armed = false
@@ -170,7 +173,7 @@ fun MessageRow(
                     onLongClick = { actions.onLongPress(m) },
                     onLongClickLabel = "Message actions",
                 )
-                .padding(start = 12.dp, end = 12.dp, top = if (first) 10.dp else 1.dp, bottom = 1.dp)
+                .padding(start = if (toMe) 4.dp else 12.dp, end = if (toMe) 4.dp else 12.dp, top = if (first || toMe) 10.dp else 1.dp, bottom = if (toMe) 10.dp else 1.dp)
                 .semantics { if (selecting) stateDescription = if (selected) "Selected" else "Not selected" },
         ) {
             if (selecting) {

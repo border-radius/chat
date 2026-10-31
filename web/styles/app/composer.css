@@ -14,8 +14,17 @@
 .confirm button,
 .send-error button,
 .msg-error button {
-  padding: 0.1rem 0.6rem;
-  font-size: 0.8rem;
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--hover);
+  font-size: 0.75rem;
+}
+
+.confirm .danger {
+  background: var(--danger);
+  color: var(--bg);
 }
 
 .edit-input {
@@ -44,85 +53,99 @@
   display: none;
 }
 
+/* "N new messages" / "Jump to latest": a raised pill over the bottom of the list. */
 .new-messages {
   position: absolute;
-  bottom: 0.75rem;
+  bottom: 16px;
   left: 50%;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  height: 36px;
+  padding: 0 14px 0 12px;
+  border-radius: 18px;
+  background: var(--raised);
+  box-shadow: var(--shadow);
+  font-size: 0.8125rem;
   transform: translateX(-50%);
-  border: 0;
   animation: pop 0.3s var(--ease);
+}
+
+.new-messages::before {
+  width: 14px;
+  height: 14px;
 }
 
 .new-messages:active:not(:disabled) {
   transform: translateX(-50%) scale(0.95);
 }
 
-/* Scrolled away from the newest messages, with nothing new below (§22.7): quieter than "New messages". */
-.new-messages.jump {
-  background: var(--raised);
-  color: var(--fg);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow);
-}
-
-@media (hover: hover) {
-  .new-messages.jump:hover:not(:disabled) {
-    background: var(--hover);
-    filter: none;
-  }
-}
-
+/* The composer: a flat bar along the bottom; replying and attachments show in strips above it, menus float over the
+   messages. */
 .composer {
-  padding: 0.25rem 1rem calc(0.9rem + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
-/* The input row is one rounded capsule: attach, text, send. */
 .composer-row {
   display: flex;
-  gap: 0.4rem;
+  gap: 4px;
   align-items: flex-end;
-  padding: 0.3rem;
-  border: 2px solid var(--border);
-  border-radius: 1.4rem;
-  background: var(--raised);
-  transition:
-    border-color 0.15s,
-    box-shadow 0.15s;
+  min-height: 68px;
+  padding: 14px 14px 14px 12px;
 }
 
-.composer-row:focus-within {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 4px var(--tint);
+.composer-row > button,
+.composer-row > .menu > summary {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
 }
 
-.composer .attach {
-  flex: none;
-  width: 2.25rem;
-  height: 2.25rem;
-  padding: 0;
-  border: 0;
-  background: var(--hover);
-  font-size: 1.2rem;
-  font-weight: 700;
-  line-height: 1;
-}
-
-@media (hover: hover) {
-  .composer .attach:hover:not(:disabled) {
-    background: var(--tint);
-    color: var(--accent);
-    transform: rotate(90deg);
-  }
-}
-
-.composer .emoji-button {
-  flex: none;
-  width: 2.25rem;
-  height: 2.25rem;
-  padding: 0;
+.composer textarea {
+  align-self: center;
+  min-height: 40px;
+  padding: 9px 6px;
   border: 0;
   background: none;
-  color: var(--muted);
-  font-size: 1.35rem;
-  line-height: 1;
+  outline: none;
+  resize: none;
+}
+
+.composer .menu[open] > summary {
+  background: var(--tint);
+  color: var(--accent);
+}
+
+/* The attach menu opens upwards. */
+.composer .menu-items {
+  top: auto;
+  right: auto;
+  bottom: calc(100% + 8px);
+  left: 0;
+  transform-origin: bottom left;
+}
+
+.composer .send {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.composer .send::before {
+  width: 17px;
+  height: 17px;
+}
+
+/* Nothing to send yet: dimmed. */
+.composer .send:disabled {
+  opacity: 1;
+  background: color-mix(in srgb, var(--fill) 25%, transparent);
+  color: color-mix(in srgb, #fff 55%, transparent);
+}
+
+.composer .counter {
+  align-self: center;
 }

@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Android message actions</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+button{font:inherit}
+</style>
+</helmet>
+<div style="position: relative; width: 412px; height: 915px; overflow: hidden; font-family: 'Inter', system-ui, sans-serif; color: #ECEAF4">
+  <dc-import name="AndroidChat" hint-size="412px,915px"></dc-import>
+  <div aria-hidden="true" style="position: absolute; inset: 0; background: rgba(8,6,14,0.62)"></div>
+
+  <div role="dialog" aria-label="Message actions" style="position: absolute; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; padding: 10px 0 20px; border-radius: 28px 28px 0 0; background: #221E2F; box-shadow: 0 -12px 40px rgba(0,0,0,0.4)">
+    <span aria-hidden="true" style="align-self: center; width: 36px; height: 4px; border-radius: 2px; background: #4A4560; margin-bottom: 14px"></span>
+
+    <!-- message preview -->
+    <div style="display: flex; gap: 12px; align-items: center; margin: 0 16px 14px; padding: 10px 12px; border-radius: 16px; background: rgba(255,255,255,0.04)">
+      <span style="width: 48px; height: 48px; flex: 0 0 auto; border-radius: 10px; background: #2A2340"></span>
+      <div style="flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+        <span style="font-size: 14px; font-weight: 600">Leo Fischer</span>
+        <span style="font-size: 14px; color: #A6A1B8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">Took the dark theme for a spin on my phone…</span>
+      </div>
+    </div>
+
+    <!-- quick reactions -->
+    <div style="display: flex; justify-content: space-between; padding: 0 16px 12px">
+      <button type="button" aria-label="React thumbs up" style="width: 48px; height: 48px; border: 0; border-radius: 24px; background: #2A2540; font-size: 22px">👍</button>
+      <button type="button" aria-label="React heart" style="width: 48px; height: 48px; border: 0; border-radius: 24px; background: #2A2540; font-size: 22px">❤️</button>
+      <button type="button" aria-label="React laughing" style="width: 48px; height: 48px; border: 0; border-radius: 24px; background: #2A2540; font-size: 22px">😂</button>
+      <button type="button" aria-label="React party" style="width: 48px; height: 48px; border: 0; border-radius: 24px; background: #2A2540; font-size: 22px">🎉</button>
+      <button type="button" aria-label="React surprised" style="width: 48px; height: 48px; border: 0; border-radius: 24px; background: #2A2540; font-size: 22px">😮</button>
+      <button type="button" aria-label="More reactions" style="width: 48px; height: 48px; border: 0; border-radius: 24px; background: #2A2540; color: #C9C5D8; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6-8.5"></path><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01M19 2v6M16 5h6"></path></svg></button>
+    </div>
+
+    <div style="height: 1px; background: rgba(255,255,255,0.06); margin: 0 0 6px"></div>
+
+    <button type="button" style="display: flex; align-items: center; gap: 18px; height: 56px; padding: 0 24px; border: 0; background: transparent; color: #ECEAF4; font-size: 16px; text-align: left">
+      <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#C9C5D8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17 4 12l5-5"></path><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg>Reply
+    </button>
+    <button type="button" style="display: flex; align-items: center; gap: 18px; height: 56px; padding: 0 24px; border: 0; background: transparent; color: #ECEAF4; font-size: 16px; text-align: left">
+      <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#C9C5D8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 17 5-5-5-5"></path><path d="M4 18v-2a4 4 0 0 1 4-4h12"></path></svg>Forward
+    </button>
+    <button type="button" style="display: flex; align-items: center; gap: 18px; height: 56px; padding: 0 24px; border: 0; background: transparent; color: #ECEAF4; font-size: 16px; text-align: left">
+      <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#C9C5D8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11V6a3 3 0 0 0-3-3H6a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3h5"></path><circle cx="9" cy="9" r="2"></circle><path d="m21 13-3-3-6 6"></path><path d="M18 16v6M15 19h6"></path></svg>Add photo to collection
+    </button>
+    <button type="button" style="display: flex; align-items: center; gap: 18px; height: 56px; padding: 0 24px; border: 0; background: transparent; color: #ECEAF4; font-size: 16px; text-align: left">
+      <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#C9C5D8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"></rect><path d="m8 12 3 3 5-6"></path></svg>Select
+    </button>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":412,"height":915}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

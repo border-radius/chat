@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sidebar states and collapsed rail</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#C4B5FD}a:hover{color:#DDD6FE}
+</style>
+</helmet>
+<div style="width: 760px; height: 900px; box-sizing: border-box; padding: 48px; display: flex; gap: 48px; background: #0F0D16; font-family: 'Inter', system-ui, sans-serif; color: #ECEAF4; font-size: 14px">
+
+  <!-- Row states -->
+  <div style="flex: 1 1 auto; display: flex; flex-direction: column; gap: 28px">
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <h2 style="margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em">Room row states</h2>
+      <p style="margin: 0; color: #A6A1B8; line-height: 1.5">Weight and a single badge carry unread — no per-row menus until hover.</p>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 18px; padding: 20px 16px; border-radius: 16px; background: #15121E; border: 1px solid rgba(255,255,255,0.06)">
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <span style="font-size: 12px; font-weight: 600; color: #8F8AA5; padding-left: 10px">Default</span>
+        <div style="display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 10px; border-radius: 8px; color: #A6A1B8; font-weight: 500"><span style="width: 16px; text-align: center; font-weight: 600; color: #6F6A85">#</span><span style="flex: 1 1 auto">random</span></div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <span style="font-size: 12px; font-weight: 600; color: #8F8AA5; padding-left: 10px">Hover</span>
+        <div style="display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 6px 0 10px; border-radius: 8px; background: rgba(255,255,255,0.05); color: #DCD8E8; font-weight: 500"><span style="width: 16px; text-align: center; font-weight: 600; color: #8F8AA5">#</span><span style="flex: 1 1 auto">random</span>
+          <button type="button" aria-label="Room options" style="width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: rgba(255,255,255,0.06); color: #C9C5D8; cursor: pointer"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"></circle><circle cx="12" cy="12" r="1.8"></circle><circle cx="19" cy="12" r="1.8"></circle></svg></button>
+        </div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <span style="font-size: 12px; font-weight: 600; color: #8F8AA5; padding-left: 10px">Unread</span>
+        <div style="display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 10px; border-radius: 8px; color: #ECEAF4; font-weight: 600"><span style="width: 16px; text-align: center; font-weight: 600; color: #6F6A85">#</span><span style="flex: 1 1 auto">release-2.4</span><span style="min-width: 20px; height: 20px; box-sizing: border-box; padding: 0 6px; border-radius: 10px; background: #6D4AFF; color: #FFFFFF; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center">7</span></div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <span style="font-size: 12px; font-weight: 600; color: #8F8AA5; padding-left: 10px">Active</span>
+        <div style="display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 10px; border-radius: 8px; background: rgba(139,108,255,0.16); color: #F3F0FF; font-weight: 600"><span style="width: 16px; text-align: center; font-weight: 600; color: #B9A6FF">#</span><span style="flex: 1 1 auto">design</span></div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <span style="font-size: 12px; font-weight: 600; color: #8F8AA5; padding-left: 10px">Muted</span>
+        <div style="display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 10px; border-radius: 8px; color: #8A85A0; font-weight: 500"><span style="width: 16px; text-align: center; font-weight: 600; color: #6F6A85">#</span><span style="flex: 1 1 auto">support</span>
+          <svg aria-label="Muted" role="img" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4Z"></path><path d="m22 9-6 6M16 9l6 6"></path></svg>
+        </div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <span style="font-size: 12px; font-weight: 600; color: #8F8AA5; padding-left: 10px">Keyboard focus</span>
+        <div style="display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 10px; border-radius: 8px; color: #DCD8E8; font-weight: 500; box-shadow: 0 0 0 2px #B9A6FF"><span style="width: 16px; text-align: center; font-weight: 600; color: #8F8AA5">#</span><span style="flex: 1 1 auto">general</span></div>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 10px; padding: 18px 16px; border-radius: 16px; background: #15121E; border: 1px solid rgba(255,255,255,0.06)">
+      <span style="font-size: 12px; font-weight: 600; color: #8F8AA5; padding-left: 10px">Room visibility — trailing icon</span>
+      <div style="display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 10px; color: #A6A1B8; font-weight: 500"><span style="width: 16px; text-align: center; font-weight: 600; color: #6F6A85">#</span><span style="flex: 1 1 auto">general</span><span style="font-size: 12px; color: #8F8AA5">Public · no icon</span></div>
+      <div style="display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 10px; color: #A6A1B8; font-weight: 500"><span style="width: 16px; text-align: center; font-weight: 600; color: #6F6A85">#</span><span style="flex: 1 1 auto">design</span><span style="font-size: 12px; color: #8F8AA5">Private</span><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8F8AA5" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg></div>
+      <div style="display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 10px; color: #A6A1B8; font-weight: 500"><span style="width: 16px; text-align: center; font-weight: 600; color: #6F6A85">#</span><span style="flex: 1 1 auto">random</span><span style="font-size: 12px; color: #8F8AA5">Open air</span><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8F8AA5" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"></path></svg></div>
+    </div>
+  </div>
+
+  <!-- Collapsed rail -->
+  <div style="flex: 0 0 auto; display: flex; flex-direction: column; gap: 12px; align-items: center">
+    <span style="font-size: 12px; font-weight: 600; color: #8F8AA5">Collapsed</span>
+    <nav aria-label="Workspace (collapsed)" style="width: 72px; flex: 1 1 auto; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 14px 0; border-radius: 16px; background: #15121E; border: 1px solid rgba(255,255,255,0.06)">
+      <span aria-hidden="true" style="width: 34px; height: 34px; margin-bottom: 8px; border-radius: 50%; border-bottom-left-radius: 28% 30%; background: linear-gradient(135deg, #7A5AF8 0%, #A43FD0 55%, #D2389E 100%)"></span>
+      <button type="button" aria-label="Search" style="width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 10px; background: transparent; color: #A6A1B8; cursor: pointer"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg></button>
+      <div style="width: 28px; height: 1px; background: rgba(255,255,255,0.08); margin: 6px 0"></div>
+      <button type="button" aria-label="general, 3 unread" style="position: relative; width: 44px; height: 44px; border: 0; border-radius: 12px; background: #221E2F; color: #ECEAF4; font-weight: 700; font-size: 13px; cursor: pointer">ge<span style="position: absolute; top: -4px; right: -4px; min-width: 18px; height: 18px; box-sizing: border-box; padding: 0 5px; border-radius: 9px; background: #6D4AFF; color: #FFFFFF; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; border: 2px solid #15121E">3</span></button>
+      <button type="button" aria-label="release-2.4, 7 unread" style="position: relative; width: 44px; height: 44px; border: 0; border-radius: 12px; background: #221E2F; color: #ECEAF4; font-weight: 700; font-size: 13px; cursor: pointer">re<span style="position: absolute; top: -4px; right: -4px; min-width: 18px; height: 18px; box-sizing: border-box; padding: 0 5px; border-radius: 9px; background: #6D4AFF; color: #FFFFFF; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; border: 2px solid #15121E">7</span></button>
+      <button type="button" aria-label="design, current room" style="width: 44px; height: 44px; border: 0; border-radius: 12px; background: rgba(139,108,255,0.22); color: #F3F0FF; font-weight: 700; font-size: 13px; cursor: pointer; box-shadow: inset 0 0 0 1px rgba(185,166,255,0.45)">de</button>
+      <button type="button" aria-label="random" style="width: 44px; height: 44px; border: 0; border-radius: 12px; background: #1D1929; color: #A6A1B8; font-weight: 700; font-size: 13px; cursor: pointer">ra</button>
+      <div style="width: 28px; height: 1px; background: rgba(255,255,255,0.08); margin: 6px 0"></div>
+      <button type="button" aria-label="Maya Chen" style="position: relative; width: 44px; height: 44px; border: 0; border-radius: 50%; background: #F08A5D; color: #2A1206; font-weight: 700; font-size: 13px; cursor: pointer">MC</button>
+      <button type="button" aria-label="Sam Rivera" style="position: relative; width: 44px; height: 44px; border: 0; border-radius: 50%; background: #F5C04E; color: #2B1D00; font-weight: 700; font-size: 13px; cursor: pointer">SR</button>
+      <div style="flex: 1 1 auto"></div>
+      <button type="button" aria-label="Alex Morgan, profile and settings" style="position: relative; width: 40px; height: 40px; border: 0; border-radius: 50%; background: #B794F6; color: #22113F; font-weight: 700; font-size: 12px; cursor: pointer">AM</button>
+    </nav>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":760,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

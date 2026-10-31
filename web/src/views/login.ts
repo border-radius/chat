@@ -121,9 +121,8 @@ export function createLoginView(deps: { api: Api; onLogin: (user: User) => void;
     clear(root);
     root.append(
       h("section", { class: "auth" }, [
-        h("h1", {}, [logo ? h("img", { src: logo, alt: "", class: "brand-logo" }) : null, title]),
-        h("div", { role: "tablist", class: "tabs" }, tabs),
-        form,
+        h("h1", { class: logo ? "has-logo" : "" }, [logo ? h("img", { src: logo, alt: "", class: "brand-logo" }) : null, title]),
+        h("div", { class: "auth-card" }, [h("div", { role: "tablist", class: "tabs" }, tabs), form]),
         h("p", { class: "auth-skip" }, h("a", { href: "/" }, "Just looking? Read the Open Air rooms")),
       ]),
     );

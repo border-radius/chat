@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -299,7 +300,17 @@ fun RoomScreen(roomId: String, msgId: String?, nav: RoomNav, incoming: Pair<Stri
                             // A DM shows who it is with.
                             if (room != null && room.isDm) room.otherMember(me?.id)?.let { chirkle.android.ui.Avatar(it, 36.dp, Modifier.padding(end = 12.dp)) }
                             Column(Modifier.clickable(enabled = room != null && !room.isDm) { nav.access(roomId) }) {
-                                Text(room?.title(me?.id) ?: "", maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold)
+                                // A room's "#" quieter than its name.
+                                val t = room?.title(me?.id) ?: ""
+                                val dim = Chirkle.colors.dim
+                                Text(
+                                    if (room != null && !room.isDm && t.startsWith("#")) androidx.compose.ui.text.buildAnnotatedString {
+                                        pushStyle(androidx.compose.ui.text.SpanStyle(color = dim, fontWeight = FontWeight.SemiBold)); append("#"); pop(); append(t.drop(1))
+                                    } else androidx.compose.ui.text.AnnotatedString(t),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    fontWeight = FontWeight.Bold,
+                                )
                                 if (room != null && !room.isDm) {
                                     Text(
                                         room.visibilityOrDefault.label + if (room.visibilityOrDefault == Visibility.Private) " · ${room.members.size} ${if (room.members.size == 1) "member" else "members"}" else "",
@@ -331,10 +342,10 @@ fun RoomScreen(roomId: String, msgId: String?, nav: RoomNav, incoming: Pair<Stri
             Box(Modifier.navigationBarsPadding().imePadding()) {
                 when {
                     room == null || state.phase == Phase.NotFound -> {}
-                    me == null -> ReadOnly("You're reading as a guest. ", "Log in", nav.logIn)
-                    room.archived -> ReadOnly("This room is archived. History is read-only.")
+                    me == null -> ReadOnly("You're reading as a guest. ", "Log in", ChirkleIcons.Globe, nav.logIn)
+                    room.archived -> ReadOnly("This room is archived. History is read-only.", icon = ChirkleIcons.Archive)
                     !room.canPost(me.id) -> ReadOnly("Only some people can post in this room. You can read along and react.")
-                    room.dmClosed(me).isNotEmpty() -> ReadOnly(room.dmClosed(me))
+                    room.dmClosed(me).isNotEmpty() -> ReadOnly(room.dmClosed(me), icon = ChirkleIcons.Close)
                     vm.selecting -> {}
                     else -> Composer(vm, "Message ${room.title(me.id)}", focus, onCollections = { pickingItems = true }) { composerEmoji = true }
                 }
@@ -471,11 +482,20 @@ private fun RoomMenu(open: Boolean, close: () -> Unit, room: chirkle.android.dat
 }
 
 @Composable
-private fun ReadOnly(text: String, action: String? = null, onAction: () -> Unit = {}) {
-    Surface(tonalElevation = 2.dp) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(text, color = Chirkle.colors.muted, modifier = Modifier.weight(1f))
-            if (action != null) Button(onClick = onAction) { Text(action) }
+private fun ReadOnly(text: String, action: String? = null, icon: androidx.compose.ui.graphics.vector.ImageVector = ChirkleIcons.Lock, onAction: () -> Unit = {}) {
+    // In place of the composer: why you can't post, after its icon (the web's .guest-banner).
+    Surface(color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Column {
+            HorizontalDivider(color = Chirkle.colors.border)
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 68.dp).padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Icon(icon, contentDescription = null, tint = Chirkle.colors.muted, modifier = Modifier.size(20.dp))
+                Text(text, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+                if (action != null) Button(onClick = onAction) { Text(action) }
+            }
         }
     }
 }
@@ -487,10 +507,17 @@ private fun Centered(text: String) {
 
 @Composable
 private fun DayHeader(label: String) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        HorizontalDivider(Modifier.weight(1f), color = Chirkle.colors.border)
-        Text(label, style = MaterialTheme.typography.labelMedium, color = Chirkle.colors.muted, modifier = Modifier.padding(horizontal = 8.dp).semantics { heading() })
-        HorizontalDivider(Modifier.weight(1f), color = Chirkle.colors.border)
+    // A chip in the middle (the 2026-10-31 redesign), not a ruled line.
+    Box(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 12.dp), contentAlignment = Alignment.Center) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .background(MaterialTheme.colorScheme.surfaceContainer, androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+                .padding(horizontal = 12.dp, vertical = 4.dp)
+                .semantics { heading() },
+        )
     }
 }
 
@@ -514,9 +541,20 @@ private fun NewLine() {
         kotlinx.coroutines.delay(chirkle.android.data.repo.UNREAD_LINE_MS - NEW_LINE_FADE_MS)
         alpha.animateTo(0f, androidx.compose.animation.core.tween(NEW_LINE_FADE_MS.toInt()))
     }
-    Row(Modifier.fillMaxWidth().graphicsLayer { this.alpha = alpha.value }.padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        HorizontalDivider(Modifier.weight(1f), color = MaterialTheme.colorScheme.secondary)
-        Text("New", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.padding(horizontal = 8.dp))
+    Row(
+        Modifier.fillMaxWidth().graphicsLayer { this.alpha = alpha.value }.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        HorizontalDivider(Modifier.weight(1f), color = Chirkle.colors.new.copy(alpha = 0.45f))
+        Text(
+            "NEW",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = androidx.compose.ui.unit.TextUnit(0.04f, androidx.compose.ui.unit.TextUnitType.Em),
+            color = Chirkle.colors.new,
+            modifier = Modifier.semantics { contentDescription = "New" },
+        )
     }
 }
 

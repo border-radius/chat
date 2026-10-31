@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Attach from a collection</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0F0D16}
+button{font:inherit}
+</style>
+</helmet>
+<div style="position: relative; width: 1440px; height: 900px; overflow: hidden; font-family: 'Inter', system-ui, sans-serif; color: #ECEAF4; font-size: 14px">
+  <dc-import name="XEdit" hint-size="1440px,900px"></dc-import>
+  <div aria-hidden="true" style="position: absolute; inset: 0; background: rgba(8,6,14,0.66)"></div>
+  <div role="dialog" aria-label="Attach from a collection" style="position: absolute; left: 50%; top: 70px; transform: translateX(-50%); width: 900px; height: 760px; display: flex; flex-direction: column; border-radius: 16px; background: #1D1929; border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 24px 64px rgba(0,0,0,0.55); overflow: hidden">
+    <div style="flex: 0 0 auto; display: flex; align-items: center; padding: 16px 16px 14px 24px; border-bottom: 1px solid rgba(255,255,255,0.06)">
+      <span style="flex: 1 1 auto; font-size: 17px; font-weight: 700">Attach from a collection</span>
+      <button type="button" aria-label="Close" style="width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 8px; background: transparent; color: #A6A1B8"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+    </div>
+    <div style="flex: 1 1 auto; min-height: 0; display: flex">
+      <div role="tablist" aria-orientation="vertical" aria-label="Collections" style="flex: 0 0 220px; display: flex; flex-direction: column; gap: 2px; padding: 12px 10px; border-right: 1px solid rgba(255,255,255,0.06)">
+        <span style="padding: 6px 10px; font-size: 11px; font-weight: 600; color: #A6A1B8">Yours</span>
+        <sc-for list="{{mine}}" as="c" hint-placeholder-count="2">
+          <button type="button" role="tab" aria-selected="{{c.on}}" style="{{c.row}}"><span style="flex: 1 1 auto">{{c.name}}</span><span style="font-size: 12px; color: #8F8AA5">{{c.count}}</span></button>
+        </sc-for>
+        <span style="padding: 12px 10px 6px; font-size: 11px; font-weight: 600; color: #A6A1B8">Following</span>
+        <sc-for list="{{subs}}" as="c" hint-placeholder-count="1">
+          <button type="button" role="tab" aria-selected="{{c.on}}" style="{{c.row}}"><span style="flex: 1 1 auto; display: flex; flex-direction: column; line-height: 1.25"><span>{{c.name}}</span><span style="font-size: 11px; color: #8F8AA5">{{c.owner}}</span></span><span style="font-size: 12px; color: #8F8AA5">{{c.count}}</span></button>
+        </sc-for>
+      </div>
+      <div style="flex: 1 1 auto; min-width: 0; overflow: hidden; display: flex; flex-direction: column; gap: 10px; padding: 14px 20px">
+        <h3 style="margin: 0; font-size: 13px; font-weight: 600; color: #A6A1B8">October 2026</h3>
+        <div role="listbox" aria-multiselectable="true" aria-label="Moodboard items" style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px">
+          <sc-for list="{{tiles}}" as="t" hint-placeholder-count="15">
+            <div role="option" aria-selected="{{t.on}}" aria-label="{{t.label}}" style="{{t.style}}">
+              <span style="{{t.check}}"><sc-if value="{{t.on}}" hint-placeholder-val="{{false}}"><svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"></path></svg></sc-if></span>
+              <sc-if value="{{t.video}}" hint-placeholder-val="{{false}}"><span style="width: 32px; height: 32px; border-radius: 50%; background: rgba(15,13,22,0.7); display: flex; align-items: center; justify-content: center; color: #FFFFFF"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15a1 1 0 0 0 1.5.9l12-7.5a1 1 0 0 0 0-1.8l-12-7.5A1 1 0 0 0 7 4.5Z"></path></svg></span></sc-if>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+    <div style="flex: 0 0 auto; display: flex; align-items: center; gap: 10px; padding: 14px 20px 16px 24px; border-top: 1px solid rgba(255,255,255,0.06)">
+      <span style="flex: 1 1 auto; color: #C9C5D8">3 picked · this message can take 7 more</span>
+      <button type="button" style="height: 38px; padding: 0 14px; border: 0; border-radius: 10px; background: transparent; color: #DCD8E8; font-weight: 600">Cancel</button>
+      <button type="button" style="height: 38px; padding: 0 16px; border: 0; border-radius: 10px; background: #6D4AFF; color: #FFFFFF; font-weight: 600">Attach 3</button>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    function row(on) { return 'display:flex;align-items:center;gap:8px;min-height:36px;padding:4px 10px;border:0;border-radius:8px;text-align:left;font-size:14px;' + (on ? 'background:rgba(139,108,255,0.18);color:#F3F0FF;font-weight:600;' : 'background:transparent;color:#C9C5D8;'); }
+    var colors = ['#3B2A4F', '#4A2F3A', '#2F3A4A', '#2A3B33', '#4A4030', '#33304A', '#2A2340', '#3A2620'];
+    var picked = [1, 4, 7], videos = [3, 10];
+    var tiles = [];
+    for (var i = 0; i < 15; i++) {
+      var on = picked.indexOf(i) >= 0;
+      tiles.push({
+        on: on, video: videos.indexOf(i) >= 0, label: 'Item ' + (i + 1),
+        style: 'position:relative;aspect-ratio:1;border-radius:10px;display:flex;align-items:center;justify-content:center;cursor:pointer;background:' + colors[i % colors.length] + ';' + (on ? 'box-shadow:0 0 0 3px #B9A6FF;' : ''),
+        check: 'position:absolute;top:8px;right:8px;width:22px;height:22px;box-sizing:border-box;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#FFFFFF;' + (on ? 'background:#6D4AFF;' : 'border:2px solid rgba(255,255,255,0.7);background:rgba(15,13,22,0.35);')
+      });
+    }
+    return {
+      mine: [{ name: 'Moodboard', count: 48, on: true }, { name: 'Screenshots', count: 126 }].map(function (c) { c.row = row(c.on); return c; }),
+      subs: [{ name: 'Field notes', owner: 'Priya Nair', count: 214 }].map(function (c) { c.row = row(false); return c; }),
+      tiles: tiles
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Composer replaced</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#C4B5FD}a:hover{color:#DDD6FE}
+button{font:inherit}
+</style>
+</helmet>
+<div style="width: 760px; height: 1000px; box-sizing: border-box; overflow: hidden; display: flex; flex-direction: column; gap: 18px; padding: 40px; background: #0F0D16; font-family: 'Inter', system-ui, sans-serif; color: #ECEAF4; font-size: 14px">
+  <div style="display: flex; flex-direction: column; gap: 6px">
+    <h1 style="margin: 0; font-size: 22px; font-weight: 700">When the composer is replaced</h1>
+    <p style="margin: 0; color: #A6A1B8; line-height: 1.5">The same 68px strip along the bottom, holding why you can't post. Anything typed before is kept.</p>
+  </div>
+
+  <sc-for list="{{states}}" as="s" hint-placeholder-count="4">
+    <div style="display: flex; flex-direction: column; gap: 8px">
+      <span style="font-size: 12px; font-weight: 600; color: #A6A1B8">{{s.label}}</span>
+      <div style="border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.06); background: #1A1724">
+        <div style="height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 20px; color: #8F8AA5; font-size: 13px">
+          <span style="width: 24px; height: 24px; border-radius: 50%; background: #2A2540"></span>
+          <span style="height: 8px; width: 220px; border-radius: 4px; background: #2A2540"></span>
+        </div>
+        <div style="min-height: 68px; box-sizing: border-box; display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-top: 1px solid rgba(255,255,255,0.06); background: #1D1929">
+          <span style="{{s.iconBox}}">
+            <sc-if value="{{s.isArchive}}" hint-placeholder-val="{{false}}"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="5" rx="1"></rect><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9M10 13h4"></path></svg></sc-if>
+            <sc-if value="{{s.isLock}}" hint-placeholder-val="{{false}}"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path><path d="M3 3l18 18"></path></svg></sc-if>
+            <sc-if value="{{s.isDm}}" hint-placeholder-val="{{false}}"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z"></path><path d="M5 5l14 14"></path></svg></sc-if>
+            <sc-if value="{{s.isEye}}" hint-placeholder-val="{{false}}"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"></path><circle cx="12" cy="12" r="3"></circle></svg></sc-if>
+          </span>
+          <span style="flex: 1 1 auto; color: #DCD8E8; line-height: 1.45">{{s.text}}</span>
+        </div>
+      </div>
+    </div>
+  </sc-for>
+
+  <div style="display: flex; flex-direction: column; gap: 8px">
+    <span style="font-size: 12px; font-weight: 600; color: #A6A1B8">Room you can't see (or that's gone), opened by link · as a guest</span>
+    <div style="height: 150px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); background: #1A1724">
+      <span style="font-size: 16px; font-weight: 600">This room doesn't exist.</span>
+      <span style="color: #A6A1B8"><a href="XLogin.dc.html">Log in</a> to see more rooms, or <a href="XGuest.dc.html">go back to the Open Air rooms</a></span>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":760,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var data = [
+      { label: 'Archived room', icon: 'archive', text: 'This room is archived. History is read-only.' },
+      { label: 'Only chosen people can post (you are a reader)', icon: 'lock', text: 'Only some people can post in this room. You can read along and react.' },
+      { label: 'DM with someone who takes no direct messages', icon: 'dm', text: 'Rina Okoye doesn’t take direct messages.' },
+      { label: 'Guest in an Open Air room', icon: 'eye', text: 'You’re reading as a guest. Log in or sign up to join the conversation.' }
+    ];
+    return {
+      states: data.map(function (d) {
+        return {
+          label: d.label, text: d.text,
+          isArchive: d.icon === 'archive', isLock: d.icon === 'lock', isDm: d.icon === 'dm', isEye: d.icon === 'eye',
+          iconBox: 'width:32px;height:32px;flex:0 0 auto;border-radius:8px;background:rgba(255,255,255,0.06);color:#C9C5D8;display:flex;align-items:center;justify-content:center;'
+        };
+      })
+    };
+  }
+}
+</script>
+</body>
+</html>

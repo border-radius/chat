@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Log in and sign up</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0F0D16}
+a{color:#C4B5FD}a:hover{color:#DDD6FE}
+button{font:inherit}
+input:focus-visible,button:focus-visible{outline:2px solid #B9A6FF;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #0F0D16; font-family: 'Inter', system-ui, sans-serif; color: #ECEAF4; font-size: 14px">
+  <div style="width: 420px; display: flex; flex-direction: column; gap: 24px">
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 14px">
+      <span aria-hidden="true" style="width: 56px; height: 56px; border-radius: 50%; border-bottom-left-radius: 28% 30%; background: linear-gradient(135deg, #7A5AF8 0%, #A43FD0 55%, #D2389E 100%)"></span>
+      <h1 style="margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -0.01em">{{siteTitle}}</h1>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 18px; padding: 24px; border-radius: 16px; background: #1D1929; border: 1px solid rgba(255,255,255,0.08)">
+      <div role="tablist" aria-label="Account" style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px; padding: 3px; border-radius: 10px; background: #15121E">
+        <button type="button" role="tab" aria-selected="{{isLogin}}" onClick="{{showLogin}}" style="{{loginTab}}">Log in</button>
+        <button type="button" role="tab" aria-selected="{{isSignup}}" onClick="{{showSignup}}" style="{{signupTab}}">Sign up</button>
+      </div>
+      <form style="display: flex; flex-direction: column; gap: 14px">
+        <sc-if value="{{isSignup}}" hint-placeholder-val="{{true}}">
+          <label style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 13px; font-weight: 600; color: #C9C5D8">Display name</span><input type="text" value="Alex Morgan" style="height: 42px; box-sizing: border-box; padding: 0 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.1); background: #15121E; color: #ECEAF4; font: inherit"></label>
+        </sc-if>
+        <label style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 13px; font-weight: 600; color: #C9C5D8">Email</span><input type="email" value="alex@example.com" style="height: 42px; box-sizing: border-box; padding: 0 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.1); background: #15121E; color: #ECEAF4; font: inherit"></label>
+        <label style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 13px; font-weight: 600; color: #C9C5D8">Password</span><input type="password" value="hunter2hunter2" style="height: 42px; box-sizing: border-box; padding: 0 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.1); background: #15121E; color: #ECEAF4; font: inherit"></label>
+        <sc-if value="{{isSignup}}" hint-placeholder-val="{{true}}">
+          <label style="display: flex; flex-direction: column; gap: 6px">
+            <span style="font-size: 13px; font-weight: 600; color: #C9C5D8">Invite code</span>
+            <input type="text" value="SPRING-24" aria-invalid="true" aria-describedby="invite-err" style="height: 42px; box-sizing: border-box; padding: 0 12px; border-radius: 10px; border: 1px solid #F87171; background: #15121E; color: #ECEAF4; font: inherit">
+            <span id="invite-err" style="font-size: 12px; color: #FCA5A5">That invite code isn't right.</span>
+          </label>
+        </sc-if>
+        <button type="submit" style="height: 44px; margin-top: 4px; border: 0; border-radius: 10px; background: #6D4AFF; color: #FFFFFF; font-weight: 600; font-size: 15px">{{submitLabel}}</button>
+      </form>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"siteTitle":{"editor":"text","default":"Chirkle"},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { tab: 'signup' };
+  }
+  renderVals() {
+    var self = this;
+    var signup = this.state.tab === 'signup';
+    function tab(on) { return 'height:36px;border:0;border-radius:8px;font-weight:600;cursor:pointer;' + (on ? 'background:#2A2540;color:#F3F0FF;' : 'background:transparent;color:#A6A1B8;'); }
+    return {
+      siteTitle: this.props.siteTitle ?? 'Chirkle',
+      isSignup: signup, isLogin: !signup,
+      loginTab: tab(!signup), signupTab: tab(signup),
+      submitLabel: signup ? 'Create account' : 'Log in',
+      showLogin: function () { self.setState({ tab: 'login' }); },
+      showSignup: function () { self.setState({ tab: 'signup' }); }
+    };
+  }
+}
+</script>
+</body>
+</html>

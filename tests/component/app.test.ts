@@ -479,7 +479,8 @@ describe("app boot (§7.1)", () => {
     const { api } = await signedUp();
     app = startApp({ api, root });
     await vi.waitFor(() => expect(root.querySelector("aside.sidebar nav[aria-label='Rooms']")).not.toBeNull());
-    expect(root.querySelector("header.app-bar button")).toBeNull();
+    // The app bar has Jump to and nothing else.
+    expect([...root.querySelectorAll("header.app-bar button")].map((b) => b.getAttribute("aria-label"))).toEqual(["Jump to"]);
     expect(logoutButton()).toBeUndefined();
     visit("/me");
     await vi.waitFor(() => expect(logoutButton()).toBeDefined());

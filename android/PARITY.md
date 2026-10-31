@@ -26,7 +26,7 @@ controller's recorded scenarios (`shared/vectors/room.json`).
 | `replies` | `UiFeaturesTest`: reply and its quote; `ServicesTest`: a live reply's quote from the window, kept through an edit, or fetched (ANDROID.md §34); `UiFeaturesTest`: quotes and the reply bar follow the original's edit and delete (QA BUG-181, BUG-182); `ChirkleApiTest` | Partial: going to the original |
 | `forward` | `UiFeaturesTest`: forwarding one message; `ChirkleApiTest` | Partial: several at once, delete together |
 | `dm` | `UiFeaturesTest`: a new DM from the people search; `ChirkleApiTest` | Partial: close and reopen |
-| `hide` | `UiFeaturesTest`: hiding a room | Partial: unhide |
+| `hide` | `UiFeaturesTest`: hiding a room (listed under the one Hidden & archived heading, ANDROID.md §36) | Partial: unhide |
 | `archive` | `UiFeaturesTest`: an archived room is read-only; `ServicesTest` | Covered |
 | `room_access` | `UiFeaturesTest`: private with a member; `ChirkleApiTest` | Partial: who can post, Open Air |
 | `attachments` | `UiPortsTest`: the viewer drops a message deleted while it is open (QA BUG-155); `CollectionsTest`: a sent file's shape (`file_dims`, DESIGN.md §17.5) | Partial: picking files (pickers; sent through the system picker by hand on the emulator, ANDROID.md §22.3; the outbox sends files: `Outbox`); `ImagePrepTest`: photos upright before re-encoding on Android 8 (QA BUG-164); downloads by hand on the emulator (QA BUG-161, ANDROID.md §26) |
@@ -38,7 +38,7 @@ controller's recorded scenarios (`shared/vectors/room.json`).
 | `mobile` | — | Not applicable: the web's narrow layout |
 | `media` | `UiPortsTest`: a room's images in the grid, one opened in the viewer; an empty room says so | Partial: paging, video posters (on the emulator only) |
 | `switcher` | `UiPortsTest`: Jump to finds a room by a word and opens it; `JumpTest`: the web's matching and ranking cases; `ServicesTest`: the last-open times are forgotten with the session (QA BUG-152) | Covered |
-| `theme` | `UiPortsTest`: Appearance set to Dark is kept | Covered |
+| `theme` | `UiPortsTest`: Appearance set to Dark is kept; the 2026-10-31 redesign's colours in both (ANDROID.md §36) | Covered |
 | `collections` | `UiCollectionsTest`: make one from the room list, save from a tile, a badge to a public one, subscribe, "1 new" live and seen, attach from the picker with its badge, save and unsave in the viewer; `CollectionsTest`: badges follow a collection made public, renamed, private and deleted, live; a follow made while the subscription is on its way shows (QA BUG-170) | Partial: uploading (the photo picker can't be driven on Robolectric), axe |
 | `pwa` | — | Not applicable: the app is the installed app (§3) |
 | `linked` (two servers; also `tests/component/views/room/linked.test.ts`, `rooms.test.ts`) | `UiLinkedTest`: a shared room's top bar and access screen, New message by address; `LinkedTest` (also a DM that takes no messages, QA BUG-178); `ChirkleApiTest`: a shared room and a stand-in decode, an address refused with its reason. Between servers: `tests/integration/federation.test.ts` | Covered |

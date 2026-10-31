@@ -29,6 +29,8 @@ for (const colorScheme of ["light", "dark"] as const) {
     await expect(bar).toContainText("2 selected");
     await expect(composer(a)).toBeHidden();
     await expect(bar.getByRole("button", { name: "Delete" })).toBeHidden();
+    // Not while the "New" line fades out (§22): text half faded is low contrast by design.
+    await expect(a.locator("li.new-line")).toHaveCount(0, { timeout: 10_000 });
     expect(await seriousViolations(a), "selecting").toEqual([]);
 
     // Forward them to Bob, whom she has no DM with yet: found by name.

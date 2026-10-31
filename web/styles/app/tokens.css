@@ -6,24 +6,29 @@
   --surface: #f1eefc;
   --raised: #fff;
   --fg: #1d1530;
+  --text: #1d1530;
   --muted: #5e5874;
+  --dim: #645e7c;
   --border: #e3ddf5;
+  --line: #e3ddf5;
   --hover: #e9e4fb;
   --accent: #5b3df5;
+  /* Solid fills: Send, badges, primary buttons (white text on them). */
+  --fill: #5b3df5;
   --accent-2: #c42a7c;
   --grad: linear-gradient(135deg, #6a4bff, #c42a7c);
-  --tint: color-mix(in srgb, var(--accent) 12%, transparent);
+  --tint: color-mix(in srgb, var(--accent) 14%, transparent);
   --danger: #c41d36; /* ≥ 4.5:1 on every light background, hover included (QA BUG-57) */
+  --new: #b0175f;
   --highlight: #fff1b8;
   --shadow: 0 6px 24px rgb(60 30 140 / 14%);
-  --radius: 12px;
+  --radius: 10px;
   --pill: 999px;
   --ease: cubic-bezier(0.34, 1.56, 0.64, 1);
-  /* 16px also keeps iOS Safari from zooming in on a focused text field (it does under 16px) — don't size fields below it. */
+  /* Inter, the app's own (fonts.css, §7.7), the system's font until it arrives. 16px also keeps iOS Safari from zooming
+     in on a focused text field (it does under 16px) — don't size fields below it. */
   font:
-    16px / 1.45 ui-rounded,
-    "SF Pro Rounded",
-    Nunito,
+    16px / 1.5 Inter,
     system-ui,
     -apple-system,
     "Segoe UI",
@@ -35,17 +40,22 @@
    blocks must stay the same (contrast.test.ts checks). */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #1a1726;
-    --surface: #13111d;
-    --raised: #242036;
-    --fg: #efecfa;
-    --muted: #a8a2c0;
-    --border: #2f2a45;
-    --hover: #2a2540;
-    --accent: #a99bff;
+    --bg: #1a1724;
+    --surface: #15121e;
+    --raised: #221e2f;
+    --fg: #eceaf4;
+    --text: #dcd8e8;
+    --muted: #a6a1b8;
+    --dim: #9c97b2;
+    --border: #2c2839;
+    --line: #24202f;
+    --hover: #24202f;
+    --accent: #b9a6ff;
+    --fill: #6d4aff;
     --danger: #ff7a8f;
+    --new: #f9a8d4;
     --highlight: #3d3314;
-    --shadow: 0 8px 28px rgb(0 0 0 / 55%);
+    --shadow: 0 12px 32px rgb(0 0 0 / 45%);
   }
 }
 
@@ -55,15 +65,20 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #1a1726;
-  --surface: #13111d;
-  --raised: #242036;
-  --fg: #efecfa;
-  --muted: #a8a2c0;
-  --border: #2f2a45;
-  --hover: #2a2540;
-  --accent: #a99bff;
+  --bg: #1a1724;
+  --surface: #15121e;
+  --raised: #221e2f;
+  --fg: #eceaf4;
+  --text: #dcd8e8;
+  --muted: #a6a1b8;
+  --dim: #9c97b2;
+  --border: #2c2839;
+  --line: #24202f;
+  --hover: #24202f;
+  --accent: #b9a6ff;
+  --fill: #6d4aff;
   --danger: #ff7a8f;
+  --new: #f9a8d4;
   --highlight: #3d3314;
-  --shadow: 0 8px 28px rgb(0 0 0 / 55%);
+  --shadow: 0 12px 32px rgb(0 0 0 / 45%);
 }

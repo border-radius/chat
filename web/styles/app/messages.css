@@ -6,14 +6,24 @@
   animation: pop 0.3s var(--ease);
 }
 
-.msg.failed {
-  box-shadow: inset 3px 0 0 var(--danger);
+.msg.failed .body,
+.msg.failed .attachments {
+  opacity: 0.7;
 }
 
-/* Someone else's reply to one of your messages (§19.3). */
+/* Someone else's reply to one of your messages (§19.3): a tinted card. */
 .msg.to-me {
-  box-shadow: inset 3px 0 0 var(--accent);
-  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  margin-right: 16px;
+  margin-left: 16px;
+  padding-right: 12px;
+  padding-left: calc(12px + 36px + 14px);
+  border-left: 3px solid var(--accent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--fill) 10%, transparent);
+}
+
+.msg.to-me > .avatar {
+  left: 9px;
 }
 
 /* Held, then faded; the controller drops the class once it is gone (HIGHLIGHT_MS). */
@@ -32,19 +42,20 @@
   }
 }
 
-/* Edit/Delete: one floating pill toolbar. */
+/* React, Reply, Forward, Select, Edit, Delete: one floating toolbar of icons. */
 .actions {
   position: absolute;
-  top: -0.9rem;
-  right: 0.75rem;
+  top: -14px;
+  right: 28px;
+  z-index: 1;
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 2px;
-  max-width: calc(100% - 1.5rem);
-  padding: 2px;
+  max-width: calc(100% - 56px);
+  padding: 3px;
   border: 1px solid var(--border);
-  border-radius: 1rem;
+  border-radius: 10px;
   background: var(--raised);
   box-shadow: var(--shadow);
   opacity: 0; /* not visibility:hidden — the buttons must stay in the tab order */
@@ -53,9 +64,21 @@
 }
 
 .actions button {
-  padding: 0.1rem 0.6rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
   border: 0;
-  font-size: 0.8rem;
+  border-radius: 7px;
+  background: none;
+  color: var(--muted);
+}
+
+.actions button::before {
+  width: 16px;
+  height: 16px;
 }
 
 .actions button.delete {
@@ -73,7 +96,7 @@
 }
 
 .msg.touched {
-  background: var(--hover);
+  background: color-mix(in srgb, var(--fill) 7%, transparent);
 }
 
 /* Only focus from the keyboard: any focus would keep the buttons up once you are done with one, as it goes back to
@@ -107,22 +130,24 @@
   }
 }
 
-/* Over the first unread message (§18.5). No height of its own, so nothing moves when it goes; faded out before the
-   controller drops it (UNREAD_LINE_MS). */
+/* Over the first unread message (§18.5): a pink line, NEW at its end. No height of its own, so nothing moves when it
+   goes; faded out before the controller drops it (UNREAD_LINE_MS). */
 .new-line {
   height: 0;
-  margin: 0 0.75rem;
-  border-top: 1px solid var(--danger);
-  font-size: 0.75rem;
+  margin: 0 28px;
+  border-top: 1px solid color-mix(in srgb, var(--new) 60%, transparent);
+  font-size: 0.6875rem;
   font-weight: 700;
+  letter-spacing: 0.04em;
   line-height: 0;
-  color: var(--danger);
+  color: var(--new);
   text-align: right;
+  text-transform: uppercase;
   animation: fade-out 1s 4s forwards;
 }
 
 .new-line span {
-  padding: 0 0.25rem;
+  padding-left: 10px;
   background: var(--bg);
 }
 

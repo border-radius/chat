@@ -11,11 +11,11 @@ test("a reload keeps the session; logging out guards rooms even via the back but
   await page.reload();
   await expect(page).toHaveURL(atPath(`/r/${room.id}`));
   await expect(page.locator("header.room-header h1")).toHaveText(`#${room.name}`);
-  await expect(page.locator("header.app-bar")).toContainText("Ada");
+  await expect(page.locator(".app-bar:visible, .side-foot")).toContainText("Ada");
 
   await logOut(page);
   await expect(page).toHaveURL(atPath("/"));
-  await expect(page.locator("header.app-bar").getByRole("link", { name: "Log in" })).toBeVisible();
+  await expect(page.locator(".app-bar:visible, .side-foot").getByRole("link", { name: "Log in" })).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem("pocketbase_auth"))).toBeNull();
 
   // Back to the (public) room: as a guest it is out of reach.
@@ -31,7 +31,7 @@ test("tabs share the session: a logout or a login as someone else in one tab is 
   await login(page, ada);
   const other = await context.newPage();
   await other.goto(`/r/${room.id}`);
-  await expect(other.locator("header.app-bar")).toContainText("Ada");
+  await expect(other.locator(".app-bar:visible, .side-foot")).toContainText("Ada");
 
   await logOut(page);
   await expect(other).toHaveURL(atPath("/"));
@@ -39,7 +39,7 @@ test("tabs share the session: a logout or a login as someone else in one tab is 
 
   await login(page, bob);
   await expect(other).toHaveURL(atPath("/"));
-  await expect(other.locator("header.app-bar")).toContainText("Bob");
+  await expect(other.locator(".app-bar:visible, .side-foot")).toContainText("Bob");
   await other.goto(`/r/${room.id}`);
   await other.getByLabel("Message", { exact: true }).fill("from the other tab");
   await other.keyboard.press("Enter");

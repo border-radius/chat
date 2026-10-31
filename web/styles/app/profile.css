@@ -1,19 +1,50 @@
-/* ---- Profile (§15.5) ---- */
+/* ---- Settings (§15.5, §22.2): a card for each part, in a column under the page's header ---- */
 
 .profile-body {
-  max-width: 30rem;
-  padding: 1.5rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 680px;
+  padding: 28px 28px 48px;
 }
 
-.profile-body h2 {
-  margin: 0.5rem 0;
-  font-size: 1rem;
+.card,
+.profile-notify {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0;
+  padding: 18px 20px 20px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--fg) 3%, var(--bg));
+}
+
+.profile-body h2,
+.card legend,
+.profile-notify legend {
+  margin: 0;
+  padding: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+/* A fieldset's legend can't be laid out with the rest: it is floated into the card's padding. */
+.card legend,
+.profile-notify legend {
+  float: left;
+  width: 100%;
 }
 
 .profile-avatar {
   display: flex;
-  gap: 1.25rem;
+  gap: 16px;
   align-items: center;
+}
+
+.profile-avatar h2 {
+  margin-bottom: 8px;
 }
 
 .profile-picture.busy {
@@ -23,7 +54,12 @@
 .profile-avatar-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: 8px;
+}
+
+label.button {
+  background: var(--hover);
+  border-color: transparent;
 }
 
 label.button:focus-within,
@@ -37,48 +73,57 @@ label.button.disabled {
   pointer-events: none;
 }
 
-.profile-name,
-.profile-password,
-.profile-theme,
-.profile-session {
-  margin-top: 1.5rem;
-}
-
-/* Appearance (§7.8): Auto / Light / Dark as one pill of radio buttons. */
-.profile-theme {
-  margin-inline: 0;
-  padding: 0;
-  border: 0;
+/* Appearance (§7.8): the hint on the left, Auto / Light / Dark on the right. */
+.profile-theme:not(.profile-notify) {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  column-gap: 16px;
+  row-gap: 3px;
 }
 
 .profile-theme legend {
-  margin-bottom: 0.5rem;
-  padding: 0;
-  font-size: 1rem;
-  font-weight: 800;
+  grid-column: 1;
+}
+
+.field-status {
+  margin: 0.25rem 0;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.profile-theme .field-status {
+  grid-column: 1;
+  margin: 0;
 }
 
 .segmented {
   display: inline-flex;
+  gap: 2px;
   padding: 3px;
-  border: 1px solid var(--border);
-  border-radius: var(--pill);
+  border-radius: 10px;
   background: var(--surface);
+}
+
+.profile-theme .segmented {
+  grid-column: 2;
+  grid-row: 1 / span 2;
 }
 
 .segmented label {
   position: relative;
-  padding: 0.35rem 1rem;
-  border-radius: var(--pill);
+  padding: 0 14px;
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 0.8125rem;
   font-weight: 600;
+  line-height: 32px;
   cursor: pointer;
-  transition: background-color 0.15s;
 }
 
 .segmented label:has(input:checked) {
-  background: var(--raised);
-  color: var(--accent);
-  box-shadow: 0 1px 4px rgb(0 0 0 / 15%);
+  background: var(--hover);
+  color: var(--fg);
 }
 
 .segmented label:has(input:focus-visible) {
@@ -94,12 +139,12 @@ label.button.disabled {
 
 .profile-password {
   display: grid;
-  gap: 0.75rem;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
 }
 
-.profile-password h2,
-.profile-session h2 {
-  margin-bottom: 0;
+.profile-password > :not(.field:nth-of-type(n + 2)) {
+  grid-column: 1 / -1;
 }
 
 .profile-password button {
@@ -109,28 +154,20 @@ label.button.disabled {
 .profile-name label,
 .field label {
   display: block;
-  margin-bottom: 0.3rem;
-  font-size: 0.8rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  margin-bottom: 6px;
   color: var(--muted);
+  font-size: 0.8125rem;
+  font-weight: 600;
 }
 
 .profile-name .row {
   display: flex;
-  gap: 0.5rem;
+  gap: 8px;
 }
 
 .profile-name input {
   flex: 1;
   min-width: 0;
-}
-
-.field-status {
-  margin: 0.25rem 0;
-  font-size: 0.85rem;
-  color: var(--muted);
 }
 
 .field-status.error {
@@ -142,10 +179,82 @@ label.button.disabled {
   margin: 0;
 }
 
-/* Notifications (§34): one checkbox a line; the box itself is styled with .vis-choice's (access.css). */
+.profile-session {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.profile-session .field-status {
+  margin: 3px 0 0;
+}
+
+.profile-notify {
+  gap: 0;
+  padding-bottom: 0;
+}
+
+.profile-notify legend {
+  margin-bottom: 3px;
+}
+
+.profile-notify > .field-status {
+  order: -1;
+  margin: 0 0 10px;
+}
+
+/* Still there when empty (a status is announced when it changes), just without its space. */
+.profile-notify > .field-status:empty {
+  margin: 0;
+}
+
+.profile-avatar .avatar {
+  width: 72px;
+  height: 72px;
+  font-size: 1.5rem;
+  box-shadow:
+    0 0 0 3px var(--bg),
+    0 0 0 5px var(--accent);
+}
+
+/* Notifications (§34): a line each, the setting's name on the left and a switch on the right. */
 .notify-choice {
   display: flex;
-  gap: 0.5rem;
+  flex-direction: row-reverse;
+  justify-content: space-between;
   align-items: center;
-  padding: 0.2rem 0;
+  min-height: 52px;
+  margin: 0 -20px;
+  padding: 0 20px;
+  border-top: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.notify-choice input {
+  appearance: none;
+  flex: none;
+  width: 36px;
+  height: 22px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 11px;
+  background: radial-gradient(circle 9px at 11px 50%, #fff 98%, transparent) var(--border);
+  cursor: pointer;
+  transition: background-position 0.15s;
+}
+
+.notify-choice input:checked {
+  background-color: var(--fill);
+  background-position: 14px 0;
+}
+
+@media (max-width: 720px) {
+  .profile-body {
+    padding: 20px 16px 40px;
+  }
+
+  .profile-password {
+    grid-template-columns: 1fr;
+  }
 }

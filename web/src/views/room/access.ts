@@ -43,9 +43,12 @@ export interface AccessDialog {
 const CHOICES: readonly Visibility[] = ["private", "public", "open"];
 
 /** Who can post (§23.6), shown like the visibilities. */
+/** The choices' icons (.i-* in icons.css); Public keeps its "#". */
+const ICONS: Record<string, string> = { private: "ic i-lock", open: "ic i-globe", everyone: "ic i-users", selected: "ic i-check" };
+
 const POSTING: Record<Posting, { label: string; icon: string; hint: string }> = {
-  everyone: { label: "Everyone who can see it", icon: "💬", hint: "Guests of an Open Air room only read." },
-  selected: { label: "Only people you choose", icon: "✋", hint: "Everyone else reads and reacts, but can't post." },
+  everyone: { label: "Everyone who can see it", icon: "", hint: "Guests of an Open Air room only read." },
+  selected: { label: "Only people you choose", icon: "", hint: "Everyone else reads and reacts, but can't post." },
 };
 
 /** What a change of visibility does that may not be obvious, or "". */
@@ -108,7 +111,7 @@ export function createAccessDialog(opts: {
         radios.set(v, input);
         return h("label", { class: `vis-choice vis-${v}` }, [
           input,
-          h("span", { class: "vis-icon", "aria-hidden": "true" }, info[v].icon),
+          h("span", { class: `vis-icon ${ICONS[v] ?? ""}`, "aria-hidden": "true" }, ICONS[v] ? "" : info[v].icon),
           h("span", { class: "vis-text" }, [
             h("span", { id: `${id}-${v}-label`, class: "vis-label" }, info[v].label),
             h("span", { id: `${id}-${v}-hint`, class: "vis-hint" }, info[v].hint),

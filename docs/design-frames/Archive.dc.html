@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sidebar with hidden and archived open</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0F0D16}
+a{color:#C4B5FD}a:hover{color:#DDD6FE}
+button{font:inherit}
+.dimrow .act{opacity:0;transition:opacity .12s}
+.dimrow:hover,.dimrow.hovered{background:rgba(255,255,255,0.05)}
+.dimrow .act.show{opacity:1}
+.dimrow:hover .act,.dimrow:focus-within .act{opacity:1}
+</style>
+</helmet>
+<div style="width: 280px; height: 900px; overflow: hidden; display: flex; background: #0F0D16; font-family: 'Inter', system-ui, sans-serif; color: #ECEAF4; font-size: 14px">
+
+<!-- SIDEBAR -->
+<nav aria-label="Workspace" style="flex: 0 0 280px; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px; padding: 14px 12px 12px; background: #15121E; border-right: 1px solid rgba(255,255,255,0.06); min-height: 900px">
+
+  <!-- workspace + compose -->
+  <div style="display: flex; align-items: center; gap: 8px; padding: 0 2px">
+    <button type="button" style="flex: 1 1 auto; display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 8px; border: 0; border-radius: 10px; background: transparent; color: #ECEAF4; cursor: pointer; text-align: left">
+      <span aria-hidden="true" style="width: 30px; height: 30px; flex: 0 0 auto; border-radius: 50% 50% 50% 50% / 50% 50% 50% 50%; border-bottom-left-radius: 28% 30%; background: linear-gradient(135deg, #7A5AF8 0%, #A43FD0 55%, #D2389E 100%)"></span>
+      <span style="font-weight: 700; font-size: 16px; letter-spacing: -0.01em">Chirkle</span>
+    </button>
+  </div>
+
+  <!-- search -->
+  <button type="button" style="margin: 8px 2px 6px; display: flex; align-items: center; gap: 10px; height: 38px; padding: 0 10px 0 12px; border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; background: #1B1726; color: #8F8AA5; cursor: pointer; text-align: left">
+    <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+    <span style="flex: 1 1 auto">Search</span>
+    <span style="font-size: 11px; font-weight: 600; color: #A6A1B8; border: 1px solid rgba(255,255,255,0.1); border-radius: 5px; padding: 2px 6px">⌘K</span>
+  </button>
+
+  <div style="height: 1px; background: rgba(255,255,255,0.06); margin: 6px 4px 8px"></div>
+
+  <!-- rooms -->
+  <div style="display: flex; align-items: center; justify-content: space-between; padding: 4px 6px 4px 10px">
+    <button type="button" onClick="{{toggle_rooms}}" aria-expanded="{{roomsOpen}}" style="display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px 0 4px; margin-left: -6px; border: 0; border-radius: 6px; background: transparent; color: #8F8AA5; font-size: 12px; font-weight: 600; cursor: pointer"><span style="{{roomsChevron}}"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></span>Rooms</button>
+    <button type="button" aria-label="New room" style="width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: transparent; color: #8F8AA5; cursor: pointer">
+      <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>
+    </button>
+  </div>
+  <div style="display: flex; flex-direction: column; gap: 2px">
+    <sc-for list="{{rooms}}" as="room" hint-placeholder-count="6">
+      <button type="button" onClick="{{room.pick}}" style="{{room.rowStyle}}">
+        <span style="{{room.hashStyle}}">#</span>
+        <span style="flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{room.name}}</span>
+        <sc-if value="{{room.isPrivate}}" hint-placeholder-val="{{false}}">
+          <svg aria-label="Private" role="img" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8F8AA5" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>
+        </sc-if>
+        <sc-if value="{{room.isOpenAir}}" hint-placeholder-val="{{false}}">
+          <svg aria-label="Open air" role="img" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8F8AA5" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"></path></svg>
+        </sc-if>
+        <sc-if value="{{room.hasBadge}}" hint-placeholder-val="{{false}}">
+          <span style="min-width: 20px; height: 20px; box-sizing: border-box; padding: 0 6px; border-radius: 10px; background: #6D4AFF; color: #FFFFFF; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center">{{room.unread}}</span>
+        </sc-if>
+      </button>
+    </sc-for>
+  </div>
+
+  <!-- DMs -->
+  <div style="display: flex; align-items: center; justify-content: space-between; padding: 14px 6px 4px 10px">
+    <button type="button" onClick="{{toggle_dms}}" aria-expanded="{{dmsOpen}}" style="display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px 0 4px; margin-left: -6px; border: 0; border-radius: 6px; background: transparent; color: #8F8AA5; font-size: 12px; font-weight: 600; cursor: pointer"><span style="{{dmsChevron}}"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></span>Direct messages</button>
+    <button type="button" aria-label="New direct message" style="width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: transparent; color: #8F8AA5; cursor: pointer">
+      <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>
+    </button>
+  </div>
+  <div style="display: flex; flex-direction: column; gap: 2px">
+    <button type="button" style="display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: #ECEAF4; font-weight: 600; cursor: pointer; text-align: left">
+      <span style="position: relative; width: 22px; height: 22px; flex: 0 0 auto">
+        <span style="width: 22px; height: 22px; border-radius: 50%; background: #F08A5D; color: #2A1206; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center">MC</span>
+        
+      </span>
+      <span style="flex: 1 1 auto">Maya Chen</span>
+      <span style="min-width: 20px; height: 20px; box-sizing: border-box; padding: 0 6px; border-radius: 10px; background: #6D4AFF; color: #FFFFFF; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center">1</span>
+    </button>
+    <sc-if value="{{dmsOpen}}" hint-placeholder-val="{{true}}">
+    <button type="button" style="display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: #A6A1B8; cursor: pointer; text-align: left">
+      <span style="position: relative; width: 22px; height: 22px; flex: 0 0 auto">
+        <span style="width: 22px; height: 22px; border-radius: 50%; background: #F5C04E; color: #2B1D00; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center">SR</span>
+        
+      </span>
+      <span style="flex: 1 1 auto">Sam Rivera</span>
+    </button>
+    </sc-if>
+  </div>
+
+  <!-- collections -->
+  <div style="display: flex; align-items: center; justify-content: space-between; padding: 14px 6px 4px 10px">
+    <button type="button" onClick="{{toggle_collections}}" aria-expanded="{{collectionsOpen}}" style="display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px 0 4px; margin-left: -6px; border: 0; border-radius: 6px; background: transparent; color: #8F8AA5; font-size: 12px; font-weight: 600; cursor: pointer"><span style="{{collectionsChevron}}"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></span>Collections</button>
+    <button type="button" aria-label="New collection" style="width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: transparent; color: #8F8AA5; cursor: pointer">
+      <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>
+    </button>
+  </div>
+  <sc-if value="{{collectionsOpen}}" hint-placeholder-val="{{true}}">
+  <div style="display: flex; flex-direction: column; gap: 2px">
+    <button type="button" style="display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: #A6A1B8; font-weight: 500; cursor: pointer; text-align: left">
+      <span style="width: 22px; height: 22px; flex: 0 0 auto; border-radius: 6px; background: #2A2340; color: #C4B5FD; display: flex; align-items: center; justify-content: center">
+        <svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"></rect><circle cx="9" cy="9" r="2"></circle><path d="m21 15-5-5L5 21"></path></svg>
+      </span>
+      <span style="flex: 1 1 auto">Moodboard</span>
+      <svg aria-label="Private" role="img" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#8F8AA5" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>
+      <span style="font-size: 12px; color: #8F8AA5; min-width: 18px; text-align: right">48</span>
+    </button>
+    <button type="button" style="display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: #A6A1B8; font-weight: 500; cursor: pointer; text-align: left">
+      <span style="width: 22px; height: 22px; flex: 0 0 auto; border-radius: 6px; background: #1F2E3A; color: #7DD3FC; display: flex; align-items: center; justify-content: center">
+        <svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"></rect><circle cx="9" cy="9" r="2"></circle><path d="m21 15-5-5L5 21"></path></svg>
+      </span>
+      <span style="flex: 1 1 auto">Screenshots</span>
+      <span style="font-size: 12px; color: #8F8AA5; min-width: 18px; text-align: right">126</span>
+    </button>
+    <button type="button" style="display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: #A6A1B8; font-weight: 500; cursor: pointer; text-align: left">
+      <span style="width: 22px; height: 22px; flex: 0 0 auto; border-radius: 6px; background: #3A2620; color: #FDBA8C; display: flex; align-items: center; justify-content: center">
+        <svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"></rect><circle cx="9" cy="9" r="2"></circle><path d="m21 15-5-5L5 21"></path></svg>
+      </span>
+      <span style="flex: 1 1 auto">Brand assets</span>
+      <span style="font-size: 12px; color: #8F8AA5; min-width: 18px; text-align: right">12</span>
+    </button>
+  </div>
+  </sc-if>
+
+  <!-- hidden & archived -->
+  <div style="display: flex; align-items: center; justify-content: space-between; padding: 14px 6px 4px 10px">
+    <button type="button" onClick="{{toggle_more}}" aria-expanded="{{moreOpen}}" style="display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px 0 4px; margin-left: -6px; border: 0; border-radius: 6px; background: transparent; color: #8F8AA5; font-size: 12px; font-weight: 600; cursor: pointer"><span style="{{moreChevron}}"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></span>Hidden &amp; archived</button>
+    <span style="font-size: 12px; font-weight: 600; color: #8F8AA5; padding-right: 8px">{{moreCount}}</span>
+  </div>
+  <sc-if value="{{moreOpen}}" hint-placeholder-val="{{false}}">
+    <div style="display: flex; flex-direction: column; gap: 2px; margin: 0 0 4px; padding: 2px 0 6px; border-radius: 10px; background: rgba(255,255,255,0.025)">
+      <sc-if value="{{hasHidden}}" hint-placeholder-val="{{true}}">
+      <div style="display: flex; align-items: center; gap: 8px; padding: 8px 10px 4px; color: #8A85A0; font-size: 11px; font-weight: 600; letter-spacing: 0.02em"><svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.9 4.2A10 10 0 0 1 12 4c6.5 0 10 8 10 8a17 17 0 0 1-2.2 3.2M6.6 6.6A17 17 0 0 0 2 12s3.5 8 10 8a9.7 9.7 0 0 0 5.4-1.6"></path><path d="M14.1 14.1a3 3 0 0 1-4.2-4.2M2 2l20 20"></path></svg><span style="flex: 1 1 auto">Hidden</span><span>{{hiddenCount}}</span></div>
+      <sc-for list="{{hidden}}" as="r" hint-placeholder-count="2">
+        <div class="{{r.rowCls}}" style="display: flex; align-items: center; gap: 4px; padding-right: 4px; border-radius: 8px">
+          <button type="button" style="flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: #8A85A0; font-size: 14px; font-weight: 500; cursor: pointer; text-align: left">
+            <span style="width: 16px; text-align: center; font-weight: 600; color: #6F6A85">#</span>
+            <span style="flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{r.name}}</span>
+          </button>
+          <button type="button" class="{{r.actCls}}" onClick="{{r.restore}}" aria-label="{{r.label}}" style="height: 26px; padding: 0 9px; border: 0; border-radius: 6px; background: rgba(255,255,255,0.08); color: #DCD8E8; font-size: 12px; font-weight: 600; cursor: pointer">{{r.action}}</button>
+        </div>
+      </sc-for>
+      </sc-if>
+      <sc-if value="{{hasArchived}}" hint-placeholder-val="{{true}}">
+      <div style="display: flex; align-items: center; gap: 8px; padding: 8px 10px 4px; color: #8A85A0; font-size: 11px; font-weight: 600; letter-spacing: 0.02em"><svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="5" rx="1"></rect><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9M10 13h4"></path></svg><span style="flex: 1 1 auto">Archived</span><span>{{archivedCount}}</span></div>
+      <sc-for list="{{archived}}" as="r" hint-placeholder-count="2">
+        <div class="{{r.rowCls}}" style="display: flex; align-items: center; gap: 4px; padding-right: 4px; border-radius: 8px">
+          <button type="button" style="flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: #8A85A0; font-size: 14px; font-weight: 500; cursor: pointer; text-align: left">
+            <span style="width: 16px; text-align: center; font-weight: 600; color: #6F6A85">#</span>
+            <span style="flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{r.name}}</span>
+          </button>
+          <button type="button" class="{{r.actCls}}" onClick="{{r.restore}}" aria-label="{{r.label}}" style="height: 26px; padding: 0 9px; border: 0; border-radius: 6px; background: rgba(255,255,255,0.08); color: #DCD8E8; font-size: 12px; font-weight: 600; cursor: pointer">{{r.action}}</button>
+        </div>
+      </sc-for>
+      </sc-if>
+      <sc-if value="{{moreEmpty}}" hint-placeholder-val="{{false}}">
+        <span style="padding: 8px 10px; font-size: 13px; color: #8A85A0">Nothing hidden or archived</span>
+      </sc-if>
+    </div>
+  </sc-if>
+
+  <div style="flex: 1 1 auto; min-height: 16px"></div>
+
+  <!-- footer -->
+  <div style="margin-top: 6px; display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 12px; background: #1B1726; border: 1px solid rgba(255,255,255,0.06)">
+    <span style="position: relative; width: 34px; height: 34px; flex: 0 0 auto">
+      <span style="width: 34px; height: 34px; border-radius: 50%; background: #B794F6; color: #22113F; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center">AM</span>
+      
+    </span>
+    <span style="flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column">
+      <span style="font-weight: 600; font-size: 14px">Alex Morgan</span>
+    </span>
+    <button type="button" aria-label="Settings" style="width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 8px; background: transparent; color: #A6A1B8; cursor: pointer">
+      <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"></path></svg>
+    </button>
+  </div>
+</nav>
+
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":280,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = {
+      active: 'design',
+      open: { rooms: false, dms: false, collections: false, more: true },
+      restored: []
+    };
+  }
+  toggle(k) {
+    var o = Object.assign({}, this.state.open);
+    o[k] = !o[k];
+    this.setState({ open: o });
+  }
+  restore(name) {
+    this.setState({ restored: this.state.restored.concat([name]), active: name });
+  }
+  renderVals() {
+    var self = this;
+    var st = this.state;
+    var o = st.open;
+    var data = [
+      { id: 'general', unread: 3, vis: 'public' },
+      { id: 'release-2.4', unread: 7, vis: 'private' },
+      { id: 'support', unread: 1, vis: 'public' },
+      { id: 'announcements', unread: 0, vis: 'openair' },
+      { id: 'design', unread: 0, vis: 'private' },
+      { id: 'random', unread: 0, vis: 'openair' }
+    ];
+    st.restored.forEach(function (n) { data.push({ id: n, unread: 0, vis: 'public' }); });
+    var base = 'display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border:0;border-radius:8px;cursor:pointer;text-align:left;font-size:14px;width:100%;box-sizing:border-box;';
+    var rooms = data.filter(function (r) {
+      return o.rooms || r.id === st.active || r.unread > 0;
+    }).map(function (r) {
+      var active = r.id === st.active;
+      var unread = !active && r.unread > 0;
+      var row = base + (active
+        ? 'background:rgba(139,108,255,0.16);color:#F3F0FF;font-weight:600;'
+        : 'background:transparent;color:' + (unread ? '#ECEAF4;font-weight:600;' : '#A6A1B8;font-weight:500;'));
+      var hash = 'width:16px;text-align:center;font-weight:600;color:' + (active ? '#B9A6FF' : '#6F6A85') + ';';
+      return {
+        name: r.id, unread: r.unread, hasBadge: unread,
+        isPrivate: r.vis === 'private', isOpenAir: r.vis === 'openair',
+        rowStyle: row, hashStyle: hash,
+        pick: function () { self.setState({ active: r.id }); }
+      };
+    });
+    var demo = true;
+    function list(names, action) {
+      return names.filter(function (n) { return st.restored.indexOf(n) < 0; }).map(function (n, i) {
+        var hov = demo && action === 'Unhide' && i === 1;
+        return { name: n, action: action, label: action + ' ' + n,
+          rowCls: 'dimrow' + (hov ? ' hovered' : ''), actCls: 'act' + (hov ? ' show' : ''),
+          restore: function () { self.restore(n); } };
+      });
+    }
+    var hidden = list(['standup-notes', 'offtopic-2023', 'bots', 'sandbox'], 'Unhide');
+    var archived = list(['release-2.3', 'hackathon'], 'Restore');
+    function chev(open) { return 'display:flex;transition:transform .15s ease;transform:rotate(' + (open ? 0 : -90) + 'deg);'; }
+    return {
+      rooms: rooms, activeName: st.active,
+      roomsOpen: o.rooms, dmsOpen: o.dms, collectionsOpen: o.collections, moreOpen: o.more,
+      roomsChevron: chev(o.rooms), dmsChevron: chev(o.dms), collectionsChevron: chev(o.collections), moreChevron: chev(o.more),
+      toggle_rooms: function () { self.toggle('rooms'); },
+      toggle_dms: function () { self.toggle('dms'); },
+      toggle_collections: function () { self.toggle('collections'); },
+      toggle_more: function () { self.toggle('more'); },
+      hidden: hidden, archived: archived,
+      hiddenCount: hidden.length, archivedCount: archived.length,
+      hasHidden: hidden.length > 0, hasArchived: archived.length > 0,
+      moreCount: hidden.length + archived.length,
+      moreEmpty: hidden.length + archived.length === 0
+    };
+  }
+}
+</script>
+</body>
+</html>

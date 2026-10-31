@@ -35,6 +35,9 @@ class UiHarness(private val compose: ComposeContentTestRule) {
         accounts = a
         // The test runs on the main thread: started there, and driven by the rule's idling (never blocked on).
         a.scope.launch { a.start() }
+        // In the foreground, as ChirkleApp makes it on a device (ProcessLifecycleOwner never starts here): away, the
+        // realtime connection closes after ChirkleServices.BACKGROUND_CLOSE_MS and later live events never come.
+        a.setVisible(true)
         compose.setContent { ChirkleTheme { AppRoot(a, linked = null, onLinkTaken = {}, onSignedIn = {}) } }
         compose.waitUntil(15_000) { pump(); a.active.value != null }
         return a.active.value!!

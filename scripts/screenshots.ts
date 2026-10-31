@@ -3,7 +3,7 @@
 //
 //   npm run build && npm run screenshots
 //
-// Nothing is kept but the images. Fonts come from the machine: Nunito (in the app's font stack) and a color emoji font
+// Nothing is kept but the images. Fonts come from the machine: Inter (first in the app's font stack) and a color emoji font
 // make it look as it does on a phone or a Mac; point FONTCONFIG_FILE at them on a machine without.
 
 import { mkdir } from "node:fs/promises";

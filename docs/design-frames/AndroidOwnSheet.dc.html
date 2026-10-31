@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Android own message actions</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+button{font:inherit}
+</style>
+</helmet>
+<div style="position: relative; width: 412px; height: 915px; overflow: hidden; font-family: 'Inter', system-ui, sans-serif; color: #ECEAF4">
+  <dc-import name="AndroidChat" hint-size="412px,915px"></dc-import>
+  <div aria-hidden="true" style="position: absolute; inset: 0; background: rgba(8,6,14,0.62)"></div>
+
+  <div role="dialog" aria-label="Message actions" style="position: absolute; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; padding: 10px 0 20px; border-radius: 28px 28px 0 0; background: #221E2F; box-shadow: 0 -12px 40px rgba(0,0,0,0.4)">
+    <span aria-hidden="true" style="align-self: center; width: 36px; height: 4px; border-radius: 2px; background: #4A4560; margin-bottom: 14px"></span>
+
+    <div style="display: flex; gap: 12px; align-items: center; margin: 0 16px 14px; padding: 10px 12px; border-radius: 16px; background: rgba(255,255,255,0.04)">
+      <span style="width: 36px; height: 36px; flex: 0 0 auto; border-radius: 50%; background: #B794F6; color: #22113F; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center">AM</span>
+      <div style="flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+        <span style="font-size: 14px; font-weight: 600">You</span>
+        <span style="font-size: 14px; color: #A6A1B8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">Signing off on the German strings now.</span>
+      </div>
+    </div>
+
+    <div style="display: flex; justify-content: space-between; padding: 0 16px 12px">
+      <button type="button" aria-label="React thumbs up" style="width: 48px; height: 48px; border: 0; border-radius: 24px; background: #2A2540; font-size: 22px">👍</button>
+      <button type="button" aria-label="React heart" style="width: 48px; height: 48px; border: 0; border-radius: 24px; background: #2A2540; font-size: 22px">❤️</button>
+      <button type="button" aria-label="React laughing" style="width: 48px; height: 48px; border: 0; border-radius: 24px; background: #2A2540; font-size: 22px">😂</button>
+      <button type="button" aria-label="React party" style="width: 48px; height: 48px; border: 0; border-radius: 24px; background: #2A2540; font-size: 22px">🎉</button>
+      <button type="button" aria-label="React surprised" style="width: 48px; height: 48px; border: 0; border-radius: 24px; background: #2A2540; font-size: 22px">😮</button>
+      <button type="button" aria-label="Add reaction" style="width: 48px; height: 48px; border: 0; border-radius: 24px; background: #2A2540; color: #C9C5D8; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6-8.5"></path><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01M19 2v6M16 5h6"></path></svg></button>
+    </div>
+
+    <div style="height: 1px; background: rgba(255,255,255,0.06); margin: 0 0 6px"></div>
+
+    <sc-for list="{{actions}}" as="a" hint-placeholder-count="6">
+      <button type="button" style="{{a.row}}">
+        <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="{{a.d}}"></path></svg>{{a.label}}
+      </button>
+    </sc-for>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":412,"height":915}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var data = [
+      ['Reply', 'M9 17 4 12l5-5M20 18v-2a4 4 0 0 0-4-4H4'],
+      ['Edit', 'M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z'],
+      ['Copy text', 'M9 9h11v11H9zM5 15H4V4h11v1'],
+      ['Forward', 'm15 17 5-5-5-5M4 18v-2a4 4 0 0 1 4-4h12'],
+      ['Select', 'M3 7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v10a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4ZM8 12l3 3 5-6'],
+      ['Delete', 'M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14', true]
+    ];
+    return {
+      actions: data.map(function (d) {
+        return {
+          label: d[0], d: d[1],
+          row: 'display:flex;align-items:center;gap:18px;height:52px;padding:0 24px;border:0;background:transparent;font-size:16px;text-align:left;color:' + (d[2] ? '#FCA5A5' : '#ECEAF4') + ';'
+        };
+      })
+    };
+  }
+}
+</script>
+</body>
+</html>

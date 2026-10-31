@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Android accounts</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#C4B5FD}
+button{font:inherit}
+</style>
+</helmet>
+<div style="width: 412px; height: 915px; overflow: hidden; display: flex; flex-direction: column; background: #15121E; font-family: 'Inter', system-ui, sans-serif; color: #ECEAF4; font-size: 16px">
+  <header style="height: 64px; flex: 0 0 auto; display: flex; align-items: center; gap: 4px; padding: 0 8px">
+    <a href="AndroidRooms.dc.html" aria-label="Back" style="width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; border-radius: 24px; color: #ECEAF4"><svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"></path></svg></a>
+    <h1 style="margin: 0; font-size: 22px; font-weight: 600">Accounts</h1>
+  </header>
+
+  <div style="flex: 1 1 auto; display: flex; flex-direction: column; padding: 8px 12px">
+    <sc-for list="{{accounts}}" as="a" hint-placeholder-count="3">
+      <button type="button" aria-current="{{a.current}}" style="{{a.row}}">
+        <span style="{{a.av}}">{{a.ini}}</span>
+        <span style="flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+          <span style="font-weight: 600">{{a.name}}</span>
+          <span style="font-size: 14px; color: #A6A1B8">{{a.server}}</span>
+        </span>
+        <sc-if value="{{a.isCurrent}}" hint-placeholder-val="{{false}}"><svg aria-label="Current account" role="img" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#B9A6FF" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"></path></svg></sc-if>
+      </button>
+    </sc-for>
+    <div style="height: 1px; background: rgba(255,255,255,0.06); margin: 8px 4px"></div>
+    <a href="AndroidServerLogin.dc.html" style="display: flex; align-items: center; gap: 16px; height: 64px; padding: 0 12px; border-radius: 16px; color: #ECEAF4; text-decoration: none">
+      <span style="width: 44px; height: 44px; border-radius: 50%; border: 1px dashed rgba(255,255,255,0.25); display: flex; align-items: center; justify-content: center; color: #C9C5D8"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg></span>
+      <span style="font-weight: 600">Add account</span>
+    </a>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":412,"height":915}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      accounts: [
+        { name: 'Alex Morgan', server: 'chirkle.example', ini: 'AM', bg: '#B794F6', fg: '#22113F', cur: true },
+        { name: 'Alex M', server: 'chat.makers.org', ini: 'AM', bg: '#F472B6', fg: '#3B0A24' },
+        { name: 'alex', server: 'chat.example.net', ini: 'A', bg: '#7DD3FC', fg: '#04263A' }
+      ].map(function (a) {
+        return {
+          name: a.name, server: a.server, ini: a.ini, isCurrent: !!a.cur, current: a.cur ? 'true' : 'false',
+          row: 'display:flex;align-items:center;gap:16px;height:72px;padding:0 12px;border:0;border-radius:16px;text-align:left;color:#ECEAF4;background:' + (a.cur ? 'rgba(139,108,255,0.14)' : 'transparent') + ';',
+          av: 'width:44px;height:44px;flex:0 0 auto;border-radius:50%;background:' + a.bg + ';color:' + a.fg + ';font-size:15px;font-weight:700;display:flex;align-items:center;justify-content:center;'
+        };
+      })
+    };
+  }
+}
+</script>
+</body>
+</html>

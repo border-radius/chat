@@ -100,7 +100,13 @@ export function createSearch(o: SearchOptions): Search {
     on: { input: () => schedule(), keydown: (e) => keydown(e), focus: () => (results.hidden = !results.childElementCount) },
     signal,
   });
-  const close = h("button", { type: "button", class: "link", "aria-label": "Close search", on: { click: () => end() }, signal }, "×");
+  const close = h("button", {
+    type: "button",
+    class: "icon-button ic i-x",
+    "aria-label": "Close search",
+    on: { click: () => end() },
+    signal,
+  });
   const status = h("p", { class: "search-status", role: "status" });
   const results = h("ul", { class: "search-results", "aria-label": "Search results", hidden: true });
   const more = h(

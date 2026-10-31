@@ -136,7 +136,7 @@ test("turned on in the profile: a DM and a reply to you pop up in a background t
   await expect.poll(async () => (await popups(page))[1]!.closed).toBe(true);
 
   // Off again (from the header, not a reload: the recorder stays): silent.
-  await page.locator("header.app-bar a.me-link").click();
+  await page.locator("a.me-link:visible").click();
   for (const label of ["Direct messages", "Replies to you"]) await box.getByLabel(label).uncheck();
   await apiSend(bob, { id: dm.id, name: "" }, "anyone?");
   await page.waitForTimeout(1000);

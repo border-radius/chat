@@ -94,7 +94,8 @@ test("collections: make one, save from the chat, follow, see what's new, attach 
 
   // Bob attaches from the collection: the message shows it with a badge that links to it.
   await b.goto(`/r/${room.id}`);
-  await b.getByRole("button", { name: "Attach from collections" }).click();
+  await b.locator("form.composer summary").click();
+  await b.getByRole("button", { name: "From collection" }).click();
   const picker = b.getByRole("dialog", { name: "Attach from collections" });
   await picker.getByRole("button", { name: "dog.png" }).click();
   await picker.getByRole("button", { name: "Attach 1" }).click();
@@ -265,7 +266,8 @@ test("collections: the page follows changes; renaming, removing and the dialogs 
     a,
     Array.from({ length: 10 }, (_, i) => ({ name: `f${i}.png`, mimeType: "image/png", buffer: Buffer.from(PNG) })),
   );
-  await a.getByRole("button", { name: "Attach from collections" }).click();
+  await a.locator("form.composer summary").click();
+  await a.getByRole("button", { name: "From collection" }).click();
   await expect(a.getByRole("dialog", { name: "Attach from collections" })).toContainText("The message has all the files it can take.");
   await a.keyboard.press("Escape");
   await a.goBack();

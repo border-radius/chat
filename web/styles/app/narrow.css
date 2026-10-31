@@ -1,22 +1,111 @@
-/* ---- Narrow screens (§7.8): the room list collapses; rooms are reached via "← Rooms". ---- */
+/* ---- Narrow screens (§7.8): the room list is a page of its own (#/), under the app bar; a room or another page fills
+   the screen, with its own header and a way back. ---- */
 
 @media (max-width: 720px) {
   .sidebar {
     display: none;
   }
 
-  .pane {
-    border-radius: 0;
+  #app:has(.layout:not(.home)) > .app-bar,
+  .side-top,
+  .side-foot {
+    display: none;
   }
 
-  /* At #/ the room list is the page. */
+  /* At / the room list is the page. */
   .layout.home .sidebar {
-    display: block;
+    display: flex;
     flex: 1;
+    border: 0;
   }
 
   .layout.home .pane {
     display: none;
+  }
+
+  .sidebar nav {
+    padding: 0 10px 24px;
+  }
+
+  .room-section li a {
+    gap: 12px;
+    height: 48px;
+    padding: 0 12px;
+  }
+
+  .room-section li .avatar {
+    width: 28px;
+    height: 28px;
+  }
+
+  .section-head .icon-button,
+  .fold,
+  .room-section > summary {
+    height: 44px;
+  }
+
+  .section-head .icon-button {
+    width: 44px;
+  }
+
+  /* A room: tighter sides, a 60px header with 44px buttons, a 32px avatar. */
+  .room-header {
+    min-height: 60px;
+    padding: 0 6px;
+  }
+
+  .room-header .back {
+    margin-left: 0;
+  }
+
+  .room-header .icon-button,
+  .room-header .menu > summary {
+    width: 44px;
+    height: 44px;
+  }
+
+  .room-members {
+    display: none;
+  }
+
+  .msg {
+    padding-right: 16px;
+    padding-left: calc(16px + 32px + 10px);
+  }
+
+  .msg > .avatar {
+    left: 16px;
+    width: 32px;
+    height: 32px;
+  }
+
+  .msg.to-me {
+    margin: 0 8px;
+    padding-left: calc(8px + 32px + 10px);
+  }
+
+  .msg.to-me > .avatar {
+    left: 5px;
+  }
+
+  .day,
+  .new-line {
+    margin-inline: 16px;
+  }
+
+  .actions {
+    right: 16px;
+  }
+
+  .composer-row {
+    min-height: 64px;
+    padding: 10px 8px 10px 6px;
+  }
+
+  .composer-row > button,
+  .composer-row > .menu > summary {
+    width: 44px;
+    height: 44px;
   }
 }
 

@@ -1,20 +1,42 @@
-/* ---- Replies (§19): a one-line quote of the original above the reply; clicking it shows the original. ---- */
+/* ---- Replies (§19): a one-line quote of the original above the reply, joined to the avatar by a curve; clicking it
+   shows the original. ---- */
 
 .reply-quote {
   display: flex;
-  gap: 0.35rem;
-  align-items: baseline;
-  max-width: 100%;
-  margin: 0.1rem 0 0.15rem;
-  padding: 0.1rem 0.6rem;
+  gap: 6px;
+  align-items: center;
+  max-width: calc(100% + 32px);
+  margin: 0 0 2px -32px;
+  padding: 0 4px 0 0;
   border: 0;
-  border-left: 3px solid var(--accent);
-  border-radius: 0 8px 8px 0;
-  background: var(--tint);
-  color: var(--muted);
-  font-size: 0.8rem;
+  border-radius: 6px;
+  background: none;
+  color: var(--dim);
+  font-size: 0.75rem;
   font-weight: 400;
+  line-height: 1.5;
   text-align: left;
+}
+
+.reply-quote::before {
+  content: "";
+  flex: none;
+  align-self: flex-end;
+  width: 20px;
+  height: 10px;
+  margin-bottom: -4px;
+  border: solid var(--border);
+  border-width: 2px 0 0 2px;
+  border-top-left-radius: 6px;
+}
+
+/* No avatar under a reply that goes on a group: no curve. */
+.msg:not(.group-start) > .reply-quote {
+  margin-left: 0;
+}
+
+.msg:not(.group-start) > .reply-quote::before {
+  content: none;
 }
 
 .reply-quote:active:not(:disabled) {
@@ -23,7 +45,6 @@
 
 @media (hover: hover) {
   .reply-quote:hover {
-    background: var(--hover);
     color: var(--fg);
   }
 }
@@ -32,7 +53,8 @@
   flex: none;
   max-width: 40%;
   overflow: hidden;
-  font-weight: 700;
+  color: var(--muted);
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -50,17 +72,16 @@
   font-style: italic;
 }
 
+/* Replying: a strip over the composer. */
 .replying {
   display: flex;
-  gap: 0.4rem;
+  gap: 10px;
   align-items: center;
-  margin: 0 0 0.4rem;
-  padding: 0.2rem 0.25rem 0.2rem 0.6rem;
-  border-left: 3px solid var(--accent);
-  border-radius: 0 var(--radius) var(--radius) 0;
-  background: var(--tint);
-  font-size: 0.85rem;
-  animation: pop 0.25s var(--ease);
+  min-height: 40px;
+  padding: 0 14px 0 22px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.8125rem;
 }
 
 .replying-label {
@@ -74,14 +95,14 @@
 
 .replying-label strong {
   color: var(--fg);
+  font-weight: 600;
 }
 
-.replying-text {
-  margin-left: 0.4rem;
+.replying-text::before {
+  content: " · ";
 }
 
 .replying .remove {
-  flex: none;
-  padding: 0 0.45rem;
-  border: 0;
+  width: 28px;
+  height: 28px;
 }

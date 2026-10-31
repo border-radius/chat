@@ -15,6 +15,8 @@ for (const colorScheme of ["light", "dark"] as const) {
     test.use({ colorScheme });
 
     test("login, rooms, room and archived room have no serious accessibility violations", async ({ page }) => {
+      // Six axe scans and the wait for the "New" line: over 30 s under a full run's load.
+      test.slow();
       await page.goto("/");
       await expect(page.getByRole("heading", { name: "Welcome!" })).toBeVisible();
       expect(await seriousViolations(page), "guest home").toEqual([]);
@@ -44,6 +46,8 @@ for (const colorScheme of ["light", "dark"] as const) {
       await send(page, "files");
       await expect(page.locator(".att-tile")).toHaveCount(1);
       await attach(page, files);
+      // Not while the "New" line fades out (§22): text half faded is low contrast by design.
+      await expect(page.locator("li.new-line")).toHaveCount(0, { timeout: 10_000 });
       expect(await seriousViolations(page), "attachments").toEqual([]);
 
       await page.goto(`/r/${archived.id}`);
@@ -64,7 +68,7 @@ for (const colorScheme of ["light", "dark"] as const) {
       expect(await seriousViolations(page), "dm").toEqual([]);
 
       await page.goto("/me");
-      await expect(page.getByRole("heading", { name: "Your profile" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
       expect(await seriousViolations(page), "profile").toEqual([]);
     });
   });

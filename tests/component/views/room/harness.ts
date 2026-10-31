@@ -66,8 +66,13 @@ export const beginning = () => root.querySelector("li.beginning");
 export const pill = () => root.querySelector<HTMLButtonElement>("button.new-messages")!;
 export const composer = () => root.querySelector<HTMLTextAreaElement>("form.composer textarea");
 export const sendButton = () => root.querySelector<HTMLButtonElement>("form.composer button[type='submit']")!;
+/** A button by its text, or (an icon button) its accessible name. */
 export const button = (scope: Element | null, label: string) =>
-  scope ? ([...scope.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === label) ?? null) : null;
+  scope
+    ? ([...scope.querySelectorAll<HTMLButtonElement>("button")].find(
+        (b) => b.textContent === label || (!b.textContent && b.getAttribute("aria-label") === label),
+      ) ?? null)
+    : null;
 export const key = (el: Element, k: string, opts: KeyboardEventInit = {}) =>
   el.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true, ...opts }));
 export const type = (text: string) => {

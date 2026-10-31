@@ -101,20 +101,30 @@
 .att-file {
   display: inline-block;
   max-width: 18rem;
-  padding: 0.4rem 0.75rem;
+  padding: 0 12px;
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--raised);
-  font-size: 0.85rem;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--fg) 5%, transparent);
+  color: var(--fg);
+  font-size: 0.8125rem;
   font-weight: 600;
+  line-height: 40px;
+  text-decoration: none;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-a.att-file::before,
-span.att-file::before {
-  content: "📄 ";
+/* A document icon before the name, in the text's color. */
+.att-file::before {
+  content: "";
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  margin-right: 8px;
+  background: var(--accent);
+  vertical-align: -3px;
+  mask: var(--i) center / contain no-repeat;
 }
 
 /* An audio file's player, next to its chip and as high as it (the chip's baseline is its bottom: overflow hidden). */

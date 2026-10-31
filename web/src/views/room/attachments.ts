@@ -78,7 +78,7 @@ export function createAttachments(opts: {
     if (local.length) {
       for (const f of local) {
         if (!shown(f)) {
-          others.append(h("li", {}, h("span", { class: "att-file" }, f.file.name)));
+          others.append(h("li", {}, h("span", { class: "att-file i-file" }, f.file.name)));
           continue;
         }
         if (images.childElementCount === MAX_TILES) continue;
@@ -111,7 +111,7 @@ export function createAttachments(opts: {
           images.append(cell(m, name, tile));
           more(tile);
         } else {
-          const chip = fileLink(m, name, "att-file", [attachmentName(m, name)]);
+          const chip = fileLink(m, name, "att-file i-file", [attachmentName(m, name)]);
           others.append(h("li", {}, isAudio(name) ? [chip, " ", player(m, name)] : chip));
         }
       }

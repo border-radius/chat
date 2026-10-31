@@ -6,7 +6,7 @@ test("sign up, create a room, send the first message", async ({ page }) => {
   page.on("pageerror", (e) => errors.push(e.message));
 
   await page.goto("/");
-  await page.locator("header.app-bar").getByRole("link", { name: "Sign up" }).click();
+  await page.locator(".app-bar:visible, .side-foot").getByRole("link", { name: "Sign up" }).click();
   await expect(page).toHaveURL(atPath("/signup"));
   await expect(page.getByRole("tab", { name: "Sign up" })).toHaveAttribute("aria-selected", "true");
   await page.getByLabel("Display name").fill("Grace");
@@ -15,7 +15,7 @@ test("sign up, create a room, send the first message", async ({ page }) => {
   await page.getByRole("button", { name: "Sign up" }).click();
 
   await expect(page).toHaveURL(atPath("/"));
-  await expect(page.locator("header.app-bar")).toContainText("Grace");
+  await expect(page.locator(".app-bar:visible, .side-foot")).toContainText("Grace");
   await expect(page.getByRole("navigation", { name: "Rooms" })).toBeVisible();
   // With no room open: the room list is a sidebar on the left, a greeting beside it.
   const welcome = page.getByRole("heading", { name: "Welcome, Grace!" });

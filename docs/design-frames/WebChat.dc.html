@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mobile web chat</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#C4B5FD}a:hover{color:#DDD6FE}
+button{font:inherit}
+</style>
+</helmet>
+<div style="position: relative; width: 390px; height: 844px; overflow: hidden; display: flex; flex-direction: column; background: #1A1724; font-family: 'Inter', system-ui, sans-serif; color: #ECEAF4; font-size: 15px">
+  <header style="height: 60px; flex: 0 0 auto; box-sizing: border-box; display: flex; align-items: center; gap: 2px; padding: 0 6px; border-bottom: 1px solid rgba(255,255,255,0.06); background: #1A1724">
+    <a href="WebRooms.dc.html" aria-label="Back to rooms" style="position: relative; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border-radius: 12px; color: #C9C5D8">
+      <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"></path></svg>
+      <span style="position: absolute; top: 7px; right: 5px; min-width: 16px; height: 16px; box-sizing: border-box; padding: 0 4px; border-radius: 8px; background: #6D4AFF; color: #FFFFFF; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; border: 2px solid #1A1724">12</span>
+    </a>
+    <div style="flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; padding-left: 4px">
+      <span style="font-size: 17px; font-weight: 700; letter-spacing: -0.01em; white-space: nowrap"><span style="color: #6F6A85; font-weight: 600">#</span>design</span>
+      <svg aria-label="Private" role="img" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8F8AA5" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>
+    </div>
+    <button type="button" aria-label="Search in room" style="width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 12px; background: transparent; color: #C9C5D8; cursor: pointer"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg></button>
+    <button type="button" aria-label="Room options" style="width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 12px; background: transparent; color: #C9C5D8; cursor: pointer"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.8"></circle><circle cx="12" cy="12" r="1.8"></circle><circle cx="12" cy="19" r="1.8"></circle></svg></button>
+  </header>
+
+  <div style="flex: 1 1 auto; min-height: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; padding: 8px 0 6px">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 6px 16px 10px">
+      <div style="flex: 1 1 auto; height: 1px; background: rgba(255,255,255,0.06)"></div>
+      <span style="font-size: 12px; font-weight: 600; color: #A6A1B8; padding: 3px 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.08)">Today</span>
+      <div style="flex: 1 1 auto; height: 1px; background: rgba(255,255,255,0.06)"></div>
+    </div>
+
+    <article style="display: flex; gap: 10px; padding: 6px 16px">
+      <span style="width: 32px; height: 32px; flex: 0 0 auto; border-radius: 50%; background: #2DD4BF; color: #04201C; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center">LF</span>
+      <div style="flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px">
+        <div style="display: flex; align-items: center; gap: 6px"><span style="font-weight: 600; font-size: 14px">Leo Fischer</span><span style="height: 16px; padding: 0 5px; border-radius: 4px; background: rgba(56,189,248,0.14); color: #7DD3FC; font-size: 10px; font-weight: 700; display: inline-flex; align-items: center">TG</span><span style="font-size: 12px; color: #8F8AA5">3:35 PM</span></div>
+        <p style="margin: 0; line-height: 1.45; color: #DCD8E8">Took the dark theme for a spin on my phone last night. Contrast on the composer is much better now.</p>
+        <div style="margin-top: 4px; width: 240px; aspect-ratio: 4 / 3; border-radius: 12px; background: #2A2340; display: flex; align-items: center; justify-content: center; color: #8F8AA5; font-size: 12px">[Shared photo]</div>
+      </div>
+    </article>
+
+    <article style="display: flex; flex-direction: column; gap: 2px; padding: 8px 16px 6px">
+      <div style="display: flex; align-items: center; gap: 5px; padding-left: 14px; color: #8F8AA5; font-size: 12px; min-width: 0">
+        <svg aria-hidden="true" width="20" height="10" viewBox="0 0 26 12" fill="none" stroke="#4A4560" stroke-width="2" stroke-linecap="round"><path d="M1 12V7a6 6 0 0 1 6-6h18"></path></svg>
+        <span style="font-weight: 600; color: #C9C5D8">Leo Fischer</span>
+        <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">Took the dark theme for a spin…</span>
+      </div>
+      <div style="display: flex; gap: 10px">
+        <span style="width: 32px; height: 32px; flex: 0 0 auto; border-radius: 50%; background: #F08A5D; color: #2A1206; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center">MC</span>
+        <div style="flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px">
+          <div style="display: flex; align-items: center; gap: 6px"><span style="font-weight: 600; font-size: 14px">Maya Chen</span><span style="font-size: 12px; color: #8F8AA5">3:41 PM</span></div>
+          <p style="margin: 0; line-height: 1.45; color: #DCD8E8">Agreed. It finally reads well on OLED too.</p>
+          <div style="display: flex; gap: 6px; margin-top: 4px">
+            <button type="button" aria-pressed="true" style="height: 30px; padding: 0 10px; display: flex; align-items: center; gap: 6px; border: 1px solid rgba(139,108,255,0.55); border-radius: 15px; background: rgba(139,108,255,0.16); color: #E4DCFF; font-size: 13px; font-weight: 600">👍 4</button>
+            <button type="button" aria-pressed="false" style="height: 30px; padding: 0 10px; display: flex; align-items: center; gap: 6px; border: 1px solid rgba(255,255,255,0.08); border-radius: 15px; background: rgba(255,255,255,0.04); color: #C9C5D8; font-size: 13px; font-weight: 600">🎉 1</button>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <article style="display: flex; gap: 10px; padding: 8px 16px 6px">
+      <span style="width: 32px; height: 32px; flex: 0 0 auto; border-radius: 50%; background: #C02670; color: #FFFFFF; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center">AO</span>
+      <div style="flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 5px">
+        <div style="display: flex; align-items: center; gap: 6px"><span style="font-weight: 600; font-size: 14px">Amara Okafor</span><span style="font-size: 12px; color: #8F8AA5">3:52 PM</span></div>
+        <div style="align-self: flex-start; display: flex; align-items: center; gap: 10px; height: 48px; padding: 0 14px 0 6px; border-radius: 24px; background: #221E2F; border: 1px solid rgba(255,255,255,0.07)">
+          <button type="button" aria-label="Play voice message" style="width: 36px; height: 36px; border: 0; border-radius: 50%; background: #6D4AFF; color: #FFFFFF; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15a1 1 0 0 0 1.5.9l12-7.5a1 1 0 0 0 0-1.8l-12-7.5A1 1 0 0 0 7 4.5Z"></path></svg></button>
+          <div aria-hidden="true" style="display: flex; align-items: center; gap: 2px; height: 26px">
+            <sc-for list="{{wave}}" as="b" hint-placeholder-count="24"><span style="{{b}}"></span></sc-for>
+          </div>
+          <span style="font-size: 12px; font-weight: 600; color: #A6A1B8">0:14</span>
+        </div>
+      </div>
+    </article>
+
+    <article style="display: flex; gap: 10px; padding: 8px 16px 6px">
+      <span style="width: 32px; height: 32px; flex: 0 0 auto; border-radius: 50%; background: #38BDF8; color: #04263A; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center">PN</span>
+      <div style="flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 5px">
+        <div style="display: flex; align-items: center; gap: 6px"><span style="font-weight: 600; font-size: 14px">Priya Nair</span><span style="font-size: 12px; color: #8F8AA5">3:58 PM</span></div>
+        <p style="margin: 0; line-height: 1.45; color: #DCD8E8">Strings are tracked here <a href="https://example.com/i18n/onboarding">example.com/i18n/…</a></p>
+        <a href="https://example.com/i18n/onboarding" style="align-self: flex-start; max-width: 100%; display: flex; align-items: center; gap: 8px; height: 32px; box-sizing: border-box; padding: 0 12px 0 8px; border-radius: 8px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07); text-decoration: none; color: #C4B5FD; font-size: 13px; font-weight: 600">
+          <span aria-hidden="true" style="width: 16px; height: 16px; flex: 0 0 auto; border-radius: 4px; background: #E8E4F4; color: #1A1724; font-size: 10px; font-weight: 800; display: flex; align-items: center; justify-content: center">e</span>
+          <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">Onboarding — translation tracker</span>
+        </a>
+      </div>
+    </article>
+
+    <div style="display: flex; align-items: center; gap: 10px; padding: 12px 16px 4px">
+      <div style="flex: 1 1 auto; height: 1px; background: rgba(244,114,182,0.45)"></div>
+      <span style="font-size: 11px; font-weight: 700; color: #F9A8D4; letter-spacing: 0.04em">NEW</span>
+    </div>
+
+    <article style="display: flex; gap: 10px; margin: 4px 8px 0; padding: 8px; border-radius: 12px; background: rgba(139,108,255,0.10)">
+      <span style="width: 32px; height: 32px; flex: 0 0 auto; border-radius: 50%; background: #F08A5D; color: #2A1206; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center">MC</span>
+      <div style="flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px">
+        <div style="display: flex; align-items: center; gap: 6px"><span style="font-weight: 600; font-size: 14px">Maya Chen</span><span style="font-size: 12px; color: #8F8AA5">4:06 PM</span></div>
+        <p style="margin: 0; line-height: 1.45; color: #DCD8E8"><span style="padding: 1px 5px; border-radius: 5px; background: rgba(139,108,255,0.28); color: #E4DCFF; font-weight: 600">@Alex Morgan</span> can you sign off on the German strings before Wednesday?</p>
+      </div>
+    </article>
+  </div>
+
+  <button type="button" style="position: absolute; left: 50%; bottom: 80px; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px 0 12px; border: 1px solid rgba(255,255,255,0.1); border-radius: 18px; background: #2A2540; color: #ECEAF4; font-size: 13px; font-weight: 600; box-shadow: 0 8px 24px rgba(0,0,0,0.4)">
+    <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M19 12l-7 7-7-7"></path></svg>
+    3 new
+  </button>
+
+  <div style="height: 64px; flex: 0 0 auto; box-sizing: border-box; display: flex; align-items: center; gap: 2px; padding: 0 8px 0 6px; border-top: 1px solid rgba(255,255,255,0.06); background: #1A1724">
+    <button type="button" aria-label="Attach" aria-haspopup="menu" style="width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 12px; background: transparent; color: #A6A1B8"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.4 11.1-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"></path></svg></button>
+    <label style="flex: 1 1 auto; min-width: 0; display: flex">
+      <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Message</span>
+      <input type="text" placeholder="Message #design" style="flex: 1 1 auto; min-width: 0; height: 44px; padding: 0 4px; border: 0; background: transparent; color: #ECEAF4; font: inherit; font-size: 16px; outline: none">
+    </label>
+    <button type="button" aria-label="Emoji" style="width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 12px; background: transparent; color: #A6A1B8"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01"></path></svg></button>
+    <button type="button" aria-label="Send" disabled style="width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 12px; background: rgba(109,74,255,0.25); color: rgba(255,255,255,0.55)"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"></path></svg></button>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var h = [6,10,16,22,14,8,12,20,24,18,10,6,14,20,16,10,8,18,22,14,10,8,6,10];
+    return { wave: h.map(function (x) { return 'width:3px;border-radius:2px;background:#5E587A;height:' + x + 'px;'; }) };
+  }
+}
+</script>
+</body>
+</html>

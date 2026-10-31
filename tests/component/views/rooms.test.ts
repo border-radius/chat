@@ -7,7 +7,7 @@ import { type AppState, createStore, initialState, type Store } from "../../../w
 import { createRoomsView } from "../../../web/src/views/rooms.ts";
 import { instrument, type SignedUp, signedUp, subscribed, uniq, viewContext } from "../../support/api.ts";
 
-type Section = "rooms" | "dms" | "hidden" | "archived";
+type Section = "rooms" | "dms" | "more" | "hidden" | "archived";
 
 describe("rooms view (§7.1)", () => {
   let root: HTMLElement;
@@ -48,8 +48,10 @@ describe("rooms view (§7.1)", () => {
   const button = (scope: Element, label: string) =>
     [...scope.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === label) ?? null;
   const menu = (room: Room) => row(room)!.querySelector<HTMLDetailsElement>("details")!;
+  /** A row action: in its ⋯ menu, or (the only one, in Hidden & archived) a button on the row. */
   const action = (room: Room, label: string) => {
-    menu(room).open = true;
+    const m = row(room)!.querySelector<HTMLDetailsElement>("details");
+    if (m) m.open = true;
     return button(row(room)!, label);
   };
   const room = (name = `room-${uniq()}`) => me.api.createRoom(name);
@@ -81,17 +83,17 @@ describe("rooms view (§7.1)", () => {
       expect(link.getAttribute("aria-current")).toBe("page");
     });
 
-    it("hidden and archived sections are collapsed, with a count", async () => {
+    it("hidden and archived rooms are in one folded section, with how many there are", async () => {
       const h = await room();
       await me.api.hideRoom(h.id);
       await mount();
-      for (const s of ["hidden", "archived"] as const) {
-        const details = section(s).closest("details") ?? section(s).querySelector("details");
-        expect(details, s).not.toBeNull();
-        expect(details!.open, s).toBe(false);
-      }
-      const myHidden = (await me.api.listHidden()).length;
-      expect(section("hidden").querySelector("summary")!.textContent).toBe(`Hidden (${myHidden})`);
+      const more = section("more") as HTMLDetailsElement;
+      expect(more.open).toBe(false);
+      expect(section("hidden").closest("details")).toBe(more);
+      expect(section("archived").closest("details")).toBe(more);
+      const rows = (s: Section) => section(s).querySelectorAll("[data-room-id]").length;
+      expect(rows("hidden")).toBe((await me.api.listHidden()).length);
+      expect(more.querySelector("summary")!.textContent).toBe(`Hidden & archived${rows("hidden") + rows("archived")}`);
     });
 
     it("shows an empty state when there are no rooms", async () => {

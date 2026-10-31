@@ -14,22 +14,10 @@
     center / contain no-repeat;
 }
 
-.icon-button {
-  display: inline-grid;
-  place-items: center;
-  width: 2.25rem;
-  height: 2.25rem;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--muted);
-  font-size: 1.15rem;
-}
-
 @media (hover: hover) {
   .icon-button:hover:not(:disabled) {
-    background: var(--tint);
-    color: var(--accent);
+    background: var(--hover);
+    color: var(--fg);
   }
 }
 

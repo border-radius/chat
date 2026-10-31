@@ -3,30 +3,41 @@
 .reactions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.3rem;
-  margin: 0.25rem 0 0.1rem;
+  gap: 6px;
+  margin: 4px 0 2px;
 }
 
 .reaction,
 .add-reaction {
   display: inline-flex;
-  gap: 0.3rem;
+  gap: 6px;
   align-items: center;
-  padding: 0.05rem 0.55rem;
+  height: 28px;
+  padding: 0 10px;
   border: 1px solid var(--border);
-  border-radius: var(--pill);
-  background: var(--raised);
-  font-size: 0.85rem;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+  color: var(--muted);
+  font-size: 0.8125rem;
   font-weight: 600;
-  line-height: 1.6;
 }
 
 .reaction.mine {
-  border-color: var(--accent);
+  border-color: color-mix(in srgb, var(--fill) 55%, transparent);
   background: var(--tint);
-  color: var(--accent);
+  color: var(--fg);
 }
 
 .add-reaction {
-  color: var(--muted);
+  width: 32px;
+  justify-content: center;
+  padding: 0;
+  border-style: dashed;
+  background: none;
+  color: var(--dim);
+}
+
+.add-reaction::before {
+  width: 15px;
+  height: 15px;
 }

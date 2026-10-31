@@ -1,6 +1,7 @@
 package chirkle.android
 
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -59,8 +60,8 @@ class UiLinkedTest {
         val a = newUser()
         ui.signedIn(a)
         ui.waitFor("Rooms")
-        compose.onNodeWithContentDescription("New").performClick()
-        compose.onNodeWithText("New message").performClick()
+        ui.reveal(hasContentDescription("New direct message"))
+        compose.onNodeWithContentDescription("New direct message").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
         compose.onNode(hasSetTextAction()).performTextInput("ann@nowhere.example")
         ui.waitFor("This instance isn't linked to nowhere.example.")
     }

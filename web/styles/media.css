@@ -8,8 +8,8 @@ dialog.media {
   max-height: none;
   padding: 0;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg);
+  border-radius: 16px;
+  background: var(--raised);
   color: var(--fg);
   box-shadow: var(--shadow);
 }
@@ -20,22 +20,22 @@ dialog.media[open] {
 }
 
 dialog.media::backdrop {
-  background: rgb(0 0 0 / 45%);
+  background: rgb(8 6 14 / 70%);
 }
 
 .media-bar {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 0.75rem 0.5rem 1rem;
-  border-bottom: 1px solid var(--border);
+  gap: 10px;
+  padding: 14px 16px 12px 24px;
+  border-bottom: 1px solid var(--line);
 }
 
 .media-bar h2 {
   flex: 1;
   min-width: 0;
   margin: 0;
-  font-size: 1rem;
+  font-size: 1.0625rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -49,19 +49,20 @@ dialog.media::backdrop {
 .media-body {
   flex: 1;
   overflow-y: auto;
-  padding: 0 1rem 1rem;
+  padding: 0 24px 20px;
 }
 
 .media-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr));
-  gap: 4px;
+  grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr));
+  gap: 6px;
 }
 
 .media-grid h3 {
   grid-column: 1 / -1;
-  margin: 0.9rem 0 0.2rem;
-  font-size: 0.85rem;
+  margin: 16px 0 4px;
+  font-size: 0.8125rem;
+  font-weight: 600;
   color: var(--muted);
 }
 

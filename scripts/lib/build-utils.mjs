@@ -73,12 +73,15 @@ export const BASE_OPTIONS = {
   // every page load — so build.mjs fails if app.js imports any (`staticImports`).
   splitting: true,
   chunkNames: "assets/[name]-[hash]",
+  // Inter (web/fonts/), referenced by web/styles/app/fonts.css: copied next to the bundles under hashed names.
+  loader: { ".woff2": "file" },
+  assetNames: "assets/[name]-[hash]",
 };
 
 /** Gzipped size budget in bytes (DESIGN.md §7.7). */
 export const BUDGET = Object.freeze({
-  js: 47.7 * 1024,
-  css: 7.15 * 1024,
+  js: 49.1 * 1024,
+  css: 10.6 * 1024,
   html: 1536,
   viewerJs: 4 * 1024,
   viewerCss: 1.5 * 1024,

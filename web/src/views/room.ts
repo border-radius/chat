@@ -322,10 +322,10 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
     signal,
   });
   const list = messages.el;
-  const pill = h("button", { type: "button", class: "new-messages", hidden: true });
+  const pill = h("button", { type: "button", class: "new-messages ic i-down", hidden: true });
   const footer = h("footer", { class: "room-footer" });
-  const banner = h("p", { class: "archived-banner" }, "This room is archived. History is read-only.");
-  const guestBanner = h("p", { class: "guest-banner" }, [
+  const banner = h("p", { class: "archived-banner ic i-archive" }, "This room is archived. History is read-only.");
+  const guestBanner = h("p", { class: "guest-banner ic i-globe" }, [
     "You're reading as a guest. ",
     h("a", { href: "/login" }, "Log in"),
     " or ",
@@ -334,10 +334,10 @@ export function createRoomView({ api, store, unread, actions, navigate, reopen, 
   ]);
   const readerBanner = h(
     "p",
-    { class: "guest-banner reader-banner" },
+    { class: "guest-banner reader-banner ic i-lock" },
     "Only some people can post in this room. You can read along and react.",
   );
-  const closedBanner = h("p", { class: "guest-banner reader-banner" });
+  const closedBanner = h("p", { class: "guest-banner reader-banner ic i-x" });
   const shell = h("section", { class: "room", "aria-labelledby": `${vid}-title` }, [
     header.el,
     notice.el,

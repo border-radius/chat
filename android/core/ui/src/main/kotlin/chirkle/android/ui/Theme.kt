@@ -1,5 +1,6 @@
 // Light and dark themes in the web app's colours (DESIGN.md §7.8: web/styles/app/tokens.css), following the system.
-// Dynamic colour is off: the app looks the same on every phone, and like the web app.
+// Dynamic colour is off: the app looks the same on every phone, and like the web app. Since the 2026-10-31 redesign: the
+// dark grape surfaces, accent text on a violet fill (primaryContainer and [ChirkleColors.fill]), Inter.
 package chirkle.android.ui
 
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -22,26 +23,37 @@ import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.Typography
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 /** The tokens Material's scheme has no slot for. */
 @Immutable
 data class ChirkleColors(
     val muted: Color,
+    /** Quieter than [muted]: times, a room's "#", section headings. */
+    val dim: Color,
     val border: Color,
     val hover: Color,
     val highlight: Color,
     val tint: Color,
     val own: Color,
+    /** The solid accent: unread badges, the send button, a picked tile (white on it). */
+    val fill: Color,
+    /** The NEW line above the first unread message. */
+    val new: Color,
     val gradient: Brush,
 )
 
 val LocalChirkleColors = staticCompositionLocalOf {
-    ChirkleColors(Color.Gray, Color.LightGray, Color.LightGray, Color.Yellow, Color.Transparent, Color.LightGray, Brush.linearGradient(listOf(Color.Gray, Color.Gray)))
+    ChirkleColors(
+        Color.Gray, Color.Gray, Color.LightGray, Color.LightGray, Color.Yellow, Color.Transparent, Color.LightGray, Color.Blue, Color.Magenta,
+        Brush.linearGradient(listOf(Color.Gray, Color.Gray)),
+    )
 }
 
 private val Accent = Color(0xFF5B3DF5)
 private val Accent2 = Color(0xFFC42A7C)
-private val Gradient = Brush.linearGradient(listOf(Color(0xFF6A4BFF), Color(0xFFC42A7C)))
+/** The logo's grape-to-pink (web/styles/app/shell.css .brand::before). */
+private val Gradient = Brush.linearGradient(listOf(Color(0xFF7A5AF8), Color(0xFFA43FD0), Color(0xFFD2389E)))
 
 private val Light: ColorScheme = lightColorScheme(
     primary = Accent,
@@ -63,55 +75,63 @@ private val Light: ColorScheme = lightColorScheme(
     outlineVariant = Color(0xFFE3DDF5),
     error = Color(0xFFC41D36),
     onError = Color.White,
-    primaryContainer = Color(0xFFE6E0FF),
-    onPrimaryContainer = Color(0xFF1D1530),
+    primaryContainer = Accent,
+    onPrimaryContainer = Color.White,
     secondaryContainer = Color(0xFFE9E4FB),
     onSecondaryContainer = Color(0xFF1D1530),
 )
 
+private val DarkFill = Color(0xFF6D4AFF)
+
 private val Dark: ColorScheme = darkColorScheme(
-    primary = Color(0xFFA99BFF),
-    onPrimary = Color(0xFF1A1726),
-    secondary = Color(0xFFE47AB0),
-    onSecondary = Color(0xFF1A1726),
-    background = Color(0xFF1A1726),
-    onBackground = Color(0xFFEFECFA),
-    surface = Color(0xFF1A1726),
-    onSurface = Color(0xFFEFECFA),
-    surfaceVariant = Color(0xFF13111D),
-    onSurfaceVariant = Color(0xFFA8A2C0),
-    surfaceContainerLowest = Color(0xFF13111D),
-    surfaceContainerLow = Color(0xFF1F1B2E),
-    surfaceContainer = Color(0xFF242036),
+    primary = Color(0xFFB9A6FF),
+    onPrimary = Color(0xFF1A1724),
+    secondary = Color(0xFFF9A8D4),
+    onSecondary = Color(0xFF1A1724),
+    background = Color(0xFF1A1724),
+    onBackground = Color(0xFFECEAF4),
+    surface = Color(0xFF1A1724),
+    onSurface = Color(0xFFECEAF4),
+    surfaceVariant = Color(0xFF15121E),
+    onSurfaceVariant = Color(0xFFA6A1B8),
+    surfaceContainerLowest = Color(0xFF15121E),
+    surfaceContainerLow = Color(0xFF1D1929),
+    surfaceContainer = Color(0xFF221E2F),
     surfaceContainerHigh = Color(0xFF2A2540),
     surfaceContainerHighest = Color(0xFF2F2A45),
-    outline = Color(0xFF433C60),
-    outlineVariant = Color(0xFF2F2A45),
-    error = Color(0xFFFF7A8F),
-    onError = Color(0xFF1A1726),
-    primaryContainer = Color(0xFF3A3170),
-    onPrimaryContainer = Color(0xFFEFECFA),
-    secondaryContainer = Color(0xFF2A2540),
-    onSecondaryContainer = Color(0xFFEFECFA),
+    outline = Color(0xFF3F3956),
+    outlineVariant = Color(0xFF2A2638),
+    error = Color(0xFFFCA5A5),
+    onError = Color(0xFF1A1724),
+    primaryContainer = DarkFill,
+    onPrimaryContainer = Color.White,
+    secondaryContainer = Color(0xFF2E2848),
+    onSecondaryContainer = Color(0xFFECEAF4),
 )
 
 private val LightChirkle = ChirkleColors(
     muted = Color(0xFF5E5874),
+    dim = Color(0xFF645E7C),
     border = Color(0xFFE3DDF5),
     hover = Color(0xFFE9E4FB),
     highlight = Color(0xFFFFF1B8),
     tint = Accent.copy(alpha = 0.12f),
     own = Color(0xFFEDE8FF),
+    fill = Accent,
+    new = Color(0xFFC0267A),
     gradient = Gradient,
 )
 
 private val DarkChirkle = ChirkleColors(
-    muted = Color(0xFFA8A2C0),
-    border = Color(0xFF2F2A45),
-    hover = Color(0xFF2A2540),
+    muted = Color(0xFFA6A1B8),
+    dim = Color(0xFF9C97B2),
+    border = Color(0x14FFFFFF),
+    hover = Color(0x0FFFFFFF),
     highlight = Color(0xFF3D3314),
-    tint = Color(0xFFA99BFF).copy(alpha = 0.14f),
-    own = Color(0xFF2C2650),
+    tint = Color(0xFF8B6CFF).copy(alpha = 0.16f),
+    own = Color(0xFF8B6CFF).copy(alpha = 0.10f),
+    fill = DarkFill,
+    new = Color(0xFFF9A8D4),
     gradient = Gradient,
 )
 
@@ -129,21 +149,23 @@ private val ChirkleShapes = Shapes(
     extraLarge = RoundedCornerShape(28.dp),
 )
 
-/** Nunito, the rounded face of the web's font stack (tokens.css), from one variable font: one instance per weight. */
+/** Inter (the web's font, DESIGN.md §7.7; SIL OFL, core/ui/OFL-Inter.txt), from one variable font: one instance per weight. */
 @OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
-private fun nunito(weight: Int) = Font(R.font.nunito, FontWeight(weight), variationSettings = FontVariation.Settings(FontVariation.weight(weight)))
+private fun inter(weight: Int) = Font(R.font.inter, FontWeight(weight), variationSettings = FontVariation.Settings(FontVariation.weight(weight)))
 
 @OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
-val Nunito = FontFamily(nunito(400), nunito(500), nunito(600), nunito(700), nunito(800))
+val Inter = FontFamily(inter(400), inter(500), inter(600), inter(700))
 
+/** Inter throughout (Nunito until 2026-10-31). Headings bold, labels semibold, large text a little tighter, no extra spacing (as on the web). */
 private val ChirkleTypography = Typography().run {
-    fun TextStyle.n(w: FontWeight? = null) = copy(fontFamily = Nunito, fontWeight = w ?: fontWeight)
+    fun TextStyle.i(w: FontWeight? = null) =
+        copy(fontFamily = Inter, fontWeight = w ?: fontWeight, letterSpacing = if (fontSize.value >= 18) (-0.01f * fontSize.value).sp else 0.sp)
     Typography(
-        displayLarge = displayLarge.n(), displayMedium = displayMedium.n(), displaySmall = displaySmall.n(),
-        headlineLarge = headlineLarge.n(FontWeight.ExtraBold), headlineMedium = headlineMedium.n(FontWeight.ExtraBold), headlineSmall = headlineSmall.n(FontWeight.Bold),
-        titleLarge = titleLarge.n(FontWeight.ExtraBold), titleMedium = titleMedium.n(FontWeight.Bold), titleSmall = titleSmall.n(FontWeight.Bold),
-        bodyLarge = bodyLarge.n(), bodyMedium = bodyMedium.n(), bodySmall = bodySmall.n(),
-        labelLarge = labelLarge.n(FontWeight.Bold), labelMedium = labelMedium.n(FontWeight.SemiBold), labelSmall = labelSmall.n(FontWeight.SemiBold),
+        displayLarge = displayLarge.i(), displayMedium = displayMedium.i(), displaySmall = displaySmall.i(),
+        headlineLarge = headlineLarge.i(FontWeight.Bold), headlineMedium = headlineMedium.i(FontWeight.Bold), headlineSmall = headlineSmall.i(FontWeight.Bold),
+        titleLarge = titleLarge.i(FontWeight.Bold), titleMedium = titleMedium.i(FontWeight.SemiBold), titleSmall = titleSmall.i(FontWeight.SemiBold),
+        bodyLarge = bodyLarge.i(), bodyMedium = bodyMedium.i(), bodySmall = bodySmall.i(),
+        labelLarge = labelLarge.i(FontWeight.SemiBold), labelMedium = labelMedium.i(FontWeight.SemiBold), labelSmall = labelSmall.i(FontWeight.SemiBold),
     )
 }
 

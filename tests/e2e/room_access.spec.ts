@@ -34,10 +34,10 @@ test("a private room: only the people its creator adds see it; someone taken out
   const name = `secret-${tag}`;
   await a.getByRole("button", { name: "New room" }).click();
   await a.getByLabel("Room name").fill(name);
-  await a.getByLabel("Who can see it").selectOption("private");
+  await a.locator("form.new-room .seg label", { hasText: "Private" }).click();
   await a.getByRole("button", { name: "Create" }).click();
   await expect(a.locator("header.room-header h1")).toContainText("Private");
-  await expect(row(a, name)).toContainText("🔒");
+  await expect(row(a, name).locator(".vis")).toHaveText("(Private)");
   await send(a, "just us");
 
   // Bob isn't in it yet.
@@ -125,7 +125,7 @@ test("Open Air: a guest reads a room live, attachments included, then logs in an
   await send(a, "here's the map");
 
   // The guest gets it live, reads it, and sees the picture, but can't write or react.
-  await expect(row(guest, room.name)).toContainText("🌐");
+  await expect(row(guest, room.name).locator(".vis")).toHaveText("(Open Air)");
   await expect(row(guest, hidden.name)).toHaveCount(0);
   await row(guest, room.name).locator("a").click();
   await expect(message(guest, "welcome, everyone")).toBeVisible();

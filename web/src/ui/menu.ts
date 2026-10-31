@@ -9,6 +9,12 @@ export interface MenuItem {
   run: () => void;
   /** Ask first: `text` is the question, `action` the label of the button that runs the item. */
   confirm?: { text: string; action: string };
+  /** An icon (an .i-* class) before the label. */
+  icon?: string;
+  /** A setting turned on or off: shown as a switch. */
+  checked?: boolean;
+  /** Set apart from the items before it by a line. */
+  sep?: boolean;
 }
 
 export interface ActionMenu {
@@ -20,12 +26,13 @@ export interface ActionMenu {
 
 /**
  * `label` names the menu for assistive tech. With `summary`, the toggle shows that text (which then is its name,
- * e.g. an author's name) instead of "⋯"; `className` goes on the toggle.
+ * e.g. an author's name) instead of "⋯" (or `icon`, an .i-* class); `className` goes on the toggle.
  */
 export function createActionMenu(opts: {
   label: string;
   summary?: string;
   className?: string;
+  icon?: string;
   /** A line over the items, e.g. which instance an author is on (§33.4). */
   note?: string | undefined;
   signal: AbortSignal;
@@ -37,7 +44,7 @@ export function createActionMenu(opts: {
 
   const summary = opts.summary
     ? h("summary", { class: opts.className ?? "" }, opts.summary)
-    : h("summary", { "aria-label": opts.label, class: opts.className ?? "" }, "⋯");
+    : h("summary", { "aria-label": opts.label, class: `ic ${opts.icon ?? "i-dots"} ${opts.className ?? ""}`.trim() });
   const body = h("div", { class: "menu-items" });
   const el = h(
     "details",
@@ -78,8 +85,18 @@ export function createActionMenu(opts: {
   }
   signal.addEventListener("abort", () => outside?.abort(), { once: true });
 
-  const button = (label: string, onClick: () => void, cls?: string) =>
-    h("button", { type: "button", ...(cls ? { class: cls } : {}), on: { click: onClick }, signal }, label);
+  const button = (label: string, onClick: () => void, cls?: string, item?: MenuItem) =>
+    h(
+      "button",
+      {
+        type: "button",
+        ...(cls ? { class: cls } : {}),
+        ...(item?.checked === undefined ? {} : { role: "menuitemcheckbox", "aria-checked": String(item.checked) }),
+        on: { click: onClick },
+        signal,
+      },
+      label,
+    );
   const find = (label: string | null) => items.find((i) => i.label === label);
   /** Close, then run the item's *current* callback (items may have been updated since the button was built). */
   const runItem = (label: string) => {
@@ -109,10 +126,15 @@ export function createActionMenu(opts: {
     body.replaceChildren(
       ...(opts.note ? [h("p", {}, opts.note)] : []),
       ...items.map((i) =>
-        button(i.label, () => {
-          if (find(i.label)?.confirm) setConfirming(i.label)?.focus();
-          else runItem(i.label);
-        }),
+        button(
+          i.label,
+          () => {
+            if (find(i.label)?.confirm) setConfirming(i.label)?.focus();
+            else runItem(i.label);
+          },
+          [i.icon ? `ic ${i.icon}` : "", i.sep ? "sep" : ""].join(" ").trim(),
+          i,
+        ),
       ),
     );
     return null;
@@ -136,7 +158,7 @@ export function createActionMenu(opts: {
     el,
     update(next) {
       items = next;
-      const nextShape = JSON.stringify(next.map((i) => [i.label, i.confirm ?? null]));
+      const nextShape = JSON.stringify(next.map((i) => [i.label, i.confirm ?? null, i.icon, i.checked, i.sep]));
       const stale = confirming !== null && !find(confirming)?.confirm;
       if (stale) confirming = null;
       if (nextShape === shape && !stale) return; // same buttons; they look their item up when clicked

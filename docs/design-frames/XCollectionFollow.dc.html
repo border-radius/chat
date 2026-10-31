@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Collection you follow</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0F0D16}
+a{color:#C4B5FD}a:hover{color:#DDD6FE}
+button{font:inherit}
+</style>
+</helmet>
+<div style="position: relative; width: 1440px; height: 900px; overflow: hidden; display: flex; background: #0F0D16; font-family: 'Inter', system-ui, sans-serif; color: #ECEAF4; font-size: 14px">
+  <dc-import name="Side" active="Field notes" hint-size="280px,900px"></dc-import>
+  <main style="flex: 1 1 auto; min-width: 0; height: 900px; display: flex; flex-direction: column; background: #1A1724">
+    <header style="flex: 0 0 auto; display: flex; align-items: center; gap: 16px; padding: 20px 28px 18px; border-bottom: 1px solid rgba(255,255,255,0.06)">
+      <span style="width: 48px; height: 48px; flex: 0 0 auto; border-radius: 12px; background: #2A3320; color: #BEF264; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"></rect><circle cx="9" cy="9" r="2"></circle><path d="m21 15-5-5L5 21"></path></svg></span>
+      <div style="flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 4px">
+        <h1 style="margin: 0; font-size: 20px; font-weight: 700">Field notes</h1>
+        <span style="font-size: 13px; color: #A6A1B8">Priya Nair's · Public · 214 items</span>
+      </div>
+      <button type="button" aria-pressed="{{subscribed}}" onClick="{{toggle}}" style="{{subStyle}}">
+        {{subLabel}}
+      </button>
+    </header>
+
+    <div style="flex: 1 1 auto; min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: 12px; padding: 18px 28px">
+      <sc-if value="{{subscribed}}" hint-placeholder-val="{{true}}">
+        <div role="status" style="align-self: flex-start; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; border-radius: 15px; background: rgba(139,108,255,0.16); color: #E4DCFF; font-size: 13px; font-weight: 600"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; background: #B9A6FF"></span>5 new since your last visit</div>
+      </sc-if>
+      <sc-for list="{{months}}" as="mo" hint-placeholder-count="2">
+        <div style="display: flex; flex-direction: column; gap: 10px">
+          <h2 style="margin: 4px 0 0; font-size: 13px; font-weight: 600; color: #A6A1B8">{{mo.label}}</h2>
+          <div style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px">
+            <sc-for list="{{mo.tiles}}" as="t" hint-placeholder-count="14">
+              <div style="position: relative">
+                <button type="button" aria-label="{{t.label}}" style="{{t.style}}">
+                  <sc-if value="{{t.video}}" hint-placeholder-val="{{false}}"><span style="width: 36px; height: 36px; border-radius: 50%; background: rgba(15,13,22,0.7); display: flex; align-items: center; justify-content: center; color: #FFFFFF"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15a1 1 0 0 0 1.5.9l12-7.5a1 1 0 0 0 0-1.8l-12-7.5A1 1 0 0 0 7 4.5Z"></path></svg></span></sc-if>
+                </button>
+                <sc-if value="{{t.fresh}}" hint-placeholder-val="{{false}}"><span aria-hidden="true" style="position: absolute; top: 8px; left: 8px; width: 10px; height: 10px; border-radius: 50%; background: #B9A6FF; box-shadow: 0 0 0 2px #1A1724"></span></sc-if>
+                <sc-if value="{{t.hover}}" hint-placeholder-val="{{false}}"><button type="button" aria-label="Save to your collections" style="position: absolute; top: 6px; right: 6px; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 8px; background: rgba(15,13,22,0.75); color: #FFFFFF"><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11V6a3 3 0 0 0-3-3H6a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3h5"></path><circle cx="9" cy="9" r="2"></circle><path d="m21 13-3-3-6 6"></path><path d="M18 16v6M15 19h6"></path></svg></button></sc-if>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { subscribed: true };
+  }
+  renderVals() {
+    var self = this;
+    var sub = this.state.subscribed;
+    var colors = ['#2A3320', '#33402A', '#283A3A', '#3A3A28', '#2F3A4A', '#3B2A4F', '#40302A'];
+    function tiles(n, off, fresh, videos, hoverAt) {
+      var out = [];
+      for (var i = 0; i < n; i++) {
+        var f = sub && i < fresh;
+        out.push({
+          fresh: f, video: videos.indexOf(i) >= 0, hover: i === hoverAt,
+          label: 'Item ' + (i + 1) + (f ? ', new' : ''),
+          style: 'width:100%;aspect-ratio:1;border:0;border-radius:10px;display:flex;align-items:center;justify-content:center;background:' + colors[(i + off) % colors.length] + ';' + (f ? 'box-shadow:0 0 0 2px #B9A6FF;' : '')
+        });
+      }
+      return out;
+    }
+    return {
+      subscribed: sub,
+      subLabel: sub ? 'Unsubscribe' : 'Subscribe',
+      subStyle: 'height:38px;display:flex;align-items:center;gap:8px;padding:0 16px;border-radius:10px;font-weight:600;cursor:pointer;' + (sub ? 'border:1px solid rgba(255,255,255,0.14);background:transparent;color:#ECEAF4;' : 'border:0;background:#6D4AFF;color:#FFFFFF;'),
+      toggle: function () { self.setState({ subscribed: !sub }); },
+      months: [
+        { label: 'October 2026', tiles: tiles(14, 0, 5, [2, 9], 6) },
+        { label: 'September 2026', tiles: tiles(7, 3, 0, [4], -1) }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -96,7 +96,7 @@ describe("room view", () => {
       await vi.waitFor(() => expect(store.get().hidden.has(theirs.id)).toBe(false));
     });
 
-    it("§34.5: Notify of every message, on this device; turning it on chooses the pop-up and asks the browser", async () => {
+    it("§34.5: Notify of every message, a switch on this device; turning it on chooses the pop-up and asks the browser", async () => {
       const ask = vi.fn(async () => "granted" as const);
       vi.stubGlobal("Notification", { permission: "default", requestPermission: ask });
       try {
@@ -107,13 +107,16 @@ describe("room view", () => {
         const saved = () => JSON.parse(localStorage.getItem("chat.notify") ?? "null");
         expect(saved()).toEqual({ dms: true, sound: false, popup: true, rooms: ["other", room.id] });
         expect(ask).toHaveBeenCalledOnce();
-        button(headerMenu(), "Stop notifying of every message")!.click();
+        // A switch in the menu: on now, and a second click turns it off.
+        expect(button(headerMenu(), "Notify of every message")!.getAttribute("aria-checked")).toBe("true");
+        button(headerMenu(), "Notify of every message")!.click();
+        expect(button(headerMenu(), "Notify of every message")!.getAttribute("aria-checked")).toBe("false");
         expect(saved().rooms).toEqual(["other"]);
         // Nothing left chosen: nothing stored.
         localStorage.setItem("chat.notify", JSON.stringify({ rooms: [room.id] }));
         view!.unmount();
         await mount(room);
-        button(headerMenu(), "Stop notifying of every message")!.click();
+        button(headerMenu(), "Notify of every message")!.click();
         expect(localStorage.getItem("chat.notify")).toBeNull();
       } finally {
         localStorage.removeItem("chat.notify");

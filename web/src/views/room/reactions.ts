@@ -33,20 +33,16 @@ export function createReactionParts(opts: {
   /** "Add reaction": opens the emoji picker for a reaction to message `id`. */
   function addButton(id: string, cls: string): HTMLButtonElement {
     const label = "Add reaction";
-    const b: HTMLButtonElement = h(
-      "button",
-      {
-        type: "button",
-        class: cls,
-        title: label,
-        "aria-label": label,
-        "aria-haspopup": "dialog",
-        "aria-expanded": "false",
-        on: { click: () => opts.onPickReaction(id, b) },
-        signal,
-      },
-      "☺+",
-    );
+    const b: HTMLButtonElement = h("button", {
+      type: "button",
+      class: `${cls} ic i-react`,
+      title: label,
+      "aria-label": label,
+      "aria-haspopup": "dialog",
+      "aria-expanded": "false",
+      on: { click: () => opts.onPickReaction(id, b) },
+      signal,
+    });
     return b;
   }
 

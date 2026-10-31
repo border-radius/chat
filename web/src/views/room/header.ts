@@ -1,5 +1,6 @@
-// Room header (§7.1, §16.5): back link, room title, the search (§29) and media (§30) buttons and the room actions menu (hide, archive, room access,
-// notify of every message (§34.5), jump to beginning). A DM shows the other member's avatar and name, and can be closed but never archived. A private or Open
+// Room header (§7.1, §16.5): back link, room title, a private room's members (opening the access dialog), the search
+// (§29) and media (§30) buttons and the room actions menu (room access, hide, archive, notify of every message (§34.5),
+// jump to beginning). A DM shows the other member's avatar and name, and can be closed but never archived. A private or Open
 // Air room says so next to its name (§23.1); a guest only gets "Jump to beginning" (§23.3). A room shared with other
 // instances says where else it is held, and when its home can't be reached (§33.9, §33.7).
 
@@ -38,27 +39,29 @@ export function createRoomHeader(opts: {
   const error = h("p", { class: "room-error", role: "alert" });
   const shared = h("p", { class: "room-shared", hidden: true });
   const menu = createActionMenu({ label: "Room actions", signal });
-  const search = h(
-    "button",
-    {
-      type: "button",
-      class: "search-toggle",
-      "aria-label": "Search messages",
-      title: "Search messages",
-      on: { click: opts.onSearch },
-      signal,
-    },
-    "🔍",
-  );
-  // Looks like the search button (its class), which comes first: closing search focuses `.search-toggle`.
-  const media = h(
-    "button",
-    { type: "button", class: "search-toggle", "aria-label": "Media", title: "Media", on: { click: opts.onMedia }, signal },
-    "🖼️",
-  );
+  const search = h("button", {
+    type: "button",
+    class: "icon-button search-toggle ic i-search",
+    "aria-label": "Search messages",
+    title: "Search messages",
+    on: { click: opts.onSearch },
+    signal,
+  });
+  // Has the search button's class too, but comes after it: closing search focuses the first `.search-toggle`.
+  const media = h("button", {
+    type: "button",
+    class: "icon-button search-toggle ic i-media",
+    "aria-label": "Media",
+    title: "Media",
+    on: { click: opts.onMedia },
+    signal,
+  });
+  // A private room's members (§23.2): a few faces and how many, opening the access dialog.
+  const members = h("button", { type: "button", class: "room-members", hidden: true, on: { click: opts.onAccess }, signal });
   const el = h("header", { class: "room-header" }, [
-    h("a", { href: "/", class: "back", "aria-label": "Back to rooms" }, "← Rooms"),
+    h("a", { href: "/", class: "back ic i-back", "aria-label": "Back to rooms" }),
     title,
+    members,
     search,
     media,
     menu.el,
@@ -113,45 +116,43 @@ export function createRoomHeader(opts: {
                 if (ok) opts.onClosed();
               }),
           },
-      { label: "Jump to beginning", run: opts.onJumpToBeginning },
+      { label: "Jump to beginning", run: opts.onJumpToBeginning, icon: "i-top", sep: true },
     ];
   }
 
   function items(room: Room | undefined, hidden: boolean, mine: boolean, guest: boolean): MenuItem[] {
     if (room?.kind === "dm") return dmItems(room, hidden);
     const out: MenuItem[] = [];
-    if (guest) return [{ label: "Jump to beginning", run: opts.onJumpToBeginning }];
+    if (guest) return [{ label: "Jump to beginning", run: opts.onJumpToBeginning, icon: "i-top" }];
     if (room && (mine || visibilityOf(room) === "private")) {
-      out.push({ label: mine ? "Room access…" : `Members (${room.members?.length ?? 0})`, run: opts.onAccess });
+      out.push({ label: mine ? "Room access…" : `Members (${room.members?.length ?? 0})`, run: opts.onAccess, icon: "i-users" });
     }
     // Hiding an archived room is pointless (it is listed under Archived), but one hidden before it was
     // archived must still be unhidable, or it would silently come back hidden after an unarchive.
     if (room && (!room.archived || hidden)) {
       out.push(
         hidden
-          ? { label: "Unhide room", run: () => void act(() => actions.unhide(room.id)) }
-          : { label: "Hide room", run: () => void act(() => actions.hide(room.id)) },
+          ? { label: "Unhide room", run: () => void act(() => actions.unhide(room.id)), icon: "i-eyeoff" }
+          : { label: "Hide room", run: () => void act(() => actions.hide(room.id)), icon: "i-eyeoff" },
       );
     }
     if (room && mine) {
       out.push(
         room.archived
-          ? { label: "Unarchive room", run: () => void act(() => actions.setArchived(room.id, false)) }
+          ? { label: "Unarchive room", run: () => void act(() => actions.setArchived(room.id, false)), icon: "i-archive" }
           : {
               label: "Archive room",
               confirm: { text: `Archive “${room.name}”? It becomes read-only for everyone.`, action: "Archive" },
               run: () => void act(() => actions.setArchived(room.id, true)),
+              icon: "i-archive",
             },
       );
     }
     if (room && (!room.archived || notifyAll(room.id))) {
-      out.push(
-        notifyAll(room.id)
-          ? { label: "Stop notifying of every message", run: () => void setNotifyAll(room.id, false) }
-          : { label: "Notify of every message", run: () => void setNotifyAll(room.id, true) },
-      );
+      const on = notifyAll(room.id);
+      out.push({ label: "Notify of every message", run: () => void setNotifyAll(room.id, !on), icon: "i-bell", checked: on, sep: true });
     }
-    out.push({ label: "Jump to beginning", run: opts.onJumpToBeginning });
+    out.push({ label: "Jump to beginning", run: opts.onJumpToBeginning, icon: "i-top", sep: out.length > 0 });
     return out;
   }
 
@@ -167,10 +168,36 @@ export function createRoomHeader(opts: {
       const badge =
         vis === "public"
           ? null
-          : h("span", { class: `vis-badge vis-${vis}`, title: VISIBILITY[vis].hint }, `${VISIBILITY[vis].icon} ${VISIBILITY[vis].label}`);
-      title.replaceChildren(...(other ? [avatar(other, 24, opts.avatarUrl), h("span", {}, text)] : [text, badge ?? ""]));
+          : h(
+              "span",
+              { class: `vis-badge ic ${vis === "open" ? "i-globe" : "i-lock"}`, title: VISIBILITY[vis].hint },
+              VISIBILITY[vis].label,
+            );
+      title.replaceChildren(
+        ...(other
+          ? [avatar(other, 24, opts.avatarUrl), h("span", {}, text)]
+          : [h("span", { class: "name" }, [h("span", { class: "hash" }, "#"), text.slice(1)]), badge ?? ""]),
+      );
     }
     title.classList.toggle("dm-title", !!other);
+    const people = room && !other && vis === "private" ? (room.expand?.members ?? []) : [];
+    members.hidden = !people.length;
+    const faces = people
+      .slice(0, 3)
+      .map((u) => u.id + (u.avatar ?? ""))
+      .join();
+    if (people.length && members.dataset.shown !== `${faces}|${people.length}`) {
+      members.dataset.shown = `${faces}|${people.length}`;
+      members.setAttribute("aria-label", `Members, ${people.length}`);
+      members.replaceChildren(
+        h(
+          "span",
+          { class: "faces" },
+          people.slice(0, 3).map((u) => avatar(u, 24, opts.avatarUrl)),
+        ),
+        String(people.length),
+      );
+    }
     const note = room ? sharedNote(room) : "";
     if (shared.textContent !== note) shared.textContent = note;
     shared.hidden = !note;

@@ -13,22 +13,6 @@ a.brand {
   margin-left: auto;
 }
 
-.guest-link {
-  padding: 0.35rem 0.9rem;
-  border: 1px solid var(--border);
-  border-radius: var(--pill);
-  background: var(--raised);
-  color: var(--fg);
-  font-weight: 600;
-  text-decoration: none;
-}
-
-.guest-link.primary {
-  border-color: transparent;
-  background: var(--grad);
-  color: #fff;
-}
-
 @media (hover: hover) {
   .guest-link:not(.primary):hover {
     background: var(--hover);
@@ -40,48 +24,23 @@ a.brand {
   text-align: center;
 }
 
-.guest-banner {
+/* In place of the composer: why you can't post here (a guest, only some may post, a closed DM, archived). */
+.guest-banner,
+.archived-banner {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-height: 68px;
   margin: 0;
-  padding: 0.9rem 1rem calc(0.9rem + env(safe-area-inset-bottom));
+  padding: 12px 20px calc(12px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  background: var(--raised);
+  color: var(--text);
+}
+
+.guest-banner::before,
+.archived-banner::before {
   color: var(--muted);
-  text-align: center;
-}
-
-/* 🔒 / 🌐 next to a room's name in the list. */
-.room-section li a > .vis {
-  flex: none;
-  font-size: 0.8rem;
-}
-
-.vis-badge {
-  margin-left: 0.5rem;
-  padding: 0.1rem 0.5rem;
-  border-radius: var(--pill);
-  background: var(--tint);
-  color: var(--fg);
-  font-size: 0.75rem;
-  font-weight: 700;
-  vertical-align: middle;
-}
-
-.new-room select {
-  padding: 0.35rem 0.5rem;
-  border: 2px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--raised);
-  color: var(--fg);
-  font: inherit; /* 16px: iOS zooms in on a smaller field */
-}
-
-dialog.access {
-  width: min(28rem, calc(100% - 2rem));
-  max-height: min(40rem, 90vh);
-  padding: 1rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--raised);
-  color: var(--fg);
-  box-shadow: var(--shadow);
 }
 
 dialog.access[open],
@@ -94,13 +53,9 @@ dialog.access[open],
 /* Only the body scrolls: the buttons stay in view however long the lists get. */
 .access-body {
   min-height: 0;
-  margin: 0 -1rem;
-  padding: 0 1rem;
+  margin: 0 -24px;
+  padding: 0 24px;
   overflow-y: auto;
-}
-
-dialog.access::backdrop {
-  background: rgb(0 0 0 / 45%);
 }
 
 dialog.access h2,
@@ -126,32 +81,56 @@ dialog.access h3 {
   font-weight: 700;
 }
 
+/* A choice: an icon tile, its name and what it means, and a radio ring on the right. */
 .vis-choice {
   display: flex;
-  gap: 0.6rem;
-  align-items: flex-start;
-  padding: 0.55rem 0.7rem;
-  border: 2px solid var(--border);
-  border-radius: var(--radius);
+  gap: 14px;
+  align-items: center;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
   cursor: pointer;
 }
 
 .vis-choice:has(input:checked) {
-  border-color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
   background: var(--tint);
 }
 
-.vis-choice input,
-.notify-choice input {
-  width: auto;
-  margin: 0.2rem 0 0;
-  accent-color: var(--accent);
+.vis-choice input {
+  appearance: none;
+  flex: none;
+  order: 1;
+  width: 20px;
+  height: 20px;
+  margin: 0 0 0 auto;
+  padding: 0;
+  border: 2px solid var(--dim);
+  border-radius: 50%;
+}
+
+.vis-choice input:checked {
+  border-color: var(--accent);
+  background: radial-gradient(var(--accent) 4px, transparent 5px);
 }
 
 .vis-icon {
-  width: 1.4rem;
-  font-weight: 800;
-  text-align: center;
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: var(--hover);
+  color: var(--muted);
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.vis-choice:has(:checked) .vis-icon {
+  background: color-mix(in srgb, var(--fill) 22%, transparent);
+  color: var(--fg);
 }
 
 .vis-text {
@@ -160,12 +139,12 @@ dialog.access h3 {
 }
 
 .vis-label {
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .vis-hint {
   color: var(--muted);
-  font-size: 0.85rem;
+  font-size: 0.8125rem;
 }
 
 .members,

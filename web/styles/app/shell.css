@@ -1,4 +1,4 @@
-/* ---- App shell ---- */
+/* ---- App shell: the app bar (phones, and pages without the sidebar), the sidebar's top and foot, the pane ---- */
 
 html,
 body,
@@ -22,29 +22,38 @@ html {
   display: flex;
   gap: 0.75rem;
   align-items: center;
-  padding: 0.5rem 1rem;
+  min-height: 60px;
+  padding: 0 0.5rem 0 1rem;
+  border-bottom: 1px solid var(--line);
   background: var(--surface);
+}
+
+/* Next to the sidebar, which has the same (and on a phone's room page, which has its own header). */
+@media (min-width: 721px) {
+  #app:has(.layout) > .app-bar {
+    display: none;
+  }
 }
 
 .brand {
   display: flex;
   flex: 0 1 auto;
   min-width: 0;
-  gap: 0.45rem;
+  gap: 0.6rem;
   align-items: center;
-  font-size: 1.15rem;
-  font-weight: 800;
-  letter-spacing: -0.02em;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
-/* The logo: a gradient speech bubble. */
+/* The logo: a speech bubble in the grape-to-pink gradient. */
 .brand::before {
   content: "";
-  width: 1.6rem;
-  height: 1.6rem;
-  border-radius: 50% 50% 50% 0.3rem;
-  background: var(--grad);
-  transform: rotate(-8deg);
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 50% 50% 50% 28%;
+  background: linear-gradient(135deg, #7a5af8, #a43fd0 55%, #d2389e);
 }
 
 /* The site's own logo (§24) replaces it. */
@@ -65,22 +74,26 @@ html {
   white-space: nowrap;
 }
 
-/* A long display name shrinks with an ellipsis so "Log out" stays on screen. */
-.me-link {
+.bar-end {
   display: flex;
-  gap: 0.4rem;
+  gap: 0.25rem;
   align-items: center;
   min-width: 0;
   margin-left: auto;
-  padding: 0.2rem 0.75rem 0.2rem 0.2rem;
-  border-radius: var(--pill);
+}
+
+/* A long display name shrinks with an ellipsis. In the app bar only the avatar shows. */
+.me-link {
+  display: flex;
+  flex: 1;
+  gap: 0.6rem;
+  align-items: center;
+  min-width: 0;
+  padding: 0.4rem;
+  border-radius: var(--radius);
   color: var(--fg);
   font-weight: 600;
   text-decoration: none;
-}
-
-.me-link:hover {
-  background: var(--hover);
 }
 
 .who {
@@ -90,8 +103,28 @@ html {
   white-space: nowrap;
 }
 
-.app-bar button {
-  flex: none;
+.app-bar .me-link {
+  padding: 6px;
+}
+
+.app-bar .who {
+  display: none;
+}
+
+@media (hover: hover) {
+  .me-link:hover,
+  .icon-button:hover {
+    background: var(--hover);
+  }
+}
+
+.me-link[aria-current="page"] {
+  background: var(--tint);
+}
+
+.app-bar .icon-button {
+  width: 44px;
+  height: 44px;
 }
 
 .app-main {
@@ -106,19 +139,137 @@ html {
   background: var(--surface);
 }
 
+/* The sidebar: its top and foot stay, the rooms between them scroll. */
 .sidebar {
-  flex: 0 0 17rem;
-  overflow-y: auto;
+  display: flex;
+  flex: 0 0 280px;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--line);
   background: var(--surface);
 }
 
-/* The pane is a rounded sheet laid on the sidebar's color. A page taller than it (the profile, a collection) scrolls
-   in it, not with the sidebar (QA BUG-135). */
+.sidebar .rooms {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sidebar nav {
+  flex: 1;
+  padding: 0 12px 12px;
+  overflow-y: auto;
+}
+
+.side-top {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 14px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.side-top .brand {
+  height: 44px;
+  padding: 0 8px;
+  color: var(--fg);
+}
+
+/* Jump to (§32): looks like a search field. */
+.jump-button {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  height: 38px;
+  padding: 0 8px 0 12px;
+  border-color: var(--border);
+  background: var(--bg);
+  color: var(--dim);
+  font-weight: 400;
+  text-align: left;
+}
+
+.jump-button::before {
+  width: 16px;
+  height: 16px;
+}
+
+.jump-button span {
+  flex: 1;
+}
+
+.jump-button kbd {
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--muted);
+  font: 600 0.6875rem / 1.5 inherit;
+}
+
+.jump-button:active:not(:disabled) {
+  transform: none;
+}
+
+.side-foot {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  min-height: 68px;
+  padding: 8px 12px 8px 10px;
+  border-top: 1px solid var(--line);
+}
+
+.side-foot .icon-button::before {
+  width: 17px;
+  height: 17px;
+}
+
+/* A guest's way in. */
+.side-foot p {
+  flex-basis: 100%;
+  margin: 4px 4px 6px;
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+.side-foot .button {
+  flex: 1;
+}
+
+/* Links that look like buttons. */
+a.button,
+.guest-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  padding: 0 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--fg);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+a.button.primary,
+.guest-link.primary {
+  border-color: transparent;
+  background: var(--fill);
+  color: #fff;
+}
+
+/* The pane next to the sidebar. A page taller than it (the profile, a collection) scrolls in it, not with the sidebar
+   (QA BUG-135). */
 .pane {
   flex: 1;
   min-width: 0;
   overflow-y: auto;
-  border-top-left-radius: 1.25rem;
   background: var(--bg);
 }
 
@@ -142,7 +293,7 @@ html {
 
 .welcome h1 {
   margin: 0 0 0.5rem;
-  font-size: 2rem;
+  font-size: 1.75rem;
 }
 
 .welcome p {

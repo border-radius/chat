@@ -20,7 +20,7 @@ describe("room view", () => {
       expect(region.getAttribute("aria-labelledby")).toBe(h1.id);
       const back = root.querySelector<HTMLAnchorElement>("header.room-header a.back")!;
       expect(back.getAttribute("href")).toBe("/");
-      expect(back.textContent).toContain("Rooms");
+      expect(back.getAttribute("aria-label")).toBe("Back to rooms");
     });
 
     it("message actions are real buttons in the tab order", async () => {

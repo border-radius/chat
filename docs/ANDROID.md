@@ -1169,3 +1169,32 @@ docs/QA.md "QA pass 24" found three gaps where the app didn't do what the web do
   exist".
 
 Tests: `UiFeaturesTest` (quotes and the reply bar follow an edit and a delete), `ServicesTest` (revoked session).
+
+## 36. The 2026-10-31 redesign
+
+The "Chirkle Sidebar Redesign" design (DESIGN.md §7.1, §7.8; boards in `docs/design-frames/`) restyled the web and the app together. In the app:
+
+- **Theme** (`core/ui/Theme.kt`): the web's new tokens. Dark: background `#1a1724`, the room list on `#15121e`
+  (`surfaceVariant`), raised `#221e2f` (`surfaceContainer`), accent text `#b9a6ff` (`primary`), the violet fill
+  `#6d4aff` (`primaryContainer`, `ChirkleColors.fill`: unread badges, the send button), pink `#f9a8d4` for the NEW line
+  (`ChirkleColors.new`), and a quieter `ChirkleColors.dim` for times, "#" and section headings. Light keeps its palette.
+  **Font:** Inter, the web's font (DESIGN.md §7.7), bundled as one variable font (`core/ui/res/font/inter.ttf`, 0.88 MB,
+  SIL OFL in `core/ui/OFL-Inter.txt`) in place of Nunito (0.28 MB): about 0.6 MB more in the APK (budget 6 MB). No extra
+  letter spacing (Material's default 0.5 sp made it loose), as on the web.
+- **Room list** (`RoomsScreen`): a search pill on top (the brand opens Accounts, "Jump to…" opens Jump to, your avatar
+  opens the profile, or Log in), then Rooms, Direct messages and Collections, each heading with its own "+" (New room,
+  New direct message, New collection) in place of the floating New button, then one folded **Hidden & archived** heading
+  with how many (the web merged the two sections too), its Hidden and Archived parts inside. Rows are 56 dp with 16 dp
+  corners, a raised "#" tile for rooms, the lock or globe after the name, the open room tinted, unread names bold with a
+  badge in the fill.
+- **Room** (`RoomScreen`, `Composer`, `MessageRow`): the "#" in the title quieter than the name; day headings as
+  chips; the NEW line pink with "NEW" at its end; a reply to one of your messages, by someone else, is a tinted card (the
+  web's `.to-me`, not in the app before); the composer a 52 dp pill (emoji, field, attach) and a rounded-square send
+  button in the fill, dimmed when there is nothing to send; read-only notices (guest, archived, only some may post, a
+  closed DM) a 68 dp strip with an icon.
+
+Not ported from the boards: the collections grid with item counts (the list has no counts or covers to show), the
+voice-message waveform (there are no voice messages) and the redesigned sheets, accounts and server screens, which keep
+their current look in the new colours.
+
+Tests: `UiFeaturesTest`, `UiLinkedTest`, `UiCollectionsTest` use the headings' "+" buttons and the merged heading.

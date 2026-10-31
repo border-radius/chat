@@ -222,6 +222,9 @@ export function createMessageList(opts: {
 
   const btn = (label: string, onClick: () => void, cls?: string) =>
     h("button", { type: "button", ...(cls ? { class: cls } : {}), on: { click: onClick }, signal }, label);
+  /** A button of the message toolbar: an icon, named by its label. */
+  const tool = (label: string, onClick: () => void, cls: string, icon: string) =>
+    h("button", { type: "button", class: `${cls} ic ${icon}`, "aria-label": label, title: label, on: { click: onClick }, signal });
 
   function askDelete(id: string) {
     confirmDelete = id;
@@ -380,6 +383,8 @@ export function createMessageList(opts: {
         }),
       );
     }
+    // Above the author's name, from where the avatar is.
+    if (quoted) parts.push(quote(quoted));
     if (groupStart) {
       parts.push(avatar(author, 32, opts.avatarUrl));
       parts.push(
@@ -392,7 +397,6 @@ export function createMessageList(opts: {
     if (m.forwarded_from && !m.deleted) {
       parts.push(h("div", { class: "forwarded" }, `Forwarded from ${m.expand?.forwarded_from?.name ?? "Unknown"}`));
     }
-    if (quoted) parts.push(quote(quoted));
     if (editing === m.id) {
       parts.push(...editBox(m));
     } else {
@@ -457,11 +461,11 @@ export function createMessageList(opts: {
       parts.push(
         h("div", { class: "actions" }, [
           reactable ? reactionParts.addButton(m.id, "react") : null,
-          repliable ? btn("Reply", () => opts.onReply(m.id), "reply") : null,
-          selectable && !emptyForward(m) ? btn("Forward", () => opts.onForward(m.id), "forward") : null,
-          selectable ? btn("Select", () => opts.onSelect(m.id), "select") : null,
-          editable ? btn("Edit", () => list.startEdit(m.id), "edit") : null,
-          deletable ? btn("Delete", () => askDelete(m.id), "delete") : null,
+          repliable ? tool("Reply", () => opts.onReply(m.id), "reply", "i-reply") : null,
+          selectable && !emptyForward(m) ? tool("Forward", () => opts.onForward(m.id), "forward", "i-fwd") : null,
+          selectable ? tool("Select", () => opts.onSelect(m.id), "select", "i-check") : null,
+          editable ? tool("Edit", () => list.startEdit(m.id), "edit", "i-edit") : null,
+          deletable ? tool("Delete", () => askDelete(m.id), "delete", "i-trash") : null,
         ]),
       );
     }
@@ -548,7 +552,7 @@ export function createMessageList(opts: {
     const key = `${new Date(ms).toDateString()}|${label}`;
     let d = dividers.get(key);
     if (!d) {
-      d = h("li", { class: "day" }, label);
+      d = h("li", { class: "day" }, h("span", {}, label));
       dividers.set(key, d);
     }
     return d;
