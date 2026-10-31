@@ -151,6 +151,14 @@ class ChirkleApi(val pb: PbClient) {
         }
     }
 
+    /**
+     * A read with the session answered as to a guest (a room of yours "doesn't exist"): what a session revoked elsewhere
+     * gets, since the server reads a token it refuses as none. The [onRejected] listeners check the session (QA BUG-183).
+     */
+    fun suspectSession() {
+        if (pb.authStore.token.isNotEmpty()) rejectedListeners.toList().forEach { it() }
+    }
+
     /** Called when the server refuses a change sent with the session (400, 401, 403, 404). */
     fun onRejected(fn: () -> Unit): () -> Unit {
         rejectedListeners += fn

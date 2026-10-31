@@ -1989,3 +1989,73 @@ Not changed:
 - A room hidden from the list has no unread badge in Hidden (§18.4), and unarchived it is hidden again, as designed.
 
 `app.js` budget 47.40 → 47.55 KB and `app.css` 7.10 → 7.15 KB (the user: "raise budget if needed").
+
+# QA pass 24 — server, web and Android
+
+Exploratory testing on 2026-10-31 against the seeded server, aimed first at what changed since pass 23 (the perf
+pass: live replies without their quote, room pages' checked-rooms mark, workers woken by saves, the keepalive), then
+the rest: Chromium at 1100 px, and the Android app installed (debug build, AOT-compiled) on the API 28 emulator as
+Alice, with Bob's side scripted. Also: a fuzz of every custom route and the room-page parameters (2,908 requests), a
+forward of a private room's reply into a public room read through `expand=forward_of[.reply_to]` (route and records
+API), `file_dims` of rotated and big-endian EXIF JPEGs, WebP, GIF and PNG, link previews and media posters after a
+save, hiding and unhiding on Android, a password changed elsewhere (web and Android), and every automated suite
+(static checks, 748 unit and component tests, 448 integration tests, 76 Chromium e2e specs, the app's unit and
+Robolectric tests). Numbering continues from BUG-179.
+
+| # | Severity | Area | Summary | Status |
+|---|---|---|---|---|
+| BUG-180 | Low | Replies (web) | A live reply to a message beyond the window quoted it as "Message deleted" until its quote was fetched, and for good if that failed | Fixed |
+| BUG-181 | Medium | Replies (Android) | A reply's quote never followed its original: edited, it kept the old text; deleted, the deleted text stayed in every reply on screen | Fixed |
+| BUG-182 | Medium | Replies (Android) | "Replying to" kept the original as it was: edited, the bar showed the old text; deleted, the bar stayed, and the reply then failed ("the message you replied to was deleted"). Archiving left the reply to come back on unarchiving | Fixed |
+| BUG-183 | Medium | Session (Android) | A session revoked elsewhere (the password changed on another device) went unnoticed while the app ran: rooms of yours said "This room doesn't exist", and only a write or a restart signed out | Fixed |
+
+## BUG-180 — "Message deleted" for a quote on its way (Low)
+
+**Steps:** a room scrolled to its newest messages; someone replies to a message far back. **Actual:** the quote read
+"Message deleted" (in the deleted style) for the time it took to fetch the original (seen with an 800 ms delay), and
+stayed so if the fetch failed. Live events come without the quote since 2026-10-30 (PERF.md §2.3), and the quote's
+fallback for "nothing known" was a deleted message. **Fix:** "…" meanwhile (`quotedOf` in `views/room/messages.ts`;
+`replies.test.ts`). Android shows no quote until it is in.
+
+## BUG-181 — The Android quote stood still (Medium)
+
+**Steps:** Bob replies to his message "msg 128", then edits it to "msg 128 EDITED" (or deletes it), with Alice in the
+room on Android. **Actual:** Alice's quote kept "msg 128" (or the deleted text) until the room was loaded again. The
+web quotes the window's copy of the original when there is one (DESIGN §19.3); the app only ever showed the copy the
+reply came with. **Fix:** the room's rows quote the window's copy (`RoomViewModel.quoting`; `UiFeaturesTest`).
+
+## BUG-182 — The Android reply bar stood still (Medium)
+
+**Steps:** Alice taps Reply on Bob's message; Bob edits it, then deletes it; Alice sends. **Actual:** the bar kept the
+old text, stayed open after the delete, and the message failed "Not sent: the message you replied to was deleted"
+with "Send without quote". The web's bar follows the original and closes when it goes (`reply.ts`). **Fix:** the reply
+(and an edit in progress) follow the window and the room: edited, the new text; deleted, archived or no longer
+allowed, they end (`RoomViewModel.follow`; `UiFeaturesTest`).
+
+## BUG-183 — A revoked session on Android (Medium)
+
+**Steps:** Alice signed in on the app; on another device she changes her password (which revokes every other
+session). In the app she opens a room from the list. **Actual:** "This room doesn't exist." PocketBase reads a token it
+refuses as no token, so reads answer as to a guest; the app checked its session only at start and after a refused
+change (the web also checks when a tab comes back after 5 minutes, QA BUG-51, and a refused file token signs it out).
+**Fix:** the app checks the session when it comes back after 5 minutes (`ChirkleServices.setVisible`), and when a room
+"doesn't exist" while signed in (`ChirkleApi.suspectSession`); revoked, it signs out (`ServicesTest`). Tried on the
+emulator: signed out on opening the room. The not-found test also passes without its fix (in the test, the room's
+other requests sign out first); the emulator case is the one it fixed.
+
+## Checked and fine
+
+- **Live replies (web):** quotes of replies to old, recent, edited and deleted messages, kept through a reaction and a
+  reload. **Pages' checked-rooms mark:** the private original of a forward, read through `expand=forward_of` and
+  `forward_of.reply_to` on the room page route and the records API, comes without its reactions and reply; a client
+  can't send the mark (it starts with a per-process secret).
+- **Workers:** a link's preview in 1 s after a send and 2 s after an edit; a video's poster and size and an image's
+  shape within the first poll. `file_dims` right for EXIF orientations 3, 6 and 8 (little- and big-endian, a 70 KB
+  segment first), WebP, GIF and PNG.
+- **Routes:** no 5xx in 2,908 requests; the only "Something went wrong" answers are PocketBase's own, to bodies that
+  aren't JSON and to `fields` it can't parse (as on the records API). Tick routes refuse users.
+- **Android:** live replies (quoted from the window or fetched), an edit in progress closing when its message is
+  deleted elsewhere, hide and unhide, the Hidden section, signing in again after a revoked session; the keepalive
+  event is dropped by `Realtime.dispatch`.
+- **Suites:** all green; `attachments.spec.ts` "the image viewer…" timed out once in the full run (its new-tab wait,
+  with the emulator running) and passed 3/3 alone.

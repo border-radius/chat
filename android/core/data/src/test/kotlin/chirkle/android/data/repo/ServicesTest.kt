@@ -268,6 +268,31 @@ class ServicesTest {
         assertEquals("", s.opened["some-room"])
     }
 
+    @Test fun `a session revoked elsewhere ends when the app comes back after a while (QA BUG-183)`() = runBlocking {
+        val a = newUser()
+        val s = services(a)
+        s.setVisible(false)
+        // Another device (the user's own client) changes the password: every other session is revoked.
+        a.api.changePassword(TestServer.PASSWORD, "password456")
+        s.setVisible(true) // back at once: not checked again
+        kotlinx.coroutines.delay(500)
+        assertEquals(a.user.id, s.store.get().user?.id)
+        s.checkStaleMs = 0
+        s.setVisible(false)
+        s.setVisible(true)
+        eventually(what = "logged out") { s.store.get().user == null }
+    }
+
+    @Test fun `a room of yours that "doesn't exist" checks the session, which ends if revoked (QA BUG-183)`() = runBlocking {
+        val a = newUser()
+        val room = a.api.createRoom("rv-${uniq()}")
+        val s = services(a)
+        eventually(what = "room listed") { room.id in s.store.get().rooms }
+        a.api.changePassword(TestServer.PASSWORD, "password456")
+        s.openRoom(room.id)
+        eventually(what = "logged out") { s.store.get().user == null }
+    }
+
     @Test fun `a session that ran out while the app was closed leaves nothing of it, even for a moment (QA BUG-145)`() = runBlocking {
         val a = newUser()
         val secret = a.api.createRoom("secret-${uniq()}", Visibility.Private)

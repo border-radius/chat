@@ -1,5 +1,7 @@
 package chirkle.android
 
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
@@ -89,6 +91,26 @@ class UiFeaturesTest {
         send()
         ui.until { a.api.page(Pages.latest(room.id)).any { it.text == "the answer" && it.replyTo.isNotEmpty() } }
         ui.waitFor(hasContentDescription("Quoting ${a.user.name}: the question", substring = true))
+    }
+
+    @Test fun `quotes and the reply bar follow the original's edits and delete (QA BUG-181, BUG-182)`() {
+        val a = newUser()
+        val b = newUser()
+        val room = runBlocking { a.api.createRoom("rf-${uniq()}") }
+        val original = runBlocking { b.api.send(NewMessage(newId(), room.id, "the plan")) }
+        runBlocking { b.api.send(NewMessage(newId(), room.id, "a reply to it", replyTo = original.id)) }
+        ui.signedIn(a)
+        openRoom(room.name)
+        ui.waitFor("a reply to it")
+        compose.onNode(hasText("the plan") and SemanticsMatcher.keyIsDefined(SemanticsActions.OnLongClick)).performTouchInput { longClick() }
+        compose.onNodeWithText("Reply").performClick()
+        ui.waitFor("Replying to ${b.user.name}")
+        runBlocking { b.api.edit(original.id, "the new plan") }
+        ui.waitFor(hasContentDescription("Quoting ${b.user.name}: the new plan", substring = true))
+        ui.until { compose.onAllNodes(hasText("the plan")).fetchSemanticsNodes().isEmpty() } // in the bar too
+        runBlocking { b.api.softDelete(original.id) }
+        ui.until { compose.onAllNodes(hasText("Replying to", substring = true)).fetchSemanticsNodes().isEmpty() }
+        ui.waitFor(hasContentDescription("Quoting ${b.user.name}: Message deleted", substring = true))
     }
 
     @Test fun `edits show as edited (edit spec)`() {

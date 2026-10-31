@@ -1700,7 +1700,8 @@ neither.
 - The reply bar follows the original: edited, it shows the new text; deleted (or the room archived), it closes.
 - **The quote** is a one-line button above the reply's text: author name, then the text on one line (or
   "Attachment", "Message deleted"). It uses the window's copy of the original when there is one, so edits and
-  deletes show live; otherwise the server's expanded copy.
+  deletes show live; otherwise the server's expanded copy. A live reply to a message beyond the window has neither
+  until the controller has fetched it: its quote reads "…" meanwhile (QA BUG-180).
 - **Replies to you** (someone else's reply to one of your messages) are highlighted (`.to-me`: an accent bar on the
   left and a faint accent tint), so you can spot them while scrolling.
 - **Going to the original** (`ctl.goTo`): if it is in the window, it is highlighted (`.target`) and centred. The

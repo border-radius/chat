@@ -14,7 +14,7 @@ controller's recorded scenarios (`shared/vectors/room.json`).
 |---|---|---|
 | `smoke` | `UiFlowTest`: log in, open a room, send, the server has it; `UiFeaturesTest`: a message sent at the bottom of a full room shows whole | Covered |
 | `signup` | `UiFeaturesTest`: signing up logs you in; `ChirkleApiTest`: sign up | Covered |
-| `session` | `UiFlowTest`: a wrong password says so; `ServicesTest`: logging out clears the session's data, and so does a session that ran out while the app was closed (QA BUG-145, web: `app.test.ts`) | Partial: a session revoked elsewhere, two sessions |
+| `session` | `UiFlowTest`: a wrong password says so; `ServicesTest`: logging out clears the session's data, and so does a session that ran out while the app was closed (QA BUG-145, web: `app.test.ts`); a session revoked elsewhere ends on coming back or when a room of yours "doesn't exist" (QA BUG-183) | Partial: two sessions |
 | `accounts` | `UiFeaturesTest`: renaming yourself | Partial: password change |
 | `avatar` | — | Not yet (the photo picker can't be driven on Robolectric; changed by hand on the emulator, ANDROID.md §22.3) |
 | `realtime` | `UiFlowTest`: a live message; `ServicesTest`, `ChirkleApiTest`: realtime events | Covered |
@@ -23,7 +23,7 @@ controller's recorded scenarios (`shared/vectors/room.json`).
 | `unread` | `ServicesTest`: live counts, read on the server; `UiPortsTest`: unread rooms listed first, a folded section lists only them; `UiFeaturesTest`: what came while the app was in the background is read on coming back (QA BUG-157); `UiPortsTest`: opening a room reads only what is on screen, scrolling down the rest (ANDROID.md §25); `ServicesTest`: a read that fails is sent again by itself (QA BUG-162); `RoomSectionsTest` | Partial: the badge and the "New" line on screen |
 | `edit` | `UiFeaturesTest`: edit, delete, a message's menu closing when it is deleted meanwhile (QA BUG-156); `ServicesTest`: edit, delete | Covered |
 | `reactions` | `UiFeaturesTest`: quick reactions; `ServicesTest`; `HelpersTest`: the web's reaction cases | Covered |
-| `replies` | `UiFeaturesTest`: reply and its quote; `ServicesTest`: a live reply's quote from the window, kept through an edit, or fetched (ANDROID.md §34); `ChirkleApiTest` | Partial: going to the original |
+| `replies` | `UiFeaturesTest`: reply and its quote; `ServicesTest`: a live reply's quote from the window, kept through an edit, or fetched (ANDROID.md §34); `UiFeaturesTest`: quotes and the reply bar follow the original's edit and delete (QA BUG-181, BUG-182); `ChirkleApiTest` | Partial: going to the original |
 | `forward` | `UiFeaturesTest`: forwarding one message; `ChirkleApiTest` | Partial: several at once, delete together |
 | `dm` | `UiFeaturesTest`: a new DM from the people search; `ChirkleApiTest` | Partial: close and reopen |
 | `hide` | `UiFeaturesTest`: hiding a room | Partial: unhide |

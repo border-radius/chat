@@ -99,6 +99,21 @@ describe("room view", () => {
       expect(sentinel("bottom")).not.toBeNull();
     });
 
+    it("a live reply to a message beyond the window doesn't quote it as deleted while its quote loads (QA BUG-180)", async () => {
+      const other = await signedUp("Other");
+      const room = await newRoom();
+      const all = await seedMessages(room.id, me.user.id, 120);
+      await mount(room);
+      const net = instrument(me.api);
+      const release = net.hold("getMessage");
+      const reply = await other.api.send({ id: newId(), room: room.id, text: "way back", replyTo: all[0]!.id });
+      await vi.waitFor(() => expect(quoteOf(reply.id)).not.toBeNull());
+      expect(quoteOf(reply.id)!.textContent).toBe("…");
+      expect(quoteOf(reply.id)!.classList.contains("deleted")).toBe(false);
+      release();
+      await vi.waitFor(() => expect(quoteOf(reply.id)!.textContent).toBe(`Me${all[0]!.text}`));
+    });
+
     it("the highlight goes away after a few seconds; clicking the quote again shows it again", async () => {
       const room = await newRoom();
       const parent = await me.api.send({ id: newId(), room: room.id, text: "parent" });

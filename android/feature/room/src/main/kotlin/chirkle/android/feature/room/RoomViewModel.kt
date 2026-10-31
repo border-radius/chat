@@ -21,6 +21,7 @@ import chirkle.android.data.lib.checkFiles
 import chirkle.android.data.lib.isBlank
 import chirkle.android.data.lib.isForeignContent
 import chirkle.android.data.lib.otherMember
+import chirkle.android.data.lib.quote
 import chirkle.android.data.lib.searchQuery
 import chirkle.android.data.lib.searchWords
 import chirkle.android.data.lib.startsGroup
@@ -105,10 +106,26 @@ class RoomViewModel(
 
     init {
         services.opened.note(roomId)
+        // The reply and the edit follow their message: edited, the bar shows the new text; deleted (or no longer
+        // allowed), there is nothing left to reply to or edit (DESIGN.md §19.3, the web's reply.ts; QA BUG-182). The
+        // room too: archived, the reply ends, and doesn't come back unarchived.
+        viewModelScope.launch { controller.state.collect { follow() } }
+        viewModelScope.launch { services.store.flow.collect { follow() } }
         viewModelScope.launch {
             val d = services.drafts.get(me, roomId) ?: return@launch
             if (text.text.isEmpty()) text = TextFieldValue(d.text, TextRange(d.text.length))
             if (d.replyTo.isNotEmpty()) waitForReply(d.replyTo)
+        }
+    }
+
+    private fun follow() {
+        replyTo?.let { r ->
+            val now = controller.find(r.id) ?: r
+            if (!controller.repliable(now)) cancelReply() else if (now != r) replyTo = now
+        }
+        editing?.let { m ->
+            val now = controller.find(m.id) ?: m
+            if (!controller.editable(now)) cancelEdit() else if (now != m) editing = now
         }
     }
 
@@ -450,8 +467,9 @@ class RoomViewModel(
     private fun buildRows(s: RoomState): List<ListRow> {
         val out = ArrayList<ListRow>(s.items.size * 2 + 2)
         val items = s.items
+        val byId = items.associateBy { it.id }
         for (i in items.indices.reversed()) {
-            val m = items[i]
+            val m = quoting(items[i], byId)
             val prev = items.getOrNull(i - 1)
             out += ListRow.Msg(m, startsGroup(prev, m) || newDay(prev, m), m.id == s.targetId)
             if (m.id == s.unreadId) out += ListRow.NewLine
@@ -459,6 +477,18 @@ class RoomViewModel(
         }
         if (!s.hasOlder && s.phase == chirkle.android.data.repo.Phase.Ready && !s.stale) out += ListRow.Beginning(beginning())
         return out
+    }
+
+    /**
+     * A reply quotes the window's copy of its original when there is one, so the original's edits and deletes show live
+     * (DESIGN.md §19.3, the web's quotedOf; QA BUG-181); else the copy it came with.
+     */
+    private fun quoting(m: Message, byId: Map<String, Message>): Message {
+        if (m.replyTo.isEmpty()) return m
+        val original = byId[m.replyTo] ?: return m
+        val q = original.quote()
+        if (m.expand?.replyTo == q) return m
+        return m.copy(expand = (m.expand ?: chirkle.android.data.model.MessageExpand()).copy(replyTo = q))
     }
 
     private fun newDay(prev: Message?, m: Message): Boolean = prev == null || Formats.localDay(prev.created) != Formats.localDay(m.created)

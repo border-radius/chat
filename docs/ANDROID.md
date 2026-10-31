@@ -1153,3 +1153,19 @@ Also 2026-10-30, server only: PocketBase closed a realtime connection after 5 qu
 reconnect for a lost one (rooms, unread counts and the open room loaded again). The server now sends every client a
 `chat/keepalive` event every 3 minutes (docs/PERF.md §2.4); `Realtime.dispatch` finds no listener for it and drops it,
 in every released version.
+
+## 35. QA pass 24 fixes (2026-10-31)
+
+docs/QA.md "QA pass 24" found three gaps where the app didn't do what the web does:
+- **Quotes follow the original** (QA BUG-181): a reply quotes the window's copy of the message it answers when the
+  window has it (`RoomViewModel.quoting`, the web's `quotedOf`), so an edit or a delete shows in the quote at once.
+- **The reply bar follows the original** (QA BUG-182): edited, it shows the new text; deleted, the room archived, or
+  posting no longer allowed, the reply ends (an edit in progress too) and doesn't come back (`RoomViewModel.follow`,
+  run on every window and store change; the web's `reply.ts`).
+- **A revoked session ends** (QA BUG-183): the session is checked when the app comes back after 5 minutes
+  (`ChirkleServices.setVisible`, `CHECK_STALE_MS`, the web's `renewal.visible`) and when a room "doesn't exist" while
+  signed in (`ChirkleApi.suspectSession`, which runs the `onRejected` check). Reads with a token the server refuses
+  answer as to a guest, so without this a password changed on another device left the app showing rooms that "don't
+  exist".
+
+Tests: `UiFeaturesTest` (quotes and the reply bar follow an edit and a delete), `ServicesTest` (revoked session).

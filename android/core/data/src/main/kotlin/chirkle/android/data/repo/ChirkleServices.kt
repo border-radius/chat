@@ -140,9 +140,15 @@ class ChirkleServices(
         }
     }
 
+    /** When the session was last checked with the server (System.currentTimeMillis), 0 for never. */
+    @Volatile private var checkedAt = 0L
+    /** Coming back after this long, the session is checked again; tests shorten it. */
+    var checkStaleMs = CHECK_STALE_MS
+
     /** Check the session with the server (which renews it); end it when refused. */
     private suspend fun checkSession() {
         if (api.currentUser() == null) return
+        checkedAt = System.currentTimeMillis()
         try {
             api.refreshAuth()
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -175,6 +181,9 @@ class ChirkleServices(
                 delay(BACKGROUND_CLOSE_MS)
                 pb.realtime.pause()
             }
+            // Back after a while: the session may have been revoked meanwhile (a password changed elsewhere), and reads
+            // with it would answer as to a guest: rooms "don't exist" (the web's renewal.visible, QA BUG-51, BUG-183).
+            if (visible && System.currentTimeMillis() - checkedAt > checkStaleMs) checkSession()
         }
     }
 
@@ -216,6 +225,8 @@ class ChirkleServices(
     private companion object {
         /** The realtime connection closes this long after the app goes to the background. */
         const val BACKGROUND_CLOSE_MS = 5000L
+        /** Coming back after this long, the session is checked again (the web's CHECK_STALE_MS). */
+        const val CHECK_STALE_MS = 5 * 60 * 1000L
 
         /** What stays when the session ends: the site record and whether the app is visible. */
         fun AppStateForSite(s: AppState) = AppState(site = s.site, away = s.away)

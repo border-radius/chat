@@ -394,6 +394,7 @@ class RoomController(
             if (!run.active) return
             phase = if (e is ApiError && e.status == 404) Phase.NotFound else Phase.Failed
             stale = false
+            if (phase == Phase.NotFound && me() != null) api.suspectSession()
             return publish()
         }
         val loaded = try {

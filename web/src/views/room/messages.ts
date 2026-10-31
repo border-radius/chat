@@ -278,12 +278,13 @@ export function createMessageList(opts: {
 
   /**
    * What a reply shows of the message it answers: the copy in the window when there is one (it follows edits and
-   * deletes live), else the one the server expanded. Null when it isn't a reply.
+   * deletes live), else the one the server expanded. Null when it isn't a reply. A live reply to a message beyond the
+   * window has neither until the controller has fetched it: "…" meanwhile, not "Message deleted" (QA BUG-180).
    */
   function quotedOf(m: Message, win: MessageWindow): Quoted | null {
     if (!m.reply_to) return null;
     const inWindow = win.items.find((x) => x.id === m.reply_to);
-    return inWindow ?? m.expand?.reply_to ?? { id: m.reply_to, author: "", text: "", deleted: true };
+    return inWindow ?? m.expand?.reply_to ?? { id: m.reply_to, author: "", text: "…", deleted: false };
   }
 
   /** A sent message's time links to it (/r/:id/m/:msgId); one still sending, or failed, isn't on the server yet. */
